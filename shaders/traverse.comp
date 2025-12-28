@@ -1,0 +1,1283 @@
+#version 460
+
+// Has to match the order of the RenderMode enum in main.rs
+const uint COORD = 0;
+const uint STEPS = 1;
+const uint NORMAL = 2;
+const uint UV = 3;
+const uint DEPTH = 4;
+
+// Block types (must match BlockType enum in chunk.rs)
+const uint BLOCK_AIR = 0;
+const uint BLOCK_STONE = 1;
+const uint BLOCK_DIRT = 2;
+const uint BLOCK_GRASS = 3;
+const uint BLOCK_PLANKS = 4;
+const uint BLOCK_LEAVES = 5;
+const uint BLOCK_SAND = 6;
+const uint BLOCK_GRAVEL = 7;
+const uint BLOCK_WATER = 8;
+const uint BLOCK_GLASS = 9;
+const uint BLOCK_LOG = 10;
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+const uint CHUNK_SIZE = 32;
+
+layout(push_constant) uniform PushConstants {
+    mat4 pixelToRay;
+    uint world_size_x;
+    uint world_size_y;
+    uint world_size_z;
+    uint render_mode;
+    uint show_chunk_boundaries;
+    uint player_in_water;
+    float time_of_day;  // 0.0 = midnight, 0.25 = sunrise, 0.5 = noon, 0.75 = sunset
+    float animation_time;  // Continuous time for animations (water waves, etc.)
+    // Block breaking info (-1 = no block being broken)
+    int break_block_x;
+    int break_block_y;
+    int break_block_z;
+    float break_progress;  // 0.0 to 1.0
+    // Particle count
+    uint particle_count;
+    // Block placement preview (-1 = no preview)
+    int preview_block_x;
+    int preview_block_y;
+    int preview_block_z;
+    uint preview_block_type;
+} pc;
+
+// Particle data (set 3)
+struct Particle {
+    vec4 pos_size;     // xyz = position, w = size
+    vec4 color_alpha;  // rgb = color, a = alpha
+};
+
+layout(set = 3, binding = 0) readonly buffer ParticleBuffer {
+    Particle particles[];
+};
+
+// Helper to get world size as vec3
+vec3 worldSize() {
+    return vec3(pc.world_size_x, pc.world_size_y, pc.world_size_z);
+}
+
+uvec3 worldSizeU() {
+    return uvec3(pc.world_size_x, pc.world_size_y, pc.world_size_z);
+}
+
+layout(set = 0, binding = 0, rgba8) writeonly uniform image2D targetImage;
+layout(set = 1, binding = 0, r8ui) readonly uniform uimage3D blockImage;
+layout(set = 2, binding = 0) uniform sampler2D textureAtlas;
+
+// https://www.shadertoy.com/view/WlfXRN
+vec3 inferno(float t) {
+    const vec3 c0 = vec3(0.0002189403691192265, 0.001651004631001012, -0.01948089843709184);
+    const vec3 c1 = vec3(0.1065134194856116, 0.5639564367884091, 3.932712388889277);
+    const vec3 c2 = vec3(11.60249308247187, -3.972853965665698, -15.9423941062914);
+    const vec3 c3 = vec3(-41.70399613139459, 17.43639888205313, 44.35414519872813);
+    const vec3 c4 = vec3(77.162935699427, -33.40235894210092, -81.80730925738993);
+    const vec3 c5 = vec3(-71.31942824499214, 32.62606426397723, 73.20951985803202);
+    const vec3 c6 = vec3(25.13112622477341, -12.24266895238567, -23.07032500287172);
+
+    return c0+t*(c1+t*(c2+t*(c3+t*(c4+t*(c5+t*c6)))));
+}
+
+vec3 stepsToInferno(uint steps, uint start, uint end) {
+    float t = float(int(steps - start)) / (end - start);
+    return inferno(clamp(t, 0, 1));
+}
+
+// Day sky colors
+const vec3 DAY_SKY_HORIZON = vec3(0.6, 0.75, 0.95);   // Light blue at horizon
+const vec3 DAY_SKY_ZENITH = vec3(0.25, 0.45, 0.85);   // Deeper blue overhead
+const vec3 DAY_SKY_GROUND = vec3(0.4, 0.45, 0.5);     // Gray-blue below horizon
+
+// Sunrise/sunset sky colors
+const vec3 SUNSET_HORIZON = vec3(1.0, 0.5, 0.2);      // Orange at horizon
+const vec3 SUNSET_ZENITH = vec3(0.4, 0.3, 0.6);       // Purple overhead
+const vec3 SUNSET_GROUND = vec3(0.3, 0.25, 0.3);      // Dark purple below
+
+// Night sky colors
+const vec3 NIGHT_SKY_HORIZON = vec3(0.05, 0.08, 0.15); // Dark blue at horizon
+const vec3 NIGHT_SKY_ZENITH = vec3(0.02, 0.02, 0.08);  // Near black overhead
+const vec3 NIGHT_SKY_GROUND = vec3(0.02, 0.02, 0.05);  // Very dark below
+
+// Sun settings
+const vec3 SUN_COLOR = vec3(1.0, 0.95, 0.8);           // Warm white sun
+const vec3 SUNSET_SUN_COLOR = vec3(1.0, 0.6, 0.3);     // Orange sunset sun
+const float SUN_SIZE = 0.04;                            // Angular size of sun disk
+
+// Moon settings
+const vec3 MOON_COLOR = vec3(0.9, 0.9, 1.0);           // Cool white moon
+const float MOON_SIZE = 0.03;                           // Slightly smaller than sun
+
+// Cloud settings
+const float CLOUD_HEIGHT = 80.0;       // Height of cloud layer
+const float CLOUD_SCALE = 0.02;        // Scale of cloud noise
+const float CLOUD_COVERAGE = 0.45;     // 0-1, higher = more clouds
+const vec3 CLOUD_COLOR = vec3(1.0, 1.0, 1.0);   // White clouds
+
+// Fog settings
+const float FOG_START = 40.0;     // Distance where fog begins
+const float FOG_END = 120.0;      // Distance where fog is fully opaque
+
+// Calculate sun direction based on time of day
+// time: 0.0 = midnight, 0.25 = sunrise (east), 0.5 = noon (overhead), 0.75 = sunset (west)
+vec3 getSunDirection(float time) {
+    float angle = time * 2.0 * 3.14159265;  // Full rotation
+    // Sun rises in east (+X), goes overhead (+Y), sets in west (-X)
+    float y = -cos(angle);  // -1 at midnight, +1 at noon
+    float xz = sin(angle);  // 0 at midnight/noon, +1 at sunrise, -1 at sunset
+    return normalize(vec3(xz, y, 0.3));  // Slight Z offset for visual interest
+}
+
+// Calculate moon direction (opposite of sun)
+vec3 getMoonDirection(float time) {
+    return -getSunDirection(time);
+}
+
+// Get daylight factor (0 = full night, 1 = full day)
+float getDaylightFactor(float time) {
+    // Use sun's actual Y position for proper sync
+    vec3 sunDir = getSunDirection(time);
+    // Smooth transition: starts getting light when sun Y > -0.2, full day when Y > 0.3
+    return smoothstep(-0.2, 0.3, sunDir.y);
+}
+
+// Get sunrise/sunset factor (peaks when sun is near horizon)
+float getSunsetFactor(float time) {
+    vec3 sunDir = getSunDirection(time);
+    // Peak when sun is near horizon (Y close to 0)
+    float horizonProximity = 1.0 - smoothstep(0.0, 0.4, abs(sunDir.y));
+    // Only show sunset colors when sun is visible (not deep below horizon)
+    float sunVisible = smoothstep(-0.3, 0.0, sunDir.y);
+    return horizonProximity * sunVisible;
+}
+
+// Get current fog color based on time
+vec3 getFogColor(float time) {
+    float daylight = getDaylightFactor(time);
+    float sunset = getSunsetFactor(time);
+
+    vec3 dayFog = vec3(0.65, 0.78, 0.95);
+    vec3 nightFog = vec3(0.05, 0.08, 0.15);
+    vec3 sunsetFog = vec3(0.6, 0.4, 0.3);
+
+    vec3 baseFog = mix(nightFog, dayFog, daylight);
+    return mix(baseFog, sunsetFog, sunset * 0.5);
+}
+
+// Simple hash for noise
+float hash(vec2 p) {
+    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+}
+
+// 2D value noise
+float noise2D(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);  // Smoothstep
+
+    float a = hash(i);
+    float b = hash(i + vec2(1.0, 0.0));
+    float c = hash(i + vec2(0.0, 1.0));
+    float d = hash(i + vec2(1.0, 1.0));
+
+    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+
+// Fractal Brownian Motion for clouds
+float fbm(vec2 p) {
+    float value = 0.0;
+    float amplitude = 0.5;
+    float frequency = 1.0;
+
+    for (int i = 0; i < 4; i++) {
+        value += amplitude * noise2D(p * frequency);
+        amplitude *= 0.5;
+        frequency *= 2.0;
+    }
+    return value;
+}
+
+// Calculate cloud density at a point
+float getCloudDensity(vec3 rayOrigin, vec3 rayDir) {
+    // Only render clouds above horizon
+    if (rayDir.y <= 0.01) return 0.0;
+
+    // Find intersection with cloud plane
+    float t = (CLOUD_HEIGHT - rayOrigin.y) / rayDir.y;
+    if (t < 0.0) return 0.0;
+
+    vec3 cloudPos = rayOrigin + rayDir * t;
+    vec2 cloudUV = cloudPos.xz * CLOUD_SCALE;
+
+    // Sample cloud noise
+    float density = fbm(cloudUV);
+
+    // Apply coverage threshold
+    density = smoothstep(CLOUD_COVERAGE, CLOUD_COVERAGE + 0.3, density);
+
+    // Fade clouds at edges and with distance
+    float distFade = 1.0 - smoothstep(200.0, 400.0, t);
+    float horizonFade = smoothstep(0.01, 0.15, rayDir.y);
+
+    return density * distFade * horizonFade;
+}
+
+// Generate stars based on direction
+float getStars(vec3 dir) {
+    // Use direction as seed for star positions
+    vec2 starCoord = vec2(atan(dir.x, dir.z), asin(dir.y)) * 100.0;
+    float star = hash(floor(starCoord));
+    // Only show brightest "stars"
+    star = step(0.995, star);
+    // Twinkle effect
+    star *= 0.5 + 0.5 * sin(hash(floor(starCoord) + 0.5) * 100.0);
+    return star;
+}
+
+// Calculate sky color with sun, moon, stars and clouds
+// Set underwaterView to true to disable sun/clouds (for underwater rendering)
+vec3 getSkyColorEx(vec3 rayDir, bool underwaterView) {
+    vec3 dir = normalize(rayDir);
+    float y = dir.y;
+    float time = pc.time_of_day;
+
+    // Get time-based factors
+    float daylight = getDaylightFactor(time);
+    float sunset = getSunsetFactor(time);
+    vec3 sunDir = getSunDirection(time);
+    vec3 moonDir = getMoonDirection(time);
+
+    // Interpolate sky colors based on time
+    vec3 horizonColor = mix(NIGHT_SKY_HORIZON, DAY_SKY_HORIZON, daylight);
+    vec3 zenithColor = mix(NIGHT_SKY_ZENITH, DAY_SKY_ZENITH, daylight);
+    vec3 groundColor = mix(NIGHT_SKY_GROUND, DAY_SKY_GROUND, daylight);
+
+    // Blend in sunset colors
+    horizonColor = mix(horizonColor, SUNSET_HORIZON, sunset);
+    zenithColor = mix(zenithColor, SUNSET_ZENITH, sunset * 0.5);
+    groundColor = mix(groundColor, SUNSET_GROUND, sunset * 0.3);
+
+    // Base sky gradient
+    vec3 skyColor;
+    if (y > 0.0) {
+        float t = pow(y, 0.5);
+        skyColor = mix(horizonColor, zenithColor, t);
+    } else {
+        float t = pow(-y, 0.7);
+        skyColor = mix(horizonColor, groundColor, t);
+    }
+
+    // Skip celestial bodies and clouds when underwater
+    if (underwaterView) {
+        return skyColor;
+    }
+
+    // Add stars at night (only visible when dark)
+    if (daylight < 0.5 && y > 0.0) {
+        float starBrightness = (1.0 - daylight * 2.0) * getStars(dir);
+        skyColor += vec3(starBrightness);
+    }
+
+    // Add moon at night
+    float moonDot = dot(dir, moonDir);
+    if (moonDot > 0.0 && daylight < 0.8) {
+        float moonFactor = smoothstep(1.0 - MOON_SIZE, 1.0, moonDot);
+        float moonBrightness = 1.0 - daylight;
+        skyColor = mix(skyColor, MOON_COLOR, moonFactor * moonBrightness);
+
+        // Subtle moon glow
+        float moonGlow = pow(max(0.0, moonDot), 16.0) * 0.3 * moonBrightness;
+        skyColor += MOON_COLOR * moonGlow;
+    }
+
+    // Add sun (only when above horizon-ish)
+    float sunDot = dot(dir, sunDir);
+    if (sunDot > 0.0 && sunDir.y > -0.2) {
+        // Blend sun color from white to orange at sunset
+        vec3 currentSunColor = mix(SUN_COLOR, SUNSET_SUN_COLOR, sunset);
+
+        // Sun disk
+        float sunFactor = smoothstep(1.0 - SUN_SIZE, 1.0, sunDot);
+        skyColor = mix(skyColor, currentSunColor, sunFactor);
+
+        // Sun glow (larger at sunset)
+        float glowSize = 8.0 - sunset * 4.0;  // Larger glow at sunset
+        float glowFactor = pow(max(0.0, sunDot), glowSize) * (0.5 + sunset * 0.3);
+        skyColor += currentSunColor * glowFactor;
+    }
+
+    // Add clouds (only above horizon, dimmer at night)
+    if (y > 0.0) {
+        vec3 worldOrigin = pc.pixelToRay[3].xyz;
+        float cloudDensity = getCloudDensity(worldOrigin, dir);
+
+        // Cloud brightness based on time and sun direction
+        float sunLight = max(0.2, dot(dir, sunDir) * 0.5 + 0.5);
+        float cloudBrightness = mix(0.15, 1.0, daylight) * sunLight;
+
+        // Tint clouds orange at sunset
+        vec3 cloudColor = mix(CLOUD_COLOR * cloudBrightness, SUNSET_SUN_COLOR, sunset * 0.4);
+
+        skyColor = mix(skyColor, cloudColor, cloudDensity * 0.9);
+    }
+
+    return skyColor;
+}
+
+// Default sky color (not underwater)
+vec3 getSkyColor(vec3 rayDir) {
+    return getSkyColorEx(rayDir, false);
+}
+
+// Calculate fog factor based on distance (0 = no fog, 1 = full fog)
+float getFogFactor(float distance) {
+    return clamp((distance - FOG_START) / (FOG_END - FOG_START), 0.0, 1.0);
+}
+
+// Get current sun direction for lighting calculations
+vec3 getCurrentSunDir() {
+    return getSunDirection(pc.time_of_day);
+}
+
+// Apply fog to a color
+vec3 applyFog(vec3 color, float distance, vec3 rayDir) {
+    float fogFactor = getFogFactor(distance);
+    vec3 fogColor = getFogColor(pc.time_of_day);
+    return mix(color, fogColor, fogFactor);
+}
+
+// Read block type at given coordinate (0 = air, non-zero = solid)
+uint readBlockType(ivec3 coord) {
+    return imageLoad(blockImage, coord).r;
+}
+
+// Check if block at coordinate is solid (non-air)
+bool isSolid(ivec3 coord) {
+    return readBlockType(coord) != BLOCK_AIR;
+}
+
+// Check if coordinate is within world bounds and solid
+bool isSolidSafe(ivec3 coord) {
+    if (any(lessThan(coord, ivec3(0))) || any(greaterThanEqual(coord, ivec3(worldSizeU())))) {
+        return false;
+    }
+    return isSolid(coord);
+}
+
+const float FLT_MAX = 3.4028235e+38;
+
+// Cast shadow ray from a point toward the sun
+// Returns shadow factor: 0 = fully in shadow, 1 = fully lit
+float castShadowRay(vec3 origin) {
+    vec3 sunDir = getCurrentSunDir();
+
+    // No shadows when sun is below horizon
+    if (sunDir.y < 0.0) {
+        return 0.3;  // Dim ambient at night
+    }
+
+    // Offset origin slightly to avoid self-intersection
+    vec3 shadowOrigin = origin + sunDir * 0.01;
+
+    vec3 dir = sunDir;
+    vec3 inv_dir = 1.0 / dir;
+    inv_dir = clamp(inv_dir, vec3(-FLT_MAX), vec3(FLT_MAX));
+
+    // Current voxel position
+    ivec3 pos = ivec3(floor(shadowOrigin));
+
+    // Step direction
+    ivec3 step = ivec3(sign(dir));
+
+    // Distance to next voxel boundary
+    vec3 tMax = (vec3(pos) + 0.5 + 0.5 * vec3(step) - shadowOrigin) * inv_dir;
+    vec3 tDelta = abs(inv_dir);
+
+    // Max shadow ray distance
+    const float MAX_SHADOW_DIST = 48.0;
+    float dist = 0.0;
+
+    // DDA shadow ray march
+    for (int i = 0; i < 64; i++) {
+        // Check bounds
+        if (any(lessThan(pos, ivec3(0))) || any(greaterThanEqual(pos, ivec3(worldSizeU())))) {
+            return 1.0;  // Exited world bounds = lit
+        }
+
+        // Check for solid block (but ignore transparent blocks like leaves, glass)
+        uint blockType = readBlockType(pos);
+        if (blockType != BLOCK_AIR && blockType != BLOCK_LEAVES && blockType != BLOCK_GLASS && blockType != BLOCK_WATER) {
+            return 0.0;  // Hit solid = in shadow
+        }
+
+        // Leaves cast partial shadow
+        if (blockType == BLOCK_LEAVES) {
+            return 0.5;  // Partial shadow through leaves
+        }
+
+        // Step to next voxel
+        if (tMax.x < tMax.y && tMax.x < tMax.z) {
+            dist = tMax.x;
+            tMax.x += tDelta.x;
+            pos.x += step.x;
+        } else if (tMax.y < tMax.z) {
+            dist = tMax.y;
+            tMax.y += tDelta.y;
+            pos.y += step.y;
+        } else {
+            dist = tMax.z;
+            tMax.z += tDelta.z;
+            pos.z += step.z;
+        }
+
+        if (dist > MAX_SHADOW_DIST) {
+            return 1.0;  // Too far = assume lit
+        }
+    }
+
+    return 1.0;  // No hit = lit
+}
+
+// Calculate ambient occlusion for a face
+// Based on the classic voxel AO algorithm that checks the 4 corners
+// Each corner samples 3 neighbors: 2 edge neighbors + 1 corner neighbor
+// Returns AO value 0-1 (0 = fully occluded, 1 = no occlusion)
+float calculateAO(ivec3 blockCoord, vec3 normal, vec2 uv) {
+    // Determine the two tangent axes for this face
+    ivec3 inormal = ivec3(normal);
+    ivec3 tangent1, tangent2;
+
+    if (abs(inormal.x) > 0) {
+        tangent1 = ivec3(0, 1, 0);
+        tangent2 = ivec3(0, 0, 1);
+    } else if (abs(inormal.y) > 0) {
+        tangent1 = ivec3(1, 0, 0);
+        tangent2 = ivec3(0, 0, 1);
+    } else {
+        tangent1 = ivec3(1, 0, 0);
+        tangent2 = ivec3(0, 1, 0);
+    }
+
+    // Sample position is offset by normal to check neighbors of the face
+    ivec3 facePos = blockCoord + inormal;
+
+    // Calculate AO for all 4 corners
+    // Corner order: (0,0), (1,0), (0,1), (1,1) in UV space
+    float ao[4];
+
+    for (int i = 0; i < 4; i++) {
+        // Corner offsets in tangent space
+        int s1 = (i & 1) * 2 - 1;      // -1 or +1
+        int s2 = ((i >> 1) & 1) * 2 - 1; // -1 or +1
+
+        // Sample the 3 neighbors for this corner
+        bool side1 = isSolidSafe(facePos + tangent1 * s1);
+        bool side2 = isSolidSafe(facePos + tangent2 * s2);
+        bool corner = isSolidSafe(facePos + tangent1 * s1 + tangent2 * s2);
+
+        // Classic AO formula: if both sides are solid, corner is fully occluded
+        // Otherwise, count how many of the 3 neighbors are solid
+        if (side1 && side2) {
+            ao[i] = 0.0;
+        } else {
+            ao[i] = 1.0 - float(int(side1) + int(side2) + int(corner)) / 3.0;
+        }
+    }
+
+    // Bilinear interpolation of corner AO values based on UV
+    float u = uv.x;
+    float v = uv.y;
+
+    float ao_bottom = mix(ao[0], ao[1], u);
+    float ao_top = mix(ao[2], ao[3], u);
+    float ao_final = mix(ao_bottom, ao_top, v);
+
+    // Remap to avoid too dark areas: 0.3 to 1.0 range
+    return 0.3 + ao_final * 0.7;
+}
+
+// Check if a block position is at a chunk boundary edge
+// Returns a value 0-1 indicating proximity to boundary (1 = on edge)
+float chunkBoundaryFactor(vec3 hitPos, uint steppedAxis) {
+    // Get local position within chunk
+    vec3 chunkLocal = mod(hitPos, float(CHUNK_SIZE));
+
+    // Check if we're near chunk edges (within 0.1 blocks of boundary)
+    float edgeThreshold = 0.1;
+    float factor = 0.0;
+
+    // For the hit face, check the two axes perpendicular to the stepped axis
+    for (int i = 0; i < 3; i++) {
+        if (i == int(steppedAxis)) continue;
+
+        float localCoord = chunkLocal[i];
+        // Check if near 0 or CHUNK_SIZE boundary
+        if (localCoord < edgeThreshold || localCoord > float(CHUNK_SIZE) - edgeThreshold) {
+            factor = 1.0;
+        }
+    }
+
+    return factor;
+}
+
+// Texture atlas constants
+// Atlas is 832x64 pixels with 13 textures (64x64 each) in a row
+// Order: air(0), stone(1), dirt(2), grass(3), planks(4), leaves(5), sand(6), gravel(7), water(8), glass(9), log(10), grass_side(11), log_top(12)
+const float ATLAS_TILE_COUNT = 13.0;
+const float ATLAS_TILE_SIZE = 1.0 / ATLAS_TILE_COUNT;
+
+// Multi-face texture indices (for blocks with different side textures)
+const uint TEX_GRASS_SIDE = 11;
+const uint TEX_LOG_TOP = 12;
+
+// Sample a specific texture from the atlas
+vec3 sampleTexture(uint textureIndex, vec2 uv) {
+    float atlasU = (float(textureIndex) + fract(uv.x)) * ATLAS_TILE_SIZE;
+    float atlasV = fract(uv.y);
+    return texture(textureAtlas, vec2(atlasU, atlasV)).rgb;
+}
+
+// Get animated water UV distortion
+vec2 getWaterUVAnimation(vec2 uv, vec3 worldPos, float time) {
+    // Multiple layers of flowing distortion
+    float t = time * 0.8;
+
+    // Layer 1: Slow large-scale flow
+    vec2 flow1 = vec2(
+        noise2D(worldPos.xz * 0.3 + vec2(t * 0.15, t * 0.1)) - 0.5,
+        noise2D(worldPos.xz * 0.3 + vec2(t * 0.1, -t * 0.12) + 50.0) - 0.5
+    ) * 0.08;
+
+    // Layer 2: Medium ripples
+    vec2 flow2 = vec2(
+        noise2D(worldPos.xz * 0.8 + vec2(-t * 0.25, t * 0.2)) - 0.5,
+        noise2D(worldPos.xz * 0.8 + vec2(t * 0.18, t * 0.22) + 100.0) - 0.5
+    ) * 0.04;
+
+    // Layer 3: Small fast ripples
+    vec2 flow3 = vec2(
+        noise2D(worldPos.xz * 2.0 + vec2(t * 0.4, -t * 0.35)) - 0.5,
+        noise2D(worldPos.xz * 2.0 + vec2(-t * 0.3, t * 0.4) + 150.0) - 0.5
+    ) * 0.02;
+
+    return uv + flow1 + flow2 + flow3;
+}
+
+// Get caustic light pattern for underwater surfaces
+float getWaterCaustics(vec3 worldPos, float time) {
+    float t = time * 1.2;
+    vec2 pos = worldPos.xz;
+
+    // Multiple overlapping caustic patterns
+    float c1 = noise2D(pos * 1.5 + vec2(t * 0.3, t * 0.2));
+    float c2 = noise2D(pos * 2.3 + vec2(-t * 0.25, t * 0.35) + 30.0);
+    float c3 = noise2D(pos * 3.7 + vec2(t * 0.4, -t * 0.3) + 60.0);
+
+    // Create bright caustic lines by thresholding
+    float caustic = c1 * c2 + c2 * c3 + c1 * c3;
+    caustic = smoothstep(0.3, 0.7, caustic);
+
+    return caustic * 0.3;  // Subtle effect
+}
+
+// Get block color by sampling from texture atlas, with multi-face support
+// normal: the face normal (used to determine which texture variant to use)
+// local_hit: the hit position within the block (0-1 range)
+// stepped_axis: which axis was stepped to reach this block (0=X, 1=Y, 2=Z)
+// worldPos: world position of hit (for animated textures)
+vec3 getBlockColor(uint blockType, vec3 local_hit, vec3 normal, uint stepped_axis, vec3 worldPos) {
+    uint textureIndex = blockType;
+    vec2 uv;
+
+    // Calculate UV based on which face was hit
+    if (stepped_axis == 0) {
+        // X-axis face: use Y for vertical, Z for horizontal
+        uv = vec2(local_hit.z, 1.0 - local_hit.y);
+    } else if (stepped_axis == 1) {
+        // Y-axis face (top/bottom): use X and Z
+        uv = vec2(local_hit.x, local_hit.z);
+    } else {
+        // Z-axis face: use X for horizontal, Y for vertical
+        uv = vec2(local_hit.x, 1.0 - local_hit.y);
+    }
+
+    // Multi-face texture selection based on which face is hit
+    if (blockType == BLOCK_GRASS) {
+        if (normal.y > 0.5) {
+            // Top face: grass texture
+            textureIndex = BLOCK_GRASS;
+        } else if (normal.y < -0.5) {
+            // Bottom face: dirt
+            textureIndex = BLOCK_DIRT;
+        } else {
+            // Side faces: use dirt texture with grass tint at top edge
+            vec3 dirtColor = sampleTexture(BLOCK_DIRT, uv);
+            vec3 grassColor = sampleTexture(BLOCK_GRASS, uv);
+
+            // Blend grass color at top edge (where local_hit.y is close to 1)
+            float grassEdge = smoothstep(0.75, 0.95, local_hit.y);
+            return mix(dirtColor, grassColor, grassEdge);
+        }
+    } else if (blockType == BLOCK_LOG) {
+        if (abs(normal.y) > 0.5) {
+            // Top/bottom faces: tree rings
+            textureIndex = TEX_LOG_TOP;
+        } else {
+            // Side faces: bark
+            textureIndex = BLOCK_LOG;
+        }
+    } else if (blockType == BLOCK_WATER) {
+        // Animated water texture with flowing UV distortion
+        vec2 animatedUV = getWaterUVAnimation(uv, worldPos, pc.animation_time);
+        vec3 waterColor = sampleTexture(BLOCK_WATER, animatedUV);
+
+        // Add caustic highlights on top face
+        if (normal.y > 0.5) {
+            float caustics = getWaterCaustics(worldPos, pc.animation_time);
+            waterColor += vec3(caustics);
+        }
+
+        return waterColor;
+    }
+
+    return sampleTexture(textureIndex, uv);
+}
+
+// Water rendering settings
+const vec3 WATER_COLOR = vec3(0.2, 0.5, 0.8);  // Blue tint
+const vec3 WATER_DEEP_COLOR = vec3(0.05, 0.15, 0.3);  // Darker deep water
+const float WATER_CLARITY = 8.0;  // How far you can see through water
+const float WATER_REFLECTIVITY = 0.3;  // Base surface reflectivity
+const float WATER_FRESNEL_POWER = 3.0;  // Fresnel falloff
+
+// Water wave animation settings
+const float WAVE_SPEED = 1.2;        // How fast waves move
+const float WAVE_SCALE = 0.8;        // Scale of wave pattern
+const float WAVE_AMPLITUDE = 0.15;   // Height of wave displacement
+const float WAVE_NORMAL_STRENGTH = 0.4;  // How much waves affect surface normal
+
+// Calculate animated water wave normal at a position
+// Returns a perturbed normal based on multi-octave animated noise
+vec3 getWaterWaveNormal(vec3 worldPos, float time) {
+    vec2 pos = worldPos.xz;
+
+    // Multiple wave layers at different scales and speeds
+    float t = time * WAVE_SPEED;
+
+    // Layer 1: Large slow waves
+    vec2 wave1Pos = pos * WAVE_SCALE * 0.5 + vec2(t * 0.3, t * 0.2);
+    float h1 = noise2D(wave1Pos) * 2.0 - 1.0;
+
+    // Layer 2: Medium waves
+    vec2 wave2Pos = pos * WAVE_SCALE * 1.0 + vec2(-t * 0.4, t * 0.35);
+    float h2 = noise2D(wave2Pos) * 2.0 - 1.0;
+
+    // Layer 3: Small ripples
+    vec2 wave3Pos = pos * WAVE_SCALE * 2.5 + vec2(t * 0.5, -t * 0.45);
+    float h3 = noise2D(wave3Pos) * 2.0 - 1.0;
+
+    // Combine waves with decreasing amplitude for higher frequencies
+    float totalHeight = h1 * 0.5 + h2 * 0.3 + h3 * 0.2;
+
+    // Calculate gradient for normal (using finite differences)
+    float delta = 0.1;
+    vec2 offsetX = vec2(delta, 0.0);
+    vec2 offsetZ = vec2(0.0, delta);
+
+    // Sample heights at offset positions
+    float hpx = noise2D((pos + offsetX) * WAVE_SCALE * 0.5 + vec2(t * 0.3, t * 0.2)) * 0.5
+              + noise2D((pos + offsetX) * WAVE_SCALE * 1.0 + vec2(-t * 0.4, t * 0.35)) * 0.3
+              + noise2D((pos + offsetX) * WAVE_SCALE * 2.5 + vec2(t * 0.5, -t * 0.45)) * 0.2;
+
+    float hpz = noise2D((pos + offsetZ) * WAVE_SCALE * 0.5 + vec2(t * 0.3, t * 0.2)) * 0.5
+              + noise2D((pos + offsetZ) * WAVE_SCALE * 1.0 + vec2(-t * 0.4, t * 0.35)) * 0.3
+              + noise2D((pos + offsetZ) * WAVE_SCALE * 2.5 + vec2(t * 0.5, -t * 0.45)) * 0.2;
+
+    // Gradient
+    float dx = (hpx - totalHeight) / delta;
+    float dz = (hpz - totalHeight) / delta;
+
+    // Create normal from gradient (scaled by amplitude and strength)
+    vec3 waveNormal = normalize(vec3(
+        -dx * WAVE_AMPLITUDE * WAVE_NORMAL_STRENGTH,
+        1.0,
+        -dz * WAVE_AMPLITUDE * WAVE_NORMAL_STRENGTH
+    ));
+
+    return waveNormal;
+}
+
+// Generate procedural crack pattern for block breaking
+// uv: texture coordinates (0-1), progress: break progress (0-1)
+// Returns crack intensity (0 = no crack, 1 = full crack/dark)
+float getCrackPattern(vec2 uv, float progress) {
+    if (progress <= 0.0) return 0.0;
+
+    // Scale UV for crack pattern density
+    vec2 crackUV = uv * 4.0;
+
+    // Use multiple noise octaves for crack-like pattern
+    float n1 = noise2D(crackUV * 2.0);
+    float n2 = noise2D(crackUV * 4.0 + 1.23);
+    float n3 = noise2D(crackUV * 8.0 + 4.56);
+
+    // Combine noises - higher frequencies get emphasized as progress increases
+    float noise = n1 * 0.5 + n2 * 0.3 + n3 * 0.2;
+
+    // Create crack lines by taking absolute value and inverting
+    // This creates dark lines where noise crosses zero
+    float crackLines = 1.0 - abs(noise * 2.0 - 1.0);
+    crackLines = pow(crackLines, 2.0);  // Sharpen the lines
+
+    // Progressive reveal: more cracks appear as progress increases
+    // At low progress, only show strongest cracks
+    // At high progress, show all cracks
+    float threshold = 1.0 - progress;
+    float crack = smoothstep(threshold, threshold + 0.3, crackLines);
+
+    // Add some chunky breakage at high progress
+    if (progress > 0.7) {
+        float chunks = noise2D(crackUV * 1.5 + 7.89);
+        chunks = step(0.6 + (1.0 - progress) * 0.5, chunks);
+        crack = max(crack, chunks * (progress - 0.7) / 0.3);
+    }
+
+    return crack * progress;  // Scale overall darkness by progress
+}
+
+// Check if a block position matches the breaking block
+bool isBreakingBlock(ivec3 blockPos) {
+    return pc.break_block_x >= 0 &&
+           blockPos.x == pc.break_block_x &&
+           blockPos.y == pc.break_block_y &&
+           blockPos.z == pc.break_block_z;
+}
+
+// Ray-AABB (axis-aligned bounding box) intersection test for cube particles
+// Returns t (distance along ray) or -1 if no hit
+// Also outputs the face normal of the hit face
+float rayAABBIntersect(vec3 rayOrigin, vec3 rayDir, vec3 boxCenter, float boxHalfSize, out vec3 hitNormal) {
+    vec3 boxMin = boxCenter - vec3(boxHalfSize);
+    vec3 boxMax = boxCenter + vec3(boxHalfSize);
+
+    vec3 invDir = 1.0 / rayDir;
+
+    vec3 t1 = (boxMin - rayOrigin) * invDir;
+    vec3 t2 = (boxMax - rayOrigin) * invDir;
+
+    vec3 tmin = min(t1, t2);
+    vec3 tmax = max(t1, t2);
+
+    float tNear = max(max(tmin.x, tmin.y), tmin.z);
+    float tFar = min(min(tmax.x, tmax.y), tmax.z);
+
+    // No hit if box is behind ray or ray misses box
+    if (tNear > tFar || tFar < 0.0) {
+        return -1.0;
+    }
+
+    // Use tNear if in front of ray, otherwise tFar (we're inside the box)
+    float t = tNear > 0.0 ? tNear : tFar;
+    if (t < 0.0) {
+        return -1.0;
+    }
+
+    // Calculate which face was hit based on which axis had the largest tmin
+    hitNormal = vec3(0.0);
+    if (tmin.x >= tmin.y && tmin.x >= tmin.z) {
+        hitNormal.x = -sign(rayDir.x);
+    } else if (tmin.y >= tmin.z) {
+        hitNormal.y = -sign(rayDir.y);
+    } else {
+        hitNormal.z = -sign(rayDir.z);
+    }
+
+    return t;
+}
+
+// Render particles and composite over the scene
+// Returns true if a particle was hit, modifies color and hitDistance
+bool renderParticles(vec3 origin, vec3 dir, inout vec3 color, inout float hitDistance) {
+    bool anyHit = false;
+    float closestT = hitDistance;
+    vec3 closestColor = color;
+    float closestAlpha = 0.0;
+
+    for (uint i = 0; i < pc.particle_count; i++) {
+        Particle p = particles[i];
+        vec3 particlePos = p.pos_size.xyz;
+        float particleSize = p.pos_size.w;  // This is half the cube size
+        vec3 particleColor = p.color_alpha.rgb;
+        float particleAlpha = p.color_alpha.a;
+
+        // Ray-AABB intersection for cube particles
+        vec3 faceNormal;
+        float t = rayAABBIntersect(origin, dir, particlePos, particleSize, faceNormal);
+        if (t > 0.0 && t < closestT) {
+            // Calculate lighting using the cube face normal
+            vec3 sunDir = getCurrentSunDir();
+            float daylight = getDaylightFactor(pc.time_of_day);
+
+            // Directional lighting from sun
+            float sunLight = max(0.0, dot(faceNormal, sunDir));
+            float ambient = mix(0.2, 0.4, daylight);
+            float direct = mix(0.1, 0.6, daylight) * sunLight;
+            float lighting = ambient + direct;
+
+            // Update closest hit
+            closestT = t;
+            closestColor = particleColor * lighting;
+            closestAlpha = particleAlpha;
+            anyHit = true;
+        }
+    }
+
+    if (anyHit) {
+        // Blend particle color with background
+        color = mix(color, closestColor, closestAlpha);
+        hitDistance = min(hitDistance, closestT);
+    }
+
+    return anyHit;
+}
+
+// Check if preview block is active
+bool hasPreviewBlock() {
+    return pc.preview_block_x >= 0;
+}
+
+// Ray-AABB intersection for unit cube at integer position
+// Returns t (distance) or -1 if no hit, also outputs hit normal and local hit position
+float rayBlockIntersect(vec3 rayOrigin, vec3 rayDir, ivec3 blockPos, out vec3 hitNormal, out vec3 localHit) {
+    vec3 boxMin = vec3(blockPos);
+    vec3 boxMax = vec3(blockPos) + vec3(1.0);
+
+    vec3 invDir = 1.0 / rayDir;
+
+    vec3 t1 = (boxMin - rayOrigin) * invDir;
+    vec3 t2 = (boxMax - rayOrigin) * invDir;
+
+    vec3 tmin = min(t1, t2);
+    vec3 tmax = max(t1, t2);
+
+    float tNear = max(max(tmin.x, tmin.y), tmin.z);
+    float tFar = min(min(tmax.x, tmax.y), tmax.z);
+
+    if (tNear > tFar || tFar < 0.0) {
+        return -1.0;
+    }
+
+    float t = tNear > 0.0 ? tNear : tFar;
+    if (t < 0.0) {
+        return -1.0;
+    }
+
+    // Calculate hit normal
+    hitNormal = vec3(0.0);
+    if (tmin.x >= tmin.y && tmin.x >= tmin.z) {
+        hitNormal.x = -sign(rayDir.x);
+    } else if (tmin.y >= tmin.z) {
+        hitNormal.y = -sign(rayDir.y);
+    } else {
+        hitNormal.z = -sign(rayDir.z);
+    }
+
+    // Calculate local hit position (0-1 within block)
+    vec3 hitPoint = rayOrigin + rayDir * t;
+    localHit = hitPoint - vec3(blockPos);
+
+    return t;
+}
+
+// Calculate wireframe factor for block preview edges
+float getWireframeFactor(vec3 localHit, vec3 normal) {
+    // Determine which two axes to check based on face normal
+    vec2 edgeCoords;
+    if (abs(normal.x) > 0.5) {
+        edgeCoords = localHit.yz;
+    } else if (abs(normal.y) > 0.5) {
+        edgeCoords = localHit.xz;
+    } else {
+        edgeCoords = localHit.xy;
+    }
+
+    // Distance from edges (0-0.5 range, 0 = on edge)
+    float edgeWidth = 0.08;
+    float dx = min(edgeCoords.x, 1.0 - edgeCoords.x);
+    float dy = min(edgeCoords.y, 1.0 - edgeCoords.y);
+    float edgeDist = min(dx, dy);
+
+    // Sharp wireframe line
+    return 1.0 - smoothstep(0.0, edgeWidth, edgeDist);
+}
+
+// Render block placement preview
+// Returns true if preview was rendered, blends into color
+bool renderPreviewBlock(vec3 origin, vec3 dir, inout vec3 color, float sceneHitDistance) {
+    if (!hasPreviewBlock()) {
+        return false;
+    }
+
+    ivec3 previewPos = ivec3(pc.preview_block_x, pc.preview_block_y, pc.preview_block_z);
+
+    vec3 hitNormal;
+    vec3 localHit;
+    float t = rayBlockIntersect(origin, dir, previewPos, hitNormal, localHit);
+
+    // Only render if we hit the preview and it's in front of scene geometry
+    if (t < 0.0 || t > sceneHitDistance) {
+        return false;
+    }
+
+    // Get the block color for the preview block type
+    vec3 hitPoint = origin + dir * t;
+    uint steppedAxis = 0;
+    if (abs(hitNormal.y) > 0.5) steppedAxis = 1;
+    else if (abs(hitNormal.z) > 0.5) steppedAxis = 2;
+
+    vec3 previewColor = getBlockColor(pc.preview_block_type, localHit, hitNormal, steppedAxis, hitPoint);
+
+    // Apply basic lighting
+    vec3 sunDir = getCurrentSunDir();
+    float daylight = getDaylightFactor(pc.time_of_day);
+    float sunLight = max(0.0, dot(hitNormal, sunDir));
+    float ambient = mix(0.3, 0.5, daylight);
+    float direct = mix(0.2, 0.5, daylight) * sunLight;
+    previewColor *= (ambient + direct);
+
+    // Calculate wireframe
+    float wireframe = getWireframeFactor(localHit, hitNormal);
+
+    // Preview is semi-transparent with bright wireframe edges
+    float baseAlpha = 0.35;
+    float wireAlpha = 0.9;
+
+    // Wireframe color (bright white/cyan)
+    vec3 wireColor = vec3(0.8, 1.0, 1.0);
+
+    // Blend: wireframe on edges, translucent block fill
+    vec3 finalPreview = mix(previewColor, wireColor, wireframe);
+    float finalAlpha = mix(baseAlpha, wireAlpha, wireframe);
+
+    // Pulse effect for visibility
+    float pulse = 0.9 + 0.1 * sin(pc.animation_time * 4.0);
+    finalAlpha *= pulse;
+
+    color = mix(color, finalPreview, finalAlpha);
+    return true;
+}
+
+bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out float hitDistance) {
+    hitDistance = FLT_MAX;
+    vec3 inv_dir = 1. / dir;
+    vec3 sgn_dir = sign(inv_dir);
+    inv_dir = clamp(inv_dir, vec3(-FLT_MAX), vec3(FLT_MAX));
+
+    vec3 t1 = -origin * inv_dir;
+    vec3 t2 = (worldSize() - origin) * inv_dir;
+
+    vec3 tmins = min(t1, t2);
+    vec3 tmaxs = max(t1, t2);
+
+    float tmin = 0;
+    float tmax = FLT_MAX;
+    for (int i = 0; i < 3; i++) {
+        tmin = max(tmin, tmins[i]);
+        tmax = min(tmax, tmaxs[i]);
+    }
+
+    if (tmin > tmax) {
+        return false;
+    }
+
+    // Find which face the ray enters through (the axis with the LARGEST tmins)
+    uint stepped_axis;
+    if (tmins.x >= tmins.y && tmins.x >= tmins.z) {
+        stepped_axis = 0;
+    } else if (tmins.y >= tmins.z) {
+        stepped_axis = 1;
+    } else {
+        stepped_axis = 2;
+    }
+
+    origin += dir * tmin;
+    uvec3 coord = uvec3(clamp(floor(origin), vec3(0), worldSize() - 1.0));
+    vec3 t = (coord + 0.5 * (1 + sgn_dir) - origin) * inv_dir;
+
+    uvec3 ustep = uvec3(ivec3(sgn_dir));
+    vec3 delta = inv_dir * sgn_dir;
+
+    // Water tracking
+    bool inWater = false;
+    float waterEntryT = 0.0;
+    float waterDepth = 0.0;
+    vec3 waterSurfaceNormal = vec3(0.0);
+    uint waterEntryAxis = 0;
+    vec3 waterSurfaceHit = vec3(0.0);
+
+    // Check for instant hit at entry point
+    uint blockType = readBlockType(ivec3(coord));
+    bool instantHit = (blockType != BLOCK_AIR && blockType != BLOCK_WATER);
+
+    // If we start in water, mark it
+    if (blockType == BLOCK_WATER) {
+        inWater = true;
+        waterEntryT = 0.0;
+        // Entry from top (we're looking into water from above the world)
+        waterSurfaceNormal = vec3(0.0, 1.0, 0.0);
+        waterEntryAxis = 1;
+        waterSurfaceHit = origin;
+    }
+
+    if (!instantHit)
+    while (true) {
+        steps++;
+
+        float prevT = min(min(t.x, t.y), t.z);
+
+        if (t.x < t.y) {
+            if (t.x < t.z) {
+                coord.x += ustep.x;
+                t.x += delta.x;
+                stepped_axis = 0;
+            } else {
+                coord.z += ustep.z;
+                t.z += delta.z;
+                stepped_axis = 2;
+            }
+        } else {
+            if (t.y < t.z) {
+                coord.y += ustep.y;
+                t.y += delta.y;
+                stepped_axis = 1;
+            } else {
+                coord.z += ustep.z;
+                t.z += delta.z;
+                stepped_axis = 2;
+            }
+        }
+
+        if (any(greaterThanEqual(coord, worldSizeU()))) {
+            // Exited world - if looking into water from above, return water color
+            // If player is underwater, let sky render instead
+            if (inWater && pc.player_in_water == 0) {
+                waterDepth = (min(min(t.x, t.y), t.z) - waterEntryT) * length(dir);
+                float depthFactor = 1.0 - exp(-waterDepth / WATER_CLARITY);
+                color = mix(WATER_COLOR, WATER_DEEP_COLOR, depthFactor);
+                hitDistance = waterEntryT * length(dir);
+                return true;
+            }
+            return false;
+        }
+
+        blockType = readBlockType(ivec3(coord));
+
+        // Entering water
+        if (blockType == BLOCK_WATER && !inWater) {
+            inWater = true;
+            waterEntryT = prevT;
+            waterEntryAxis = stepped_axis;
+            // Calculate surface normal (opposite of ray direction on stepped axis)
+            waterSurfaceNormal = vec3(0.0);
+            waterSurfaceNormal[stepped_axis] = -sgn_dir[stepped_axis];
+            // Calculate water surface hit position
+            waterSurfaceHit = origin + dir * prevT;
+        }
+
+        // Hit solid block (not air, not water)
+        if (blockType != BLOCK_AIR && blockType != BLOCK_WATER)
+            break;
+    }
+
+    // Calculate water depth if we passed through water
+    if (inWater) {
+        float currentT = min(min(t.x, t.y), t.z) - min(delta.x, min(delta.y, delta.z));
+        waterDepth = (currentT - waterEntryT) * length(dir);
+    }
+
+    vec3 mask = vec3(0);
+    mask[stepped_axis] = 1;
+    float t_inside = dot(t, mask) - dot(delta, mask);
+
+    // Calculate hit distance for fog
+    hitDistance = (tmin + t_inside) * length(dir);
+
+    // Compute hit position and local coordinates within block
+    vec3 hit = origin + dir * t_inside;
+    vec3 local_hit = hit - coord;
+
+    // Calculate normal for lighting, AO, and multi-face textures
+    vec3 normal = -mask * sgn_dir;
+
+    // Get block color based on block type (with texture sampling and multi-face support)
+    vec3 blockColor = getBlockColor(blockType, local_hit, normal, stepped_axis, hit);
+
+    // Calculate UV for AO (simplified - just need consistent mapping)
+    vec2 uv;
+    if (stepped_axis == 0) {
+        uv = local_hit.yz;
+    } else if (stepped_axis == 1) {
+        uv = local_hit.xz;
+    } else {
+        uv = local_hit.xy;
+    }
+
+    // Calculate ambient occlusion
+    float ao = calculateAO(ivec3(coord), normal, uv);
+
+    switch (pc.render_mode) {
+        case COORD:
+        color = vec3(coord) / (worldSize() - 1.0);
+        break;
+        case NORMAL:
+        // Get current sun direction and daylight factor
+        vec3 sunDir = getCurrentSunDir();
+        float daylight = getDaylightFactor(pc.time_of_day);
+
+        // Calculate shadow
+        float shadow = castShadowRay(hit + normal * 0.01);
+
+        // Apply directional lighting based on normal and sun direction
+        float sunLight = max(0.0, dot(normal, sunDir));
+
+        // Ambient varies with time of day (brighter during day, dimmer at night)
+        float ambient = mix(0.1, 0.35, daylight);
+        float direct = mix(0.2, 0.65, daylight) * sunLight * shadow;
+        float lighting = ambient + direct;
+
+        // Combine lighting with ambient occlusion
+        color = blockColor * lighting * ao;
+        break;
+        case UV:
+        color = vec3(uv, 0);
+        break;
+        case DEPTH:
+        float depth = (tmin + t_inside) * length(dir);
+        // Use max dimension for depth scaling
+        float maxDim = max(worldSize().x, max(worldSize().y, worldSize().z));
+        color = vec3(1 / (1 + depth / maxDim)) + vec3(0.3, 0.0, 0.7) / 256;
+        break;
+    }
+
+    // Apply crack overlay if this block is being broken
+    if (isBreakingBlock(ivec3(coord))) {
+        float crack = getCrackPattern(uv, pc.break_progress);
+        // Darken the block where cracks appear
+        color = mix(color, vec3(0.0), crack * 0.8);
+    }
+
+    // Apply chunk boundary wireframe overlay if enabled
+    if (pc.show_chunk_boundaries != 0) {
+        float boundaryFactor = chunkBoundaryFactor(hit, stepped_axis);
+        if (boundaryFactor > 0.0) {
+            // Yellow wireframe color
+            vec3 wireColor = vec3(1.0, 1.0, 0.0);
+            color = mix(color, wireColor, boundaryFactor * 0.8);
+        }
+    }
+
+    // Apply water surface and depth effects if ray passed through water
+    // Only apply surface reflection when player is OUTSIDE water looking in
+    if (inWater && pc.player_in_water == 0) {
+        // Get animated wave normal at water surface hit position
+        vec3 animatedNormal = getWaterWaveNormal(waterSurfaceHit, pc.animation_time);
+
+        // Blend animated normal with base surface normal
+        // Stronger wave effect when looking at horizontal surfaces
+        float normalBlend = abs(waterSurfaceNormal.y);
+        vec3 finalNormal = normalize(mix(waterSurfaceNormal, animatedNormal, normalBlend));
+
+        // Calculate fresnel reflection factor (more reflection at glancing angles)
+        float viewDotNormal = abs(dot(normalize(dir), finalNormal));
+        float fresnel = WATER_REFLECTIVITY + (1.0 - WATER_REFLECTIVITY) * pow(1.0 - viewDotNormal, WATER_FRESNEL_POWER);
+
+        // Get sky reflection color using animated normal
+        vec3 reflectDir = reflect(normalize(dir), finalNormal);
+        vec3 reflectionColor = getSkyColor(reflectDir);
+
+        // Apply surface reflection
+        color = mix(color, reflectionColor, fresnel * 0.6);
+    }
+
+    // Apply depth-based water tinting (both when looking into water and when underwater)
+    if (inWater && waterDepth > 0.0) {
+        float depthFactor = 1.0 - exp(-waterDepth / WATER_CLARITY);
+        // Blend between water surface color and deep water color
+        vec3 waterTint = mix(WATER_COLOR, WATER_DEEP_COLOR, depthFactor * 0.5);
+        // Apply tint to the object color - deeper = more tint
+        color = mix(color, waterTint, depthFactor * 0.7);
+    }
+
+    return true;
+}
+
+void main() {
+    ivec2 pixelCoord = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 imageSize = imageSize(targetImage);
+
+    if (any(greaterThanEqual(pixelCoord, imageSize)))
+        return;
+
+    vec3 o = pc.pixelToRay[3].xyz;
+    vec3 d = mat3(pc.pixelToRay) * vec3(pixelCoord, 1);
+
+    vec3 color;
+    uint steps = 0;
+    float hitDistance;
+
+    bool hit = traversal(o, d, color, steps, hitDistance);
+
+    bool underwater = pc.player_in_water != 0;
+
+    if (pc.render_mode == STEPS) {
+        // Use max dimension for step count scaling
+        uint maxDim = max(pc.world_size_x, max(pc.world_size_y, pc.world_size_z));
+        color = stepsToInferno(steps, 0, (maxDim - 1) * 3);
+    } else if (hit) {
+        // Apply fog to hit blocks
+        color = applyFog(color, hitDistance, d);
+    } else {
+        // Ray missed - show sky (with sun and clouds)
+        color = getSkyColor(d);
+    }
+
+    // Render particles on top of scene (with fog)
+    if (pc.particle_count > 0 && pc.render_mode != STEPS) {
+        float particleDist = hitDistance;
+        renderParticles(o, d, color, particleDist);
+        // Apply fog to particles if they're closer than the hit
+        if (particleDist < hitDistance) {
+            // Particles already have their color, just need fog
+            vec3 fogColor = getFogColor(pc.time_of_day);
+            float fogFactor = smoothstep(FOG_START, FOG_END, particleDist);
+            color = mix(color, fogColor, fogFactor * 0.3);  // Lighter fog on particles
+        }
+    }
+
+    // Render block placement preview (ghost block with wireframe)
+    if (pc.render_mode != STEPS) {
+        renderPreviewBlock(o, d, color, hitDistance);
+    }
+
+    // Apply underwater visual effect when player is submerged
+    if (underwater) {
+        // Subtle underwater wave distortion using animated noise
+        vec2 screenUV = vec2(pixelCoord) / vec2(imageSize);
+        float waveDistort = noise2D(screenUV * 8.0 + vec2(pc.animation_time * 0.5, pc.animation_time * 0.3)) * 0.02;
+        waveDistort += noise2D(screenUV * 15.0 + vec2(-pc.animation_time * 0.4, pc.animation_time * 0.6)) * 0.01;
+
+        // Apply subtle color variation based on wave distortion
+        float colorShift = waveDistort * 3.0;
+
+        // Blue-green underwater tint with subtle wave-based variation
+        vec3 underwaterTint = vec3(0.15, 0.35 + colorShift, 0.55 + colorShift * 0.5);
+        color = mix(color, underwaterTint, 0.3);
+    }
+
+    imageStore(targetImage, pixelCoord, vec4(color, 1));
+}

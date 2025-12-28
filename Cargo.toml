@@ -1,0 +1,29 @@
+[package]
+name = "voxel_ray_traversal"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.86.0"
+
+[dependencies]
+vulkano = "0.35.2"
+winit = "0.30.12"
+
+shaderc = "0.8.3"
+egui_winit_vulkano = "0.28.0"
+winit_input_helper = { git = "https://github.com/rukai/winit_input_helper", rev = "638b12fe73b8eb08ed9a8a107d554f4c3b99e8cf" }
+
+nalgebra = { version = "0.34.1", features = ["bytemuck"] }
+bytemuck = { version = "1.24.0", features = ["derive"] }
+
+notify = "8.2.0"
+ply-rs = "0.1.3"
+
+image = "0.25.9"
+crossterm = "0.29.0"
+noise = "0.9.0"
+
+# macOS cursor handling (winit's set_cursor_visible crashes)
+[target.'cfg(target_os = "macos")'.dependencies]
+core-graphics = "0.24"
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", features = ["NSCursor"] }
