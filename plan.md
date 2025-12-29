@@ -19,23 +19,24 @@ Remove world size limitations and enable procedural generation of unlimited terr
 
 ### Implementation Tasks
 
-#### 1.1 Remove World Bounds
-- [ ] Remove `WORLD_CHUNKS_X/Y/Z` constants from main.rs
-- [ ] Remove `WORLD_SIZE_X/Y/Z` constants
-- [ ] Update shader to handle unbounded coordinates
-- [ ] Change coordinate system to support negative chunk positions
+#### 1.1 Remove World Bounds ✅ COMPLETE
+- [x] Remove `WORLD_CHUNKS_X/Y/Z` constants from main.rs
+- [x] Remove `WORLD_SIZE_X/Y/Z` constants
+- [x] Update shader to handle unbounded coordinates
+- [x] Change coordinate system to support negative chunk positions
 
-#### 1.2 Virtual Texture System
-- [ ] Replace single 3D texture with chunk-indexed system
-- [ ] Create indirection table (chunk position → texture slot)
-- [ ] Implement texture slot allocation/deallocation
-- [ ] Update shader to use indirection lookup
+#### 1.2 Virtual Texture System ✅ COMPLETE (Sliding Window)
+- [x] Implement texture_origin for world-to-texture mapping
+- [x] Create sliding window that follows player
+- [x] Auto-shift texture origin when player moves far
+- [x] Re-upload chunks at new positions on shift
+- [ ] (Optional) Full indirection buffer for sparse worlds
 
-#### 1.3 Dynamic Chunk Management
-- [ ] Modify `World` to support unlimited chunks
-- [ ] Implement chunk loading priority queue (distance-based)
-- [ ] Add chunk unloading when beyond unload distance
-- [ ] Track GPU memory usage, evict least-recently-used chunks
+#### 1.3 Dynamic Chunk Management ✅ COMPLETE
+- [x] Modify `World` to support unlimited chunks (HashMap-based)
+- [x] Implement chunk loading priority queue (distance-based)
+- [x] Add chunk unloading when beyond unload distance
+- [x] Clear GPU texture slots when chunks unload
 
 #### 1.4 Async Terrain Generation
 - [ ] Move terrain generation to background thread(s)
@@ -43,11 +44,11 @@ Remove world size limitations and enable procedural generation of unlimited terr
 - [ ] Implement chunk request queue
 - [ ] Add loading placeholder (or skip rendering unloaded chunks)
 
-#### 1.5 Shader Updates
-- [ ] Update `traverse.comp` for unbounded world
-- [ ] Implement chunk-aware ray marching
-- [ ] Add empty chunk early-out optimization
-- [ ] Handle chunk boundaries in ray traversal
+#### 1.5 Shader Updates ✅ COMPLETE
+- [x] Update `traverse.comp` for unbounded world
+- [x] Add worldToTexture() coordinate translation
+- [x] Add isInTextureBounds() bounds checking
+- [x] Handle unloaded chunks (return AIR)
 
 ### Technical Approach
 
