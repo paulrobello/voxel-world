@@ -114,12 +114,12 @@ layout(set = 6, binding = 0, r32f) uniform image2D distanceImage;
 // Brick data (set 7) - for hierarchical ray skipping
 // Each chunk is divided into 4³ = 64 bricks of 8³ voxels each
 // brick_masks: 64-bit mask per chunk stored as 2 x uint32 (bit set = brick has solid blocks)
-// brick_distances: 64 bytes per chunk (minimum distance to solid for each brick)
 layout(set = 7, binding = 0) readonly buffer BrickMasks {
     uint brick_masks[];  // 2 uints per chunk (64 bits total)
 };
+// NOTE: brick_distances (binding 1) disabled - Phase 4 sphere-tracing had bugs
 layout(set = 7, binding = 1) readonly buffer BrickDistances {
-    uint brick_distances[];  // 64 bytes per chunk packed as 16 uints
+    uint brick_distances[];  // Keep binding to satisfy descriptor set layout
 };
 
 // Chunk dimension constants (must match Rust LOADED_CHUNKS_X/Y/Z)
@@ -1516,50 +1516,10 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
             continue;
         }
 
-        // OPTIMIZATION: Check if current brick (8³ region) is empty and skip
-        if (isBrickEmpty(ivec3(coord))) {
-            // Get brick-aligned position
-            ivec3 brickWorldPos = getBrickWorldPos(ivec3(coord));
-
-            // Calculate current position and exit from brick
-            vec3 currentPos = origin + dir * min(min(t.x, t.y), t.z);
-            float exitT = getBrickExitT(currentPos, dir, inv_dir, brickWorldPos);
-
-            // Advance ray to brick exit + small epsilon
-            float skipT = exitT + 0.001;
-            vec3 newPos = currentPos + dir * skipT;
-
-            // Update coord to new position
-            coord = uvec3(clamp(floor(newPos), vec3(0), worldSize() - 1.0));
-
-            // Recalculate t values for new position
-            t = (vec3(coord) + 0.5 * (1.0 + sgn_dir) - origin) * inv_dir;
-
-            // Skip to next iteration
-            continue;
-        }
-
-        // OPTIMIZATION: Use distance field for sphere-tracing within brick
-        // If brick has solid blocks but current voxel is far from them, skip ahead
-        uint brickDist = getBrickMinDistance(ivec3(coord));
-        if (brickDist > 1u) {
-            // We can skip (brickDist - 1) voxels safely
-            // Move forward by half the distance to be conservative
-            float skipVoxels = float(brickDist - 1u) * 0.5;
-            if (skipVoxels > 1.0) {
-                vec3 currentPos = origin + dir * min(min(t.x, t.y), t.z);
-                vec3 normalizedDir = normalize(dir);
-                vec3 newPos = currentPos + normalizedDir * skipVoxels;
-
-                // Only skip if new position is still in bounds
-                if (all(greaterThanEqual(newPos, vec3(0.0))) &&
-                    all(lessThan(newPos, worldSize()))) {
-                    coord = uvec3(floor(newPos));
-                    t = (vec3(coord) + 0.5 * (1.0 + sgn_dir) - origin) * inv_dir;
-                    continue;
-                }
-            }
-        }
+        // NOTE: Brick skip optimization disabled - causes visual artifacts
+        // The chunk-level skip (above) provides sufficient performance gain
+        // Keeping brick buffer bindings alive for potential future use
+        if (brick_masks[0] == 0xFFFFFFFFu && brick_distances[0] == 0xFFFFFFFFu && coord.x == 0xFFFFFFFFu) continue;
 
         blockType = readBlockTypeAtTexCoord(ivec3(coord));
 
