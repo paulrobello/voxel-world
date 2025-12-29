@@ -210,6 +210,7 @@ struct TerrainGenerator {
     height_noise: Fbm<Perlin>,
     detail_noise: Perlin,
     mountain_noise: RidgedMulti<Perlin>,
+    biome_noise: Perlin,
     cave_noise: Perlin,
     cave_mask_noise: Perlin,
     entrance_noise: Perlin,
@@ -233,6 +234,10 @@ impl TerrainGenerator {
             .set_lacunarity(2.2)
             .set_persistence(0.5);
 
+        // Biome noise - determines flat plains vs hilly vs mountainous regions
+        // Very low frequency for large biome regions
+        let biome_noise = Perlin::new(seed.wrapping_add(6));
+
         // 3D noise for cave carving
         let cave_noise = Perlin::new(seed.wrapping_add(3));
 
@@ -246,6 +251,7 @@ impl TerrainGenerator {
             height_noise,
             detail_noise,
             mountain_noise,
+            biome_noise,
             cave_noise,
             cave_mask_noise,
             entrance_noise,
@@ -257,26 +263,60 @@ impl TerrainGenerator {
         let x = world_x as f64;
         let z = world_z as f64;
 
-        // Base continental terrain (large smooth features, returns roughly -1 to 1)
+        // Biome type: determines flat plains (-1) vs rolling hills (0) vs mountains (+1)
+        // Very low frequency for large coherent regions
+        let biome_raw = self.biome_noise.get([x * 0.004, z * 0.004]);
+
+        // Create distinct biome zones with sharper transitions
+        // Values < -0.3 = flat plains, > 0.3 = mountains, between = rolling hills
+        let biome_type = if biome_raw < -0.3 {
+            0.0 // Flat plains
+        } else if biome_raw > 0.3 {
+            1.0 // Mountains
+        } else {
+            // Smooth transition zone (rolling hills)
+            ((biome_raw + 0.3) / 0.6).clamp(0.0, 1.0)
+        };
+
+        // Base continental terrain (large smooth features)
         let base = self.height_noise.get([x, z]);
 
-        // Mountain ridges (sharp peaks, returns 0 to 1)
+        // Mountain ridges (sharp peaks)
         let ridges = self.mountain_noise.get([x, z]);
 
-        // Blend factor: some areas are flat plains, some are mountainous
-        // Use base noise to determine mountainous regions
-        let mountain_factor = (base * 0.5 + 0.5).clamp(0.0, 1.0);
+        // Detail noise for subtle variation
+        let detail = self.detail_noise.get([x * 0.02, z * 0.02]);
 
-        // Add subtle detail variation
-        let detail = self.detail_noise.get([x * 0.02, z * 0.02]) * 2.0;
+        // Calculate height based on biome type:
+        // - Flat plains: height 32-36 with minimal variation
+        // - Rolling hills: height 28-45 with moderate variation
+        // - Mountains: height 32-90 with dramatic peaks
+        let height = if biome_type < 0.1 {
+            // Flat plains - very little variation
+            32.0 + detail * 2.0
+        } else if biome_type > 0.9 {
+            // Mountain biome - dramatic peaks
+            let mountain_height = ridges * 55.0;
+            32.0 + base * 6.0 + mountain_height
+        } else {
+            // Transition zone - blend between plains and mountains
+            let plains_height = 32.0 + detail * 2.0;
+            let hills_height = 32.0 + base * 10.0 + detail * 3.0;
+            let mountain_height = 32.0 + base * 6.0 + ridges * 55.0;
 
-        // Base height: 32 (conceptual sea level)
-        // Flat areas: base ±8 blocks
-        // Mountain areas: up to +50 blocks additional
-        let flat_height = base * 8.0 + detail;
-        let mountain_height = ridges * 50.0 * mountain_factor;
+            // Smooth blend based on biome_type
+            if biome_type < 0.5 {
+                // Plains to hills transition
+                let t = biome_type / 0.5;
+                plains_height * (1.0 - t) + hills_height * t
+            } else {
+                // Hills to mountains transition
+                let t = (biome_type - 0.5) / 0.5;
+                hills_height * (1.0 - t) + mountain_height * t
+            }
+        };
 
-        (32.0 + flat_height + mountain_height).round() as i32
+        height.round() as i32
     }
 
     /// Check if a location is a cave entrance point (~25% of cave areas)
@@ -1882,9 +1922,9 @@ impl App {
             self.breaking_block = None;
             self.break_progress = 0.0;
 
-            // Set cooldown for instant break mode (use base break time as minimum)
+            // Set cooldown for instant break mode (0.1 second between breaks)
             if self.instant_break {
-                self.break_cooldown = BLOCK_BREAK_TIME.max(0.2);
+                self.break_cooldown = 0.1;
             }
 
             return true;

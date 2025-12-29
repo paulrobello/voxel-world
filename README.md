@@ -23,10 +23,16 @@ A GPU-accelerated voxel sandbox using Vulkan compute shaders for real-time ray m
 - **Large Dynamic World** - 512x128x512 block world (16x4x16 chunks, 32³ blocks each)
 - **Chunk Streaming** - Chunks load/unload based on player position (view distance: 6 chunks)
 - **Per-Chunk GPU Uploads** - Only modified chunks uploaded to GPU (~32KB vs 32MB full world)
-- **Procedural Terrain** - Multi-layer noise with mountains and caves
-  - RidgedMulti noise for dramatic mountain ridges
-  - 3D Perlin noise for spaghetti-style cave systems
-  - Biome variation: snow peaks, rocky mountains, grass valleys
+- **Procedural Terrain** - Biome-based generation with distinct regions
+  - **Flat plains**: Gentle grasslands with minimal height variation
+  - **Rolling hills**: Moderate terrain with gradual slopes
+  - **Mountains**: Dramatic peaks using RidgedMulti noise (up to 90 blocks)
+  - Smooth transitions between biome types
+- **Cave Systems** - 3D Perlin noise for spaghetti-style caves
+  - ~25% of caves have surface-exposed entrances
+  - Caves below sea level fill with water
+- **Water Lakes** - Flat water surface at sea level (Y=28) fills valleys
+- **Sandy Beaches** - Sand at water's edge
 - **Trees** - Procedurally placed trees with rounded canopies
 - **16 Block Types** - Stone, dirt, grass, wood, glass, water, torch, and more
 - **Chunk Stats HUD** - Live display of loaded chunks, dirty chunks, and player position

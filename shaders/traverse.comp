@@ -1329,7 +1329,7 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
 
     // Distance-based LOD thresholds for expensive operations
     const float AO_DISTANCE = 48.0;      // Skip AO beyond this distance
-    const float SHADOW_DISTANCE = 64.0;  // Skip shadows beyond this distance
+    const float SHADOW_DISTANCE = 128.0; // Skip shadows beyond this distance (increased for wide FOV)
     const float POINT_LIGHT_DISTANCE = 32.0; // Skip point lights beyond this distance
     const float SKY_EXPOSURE_DISTANCE = 48.0; // Skip sky exposure calc beyond this
     bool nearEnoughForAO = hitDistance < AO_DISTANCE;
