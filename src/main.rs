@@ -100,15 +100,18 @@ use crate::world::World;
 
 const INITIAL_WINDOW_RESOLUTION: PhysicalSize<u32> = PhysicalSize::new(1200, 1080);
 
-// World size in chunks (16x4x16 = 512x128x512 blocks)
-const WORLD_CHUNKS_X: i32 = 16;
+// World height in chunks (fixed - Y dimension is bounded)
 const WORLD_CHUNKS_Y: i32 = 4;
-const WORLD_CHUNKS_Z: i32 = 16;
 
-// World size in blocks
-const WORLD_SIZE_X: usize = WORLD_CHUNKS_X as usize * CHUNK_SIZE;
-const WORLD_SIZE_Y: usize = WORLD_CHUNKS_Y as usize * CHUNK_SIZE;
-const WORLD_SIZE_Z: usize = WORLD_CHUNKS_Z as usize * CHUNK_SIZE;
+// Texture pool dimensions for loaded chunks (X and Z are centered on player)
+// This defines how many chunks can be loaded at once, not world bounds
+const LOADED_CHUNKS_X: i32 = 16; // Chunks loaded in X direction (8 each side of player)
+const LOADED_CHUNKS_Z: i32 = 16; // Chunks loaded in Z direction (8 each side of player)
+
+// GPU texture size in blocks (holds all currently loaded chunks)
+const TEXTURE_SIZE_X: usize = LOADED_CHUNKS_X as usize * CHUNK_SIZE;
+const TEXTURE_SIZE_Y: usize = WORLD_CHUNKS_Y as usize * CHUNK_SIZE;
+const TEXTURE_SIZE_Z: usize = LOADED_CHUNKS_Z as usize * CHUNK_SIZE;
 
 // Terrain generation constants
 /// Sea level for water filling (blocks below this in valleys become water)
@@ -158,10 +161,6 @@ const DAY_CYCLE_DURATION: f32 = 120.0;
 /// Default time of day (0.0 = 6am, 0.5 = 6pm, formula: hours = (v * 24 + 6) % 24)
 /// 0.583 = 20:00 (8pm)
 const DEFAULT_TIME_OF_DAY: f32 = 0.583;
-
-// Block breaking constants
-/// Time in seconds to break a block (base time, varies by block type)
-const BLOCK_BREAK_TIME: f32 = 0.5;
 
 /// Head bob amplitude (in blocks)
 const HEAD_BOB_AMPLITUDE: f64 = 0.04;
@@ -477,8 +476,11 @@ fn generate_chunk_terrain(terrain: &TerrainGenerator, chunk_pos: Vector3<i32>) -
                                     let dist =
                                         ((dx * dx + dz * dz) as f32).sqrt() + (dy as f32 * 0.5);
                                     if dist <= 2.5 {
-                                        let block =
-                                            chunk.get_block(nlx as usize, nly as usize, nlz as usize);
+                                        let block = chunk.get_block(
+                                            nlx as usize,
+                                            nly as usize,
+                                            nlz as usize,
+                                        );
                                         if block == BlockType::Air {
                                             chunk.set_block(
                                                 nlx as usize,
@@ -502,8 +504,8 @@ fn generate_chunk_terrain(terrain: &TerrainGenerator, chunk_pos: Vector3<i32>) -
 
 /// Finds the ground level (highest non-air block) at the given world coordinates.
 fn find_ground_level(world: &World, world_x: i32, world_z: i32) -> i32 {
-    // Search from top of world downward
-    for y in (0..WORLD_SIZE_Y as i32).rev() {
+    // Search from top of world downward (Y dimension is still bounded)
+    for y in (0..TEXTURE_SIZE_Y as i32).rev() {
         let pos = vector![world_x, y, world_z];
         if let Some(block) = world.get_block(pos) {
             if block != BlockType::Air && block != BlockType::Water {
@@ -534,11 +536,7 @@ fn create_initial_world(spawn_chunk: Vector3<i32>) -> World {
             let cx = spawn_chunk.x + dx;
             let cz = spawn_chunk.z + dz;
 
-            // Check horizontal world bounds
-            if cx < 0 || cx >= WORLD_CHUNKS_X || cz < 0 || cz >= WORLD_CHUNKS_Z {
-                continue;
-            }
-
+            // No horizontal bounds check - world is infinite in X/Z
             // Load ALL Y levels within this horizontal range
             for cy in 0..WORLD_CHUNKS_Y {
                 let chunk_pos = vector![cx, cy, cz];
@@ -558,10 +556,10 @@ fn create_game_world_full() -> World {
     let mut world = World::new();
     let terrain = TerrainGenerator::new(42); // Fixed seed for reproducibility
 
-    // Generate all chunks
-    for cx in 0..WORLD_CHUNKS_X {
+    // Generate chunks within the loaded area (centered at origin for legacy mode)
+    for cx in 0..LOADED_CHUNKS_X {
         for cy in 0..WORLD_CHUNKS_Y {
-            for cz in 0..WORLD_CHUNKS_Z {
+            for cz in 0..LOADED_CHUNKS_Z {
                 let chunk_pos = vector![cx, cy, cz];
                 let chunk = generate_chunk_terrain(&terrain, chunk_pos);
                 world.insert_chunk(chunk_pos, chunk);
@@ -571,9 +569,9 @@ fn create_game_world_full() -> World {
 
     // Count non-air blocks
     let mut count = 0;
-    for cx in 0..WORLD_CHUNKS_X {
+    for cx in 0..LOADED_CHUNKS_X {
         for cy in 0..WORLD_CHUNKS_Y {
-            for cz in 0..WORLD_CHUNKS_Z {
+            for cz in 0..LOADED_CHUNKS_Z {
                 if let Some(chunk) = world.get_chunk(vector![cx, cy, cz]) {
                     for x in 0..CHUNK_SIZE {
                         for y in 0..CHUNK_SIZE {
@@ -591,16 +589,15 @@ fn create_game_world_full() -> World {
 
     println!(
         "Created world: {}x{}x{} blocks ({} chunks), {} non-air blocks",
-        WORLD_SIZE_X,
-        WORLD_SIZE_Y,
-        WORLD_SIZE_Z,
-        WORLD_CHUNKS_X * WORLD_CHUNKS_Y * WORLD_CHUNKS_Z,
+        TEXTURE_SIZE_X,
+        TEXTURE_SIZE_Y,
+        TEXTURE_SIZE_Z,
+        LOADED_CHUNKS_X * WORLD_CHUNKS_Y * LOADED_CHUNKS_Z,
         count
     );
 
     world
 }
-
 
 fn get_allocators(
     device: &Arc<Device>,
@@ -1115,6 +1112,9 @@ struct App {
     last_player_chunk: Vector3<i32>,
     /// The GPU 3D texture storing voxel data (for partial updates).
     voxel_image: Arc<Image>,
+    /// Texture origin in world blocks - the world position that maps to texture coord (0,0,0).
+    /// This moves as the player explores, enabling infinite worlds.
+    texture_origin: Vector3<i32>,
     /// Current chunk statistics for HUD display.
     chunk_stats: ChunkStats,
     /// Terrain generator for creating new chunks.
@@ -1263,19 +1263,25 @@ impl App {
         let resample_pipeline =
             HotReloadComputePipeline::new(device.clone(), &shaders_dir.join("resample.comp"));
 
-        // Calculate spawn chunk (center of world)
-        let spawn_chunk = vector![
-            WORLD_CHUNKS_X / 2,
-            0, // Ground level is in chunk y=0
-            WORLD_CHUNKS_Z / 2
-        ];
+        // Calculate spawn chunk (at world origin for infinite worlds)
+        let spawn_chunk = vector![0, 0, 0];
+
+        // Texture origin: the world position that maps to texture coordinate (0,0,0)
+        // For infinite worlds, this is offset so the player starts in the middle of the texture
+        let texture_origin = Vector3::new(
+            -(LOADED_CHUNKS_X / 2) * CHUNK_SIZE as i32,
+            0, // Y always starts at 0
+            -(LOADED_CHUNKS_Z / 2) * CHUNK_SIZE as i32,
+        );
 
         // Create world with only chunks near spawn loaded
         let world = create_initial_world(spawn_chunk);
+
+        // Texture dimensions (not world bounds - world is infinite)
         let world_extent = [
-            WORLD_SIZE_X as u32,
-            WORLD_SIZE_Y as u32,
-            WORLD_SIZE_Z as u32,
+            TEXTURE_SIZE_X as u32,
+            TEXTURE_SIZE_Y as u32,
+            TEXTURE_SIZE_Z as u32,
         ];
 
         // Create empty GPU texture (chunks will be uploaded by update_chunk_loading)
@@ -1317,17 +1323,19 @@ impl App {
 
         let input = WinitInputHelper::new();
 
-        // Spawn near center of world, find ground level
-        let spawn_x = (WORLD_SIZE_X / 2) as i32;
-        let spawn_z = (WORLD_SIZE_Z / 2) as i32;
+        // Spawn at world origin (0, ground_level, 0) for infinite worlds
+        let spawn_x = 0;
+        let spawn_z = 0;
         let spawn_y = find_ground_level(&world, spawn_x, spawn_z);
         let spawn_pos = Vector3::new(spawn_x as f64, spawn_y as f64 + 1.0, spawn_z as f64);
 
-        // Convert spawn position to normalized camera coordinates
+        // Convert spawn position to texture-relative normalized camera coordinates
+        // Camera position is relative to texture_origin, then normalized by texture size
+        let texture_relative_pos = spawn_pos - texture_origin.cast::<f64>();
         let camera_pos = Vector3::new(
-            spawn_pos.x / world_extent[0] as f64,
-            (spawn_pos.y + PLAYER_EYE_HEIGHT) / world_extent[1] as f64,
-            spawn_pos.z / world_extent[2] as f64,
+            texture_relative_pos.x / world_extent[0] as f64,
+            (texture_relative_pos.y + PLAYER_EYE_HEIGHT) / world_extent[1] as f64,
+            texture_relative_pos.z / world_extent[2] as f64,
         );
 
         let mut camera = Camera::new(
@@ -1385,6 +1393,7 @@ impl App {
 
             last_player_chunk: vector![0, 0, 0],
             voxel_image,
+            texture_origin,
             chunk_stats: ChunkStats::default(),
             terrain_generator: TerrainGenerator::new(42),
 
@@ -1423,11 +1432,17 @@ impl App {
             self.world_extent[1] as f64,
             self.world_extent[2] as f64,
         );
-        let eye_pos = self.camera.position.component_mul(&scale);
-        Vector3::new(eye_pos.x, eye_pos.y - PLAYER_EYE_HEIGHT, eye_pos.z)
+        // Camera position is in texture-relative normalized coords
+        // Convert to texture coords, then to world coords by adding texture_origin
+        let texture_pos = self.camera.position.component_mul(&scale);
+        Vector3::new(
+            texture_pos.x + self.texture_origin.x as f64,
+            texture_pos.y - PLAYER_EYE_HEIGHT + self.texture_origin.y as f64,
+            texture_pos.z + self.texture_origin.z as f64,
+        )
     }
 
-    /// Gets the chunk position the player is currently in.
+    /// Gets the chunk position the player is currently in (world chunk coordinates).
     fn get_player_chunk(&self) -> Vector3<i32> {
         let feet = self.player_feet_pos();
         vector![
@@ -1442,16 +1457,14 @@ impl App {
     fn update_chunk_loading(&mut self) -> (usize, usize) {
         let player_chunk = self.get_player_chunk();
 
-        // World bounds for chunk loading
-        let min_chunk = vector![0, 0, 0];
-        let max_chunk = vector![WORLD_CHUNKS_X - 1, WORLD_CHUNKS_Y - 1, WORLD_CHUNKS_Z - 1];
+        // Infinite world in X/Z, bounded in Y (0 to WORLD_CHUNKS_Y-1)
+        let min_chunk = vector![i32::MIN, 0, i32::MIN];
+        let max_chunk = vector![i32::MAX, WORLD_CHUNKS_Y - 1, i32::MAX];
 
         // Load nearby chunks - collect data for batched upload
-        let to_load = self.world.get_chunks_to_load(
-            player_chunk,
-            VIEW_DISTANCE,
-            (min_chunk, max_chunk),
-        );
+        let to_load =
+            self.world
+                .get_chunks_to_load(player_chunk, VIEW_DISTANCE, (min_chunk, max_chunk));
 
         let mut chunks_to_upload: Vec<(Vector3<i32>, Vec<u8>)> = Vec::new();
         let mut loaded = 0;
@@ -1477,7 +1490,9 @@ impl App {
         }
 
         // Unload distant chunks - collect positions for batched clear
-        let to_unload = self.world.get_chunks_to_unload(player_chunk, UNLOAD_DISTANCE);
+        let to_unload = self
+            .world
+            .get_chunks_to_unload(player_chunk, UNLOAD_DISTANCE);
         let mut chunks_to_clear: Vec<(Vector3<i32>, Vec<u8>)> = Vec::new();
 
         let mut unloaded = 0;
@@ -1498,7 +1513,8 @@ impl App {
         self.chunk_stats = ChunkStats {
             loaded_count: self.world.chunk_count(),
             dirty_count: self.world.dirty_chunk_count(),
-            memory_mb: (WORLD_SIZE_X * WORLD_SIZE_Y * WORLD_SIZE_Z) as f32 / (1024.0 * 1024.0),
+            memory_mb: (TEXTURE_SIZE_X * TEXTURE_SIZE_Y * TEXTURE_SIZE_Z) as f32
+                / (1024.0 * 1024.0),
         };
 
         // Update last player chunk
@@ -1514,20 +1530,24 @@ impl App {
             self.world_extent[1] as f64,
             self.world_extent[2] as f64,
         );
+        // Convert world coords to texture coords, then to normalized camera coords
+        let texture_pos = Vector3::new(
+            feet_pos.x - self.texture_origin.x as f64,
+            feet_pos.y - self.texture_origin.y as f64,
+            feet_pos.z - self.texture_origin.z as f64,
+        );
         self.camera.position = Vector3::new(
-            feet_pos.x / scale.x,
-            (feet_pos.y + PLAYER_EYE_HEIGHT) / scale.y,
-            feet_pos.z / scale.z,
+            texture_pos.x / scale.x,
+            (texture_pos.y + PLAYER_EYE_HEIGHT) / scale.y,
+            texture_pos.z / scale.z,
         );
     }
 
     /// Checks if a block position is solid (not air, water, or other non-solid blocks).
     fn is_solid(&self, x: i32, y: i32, z: i32) -> bool {
-        if x < 0 || y < 0 || z < 0 {
-            return false; // Out of bounds = not solid (can fall out of world)
-        }
-        if x >= WORLD_SIZE_X as i32 || y >= WORLD_SIZE_Y as i32 || z >= WORLD_SIZE_Z as i32 {
-            return false;
+        // Y is bounded, X and Z are infinite (handled by World returning None for unloaded chunks)
+        if y < 0 || y >= TEXTURE_SIZE_Y as i32 {
+            return false; // Out of Y bounds = not solid (can fall out of world)
         }
         self.world
             .get_block(Vector3::new(x, y, z))
@@ -1536,10 +1556,8 @@ impl App {
 
     /// Checks if the block at given position is water.
     fn is_water(&self, x: i32, y: i32, z: i32) -> bool {
-        if x < 0 || y < 0 || z < 0 {
-            return false;
-        }
-        if x >= WORLD_SIZE_X as i32 || y >= WORLD_SIZE_Y as i32 || z >= WORLD_SIZE_Z as i32 {
+        // Y is bounded, X and Z are infinite
+        if y < 0 || y >= TEXTURE_SIZE_Y as i32 {
             return false;
         }
         self.world.get_block(Vector3::new(x, y, z)) == Some(BlockType::Water)
@@ -1676,10 +1694,8 @@ impl App {
             feet.y += self.player_velocity.y * delta_time;
             feet.z += self.player_velocity.z * delta_time;
 
-            // Clamp to world bounds
-            feet.x = feet.x.clamp(0.5, WORLD_SIZE_X as f64 - 0.5);
-            feet.y = feet.y.clamp(0.5, WORLD_SIZE_Y as f64 - 0.5);
-            feet.z = feet.z.clamp(0.5, WORLD_SIZE_Z as f64 - 0.5);
+            // Clamp to Y bounds only (X/Z are infinite)
+            feet.y = feet.y.clamp(0.5, TEXTURE_SIZE_Y as f64 - 0.5);
         } else if touching_water {
             // Swimming mode: reduced gravity, buoyancy, vertical swim controls
 
@@ -1825,8 +1841,9 @@ impl App {
 
     /// Gets a safe spawn position on land.
     fn get_spawn_position(&self) -> Vector3<f64> {
-        let spawn_x = (WORLD_SIZE_X / 2) as i32;
-        let spawn_z = (WORLD_SIZE_Z / 2) as i32;
+        // Spawn at world origin (0, 0) for infinite world
+        let spawn_x = 0;
+        let spawn_z = 0;
         let spawn_y = find_ground_level(&self.world, spawn_x, spawn_z);
         Vector3::new(spawn_x as f64, spawn_y as f64 + 1.0, spawn_z as f64)
     }
@@ -1900,13 +1917,7 @@ impl App {
         // Check if block is fully broken
         if self.break_progress >= 1.0 {
             // Bounds check
-            if target.x >= 0
-                && target.x < WORLD_SIZE_X as i32
-                && target.y >= 0
-                && target.y < WORLD_SIZE_Y as i32
-                && target.z >= 0
-                && target.z < WORLD_SIZE_Z as i32
-            {
+            if target.x >= 0 && target.y >= 0 && target.y < TEXTURE_SIZE_Y as i32 {
                 // Get block color for particles before breaking
                 if let Some(block_type) = self.world.get_block(target) {
                     let color = block_type.color();
@@ -1937,14 +1948,8 @@ impl App {
     fn place_block(&mut self) {
         if let Some(hit) = &self.current_hit {
             let place_pos = get_place_position(hit);
-            // Bounds check
-            if place_pos.x >= 0
-                && place_pos.x < WORLD_SIZE_X as i32
-                && place_pos.y >= 0
-                && place_pos.y < WORLD_SIZE_Y as i32
-                && place_pos.z >= 0
-                && place_pos.z < WORLD_SIZE_Z as i32
-            {
+            // Bounds check (Y only, X/Z are infinite)
+            if place_pos.y >= 0 && place_pos.y < TEXTURE_SIZE_Y as i32 {
                 // Don't place if it would be inside the player (convert camera to world coords)
                 let scale = Vector3::new(
                     self.world_extent[0] as f32,
@@ -1999,11 +2004,29 @@ impl App {
         let mut buffers_and_regions = Vec::with_capacity(chunks.len());
 
         for (chunk_pos, block_data) in chunks {
-            let offset = [
-                (chunk_pos.x * CHUNK_SIZE as i32) as u32,
-                (chunk_pos.y * CHUNK_SIZE as i32) as u32,
-                (chunk_pos.z * CHUNK_SIZE as i32) as u32,
-            ];
+            // Convert world chunk position to texture position
+            // World block position = chunk_pos * CHUNK_SIZE
+            // Texture block position = world_block_pos - texture_origin
+            let world_block_x = chunk_pos.x * CHUNK_SIZE as i32;
+            let world_block_y = chunk_pos.y * CHUNK_SIZE as i32;
+            let world_block_z = chunk_pos.z * CHUNK_SIZE as i32;
+
+            let texture_x = world_block_x - self.texture_origin.x;
+            let texture_y = world_block_y - self.texture_origin.y;
+            let texture_z = world_block_z - self.texture_origin.z;
+
+            // Skip chunks outside texture bounds
+            if texture_x < 0
+                || texture_y < 0
+                || texture_z < 0
+                || texture_x + CHUNK_SIZE as i32 > TEXTURE_SIZE_X as i32
+                || texture_y + CHUNK_SIZE as i32 > TEXTURE_SIZE_Y as i32
+                || texture_z + CHUNK_SIZE as i32 > TEXTURE_SIZE_Z as i32
+            {
+                continue;
+            }
+
+            let offset = [texture_x as u32, texture_y as u32, texture_z as u32];
 
             let src_buffer = Buffer::from_iter(
                 self.memory_allocator.clone(),
@@ -2051,12 +2074,14 @@ impl App {
         }
 
         // Execute - batching reduces per-chunk overhead significantly
-        let _ = command_buffer_builder
+        command_buffer_builder
             .build()
             .unwrap()
             .execute(self.queue.clone())
             .unwrap()
             .then_signal_fence_and_flush()
+            .unwrap()
+            .wait(None)
             .unwrap();
     }
 
@@ -2073,7 +2098,10 @@ impl App {
             return;
         }
 
-        println!("Uploading {} initial chunks to GPU...", chunks_to_upload.len());
+        println!(
+            "Uploading {} initial chunks to GPU...",
+            chunks_to_upload.len()
+        );
 
         // Upload all at once
         self.upload_chunks_batched(&chunks_to_upload);
@@ -2164,26 +2192,13 @@ impl App {
         let mut chunks_to_upload: Vec<(Vector3<i32>, Vec<u8>)> = Vec::new();
         let mut dirty_positions: Vec<Vector3<i32>> = Vec::new();
 
-        // Collect dirty chunks
-        for cx in 0..WORLD_CHUNKS_X {
-            if chunks_to_upload.len() >= CHUNKS_PER_FRAME {
-                break;
-            }
-            for cy in 0..WORLD_CHUNKS_Y {
+        // Collect dirty chunks from all loaded chunks
+        for (chunk_pos, chunk) in self.world.chunks() {
+            if chunk.dirty {
+                chunks_to_upload.push((*chunk_pos, chunk.to_block_data()));
+                dirty_positions.push(*chunk_pos);
                 if chunks_to_upload.len() >= CHUNKS_PER_FRAME {
                     break;
-                }
-                for cz in 0..WORLD_CHUNKS_Z {
-                    if chunks_to_upload.len() >= CHUNKS_PER_FRAME {
-                        break;
-                    }
-                    let chunk_pos = vector![cx, cy, cz];
-                    if let Some(chunk) = self.world.get_chunk(chunk_pos) {
-                        if chunk.dirty {
-                            chunks_to_upload.push((chunk_pos, chunk.to_block_data()));
-                            dirty_positions.push(chunk_pos);
-                        }
-                    }
                 }
             }
         }
@@ -2209,36 +2224,26 @@ impl App {
     fn collect_torch_lights(&self) -> Vec<GpuLight> {
         let mut lights = Vec::new();
 
-        // Iterate over all chunks
-        for cx in 0..WORLD_CHUNKS_X {
-            for cy in 0..WORLD_CHUNKS_Y {
-                for cz in 0..WORLD_CHUNKS_Z {
-                    let chunk_pos = vector![cx, cy, cz];
-                    if let Some(chunk) = self.world.get_chunk(chunk_pos) {
-                        // Scan chunk for torches
-                        for lx in 0..CHUNK_SIZE {
-                            for ly in 0..CHUNK_SIZE {
-                                for lz in 0..CHUNK_SIZE {
-                                    let block = chunk.get_block(lx, ly, lz);
-                                    if let Some((color, radius)) = block.light_properties() {
-                                        // Calculate world position (center of block)
-                                        let world_x =
-                                            cx as f32 * CHUNK_SIZE as f32 + lx as f32 + 0.5;
-                                        let world_y =
-                                            cy as f32 * CHUNK_SIZE as f32 + ly as f32 + 0.5;
-                                        let world_z =
-                                            cz as f32 * CHUNK_SIZE as f32 + lz as f32 + 0.5;
+        // Iterate over all loaded chunks
+        for (chunk_pos, chunk) in self.world.chunks() {
+            // Scan chunk for torches
+            for lx in 0..CHUNK_SIZE {
+                for ly in 0..CHUNK_SIZE {
+                    for lz in 0..CHUNK_SIZE {
+                        let block = chunk.get_block(lx, ly, lz);
+                        if let Some((color, radius)) = block.light_properties() {
+                            // Calculate world position (center of block)
+                            let world_x = chunk_pos.x as f32 * CHUNK_SIZE as f32 + lx as f32 + 0.5;
+                            let world_y = chunk_pos.y as f32 * CHUNK_SIZE as f32 + ly as f32 + 0.5;
+                            let world_z = chunk_pos.z as f32 * CHUNK_SIZE as f32 + lz as f32 + 0.5;
 
-                                        lights.push(GpuLight {
-                                            pos_radius: [world_x, world_y, world_z, radius],
-                                            color_intensity: [color[0], color[1], color[2], 1.2],
-                                        });
+                            lights.push(GpuLight {
+                                pos_radius: [world_x, world_y, world_z, radius],
+                                color_intensity: [color[0], color[1], color[2], 1.2],
+                            });
 
-                                        if lights.len() >= MAX_LIGHTS {
-                                            return lights;
-                                        }
-                                    }
-                                }
+                            if lights.len() >= MAX_LIGHTS {
+                                return lights;
                             }
                         }
                     }
@@ -2259,15 +2264,23 @@ impl App {
             // Debug stats output
             let player_pos = self.player_feet_pos();
             let player_chunk = self.get_player_chunk();
-            let frame_time_ms = if self.fps > 0 { 1000.0 / self.fps as f32 } else { 0.0 };
+            let frame_time_ms = if self.fps > 0 {
+                1000.0 / self.fps as f32
+            } else {
+                0.0
+            };
             println!(
                 "[STATS] FPS: {} ({:.1}ms) | Chunks: {} | Dirty: {} | Pos: ({:.1}, {:.1}, {:.1}) | Chunk: ({}, {}, {}) | Scale: {:.2}",
                 self.fps,
                 frame_time_ms,
                 self.chunk_stats.loaded_count,
                 self.chunk_stats.dirty_count,
-                player_pos.x, player_pos.y, player_pos.z,
-                player_chunk.x, player_chunk.y, player_chunk.z,
+                player_pos.x,
+                player_pos.y,
+                player_pos.z,
+                player_chunk.x,
+                player_chunk.y,
+                player_chunk.z,
                 self.render_scale
             );
         }
@@ -2820,10 +2833,7 @@ impl App {
                                     );
 
                                     // Draw number label
-                                    let text_pos = egui::pos2(
-                                        rect.center().x,
-                                        rect.max.y - 8.0,
-                                    );
+                                    let text_pos = egui::pos2(rect.center().x, rect.max.y - 8.0);
                                     ui.painter().text(
                                         text_pos,
                                         egui::Align2::CENTER_CENTER,
@@ -2872,9 +2882,10 @@ impl App {
         #[repr(C)]
         struct PushConstants {
             pixel_to_ray: Matrix4<f32>,
-            world_size_x: u32,
-            world_size_y: u32,
-            world_size_z: u32,
+            // Texture dimensions (not world bounds - world is infinite)
+            texture_size_x: u32,
+            texture_size_y: u32,
+            texture_size_z: u32,
             render_mode: u32,
             show_chunk_boundaries: u32,
             player_in_water: u32,
@@ -2904,6 +2915,11 @@ impl App {
             target_block_z: i32,
             // Maximum ray marching steps
             max_ray_steps: u32,
+            // Texture origin in world coordinates (world pos that maps to texture 0,0,0)
+            texture_origin_x: i32,
+            texture_origin_y: i32,
+            texture_origin_z: i32,
+            _padding: u32, // Alignment padding
         }
         let (break_x, break_y, break_z) = self
             .breaking_block
@@ -2925,12 +2941,8 @@ impl App {
                 );
                 let player_pos = self.camera.position.cast::<f32>().component_mul(&scale);
                 let block_center = place_pos.cast::<f32>() + Vector3::new(0.5, 0.5, 0.5);
-                let in_bounds = place_pos.x >= 0
-                    && place_pos.x < WORLD_SIZE_X as i32
-                    && place_pos.y >= 0
-                    && place_pos.y < WORLD_SIZE_Y as i32
-                    && place_pos.z >= 0
-                    && place_pos.z < WORLD_SIZE_Z as i32;
+                // Y bounds only (X/Z are infinite)
+                let in_bounds = place_pos.y >= 0 && place_pos.y < TEXTURE_SIZE_Y as i32;
                 let not_in_player = (player_pos - block_center).norm() > 1.5;
                 if in_bounds && not_in_player {
                     (place_pos.x, place_pos.y, place_pos.z, selected_block_id)
@@ -2967,9 +2979,9 @@ impl App {
 
         let push_constants = PushConstants {
             pixel_to_ray: pixel_to_ray.cast(),
-            world_size_x: self.world_extent[0],
-            world_size_y: self.world_extent[1],
-            world_size_z: self.world_extent[2],
+            texture_size_x: self.world_extent[0],
+            texture_size_y: self.world_extent[1],
+            texture_size_z: self.world_extent[2],
             render_mode: self.render_mode as u32,
             show_chunk_boundaries: self.show_chunk_boundaries as u32,
             player_in_water: self.in_water as u32,
@@ -2991,6 +3003,10 @@ impl App {
             target_block_y: target_y,
             target_block_z: target_z,
             max_ray_steps: self.max_ray_steps,
+            texture_origin_x: self.texture_origin.x,
+            texture_origin_y: self.texture_origin.y,
+            texture_origin_z: self.texture_origin.z,
+            _padding: 0,
         };
 
         let mut builder = AutoCommandBufferBuilder::primary(

@@ -32,9 +32,10 @@ const uint CHUNK_SIZE = 32;
 
 layout(push_constant) uniform PushConstants {
     mat4 pixelToRay;
-    uint world_size_x;
-    uint world_size_y;
-    uint world_size_z;
+    // Texture dimensions (the loaded chunk window, not world bounds)
+    uint texture_size_x;
+    uint texture_size_y;
+    uint texture_size_z;
     uint render_mode;
     uint show_chunk_boundaries;
     uint player_in_water;
@@ -64,6 +65,12 @@ layout(push_constant) uniform PushConstants {
     int target_block_z;
     // Maximum ray marching steps
     uint max_ray_steps;
+    // Texture origin in world coordinates (world position that maps to texture 0,0,0)
+    // Used for infinite world support - texture is a sliding window
+    int texture_origin_x;
+    int texture_origin_y;
+    int texture_origin_z;
+    uint _padding;
 } pc;
 
 // Particle data (set 3)
@@ -86,13 +93,39 @@ layout(set = 4, binding = 0) readonly buffer LightBuffer {
     PointLight lights[];
 };
 
-// Helper to get world size as vec3
+// Helper to get texture size as vec3 (the loaded chunk window)
+vec3 textureSize3D() {
+    return vec3(pc.texture_size_x, pc.texture_size_y, pc.texture_size_z);
+}
+
+uvec3 textureSizeU() {
+    return uvec3(pc.texture_size_x, pc.texture_size_y, pc.texture_size_z);
+}
+
+// Get texture origin (world position that maps to texture 0,0,0)
+ivec3 textureOrigin() {
+    return ivec3(pc.texture_origin_x, pc.texture_origin_y, pc.texture_origin_z);
+}
+
+// Convert world coordinate to texture coordinate
+ivec3 worldToTexture(ivec3 worldCoord) {
+    return worldCoord - textureOrigin();
+}
+
+// Check if a texture coordinate is within the loaded texture bounds
+bool isInTextureBounds(ivec3 texCoord) {
+    return texCoord.x >= 0 && texCoord.x < int(pc.texture_size_x) &&
+           texCoord.y >= 0 && texCoord.y < int(pc.texture_size_y) &&
+           texCoord.z >= 0 && texCoord.z < int(pc.texture_size_z);
+}
+
+// Legacy compatibility - worldSize now means textureSize for ray marching bounds
 vec3 worldSize() {
-    return vec3(pc.world_size_x, pc.world_size_y, pc.world_size_z);
+    return textureSize3D();
 }
 
 uvec3 worldSizeU() {
-    return uvec3(pc.world_size_x, pc.world_size_y, pc.world_size_z);
+    return textureSizeU();
 }
 
 layout(set = 0, binding = 0, rgba8) writeonly uniform image2D targetImage;
@@ -389,9 +422,15 @@ vec3 applyFog(vec3 color, float distance, vec3 rayDir) {
     return mix(color, fogColor, fogFactor);
 }
 
-// Read block type at given coordinate (0 = air, non-zero = solid)
-uint readBlockType(ivec3 coord) {
-    return imageLoad(blockImage, coord).r;
+// Read block type at given world coordinate
+// Translates world coords to texture coords using texture_origin
+uint readBlockType(ivec3 worldCoord) {
+    ivec3 texCoord = worldToTexture(worldCoord);
+    // Return air for coordinates outside loaded texture bounds
+    if (!isInTextureBounds(texCoord)) {
+        return BLOCK_AIR;
+    }
+    return imageLoad(blockImage, texCoord).r;
 }
 
 // Check if block at coordinate is solid (non-air)
@@ -500,14 +539,13 @@ float getSkyExposure(vec3 origin) {
     // March upward through voxels (increased for taller world: 128 blocks)
     for (int i = 0; i < 128; i++) {
         // Check if we've exited the world (reached sky)
-        if (pos.y >= int(pc.world_size_y)) {
+        if (pos.y >= int(pc.texture_size_y)) {
             return 1.0;  // Reached sky = full exposure
         }
 
-        // Check bounds (shouldn't happen going up, but safety)
-        if (pos.x < 0 || pos.x >= int(pc.world_size_x) ||
-            pos.z < 0 || pos.z >= int(pc.world_size_z)) {
-            return 1.0;  // Out of bounds = assume sky
+        // For infinite world, check if position is within loaded texture bounds
+        if (!isInTextureBounds(worldToTexture(pos))) {
+            return 1.0;  // Out of loaded area = assume sky
         }
 
         // Check for solid block
@@ -1469,7 +1507,7 @@ void main() {
 
     if (pc.render_mode == STEPS) {
         // Use max dimension for step count scaling
-        uint maxDim = max(pc.world_size_x, max(pc.world_size_y, pc.world_size_z));
+        uint maxDim = max(pc.texture_size_x, max(pc.texture_size_y, pc.texture_size_z));
         color = stepsToInferno(steps, 0, (maxDim - 1) * 3);
     } else if (hit) {
         // Render target block outline (wireframe around block player is looking at)
