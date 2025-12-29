@@ -2987,9 +2987,15 @@ impl App {
         // Scale only the position (column 4), not the direction (3x3 rotation part)
         // This prevents ray distortion from non-uniform world dimensions
         let mut pixel_to_ray_scaled = pixel_to_ray;
+        // Camera position is normalized (0-1), scale to texture size
         pixel_to_ray_scaled.m14 *= self.world_extent[0] as f64;
         pixel_to_ray_scaled.m24 *= self.world_extent[1] as f64;
         pixel_to_ray_scaled.m34 *= self.world_extent[2] as f64;
+        // Convert from texture coordinates to world coordinates by adding texture_origin
+        // This allows the shader to work in world coords and use worldToTexture() for lookups
+        pixel_to_ray_scaled.m14 += self.texture_origin.x as f64;
+        pixel_to_ray_scaled.m24 += self.texture_origin.y as f64;
+        pixel_to_ray_scaled.m34 += self.texture_origin.z as f64;
 
         // Apply head bob offset to camera Y position for rendering
         let head_bob_offset = (self.head_bob_timer * std::f64::consts::TAU).sin()
