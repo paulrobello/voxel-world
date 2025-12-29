@@ -35,6 +35,7 @@ mod macos_cursor {
     pub fn release_and_show() {}
 }
 
+use clap::Parser;
 use egui_winit_vulkano::{Gui, GuiConfig, egui};
 use nalgebra::{Matrix4, Vector3, vector};
 use noise::{Fbm, MultiFractal, NoiseFn, Perlin, RidgedMulti};
@@ -98,6 +99,56 @@ use crate::particles::ParticleSystem;
 use crate::raycast::{MAX_RAYCAST_DISTANCE, RaycastHit, get_place_position, raycast};
 use crate::world::World;
 
+/// Voxel Game Engine - A Minecraft-like voxel game with GPU ray-marching rendering.
+#[derive(Parser, Debug, Clone)]
+#[command(name = "voxel_ray_traversal")]
+#[command(version, about, long_about = None)]
+struct Args {
+    /// Spawn X coordinate in world blocks (default: auto-find suitable location)
+    #[arg(long, short = 'x')]
+    spawn_x: Option<i32>,
+
+    /// Spawn Z coordinate in world blocks (default: auto-find suitable location)
+    #[arg(long, short = 'z')]
+    spawn_z: Option<i32>,
+
+    /// Take screenshot after N seconds and save to voxel_world_screen_shot.png
+    #[arg(long, short = 's')]
+    screenshot_delay: Option<f64>,
+
+    /// Print debug info every N frames (0 = off)
+    #[arg(long, short = 'd', default_value_t = 0)]
+    debug_interval: u32,
+
+    /// Start in fly mode
+    #[arg(long, short = 'f')]
+    fly_mode: bool,
+
+    /// Pause day/night cycle at specific time (0.0-1.0, where 0.5 = noon)
+    #[arg(long, short = 't')]
+    time_of_day: Option<f64>,
+
+    /// Enable chunk boundary visualization
+    #[arg(long, short = 'b')]
+    show_chunk_boundaries: bool,
+
+    /// Set view distance in chunks (default: 6)
+    #[arg(long, short = 'v')]
+    view_distance: Option<i32>,
+
+    /// Seed for terrain generation (default: 42)
+    #[arg(long)]
+    seed: Option<u32>,
+
+    /// Start in render mode: textured, normal, coord, steps, uv, depth (default: textured)
+    #[arg(long, short = 'r')]
+    render_mode: Option<String>,
+
+    /// Verbose debug output to console
+    #[arg(long)]
+    verbose: bool,
+}
+
 const INITIAL_WINDOW_RESOLUTION: PhysicalSize<u32> = PhysicalSize::new(1200, 1080);
 
 // World height in chunks (fixed - Y dimension is bounded)
@@ -121,7 +172,7 @@ const SEA_LEVEL: i32 = 28;
 /// View distance in chunks (horizontal - all Y levels loaded within this range)
 const VIEW_DISTANCE: i32 = 6;
 /// Unload distance in chunks (horizontal - chunks beyond this are unloaded)
-const UNLOAD_DISTANCE: i32 = 8;
+const UNLOAD_DISTANCE: i32 = 7;
 /// Maximum chunks to load or unload per frame
 const CHUNKS_PER_FRAME: usize = 4;
 
@@ -132,8 +183,6 @@ const GRAVITY: f64 = 20.0;
 const JUMP_VELOCITY: f64 = 8.0;
 /// Player movement speed in blocks per second
 const MOVE_SPEED: f64 = 5.0;
-/// Player sprint speed in blocks per second
-const SPRINT_SPEED: f64 = 8.0;
 /// Player hitbox half-width (X and Z)
 const PLAYER_HALF_WIDTH: f64 = 0.3;
 /// Player height (from feet to camera)
@@ -519,9 +568,9 @@ fn find_ground_level(world: &World, world_x: i32, world_z: i32) -> i32 {
 
 /// Creates a world with only chunks near the spawn point loaded.
 /// Additional chunks are loaded dynamically as the player moves.
-fn create_initial_world(spawn_chunk: Vector3<i32>) -> World {
+fn create_initial_world_with_seed(spawn_chunk: Vector3<i32>, seed: u32) -> World {
     let mut world = World::new();
-    let terrain = TerrainGenerator::new(42);
+    let terrain = TerrainGenerator::new(seed);
 
     // Load chunks within horizontal view distance, all Y levels
     // Uses circular distance to match runtime loading behavior
@@ -746,6 +795,56 @@ fn get_images_and_sets(
     .unwrap();
 
     (render_image, render_set, resample_image, resample_set)
+}
+
+/// Creates a distance buffer for two-pass beam optimization.
+/// The distance buffer is at 1/4 of render resolution and stores hit distances.
+fn get_distance_image_and_set(
+    memory_allocator: Arc<StandardMemoryAllocator>,
+    descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
+    render_pipeline: &ComputePipeline,
+    render_extent: [u32; 2],
+) -> (Arc<Image>, Arc<DescriptorSet>) {
+    // Distance buffer at 1/4 resolution (1/16 the pixels)
+    let distance_extent = [(render_extent[0] / 4).max(1), (render_extent[1] / 4).max(1)];
+
+    let distance_image = Image::new(
+        memory_allocator,
+        ImageCreateInfo {
+            image_type: ImageType::Dim2d,
+            usage: ImageUsage::STORAGE,
+            format: Format::R32_SFLOAT,
+            extent: [distance_extent[0], distance_extent[1], 1],
+            ..Default::default()
+        },
+        AllocationCreateInfo {
+            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    let distance_image_view = ImageView::new(
+        distance_image.clone(),
+        ImageViewCreateInfo::from_image(&distance_image),
+    )
+    .unwrap();
+
+    let layout = render_pipeline
+        .layout()
+        .set_layouts()
+        .get(6)
+        .unwrap()
+        .clone();
+    let distance_set = DescriptorSet::new(
+        descriptor_set_allocator,
+        layout,
+        [WriteDescriptorSet::image_view(0, distance_image_view)],
+        [],
+    )
+    .unwrap();
+
+    (distance_image, distance_set)
 }
 
 /// Creates an empty voxel texture for the world.
@@ -1035,6 +1134,53 @@ fn get_light_set(
     (light_buffer, descriptor_set)
 }
 
+/// Number of chunks in the metadata buffer (must match shader constants)
+const TOTAL_CHUNKS: usize =
+    LOADED_CHUNKS_X as usize * WORLD_CHUNKS_Y as usize * LOADED_CHUNKS_Z as usize;
+/// Number of u32 words needed to store 1 bit per chunk
+const CHUNK_METADATA_WORDS: usize = TOTAL_CHUNKS.div_ceil(32);
+
+/// Creates a storage buffer and descriptor set for chunk metadata (empty/solid flags).
+fn get_chunk_metadata_set(
+    memory_allocator: Arc<StandardMemoryAllocator>,
+    descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
+    render_pipeline: &ComputePipeline,
+) -> (Subbuffer<[u32]>, Arc<DescriptorSet>) {
+    // Create a storage buffer for chunk metadata (bit-packed flags)
+    let chunk_metadata_buffer = Buffer::new_slice::<u32>(
+        memory_allocator,
+        BufferCreateInfo {
+            usage: BufferUsage::STORAGE_BUFFER,
+            ..Default::default()
+        },
+        AllocationCreateInfo {
+            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+            ..Default::default()
+        },
+        CHUNK_METADATA_WORDS as u64,
+    )
+    .unwrap();
+
+    // Create descriptor set at set index 5
+    let layout = render_pipeline
+        .layout()
+        .set_layouts()
+        .get(5)
+        .unwrap()
+        .clone();
+
+    let descriptor_set = DescriptorSet::new(
+        descriptor_set_allocator,
+        layout,
+        [WriteDescriptorSet::buffer(0, chunk_metadata_buffer.clone())],
+        [],
+    )
+    .unwrap();
+
+    (chunk_metadata_buffer, descriptor_set)
+}
+
 /// Statistics about loaded chunks for HUD display.
 #[derive(Debug, Clone, Copy, Default)]
 struct ChunkStats {
@@ -1074,6 +1220,10 @@ struct App {
     light_buffer: Subbuffer<[GpuLight]>,
     /// GPU descriptor set for lights.
     light_set: Arc<DescriptorSet>,
+    /// GPU buffer for chunk metadata (empty/solid flags).
+    chunk_metadata_buffer: Subbuffer<[u32]>,
+    /// GPU descriptor set for chunk metadata.
+    chunk_metadata_set: Arc<DescriptorSet>,
     /// World dimensions in blocks [X, Y, Z].
     world_extent: [u32; 3],
 
@@ -1092,8 +1242,20 @@ struct App {
     in_water: bool,
     /// Flying mode (no gravity, vertical movement with Space/Shift)
     fly_mode: bool,
+    /// Sprint mode (toggle with Caps Lock for faster movement)
+    sprint_mode: bool,
+    /// Player carries a torch-like light
+    player_light: bool,
     /// Show debug chunk boundary wireframes
     show_chunk_boundaries: bool,
+
+    // Performance profiling toggles
+    /// Enable ambient occlusion
+    enable_ao: bool,
+    /// Enable sun shadow rays
+    enable_shadows: bool,
+    /// Enable point lights (torches)
+    enable_point_lights: bool,
 
     /// Current time of day (0.0 = midnight, 0.5 = noon, 1.0 = midnight)
     time_of_day: f32,
@@ -1103,6 +1265,8 @@ struct App {
     ambient_light: f32,
     /// Fog density (0.0 = no fog, higher = thicker fog)
     fog_density: f32,
+    /// Distance where fog starts (blocks)
+    fog_start: f32,
     /// Maximum ray marching steps (higher = see farther, lower = better FPS)
     max_ray_steps: u32,
     /// Continuous animation time in seconds (for water waves, etc.)
@@ -1148,6 +1312,19 @@ struct App {
     frames_since_last_second: u32,
     fps: u32,
 
+    /// Command-line arguments.
+    args: Args,
+    /// Start time for screenshot delay.
+    start_time: Instant,
+    /// Whether screenshot has been taken yet.
+    screenshot_taken: bool,
+    /// Total frame count since start (for debug interval).
+    total_frames: u64,
+    /// View distance in chunks (adjustable via slider)
+    view_distance: i32,
+    /// Unload distance in chunks (adjustable via slider)
+    unload_distance: i32,
+
     rcx: Option<RenderContext>,
 }
 
@@ -1160,6 +1337,10 @@ struct RenderContext {
     render_set: Arc<DescriptorSet>,
     resample_image: Arc<Image>,
     resample_set: Arc<DescriptorSet>,
+
+    /// Distance buffer for two-pass beam optimization (1/4 resolution)
+    distance_image: Arc<Image>,
+    distance_set: Arc<DescriptorSet>,
 
     gui: Gui,
     /// Texture ID for the atlas in egui.
@@ -1175,6 +1356,17 @@ impl App {
     }
 
     fn new(event_loop: &EventLoop<()>) -> Self {
+        // Parse command line arguments
+        let args = Args::parse();
+
+        if args.verbose {
+            println!("CLI Args: {:?}", args);
+        }
+
+        let seed = args.seed.unwrap_or(42);
+        let view_distance = args.view_distance.unwrap_or(VIEW_DISTANCE);
+        let unload_distance = UNLOAD_DISTANCE;
+
         let library = VulkanLibrary::new().unwrap();
 
         let mut required_extensions = Surface::required_extensions(event_loop).unwrap();
@@ -1263,19 +1455,39 @@ impl App {
         let resample_pipeline =
             HotReloadComputePipeline::new(device.clone(), &shaders_dir.join("resample.comp"));
 
-        // Calculate spawn chunk (at world origin for infinite worlds)
-        let spawn_chunk = vector![0, 0, 0];
+        // Calculate spawn chunk based on CLI args (or default to origin)
+        let spawn_block_x = args.spawn_x.unwrap_or(0);
+        let spawn_block_z = args.spawn_z.unwrap_or(0);
+        let spawn_chunk = vector![
+            spawn_block_x.div_euclid(CHUNK_SIZE as i32),
+            0,
+            spawn_block_z.div_euclid(CHUNK_SIZE as i32)
+        ];
+
+        if args.verbose {
+            println!(
+                "Spawn at block ({}, {}), chunk ({}, {})",
+                spawn_block_x, spawn_block_z, spawn_chunk.x, spawn_chunk.z
+            );
+        }
 
         // Texture origin: the world position that maps to texture coordinate (0,0,0)
-        // For infinite worlds, this is offset so the player starts in the middle of the texture
+        // For infinite worlds, center the texture on the spawn chunk
         let texture_origin = Vector3::new(
-            -(LOADED_CHUNKS_X / 2) * CHUNK_SIZE as i32,
+            (spawn_chunk.x - LOADED_CHUNKS_X / 2) * CHUNK_SIZE as i32,
             0, // Y always starts at 0
-            -(LOADED_CHUNKS_Z / 2) * CHUNK_SIZE as i32,
+            (spawn_chunk.z - LOADED_CHUNKS_Z / 2) * CHUNK_SIZE as i32,
         );
 
+        if args.verbose {
+            println!(
+                "Texture origin: ({}, {}, {})",
+                texture_origin.x, texture_origin.y, texture_origin.z
+            );
+        }
+
         // Create world with only chunks near spawn loaded
-        let world = create_initial_world(spawn_chunk);
+        let world = create_initial_world_with_seed(spawn_chunk, seed);
 
         // Texture dimensions (not world bounds - world is infinite)
         let world_extent = [
@@ -1316,6 +1528,13 @@ impl App {
 
         // Create light buffer and descriptor set
         let (light_buffer, light_set) = get_light_set(
+            memory_allocator.clone(),
+            descriptor_set_allocator.clone(),
+            &render_pipeline,
+        );
+
+        // Create chunk metadata buffer and descriptor set
+        let (chunk_metadata_buffer, chunk_metadata_set) = get_chunk_metadata_set(
             memory_allocator.clone(),
             descriptor_set_allocator.clone(),
             &render_pipeline,
@@ -1370,32 +1589,52 @@ impl App {
             particle_set,
             light_buffer,
             light_set,
+            chunk_metadata_buffer,
+            chunk_metadata_set,
             world_extent,
 
             camera,
-            render_mode: RenderMode::Textured,
-            render_scale: 1.0,
+            render_mode: match args.render_mode.as_deref() {
+                Some("normal") => RenderMode::Normal,
+                Some("coord") => RenderMode::Coord,
+                Some("steps") => RenderMode::Steps,
+                Some("uv") => RenderMode::UV,
+                Some("depth") => RenderMode::Depth,
+                _ => RenderMode::Textured,
+            },
+            render_scale: 0.5, // Lower for better FPS, upscaled to window
 
             player_velocity: Vector3::zeros(),
             on_ground: false,
             head_bob_timer: 0.0,
             head_bob_intensity: 0.0,
             in_water: false,
-            fly_mode: false,
-            show_chunk_boundaries: false,
+            fly_mode: args.fly_mode,
+            sprint_mode: false,
+            player_light: false,
+            show_chunk_boundaries: args.show_chunk_boundaries,
 
-            time_of_day: DEFAULT_TIME_OF_DAY,
-            day_cycle_paused: true,
+            // Performance toggles - all enabled by default
+            enable_ao: true,
+            enable_shadows: true,
+            enable_point_lights: true,
+
+            time_of_day: args
+                .time_of_day
+                .map(|t| t as f32)
+                .unwrap_or(DEFAULT_TIME_OF_DAY),
+            day_cycle_paused: true, // Day cycle paused by default
             ambient_light: 0.1,
-            fog_density: 0.007,
-            max_ray_steps: 512,
+            fog_density: 0.01,
+            fog_start: 128.0,
+            max_ray_steps: 256,
             animation_time: 0.0,
 
-            last_player_chunk: vector![0, 0, 0],
+            last_player_chunk: spawn_chunk,
             voxel_image,
             texture_origin,
             chunk_stats: ChunkStats::default(),
-            terrain_generator: TerrainGenerator::new(42),
+            terrain_generator: TerrainGenerator::new(seed),
 
             hotbar_index: 0,
             current_hit: None,
@@ -1414,6 +1653,13 @@ impl App {
             last_second: Instant::now(),
             frames_since_last_second: 0,
             fps: 0,
+
+            args,
+            start_time: Instant::now(),
+            screenshot_taken: false,
+            total_frames: 0,
+            view_distance,
+            unload_distance,
 
             rcx: None,
         }
@@ -1445,10 +1691,11 @@ impl App {
     /// Gets the chunk position the player is currently in (world chunk coordinates).
     fn get_player_chunk(&self) -> Vector3<i32> {
         let feet = self.player_feet_pos();
+        // Use div_euclid for correct floor division with negative coordinates
         vector![
-            (feet.x as i32) / CHUNK_SIZE as i32,
-            (feet.y as i32) / CHUNK_SIZE as i32,
-            (feet.z as i32) / CHUNK_SIZE as i32
+            (feet.x.floor() as i32).div_euclid(CHUNK_SIZE as i32),
+            (feet.y.floor() as i32).div_euclid(CHUNK_SIZE as i32),
+            (feet.z.floor() as i32).div_euclid(CHUNK_SIZE as i32)
         ]
     }
 
@@ -1493,7 +1740,24 @@ impl App {
             player_chunk.z
         );
 
+        // Save old origin to adjust camera position
+        let old_origin = self.texture_origin;
         self.texture_origin = new_origin;
+
+        // Adjust camera position to maintain the same world position
+        // Camera position is in normalized texture-relative coords:
+        //   camera.position = (world_pos - texture_origin) / scale
+        // When texture_origin changes, we need to adjust camera.position:
+        //   new_camera = old_camera + (old_origin - new_origin) / scale
+        let origin_delta = old_origin - new_origin;
+        let scale = Vector3::new(
+            self.world_extent[0] as f64,
+            self.world_extent[1] as f64,
+            self.world_extent[2] as f64,
+        );
+        self.camera.position.x += origin_delta.x as f64 / scale.x;
+        self.camera.position.y += origin_delta.y as f64 / scale.y;
+        self.camera.position.z += origin_delta.z as f64 / scale.z;
 
         // Re-upload all loaded chunks to their new texture positions
         let chunks_to_upload: Vec<(Vector3<i32>, Vec<u8>)> = self
@@ -1574,7 +1838,13 @@ impl App {
     /// Returns (chunks_loaded, chunks_unloaded) counts.
     fn update_chunk_loading(&mut self) -> (usize, usize) {
         // Check if we need to shift the texture origin first
-        self.check_and_shift_texture_origin();
+        let shifted = self.check_and_shift_texture_origin();
+        if shifted {
+            println!(
+                "Texture origin shifted to ({}, {})",
+                self.texture_origin.x, self.texture_origin.z
+            );
+        }
 
         let player_chunk = self.get_player_chunk();
 
@@ -1585,7 +1855,18 @@ impl App {
         // Load nearby chunks - collect data for batched upload
         let to_load =
             self.world
-                .get_chunks_to_load(player_chunk, VIEW_DISTANCE, (min_chunk, max_chunk));
+                .get_chunks_to_load(player_chunk, self.view_distance, (min_chunk, max_chunk));
+
+        // Only log when there are many chunks to load (reduces console spam)
+        if to_load.len() > 20 {
+            println!(
+                "Loading {} chunks around ({}, {}, {})",
+                to_load.len(),
+                player_chunk.x,
+                player_chunk.y,
+                player_chunk.z
+            );
+        }
 
         let mut chunks_to_upload: Vec<(Vector3<i32>, Vec<u8>)> = Vec::new();
         let mut loaded = 0;
@@ -1613,7 +1894,7 @@ impl App {
         // Unload distant chunks - collect positions for batched clear
         let to_unload = self
             .world
-            .get_chunks_to_unload(player_chunk, UNLOAD_DISTANCE);
+            .get_chunks_to_unload(player_chunk, self.unload_distance);
         let mut chunks_to_clear: Vec<(Vector3<i32>, Vec<u8>)> = Vec::new();
 
         let mut unloaded = 0;
@@ -1628,6 +1909,11 @@ impl App {
         // Batch clear all unloaded chunks
         if !chunks_to_clear.is_empty() {
             self.upload_chunks_batched(&chunks_to_clear);
+        }
+
+        // Update chunk metadata if any chunks were loaded or unloaded
+        if !chunks_to_upload.is_empty() || !chunks_to_clear.is_empty() {
+            self.update_chunk_metadata();
         }
 
         // Update chunk stats
@@ -1782,15 +2068,19 @@ impl App {
             -forward * yaw.cos() - right * yaw.sin(),
         );
 
-        // Determine movement speed based on environment and sprint
-        let sprinting =
-            self.input.key_held(KeyCode::ShiftLeft) || self.input.key_held(KeyCode::ShiftRight);
-        let current_speed = if touching_water {
+        // Determine movement speed based on environment, fly mode, and sprint
+        // Fly mode doubles speed, sprint doubles that again
+        let base_speed = if touching_water {
             SWIM_SPEED
-        } else if sprinting {
-            SPRINT_SPEED
+        } else if self.fly_mode {
+            MOVE_SPEED * 2.0 // Fly mode: 2x speed
         } else {
             MOVE_SPEED
+        };
+        let current_speed = if self.sprint_mode {
+            base_speed * 2.0 // Sprint: 2x current speed
+        } else {
+            base_speed
         };
 
         // Normalize and apply speed
@@ -1805,10 +2095,13 @@ impl App {
         }
 
         if self.fly_mode {
-            // Fly mode: no gravity, E=up, Q=down for vertical movement
-            let fly_speed = if sprinting { SPRINT_SPEED } else { MOVE_SPEED };
-            let up = t(KeyCode::KeyE) - t(KeyCode::KeyQ);
-            self.player_velocity.y = up * fly_speed;
+            // Fly mode: no gravity, Space=up, Shift=down for vertical movement
+            // Use same speed as horizontal (already accounts for fly mode and sprint)
+            let shift_held = (self.input.key_held(KeyCode::ShiftLeft)
+                || self.input.key_held(KeyCode::ShiftRight)) as i32
+                as f64;
+            let up = t(KeyCode::Space) - shift_held;
+            self.player_velocity.y = up * current_speed;
 
             // Move without collision checks in fly mode
             feet.x += self.player_velocity.x * delta_time;
@@ -1828,10 +2121,12 @@ impl App {
             let drag = WATER_DRAG.powf(delta_time);
             self.player_velocity.y *= drag;
 
-            // Swim up with E, swim down with Q (same as fly mode)
-            if self.input.key_held(KeyCode::KeyE) {
+            // Swim up with Space, swim down with Shift (same as fly mode)
+            if self.input.key_held(KeyCode::Space) {
                 self.player_velocity.y = SWIM_UP_SPEED;
-            } else if self.input.key_held(KeyCode::KeyQ) {
+            } else if self.input.key_held(KeyCode::ShiftLeft)
+                || self.input.key_held(KeyCode::ShiftRight)
+            {
                 self.player_velocity.y = -SWIM_DOWN_SPEED;
             }
 
@@ -1971,13 +2266,20 @@ impl App {
 
     /// Performs a raycast from the camera and updates the current hit.
     fn update_raycast(&mut self) {
-        // Camera uses normalized coords (0-1), world uses voxel coords
+        // Camera uses normalized texture-relative coords (0-1), raycast needs world coords
         let scale = Vector3::new(
             self.world_extent[0] as f32,
             self.world_extent[1] as f32,
             self.world_extent[2] as f32,
         );
-        let origin = self.camera.position.cast::<f32>().component_mul(&scale);
+        // Convert camera position from normalized texture coords to texture coords
+        let texture_pos = self.camera.position.cast::<f32>().component_mul(&scale);
+        // Convert texture coords to world coords by adding texture_origin
+        let origin = Vector3::new(
+            texture_pos.x + self.texture_origin.x as f32,
+            texture_pos.y + self.texture_origin.y as f32,
+            texture_pos.z + self.texture_origin.z as f32,
+        );
         let direction = self.camera_direction().cast::<f32>();
 
         self.current_hit = raycast(&self.world, origin, direction, MAX_RAYCAST_DISTANCE);
@@ -2037,8 +2339,8 @@ impl App {
 
         // Check if block is fully broken
         if self.break_progress >= 1.0 {
-            // Bounds check
-            if target.x >= 0 && target.y >= 0 && target.y < TEXTURE_SIZE_Y as i32 {
+            // Bounds check (Y only - X/Z are infinite)
+            if target.y >= 0 && target.y < TEXTURE_SIZE_Y as i32 {
                 // Get block color for particles before breaking
                 if let Some(block_type) = self.world.get_block(target) {
                     let color = block_type.color();
@@ -2087,6 +2389,66 @@ impl App {
                 println!("Place position {:?} out of bounds, ignoring", place_pos);
             }
         }
+    }
+
+    /// Takes a screenshot and saves it to the specified path.
+    fn save_screenshot(&self, image_view: &Arc<ImageView>, path: &str) {
+        let image = image_view.image();
+        let extent = image.extent();
+
+        // Create a buffer to copy the image data into
+        let buffer_size = (extent[0] * extent[1] * 4) as u64; // RGBA
+        let staging_buffer = Buffer::new_slice::<u8>(
+            self.memory_allocator.clone(),
+            BufferCreateInfo {
+                usage: BufferUsage::TRANSFER_DST,
+                ..Default::default()
+            },
+            AllocationCreateInfo {
+                memory_type_filter: MemoryTypeFilter::PREFER_HOST
+                    | MemoryTypeFilter::HOST_RANDOM_ACCESS,
+                ..Default::default()
+            },
+            buffer_size,
+        )
+        .expect("Failed to create screenshot staging buffer");
+
+        // Build command buffer to copy image to buffer
+        let mut builder = AutoCommandBufferBuilder::primary(
+            self.command_buffer_allocator.clone(),
+            self.queue.queue_family_index(),
+            CommandBufferUsage::OneTimeSubmit,
+        )
+        .unwrap();
+
+        builder
+            .copy_image_to_buffer(
+                vulkano::command_buffer::CopyImageToBufferInfo::image_buffer(
+                    image.clone(),
+                    staging_buffer.clone(),
+                ),
+            )
+            .unwrap();
+
+        let command_buffer = builder.build().unwrap();
+
+        // Execute and wait
+        let future = vulkano::sync::now(self.device.clone())
+            .then_execute(self.queue.clone(), command_buffer)
+            .unwrap()
+            .then_signal_fence_and_flush()
+            .unwrap();
+        future.wait(None).unwrap();
+
+        // Read the buffer data
+        let buffer_content = staging_buffer.read().unwrap();
+
+        // Create image and save
+        let img = image::RgbaImage::from_raw(extent[0], extent[1], buffer_content.to_vec())
+            .expect("Failed to create image from buffer");
+
+        img.save(path).expect("Failed to save screenshot");
+        println!("[SCREENSHOT] Saved to {}", path);
     }
 
     /// Uploads dirty chunks to the GPU.
@@ -2238,6 +2600,55 @@ impl App {
         self.world.drain_dirty_chunks();
 
         println!("Initial chunk upload complete.");
+
+        // Update chunk metadata after initial upload
+        self.update_chunk_metadata();
+    }
+
+    /// Updates the chunk metadata buffer on the GPU.
+    ///
+    /// This creates a bit-packed buffer where each bit indicates if a chunk is empty.
+    /// The shader uses this to skip empty chunks during ray traversal for better performance.
+    fn update_chunk_metadata(&mut self) {
+        let mut metadata = vec![0u32; CHUNK_METADATA_WORDS];
+
+        // Iterate over texture-relative chunk positions
+        for cy in 0..WORLD_CHUNKS_Y {
+            for cz in 0..LOADED_CHUNKS_Z {
+                for cx in 0..LOADED_CHUNKS_X {
+                    // Convert texture-relative chunk position to world chunk position
+                    let world_chunk_x = self.texture_origin.x / CHUNK_SIZE as i32 + cx;
+                    let world_chunk_y = cy;
+                    let world_chunk_z = self.texture_origin.z / CHUNK_SIZE as i32 + cz;
+                    let world_chunk_pos = Vector3::new(world_chunk_x, world_chunk_y, world_chunk_z);
+
+                    // Check if chunk exists and is empty
+                    // Use is_empty() which handles dirty metadata internally
+                    let is_empty = self
+                        .world
+                        .get_chunk(world_chunk_pos)
+                        .map(|chunk| chunk.is_empty())
+                        .unwrap_or(true); // Missing chunks are treated as empty
+
+                    if is_empty {
+                        // Set the bit for this chunk
+                        // Index matches shader layout: x + z * CHUNKS_X + y * CHUNKS_X * CHUNKS_Z
+                        let idx = cx as usize
+                            + cz as usize * LOADED_CHUNKS_X as usize
+                            + cy as usize * LOADED_CHUNKS_X as usize * LOADED_CHUNKS_Z as usize;
+                        let word_idx = idx / 32;
+                        let bit_idx = idx % 32;
+                        metadata[word_idx] |= 1u32 << bit_idx;
+                    }
+                }
+            }
+        }
+
+        // Upload metadata to GPU buffer
+        {
+            let mut buffer_write = self.chunk_metadata_buffer.write().unwrap();
+            buffer_write.copy_from_slice(&metadata);
+        }
     }
 
     /// Clears a chunk region in the GPU 3D texture (fills with air).
@@ -2336,6 +2747,9 @@ impl App {
                     chunk.mark_clean();
                 }
             }
+
+            // Update chunk metadata since chunks may have changed empty status
+            self.update_chunk_metadata();
         }
 
         uploaded
@@ -2344,6 +2758,20 @@ impl App {
     /// Collects all torch positions in the world and returns them as GPU light data.
     fn collect_torch_lights(&self) -> Vec<GpuLight> {
         let mut lights = Vec::new();
+
+        // Add player light if enabled (like holding a torch)
+        if self.player_light {
+            let player_pos = self.player_feet_pos();
+            // Light is at player's hand/chest level, convert to texture coordinates for shader
+            let tex_x = (player_pos.x - self.texture_origin.x as f64) as f32;
+            let tex_y =
+                (player_pos.y + PLAYER_EYE_HEIGHT * 0.7 - self.texture_origin.y as f64) as f32;
+            let tex_z = (player_pos.z - self.texture_origin.z as f64) as f32;
+            lights.push(GpuLight {
+                pos_radius: [tex_x, tex_y, tex_z, 12.0], // Torch-like radius
+                color_intensity: [1.0, 0.8, 0.5, 1.5],   // Warm torch color
+            });
+        }
 
         // Iterate over all loaded chunks
         for (chunk_pos, chunk) in self.world.chunks() {
@@ -2354,12 +2782,17 @@ impl App {
                         let block = chunk.get_block(lx, ly, lz);
                         if let Some((color, radius)) = block.light_properties() {
                             // Calculate world position (center of block)
-                            let world_x = chunk_pos.x as f32 * CHUNK_SIZE as f32 + lx as f32 + 0.5;
-                            let world_y = chunk_pos.y as f32 * CHUNK_SIZE as f32 + ly as f32 + 0.5;
-                            let world_z = chunk_pos.z as f32 * CHUNK_SIZE as f32 + lz as f32 + 0.5;
+                            let world_x = chunk_pos.x * CHUNK_SIZE as i32 + lx as i32;
+                            let world_y = chunk_pos.y * CHUNK_SIZE as i32 + ly as i32;
+                            let world_z = chunk_pos.z * CHUNK_SIZE as i32 + lz as i32;
+
+                            // Convert to texture coordinates (shader operates in texture space)
+                            let tex_x = (world_x - self.texture_origin.x) as f32 + 0.5;
+                            let tex_y = (world_y - self.texture_origin.y) as f32 + 0.5;
+                            let tex_z = (world_z - self.texture_origin.z) as f32 + 0.5;
 
                             lights.push(GpuLight {
-                                pos_radius: [world_x, world_y, world_z, radius],
+                                pos_radius: [tex_x, tex_y, tex_z, radius],
                                 color_intensity: [color[0], color[1], color[2], 1.2],
                             });
 
@@ -2376,13 +2809,30 @@ impl App {
     }
 
     fn update(&mut self, event_loop: &ActiveEventLoop) {
+        self.total_frames += 1;
         let now = Instant::now();
+
+        // Check for screenshot delay
+        if let Some(delay) = self.args.screenshot_delay {
+            if !self.screenshot_taken {
+                let elapsed = now.duration_since(self.start_time).as_secs_f64();
+                if elapsed >= delay {
+                    // Mark that we need to take a screenshot on the next render
+                    // The actual screenshot will be taken in render()
+                    println!(
+                        "[SCREENSHOT] Taking screenshot after {:.1}s (saving to voxel_world_screen_shot.png)",
+                        elapsed
+                    );
+                }
+            }
+        }
+
         if now.duration_since(self.last_second) > Duration::from_secs(1) {
             self.fps = self.frames_since_last_second;
             self.frames_since_last_second = 0;
             self.last_second = now;
 
-            // Debug stats output
+            // Debug stats output (always show if verbose, otherwise once per second)
             let player_pos = self.player_feet_pos();
             let player_chunk = self.get_player_chunk();
             let frame_time_ms = if self.fps > 0 {
@@ -2390,22 +2840,68 @@ impl App {
             } else {
                 0.0
             };
+
+            if self.args.verbose {
+                println!(
+                    "[STATS] FPS: {} ({:.1}ms) | Chunks: {} | Dirty: {} | Pos: ({:.1}, {:.1}, {:.1}) | Chunk: ({}, {}, {}) | TexOrigin: ({}, {}) | Scale: {:.2}",
+                    self.fps,
+                    frame_time_ms,
+                    self.chunk_stats.loaded_count,
+                    self.chunk_stats.dirty_count,
+                    player_pos.x,
+                    player_pos.y,
+                    player_pos.z,
+                    player_chunk.x,
+                    player_chunk.y,
+                    player_chunk.z,
+                    self.texture_origin.x,
+                    self.texture_origin.z,
+                    self.render_scale
+                );
+            } else {
+                println!(
+                    "[STATS] FPS: {} ({:.1}ms) | Chunks: {} | Pos: ({:.1}, {:.1}, {:.1}) | Chunk: ({}, {}, {})",
+                    self.fps,
+                    frame_time_ms,
+                    self.chunk_stats.loaded_count,
+                    player_pos.x,
+                    player_pos.y,
+                    player_pos.z,
+                    player_chunk.x,
+                    player_chunk.y,
+                    player_chunk.z,
+                );
+            }
+        }
+        self.frames_since_last_second += 1;
+
+        // Debug interval output
+        if self.args.debug_interval > 0 && self.total_frames % self.args.debug_interval as u64 == 0
+        {
+            let player_pos = self.player_feet_pos();
+            let player_chunk = self.get_player_chunk();
             println!(
-                "[STATS] FPS: {} ({:.1}ms) | Chunks: {} | Dirty: {} | Pos: ({:.1}, {:.1}, {:.1}) | Chunk: ({}, {}, {}) | Scale: {:.2}",
-                self.fps,
-                frame_time_ms,
-                self.chunk_stats.loaded_count,
-                self.chunk_stats.dirty_count,
+                "[DEBUG Frame {}] Pos: ({:.2}, {:.2}, {:.2}) Chunk: ({}, {}, {}) TexOrigin: ({}, {}, {}) Velocity: ({:.2}, {:.2}, {:.2})",
+                self.total_frames,
                 player_pos.x,
                 player_pos.y,
                 player_pos.z,
                 player_chunk.x,
                 player_chunk.y,
                 player_chunk.z,
-                self.render_scale
+                self.texture_origin.x,
+                self.texture_origin.y,
+                self.texture_origin.z,
+                self.player_velocity.x,
+                self.player_velocity.y,
+                self.player_velocity.z
             );
         }
-        self.frames_since_last_second += 1;
+
+        // Always update chunks and upload to GPU, even before delta_time is available
+        // This ensures initial chunks are uploaded on the first frame
+        self.update_chunk_loading();
+        self.upload_world_to_gpu();
 
         let Some(delta_time) = self.input.delta_time().as_ref().map(Duration::as_secs_f64) else {
             return;
@@ -2525,6 +3021,16 @@ impl App {
                 }
             }
 
+            // Toggle sprint mode (Left Control)
+            if self.input.key_pressed(KeyCode::ControlLeft) {
+                self.sprint_mode = !self.sprint_mode;
+                if self.sprint_mode {
+                    println!("Sprint mode: ON");
+                } else {
+                    println!("Sprint mode: OFF");
+                }
+            }
+
             // Toggle chunk boundary debug (B key)
             if self.input.key_pressed(KeyCode::KeyB) {
                 self.show_chunk_boundaries = !self.show_chunk_boundaries;
@@ -2562,12 +3068,6 @@ impl App {
             self.breaking_block = None;
             self.break_progress = 0.0;
         }
-
-        // Update chunk loading/unloading based on player position
-        self.update_chunk_loading();
-
-        // Upload dirty world data to GPU
-        self.upload_world_to_gpu();
     }
 
     fn render(&mut self, _event_loop: &ActiveEventLoop) {
@@ -2625,6 +3125,14 @@ impl App {
                 &self.resample_pipeline,
                 render_extent,
                 window_extent,
+            );
+
+            // Recreate distance buffer for two-pass beam optimization
+            (rcx.distance_image, rcx.distance_set) = get_distance_image_and_set(
+                self.memory_allocator.clone(),
+                self.descriptor_set_allocator.clone(),
+                &self.render_pipeline,
+                render_extent,
             );
 
             rcx.recreate_swapchain = false;
@@ -2700,15 +3208,21 @@ impl App {
                     egui::Frame::new()
                         .fill(egui::Color32::from_rgba_unmultiplied(0, 0, 0, 180))
                         .corner_radius(egui::CornerRadius::same(4))
-                        .inner_margin(egui::Margin::symmetric(8, 4))
+                        .inner_margin(egui::Margin::symmetric(12, 6))
                         .show(ui, |ui| {
-                            ui.label(
-                                egui::RichText::new(format!(
-                                    "Pos: ({:.1}, {:.1}, {:.1})",
-                                    player_world_pos.x, player_world_pos.y, player_world_pos.z
-                                ))
-                                .color(egui::Color32::WHITE)
-                                .strong(),
+                            // Format position with enough width to prevent wrapping
+                            let pos_text = format!(
+                                "Pos: {:.1}, {:.1}, {:.1}",
+                                player_world_pos.x, player_world_pos.y, player_world_pos.z
+                            );
+                            ui.add(
+                                egui::Label::new(
+                                    egui::RichText::new(pos_text)
+                                        .color(egui::Color32::WHITE)
+                                        .strong()
+                                        .monospace(),
+                                )
+                                .wrap_mode(egui::TextWrapMode::Extend),
                             );
                         });
                 });
@@ -2720,10 +3234,10 @@ impl App {
                     ui.label("Controls:");
                     ui.label("  WASD - Move");
                     ui.label("  Space - Jump");
-                    ui.label("  QE - Down/Up (fly & swim)");
+                    ui.label("  Space/Shift - Up/Down (fly & swim)");
                     ui.label("  Mouse - Look around");
                     ui.label("  Scroll - Select block");
-                    ui.label("  Shift - Sprint");
+                    ui.label("  Ctrl - Toggle sprint");
                     ui.label("  F - Toggle fly mode");
                     ui.label("  B - Toggle chunk boundaries");
                     ui.label("  Left Click - Break block");
@@ -2790,6 +3304,13 @@ impl App {
                             render_extent,
                             window_extent,
                         );
+                        // Recreate distance buffer for two-pass beam optimization
+                        (rcx.distance_image, rcx.distance_set) = get_distance_image_and_set(
+                            self.memory_allocator.clone(),
+                            self.descriptor_set_allocator.clone(),
+                            &self.render_pipeline,
+                            render_extent,
+                        );
                     }
 
                     ui.separator();
@@ -2818,14 +3339,90 @@ impl App {
                         egui::Slider::new(&mut self.ambient_light, 0.0..=1.0).text("Ambient Light"),
                     );
                     ui.add(egui::Slider::new(&mut self.fog_density, 0.0..=0.1).text("Fog Density"));
-                    ui.add(
-                        egui::Slider::new(&mut self.max_ray_steps, 128..=1024).text("Ray Steps"),
-                    );
+                    ui.add(egui::Slider::new(&mut self.fog_start, 0.0..=128.0).text("Fog Start"));
+                    if ui
+                        .add(
+                            egui::Slider::new(&mut self.max_ray_steps, 128..=1024)
+                                .text("Ray Steps"),
+                        )
+                        .changed()
+                    {
+                        println!("[SETTING] Ray Steps: {}", self.max_ray_steps);
+                    }
+                    if ui
+                        .add(
+                            egui::Slider::new(&mut self.view_distance, 2..=10)
+                                .text("View Distance"),
+                        )
+                        .changed()
+                    {
+                        println!("[SETTING] View Distance: {} chunks", self.view_distance);
+                        // Ensure unload distance is at least view distance + 1
+                        if self.unload_distance <= self.view_distance {
+                            self.unload_distance = self.view_distance + 2;
+                        }
+                    }
+                    if ui
+                        .add(
+                            egui::Slider::new(&mut self.unload_distance, 3..=12)
+                                .text("Unload Distance"),
+                        )
+                        .changed()
+                    {
+                        println!("[SETTING] Unload Distance: {} chunks", self.unload_distance);
+                        // Ensure unload distance is greater than view distance
+                        if self.unload_distance <= self.view_distance {
+                            self.unload_distance = self.view_distance + 2;
+                        }
+                    }
+
+                    ui.separator();
+                    ui.label("Feature Toggles (for FPS profiling):");
+                    if ui
+                        .checkbox(&mut self.enable_ao, "Ambient Occlusion")
+                        .changed()
+                    {
+                        println!(
+                            "[TOGGLE] Ambient Occlusion: {}",
+                            if self.enable_ao { "ON" } else { "OFF" }
+                        );
+                    }
+                    if ui
+                        .checkbox(&mut self.enable_shadows, "Sun Shadows")
+                        .changed()
+                    {
+                        println!(
+                            "[TOGGLE] Sun Shadows: {}",
+                            if self.enable_shadows { "ON" } else { "OFF" }
+                        );
+                    }
+                    if ui
+                        .checkbox(&mut self.enable_point_lights, "Point Lights (torches)")
+                        .changed()
+                    {
+                        println!(
+                            "[TOGGLE] Point Lights: {}",
+                            if self.enable_point_lights {
+                                "ON"
+                            } else {
+                                "OFF"
+                            }
+                        );
+                    }
 
                     ui.separator();
 
                     // Gameplay options
                     ui.checkbox(&mut self.instant_break, "Instant block break");
+                    if ui
+                        .checkbox(&mut self.player_light, "Player torch light")
+                        .changed()
+                    {
+                        println!(
+                            "[TOGGLE] Player Light: {}",
+                            if self.player_light { "ON" } else { "OFF" }
+                        );
+                    }
 
                     ui.separator();
 
@@ -2988,14 +3585,10 @@ impl App {
         // This prevents ray distortion from non-uniform world dimensions
         let mut pixel_to_ray_scaled = pixel_to_ray;
         // Camera position is normalized (0-1), scale to texture size
+        // Ray marching happens in texture space (0 to textureSize)
         pixel_to_ray_scaled.m14 *= self.world_extent[0] as f64;
         pixel_to_ray_scaled.m24 *= self.world_extent[1] as f64;
         pixel_to_ray_scaled.m34 *= self.world_extent[2] as f64;
-        // Convert from texture coordinates to world coordinates by adding texture_origin
-        // This allows the shader to work in world coords and use worldToTexture() for lookups
-        pixel_to_ray_scaled.m14 += self.texture_origin.x as f64;
-        pixel_to_ray_scaled.m24 += self.texture_origin.y as f64;
-        pixel_to_ray_scaled.m34 += self.texture_origin.z as f64;
 
         // Apply head bob offset to camera Y position for rendering
         let head_bob_offset = (self.head_bob_timer * std::f64::consts::TAU).sin()
@@ -3005,7 +3598,7 @@ impl App {
 
         let pixel_to_ray = pixel_to_ray_scaled;
 
-        #[derive(BufferContents)]
+        #[derive(BufferContents, Clone, Copy)]
         #[repr(C)]
         struct PushConstants {
             pixel_to_ray: Matrix4<f32>,
@@ -3036,6 +3629,8 @@ impl App {
             ambient_light: f32,
             // Fog density
             fog_density: f32,
+            // Fog start distance
+            fog_start: f32,
             // Target block (block player is looking at, -1 = none)
             target_block_x: i32,
             target_block_y: i32,
@@ -3046,44 +3641,56 @@ impl App {
             texture_origin_x: i32,
             texture_origin_y: i32,
             texture_origin_z: i32,
-            _padding: u32, // Alignment padding
+            // Feature toggles for performance profiling
+            enable_ao: u32,
+            enable_shadows: u32,
+            enable_point_lights: u32,
+            // Two-pass beam optimization: 0 = normal, 1 = distance only, 2 = use distance hints
+            pass_mode: u32,
         }
+        // Convert world coordinates to texture coordinates for shader
+        // Shader works in texture space, so we subtract texture_origin
+        let tex_origin = self.texture_origin;
+        let world_to_tex = |world_pos: Vector3<i32>| -> (i32, i32, i32) {
+            (
+                world_pos.x - tex_origin.x,
+                world_pos.y - tex_origin.y,
+                world_pos.z - tex_origin.z,
+            )
+        };
+
         let (break_x, break_y, break_z) = self
             .breaking_block
-            .map(|b| (b.x, b.y, b.z))
+            .map(&world_to_tex)
             .unwrap_or((-1, -1, -1));
 
         // Calculate preview block position (where block would be placed)
         let selected_block_id = selected_block as u32;
+        // Use player_world_pos computed earlier (before rcx borrow)
         let (preview_x, preview_y, preview_z, preview_type) = self
             .current_hit
             .as_ref()
             .map(|hit| {
                 let place_pos = get_place_position(hit);
                 // Only show preview if position is in bounds and not inside player
-                let scale = Vector3::new(
-                    self.world_extent[0] as f32,
-                    self.world_extent[1] as f32,
-                    self.world_extent[2] as f32,
-                );
-                let player_pos = self.camera.position.cast::<f32>().component_mul(&scale);
-                let block_center = place_pos.cast::<f32>() + Vector3::new(0.5, 0.5, 0.5);
+                let block_center = place_pos.cast::<f64>() + Vector3::new(0.5, 0.5, 0.5);
                 // Y bounds only (X/Z are infinite)
                 let in_bounds = place_pos.y >= 0 && place_pos.y < TEXTURE_SIZE_Y as i32;
-                let not_in_player = (player_pos - block_center).norm() > 1.5;
+                let not_in_player = (player_world_pos - block_center).norm() > 1.5;
                 if in_bounds && not_in_player {
-                    (place_pos.x, place_pos.y, place_pos.z, selected_block_id)
+                    let tex_pos = world_to_tex(place_pos);
+                    (tex_pos.0, tex_pos.1, tex_pos.2, selected_block_id)
                 } else {
                     (-1, -1, -1, 0)
                 }
             })
             .unwrap_or((-1, -1, -1, 0));
 
-        // Target block (block player is looking at)
+        // Target block (block player is looking at) - convert to texture coords
         let (target_x, target_y, target_z) = self
             .current_hit
             .as_ref()
-            .map(|hit| (hit.block_pos.x, hit.block_pos.y, hit.block_pos.z))
+            .map(|hit| world_to_tex(hit.block_pos))
             .unwrap_or((-1, -1, -1));
 
         // Update particle buffer
@@ -3126,6 +3733,7 @@ impl App {
             light_count,
             ambient_light: self.ambient_light,
             fog_density: self.fog_density,
+            fog_start: self.fog_start,
             target_block_x: target_x,
             target_block_y: target_y,
             target_block_z: target_z,
@@ -3133,7 +3741,10 @@ impl App {
             texture_origin_x: self.texture_origin.x,
             texture_origin_y: self.texture_origin.y,
             texture_origin_z: self.texture_origin.z,
-            _padding: 0,
+            enable_ao: if self.enable_ao { 1 } else { 0 },
+            enable_shadows: if self.enable_shadows { 1 } else { 0 },
+            enable_point_lights: if self.enable_point_lights { 1 } else { 0 },
+            pass_mode: 0, // Will be set per-pass
         };
 
         let mut builder = AutoCommandBufferBuilder::primary(
@@ -3147,6 +3758,9 @@ impl App {
             .clear_color_image(ClearColorImageInfo::image(rcx.render_image.clone()))
             .unwrap();
 
+        // Single-pass rendering with empty chunk skip optimization
+        // (Two-pass beam optimization was tested but added overhead without benefit
+        // since empty chunk skip already makes rays very fast)
         builder
             .bind_pipeline_compute(self.render_pipeline.clone())
             .unwrap()
@@ -3162,6 +3776,8 @@ impl App {
                     self.texture_set.clone(),
                     self.particle_set.clone(),
                     self.light_set.clone(),
+                    self.chunk_metadata_set.clone(),
+                    rcx.distance_set.clone(),
                 ],
             )
             .unwrap();
@@ -3222,6 +3838,28 @@ impl App {
             .unwrap()
             .wait(None)
             .unwrap();
+
+        // Check if we need to take a screenshot (do this before the borrow is released)
+        let needs_screenshot = if let Some(delay) = self.args.screenshot_delay {
+            if !self.screenshot_taken {
+                let elapsed = Instant::now().duration_since(self.start_time).as_secs_f64();
+                if elapsed >= delay {
+                    Some(rcx.image_views[image_index as usize].clone())
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        // Take screenshot if delay has elapsed (outside rcx borrow scope)
+        if let Some(image_view) = needs_screenshot {
+            self.save_screenshot(&image_view, "voxel_world_screen_shot.png");
+            self.screenshot_taken = true;
+        }
     }
 }
 
@@ -3259,6 +3897,14 @@ impl ApplicationHandler for App {
             window_extent,
         );
 
+        // Create distance buffer for two-pass beam optimization
+        let (distance_image, distance_set) = get_distance_image_and_set(
+            self.memory_allocator.clone(),
+            self.descriptor_set_allocator.clone(),
+            &self.render_pipeline,
+            render_extent,
+        );
+
         let mut gui = Gui::new(
             event_loop,
             surface,
@@ -3292,6 +3938,9 @@ impl ApplicationHandler for App {
             render_set,
             resample_image,
             resample_set,
+
+            distance_image,
+            distance_set,
 
             gui,
             atlas_texture_id,

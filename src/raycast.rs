@@ -7,8 +7,8 @@ use crate::chunk::BlockType;
 use crate::world::World;
 use nalgebra::Vector3;
 
-/// Maximum distance to raycast (in blocks).
-pub const MAX_RAYCAST_DISTANCE: f32 = 64.0;
+/// Maximum distance to raycast (in blocks) - 1 chunk.
+pub const MAX_RAYCAST_DISTANCE: f32 = 32.0;
 
 /// Result of a raycast operation.
 #[derive(Debug, Clone, Copy)]

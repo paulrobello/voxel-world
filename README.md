@@ -80,8 +80,9 @@ make run
 |-----|--------|
 | **Click** | Focus window (grab cursor) |
 | **WASD** | Move |
-| **Space** | Jump / Swim up |
-| **Shift** | Sprint / Swim down |
+| **Space** | Jump / Fly up / Swim up |
+| **Shift** | Fly down / Swim down |
+| **Ctrl** | Toggle sprint (2x speed, 4x in fly mode) |
 | **Mouse** | Look around |
 | **Left Click** (hold) | Break block |
 | **Right Click** | Place block |

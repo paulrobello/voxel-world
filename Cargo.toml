@@ -21,6 +21,7 @@ ply-rs = "0.1.3"
 image = "0.25.9"
 crossterm = "0.29.0"
 noise = "0.9.0"
+clap = { version = "4.5.53", features = ["derive"] }
 
 # macOS cursor handling (winit's set_cursor_visible crashes)
 [target.'cfg(target_os = "macos")'.dependencies]

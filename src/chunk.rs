@@ -162,6 +162,15 @@ pub struct Chunk {
 
     /// Cached GPU texture for this chunk (if uploaded).
     pub gpu_texture: Option<Arc<ImageView>>,
+
+    /// Cached: true if all blocks are air (for ray skip optimization).
+    cached_is_empty: bool,
+
+    /// Cached: true if all blocks are solid (for ray skip optimization).
+    cached_is_fully_solid: bool,
+
+    /// Whether cached_is_empty/cached_is_fully_solid need recalculation.
+    metadata_dirty: bool,
 }
 
 impl Default for Chunk {
@@ -177,15 +186,23 @@ impl Chunk {
             blocks: Box::new([BlockType::Air; CHUNK_VOLUME]),
             dirty: true,
             gpu_texture: None,
+            cached_is_empty: true,
+            cached_is_fully_solid: false,
+            metadata_dirty: false,
         }
     }
 
     /// Creates a chunk filled with a single block type.
     pub fn filled(block_type: BlockType) -> Self {
+        let is_empty = block_type == BlockType::Air;
+        let is_solid = block_type.is_solid();
         Self {
             blocks: Box::new([block_type; CHUNK_VOLUME]),
             dirty: true,
             gpu_texture: None,
+            cached_is_empty: is_empty,
+            cached_is_fully_solid: is_solid,
+            metadata_dirty: false,
         }
     }
 
@@ -209,6 +226,7 @@ impl Chunk {
         if self.blocks[idx] != block {
             self.blocks[idx] = block;
             self.dirty = true;
+            self.metadata_dirty = true;
         }
     }
 
@@ -259,8 +277,48 @@ impl Chunk {
     }
 
     /// Returns true if the chunk is completely empty (all air).
+    /// Uses cached value if available, otherwise recomputes.
     pub fn is_empty(&self) -> bool {
-        self.blocks.iter().all(|&b| b == BlockType::Air)
+        if self.metadata_dirty {
+            // Recompute if dirty (but don't cache in immutable method)
+            self.blocks.iter().all(|&b| b == BlockType::Air)
+        } else {
+            self.cached_is_empty
+        }
+    }
+
+    /// Returns true if the chunk is completely solid (no air/transparent blocks).
+    /// Uses cached value if available, otherwise recomputes.
+    pub fn is_fully_solid(&self) -> bool {
+        if self.metadata_dirty {
+            self.blocks.iter().all(|&b| b.is_solid())
+        } else {
+            self.cached_is_fully_solid
+        }
+    }
+
+    /// Updates the cached metadata (is_empty, is_fully_solid).
+    /// Call this after bulk modifications to avoid repeated recalculation.
+    pub fn update_metadata(&mut self) {
+        if self.metadata_dirty {
+            self.cached_is_empty = self.blocks.iter().all(|&b| b == BlockType::Air);
+            self.cached_is_fully_solid = self.blocks.iter().all(|&b| b.is_solid());
+            self.metadata_dirty = false;
+        }
+    }
+
+    /// Returns the cached is_empty flag directly (for GPU upload).
+    /// Call update_metadata() first to ensure accuracy.
+    #[inline]
+    pub fn cached_is_empty(&self) -> bool {
+        self.cached_is_empty
+    }
+
+    /// Returns the cached is_fully_solid flag directly (for GPU upload).
+    /// Call update_metadata() first to ensure accuracy.
+    #[inline]
+    pub fn cached_is_fully_solid(&self) -> bool {
+        self.cached_is_fully_solid
     }
 
     /// Marks the chunk as needing GPU re-upload.

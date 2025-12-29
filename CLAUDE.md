@@ -153,8 +153,9 @@ magick air_64x64.png stone_64x64.png dirt_64x64.png grass_64x64.png planks_64x64
 | Key | Action |
 |-----|--------|
 | WASD | Move |
-| Space | Jump / Swim up |
-| Shift | Sprint / Swim down |
+| Space | Jump / Fly up / Swim up |
+| Shift | Fly down / Swim down |
+| Ctrl | Toggle sprint (2x speed, 4x in fly mode) |
 | Mouse | Look |
 | Left Click (hold) | Break block |
 | Right Click | Place block |
