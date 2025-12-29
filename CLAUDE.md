@@ -17,6 +17,18 @@ make checkall       # Format, lint, and test (run after making changes)
 
 The Makefile sets `DYLD_LIBRARY_PATH` and `VK_ICD_FILENAMES` for macOS MoltenVK.
 
+## CLI Options
+
+```bash
+make run -- --seed 42           # Custom terrain seed (-S)
+make run -- --fly-mode          # Start in fly mode (-f)
+make run -- --spawn-x 100 --spawn-z 200  # Custom spawn (-x, -z)
+make run -- --time-of-day 0.5   # Pause at noon (-t)
+make run -- --view-distance 8   # Increase view distance (-v)
+make run -- --render-mode depth # Start in depth mode (-r)
+make run -- --verbose           # Debug output
+```
+
 ## Development Workflow
 
 **IMPORTANT**: After making any code changes, always run:
@@ -52,9 +64,16 @@ This is a Vulkan compute shader voxel engine. Rendering happens entirely on the 
 ### GPU Pipeline
 
 - Push constants pass camera matrix, world dimensions, time, lighting params to shader
-- Three descriptor sets: render target (set 0), block data (set 1), texture atlas (set 2)
-- Particle data uploaded via storage buffer
+- Descriptor sets: render target (0), block data (1), texture atlas (2), particles (3), lights (4), chunk metadata (5), distance buffer (6)
 - `HotReloadComputePipeline` watches `shaders/traverse.comp` and recompiles on save
+
+### Ray Marching Optimizations
+
+**Empty Chunk Skip (4.6x FPS improvement)**:
+- `Chunk` tracks `cached_is_empty` and `cached_is_fully_solid` flags
+- Chunk metadata buffer (set 5) uploads bit-packed empty/solid flags to GPU
+- Shader's `isChunkEmpty()` skips entire 32³ chunks during ray traversal
+- Result: 35 FPS → 160 FPS with all features enabled
 
 ### GPU Upload System
 
@@ -165,3 +184,5 @@ magick air_64x64.png stone_64x64.png dirt_64x64.png grass_64x64.png planks_64x64
 | B | Toggle chunk boundaries |
 | M | Cycle render modes |
 | Esc | Release cursor |
+
+HUD checkboxes provide feature toggles for FPS profiling: Ambient Occlusion, Sun Shadows, Point Lights.

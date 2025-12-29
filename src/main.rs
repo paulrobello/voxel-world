@@ -136,8 +136,8 @@ struct Args {
     #[arg(long, short = 'v')]
     view_distance: Option<i32>,
 
-    /// Seed for terrain generation (default: 42)
-    #[arg(long)]
+    /// Seed for terrain generation (default: 12345)
+    #[arg(long, short = 'S')]
     seed: Option<u32>,
 
     /// Start in render mode: textured, normal, coord, steps, uv, depth (default: textured)
@@ -1363,7 +1363,7 @@ impl App {
             println!("CLI Args: {:?}", args);
         }
 
-        let seed = args.seed.unwrap_or(42);
+        let seed = args.seed.unwrap_or(12345);
         let view_distance = args.view_distance.unwrap_or(VIEW_DISTANCE);
         let unload_distance = UNLOAD_DISTANCE;
 
@@ -1602,7 +1602,7 @@ impl App {
                 Some("depth") => RenderMode::Depth,
                 _ => RenderMode::Textured,
             },
-            render_scale: 0.5, // Lower for better FPS, upscaled to window
+            render_scale: 0.75, // Balance between quality and FPS, upscaled to window
 
             player_velocity: Vector3::zeros(),
             on_ground: false,
