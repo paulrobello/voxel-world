@@ -110,6 +110,10 @@ const WORLD_SIZE_X: usize = WORLD_CHUNKS_X as usize * CHUNK_SIZE;
 const WORLD_SIZE_Y: usize = WORLD_CHUNKS_Y as usize * CHUNK_SIZE;
 const WORLD_SIZE_Z: usize = WORLD_CHUNKS_Z as usize * CHUNK_SIZE;
 
+// Terrain generation constants
+/// Sea level for water filling (blocks below this in valleys become water)
+const SEA_LEVEL: i32 = 28;
+
 // Chunk streaming constants
 /// View distance in chunks (horizontal - all Y levels loaded within this range)
 const VIEW_DISTANCE: i32 = 6;
@@ -344,18 +348,27 @@ fn generate_chunk_terrain(terrain: &TerrainGenerator, chunk_pos: Vector3<i32>) -
             for ly in 0..CHUNK_SIZE {
                 let world_y = chunk_world_y + ly as i32;
 
-                let block_type = if world_y > height {
-                    // Above terrain = air
+                let block_type = if world_y > height && world_y > SEA_LEVEL {
+                    // Above terrain and above sea level = air
                     BlockType::Air
+                } else if world_y > height && world_y <= SEA_LEVEL {
+                    // Above terrain but below sea level = water (flat lake surface)
+                    BlockType::Water
                 } else if terrain.is_cave(world_x, world_y, world_z, height) {
-                    // Carved out cave
-                    BlockType::Air
+                    // Carved out cave - fill with water if below sea level
+                    if world_y <= SEA_LEVEL {
+                        BlockType::Water
+                    } else {
+                        BlockType::Air
+                    }
                 } else if world_y == height {
                     // Surface block - varies by elevation (biome)
                     if height > 70 {
                         BlockType::Snow // Snow-capped peaks
                     } else if height > 55 {
                         BlockType::Stone // Rocky mountain surface
+                    } else if height <= SEA_LEVEL + 2 {
+                        BlockType::Sand // Beach/shore near water level
                     } else {
                         BlockType::Grass // Normal grassland
                     }
@@ -363,6 +376,8 @@ fn generate_chunk_terrain(terrain: &TerrainGenerator, chunk_pos: Vector3<i32>) -
                     // Subsurface layer
                     if height > 55 {
                         BlockType::Stone // Mountains: stone all the way
+                    } else if height <= SEA_LEVEL + 2 {
+                        BlockType::Sand // Sandy beach substrate
                     } else {
                         BlockType::Dirt // Normal: dirt layer
                     }
