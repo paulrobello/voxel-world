@@ -2714,7 +2714,10 @@ impl App {
                         + cy as usize * LOADED_CHUNKS_X as usize * LOADED_CHUNKS_Z as usize;
 
                     // Check if chunk exists and get its data
-                    if let Some(chunk) = self.world.get_chunk(world_chunk_pos) {
+                    if let Some(chunk) = self.world.get_chunk_mut(world_chunk_pos) {
+                        // Ensure brick data is up-to-date before reading
+                        chunk.update_metadata();
+
                         // Update empty flag
                         if chunk.is_empty() {
                             let word_idx = chunk_idx / 32;
