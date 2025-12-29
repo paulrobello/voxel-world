@@ -37,7 +37,7 @@ mod macos_cursor {
 
 use egui_winit_vulkano::{Gui, GuiConfig, egui};
 use nalgebra::{Matrix4, Vector3, vector};
-use noise::{Fbm, MultiFractal, NoiseFn, Perlin};
+use noise::{Fbm, MultiFractal, NoiseFn, Perlin, RidgedMulti};
 use std::path::PathBuf;
 use std::{
     f64::consts::{FRAC_PI_2, TAU},
@@ -48,8 +48,8 @@ use vulkano::{
     Validated, Version, VulkanError, VulkanLibrary,
     buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer},
     command_buffer::{
-        AutoCommandBufferBuilder, BlitImageInfo, ClearColorImageInfo, CommandBufferUsage,
-        CopyBufferToImageInfo, PrimaryCommandBufferAbstract,
+        AutoCommandBufferBuilder, BlitImageInfo, BufferImageCopy, ClearColorImageInfo,
+        CommandBufferUsage, CopyBufferToImageInfo, PrimaryCommandBufferAbstract,
         allocator::StandardCommandBufferAllocator,
     },
     descriptor_set::{
@@ -98,17 +98,25 @@ use crate::particles::ParticleSystem;
 use crate::raycast::{MAX_RAYCAST_DISTANCE, RaycastHit, get_place_position, raycast};
 use crate::world::World;
 
-const INITIAL_WINDOW_RESOLUTION: PhysicalSize<u32> = PhysicalSize::new(960, 960);
+const INITIAL_WINDOW_RESOLUTION: PhysicalSize<u32> = PhysicalSize::new(1200, 1080);
 
-// World size in chunks
-const WORLD_CHUNKS_X: i32 = 3;
-const WORLD_CHUNKS_Y: i32 = 1;
-const WORLD_CHUNKS_Z: i32 = 3;
+// World size in chunks (16x4x16 = 512x128x512 blocks)
+const WORLD_CHUNKS_X: i32 = 16;
+const WORLD_CHUNKS_Y: i32 = 4;
+const WORLD_CHUNKS_Z: i32 = 16;
 
 // World size in blocks
 const WORLD_SIZE_X: usize = WORLD_CHUNKS_X as usize * CHUNK_SIZE;
 const WORLD_SIZE_Y: usize = WORLD_CHUNKS_Y as usize * CHUNK_SIZE;
 const WORLD_SIZE_Z: usize = WORLD_CHUNKS_Z as usize * CHUNK_SIZE;
+
+// Chunk streaming constants
+/// View distance in chunks (horizontal - all Y levels loaded within this range)
+const VIEW_DISTANCE: i32 = 6;
+/// Unload distance in chunks (horizontal - chunks beyond this are unloaded)
+const UNLOAD_DISTANCE: i32 = 8;
+/// Maximum chunks to load or unload per frame
+const CHUNKS_PER_FRAME: usize = 4;
 
 // Player physics constants (in world/voxel units, where 1 unit = 1 block)
 /// Gravity acceleration in blocks per second squared
@@ -117,10 +125,12 @@ const GRAVITY: f64 = 20.0;
 const JUMP_VELOCITY: f64 = 8.0;
 /// Player movement speed in blocks per second
 const MOVE_SPEED: f64 = 5.0;
+/// Player sprint speed in blocks per second
+const SPRINT_SPEED: f64 = 8.0;
 /// Player hitbox half-width (X and Z)
 const PLAYER_HALF_WIDTH: f64 = 0.3;
 /// Player height (from feet to camera)
-const PLAYER_HEIGHT: f64 = 1.7;
+const PLAYER_HEIGHT: f64 = 1.6; // Reduced from 1.7 for better cave navigation
 /// Player eye height from feet
 const PLAYER_EYE_HEIGHT: f64 = 1.6;
 
@@ -146,8 +156,26 @@ const DAY_CYCLE_DURATION: f32 = 120.0;
 const DEFAULT_TIME_OF_DAY: f32 = 0.583;
 
 // Block breaking constants
-/// Time in seconds to break a block
+/// Time in seconds to break a block (base time, varies by block type)
 const BLOCK_BREAK_TIME: f32 = 0.5;
+
+/// Head bob amplitude (in blocks)
+const HEAD_BOB_AMPLITUDE: f64 = 0.04;
+/// Head bob frequency (cycles per block walked)
+const HEAD_BOB_FREQUENCY: f64 = 0.8;
+
+/// Blocks available in the hotbar (9 slots, keys 1-9)
+const HOTBAR_BLOCKS: [BlockType; 9] = [
+    BlockType::Stone,
+    BlockType::Dirt,
+    BlockType::Grass,
+    BlockType::Planks,
+    BlockType::Log,
+    BlockType::Cobblestone,
+    BlockType::Glass,
+    BlockType::Torch,
+    BlockType::Water,
+];
 
 /// Render modes for debugging.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -156,41 +184,62 @@ enum RenderMode {
     Coord = 0,
     Steps = 1,
     #[default]
-    Normal = 2,
-    UV = 3,
-    Depth = 4,
+    Textured = 2,
+    Normal = 3,
+    UV = 4,
+    Depth = 5,
 }
 
 impl RenderMode {
     pub const ALL: &'static [RenderMode] = &[
         RenderMode::Coord,
         RenderMode::Steps,
+        RenderMode::Textured,
         RenderMode::Normal,
         RenderMode::UV,
         RenderMode::Depth,
     ];
 }
 
-/// Terrain generator using Fractal Brownian Motion noise
+/// Terrain generator using multiple noise layers for varied landscapes
 struct TerrainGenerator {
     height_noise: Fbm<Perlin>,
     detail_noise: Perlin,
+    mountain_noise: RidgedMulti<Perlin>,
+    cave_noise: Perlin,
+    cave_mask_noise: Perlin,
 }
 
 impl TerrainGenerator {
     fn new(seed: u32) -> Self {
-        // Multi-octave noise for smooth terrain with detail
+        // Base continental noise for large-scale terrain features
         let height_noise = Fbm::<Perlin>::new(seed)
-            .set_octaves(5)
-            .set_frequency(0.015) // Lower frequency = larger, smoother features
-            .set_lacunarity(2.0) // Frequency multiplier per octave
-            .set_persistence(0.4); // Lower persistence = smoother terrain
+            .set_octaves(4)
+            .set_frequency(0.003) // Very low frequency for continent-scale features
+            .set_lacunarity(2.0)
+            .set_persistence(0.5);
 
         let detail_noise = Perlin::new(seed.wrapping_add(1));
+
+        // Mountain ridges using RidgedMulti for sharp peaks
+        let mountain_noise = RidgedMulti::<Perlin>::new(seed.wrapping_add(2))
+            .set_octaves(5)
+            .set_frequency(0.008) // Mountain-scale features
+            .set_lacunarity(2.2)
+            .set_persistence(0.5);
+
+        // 3D noise for cave carving
+        let cave_noise = Perlin::new(seed.wrapping_add(3));
+
+        // Regional variation in cave density
+        let cave_mask_noise = Perlin::new(seed.wrapping_add(4));
 
         Self {
             height_noise,
             detail_noise,
+            mountain_noise,
+            cave_noise,
+            cave_mask_noise,
         }
     }
 
@@ -199,16 +248,51 @@ impl TerrainGenerator {
         let x = world_x as f64;
         let z = world_z as f64;
 
-        // Base terrain from FBM noise (returns roughly -1 to 1)
-        let base_height = self.height_noise.get([x, z]);
+        // Base continental terrain (large smooth features, returns roughly -1 to 1)
+        let base = self.height_noise.get([x, z]);
 
-        // Add very subtle detail
-        let detail = self.detail_noise.get([x * 0.03, z * 0.03]) * 0.1;
+        // Mountain ridges (sharp peaks, returns 0 to 1)
+        let ridges = self.mountain_noise.get([x, z]);
 
-        // Map noise to height range: base of 10, amplitude of 6 (gentler slopes)
-        let height = 10.0 + (base_height + detail) * 6.0;
+        // Blend factor: some areas are flat plains, some are mountainous
+        // Use base noise to determine mountainous regions
+        let mountain_factor = (base * 0.5 + 0.5).clamp(0.0, 1.0);
 
-        height.round() as i32
+        // Add subtle detail variation
+        let detail = self.detail_noise.get([x * 0.02, z * 0.02]) * 2.0;
+
+        // Base height: 32 (conceptual sea level)
+        // Flat areas: base ±8 blocks
+        // Mountain areas: up to +50 blocks additional
+        let flat_height = base * 8.0 + detail;
+        let mountain_height = ridges * 50.0 * mountain_factor;
+
+        (32.0 + flat_height + mountain_height).round() as i32
+    }
+
+    /// Check if a position should be carved out as a cave
+    fn is_cave(&self, world_x: i32, world_y: i32, world_z: i32, surface_height: i32) -> bool {
+        // Don't carve near surface (preserve terrain integrity)
+        if world_y > surface_height - 5 || world_y < 2 {
+            return false;
+        }
+
+        let x = world_x as f64;
+        let y = world_y as f64;
+        let z = world_z as f64;
+
+        // Regional cave density (some areas have more caves)
+        let cave_density = self.cave_mask_noise.get([x * 0.01, z * 0.01]) * 0.5 + 0.5;
+
+        // 3D cave noise - "spaghetti" style caves
+        // Stretched in Y for more horizontal tunnels
+        let cave_value = self.cave_noise.get([x * 0.05, y * 0.08, z * 0.05]);
+
+        // Threshold varies by depth (more caves deeper down)
+        let depth_factor = ((surface_height - world_y) as f64 / 30.0).clamp(0.0, 1.0);
+        let threshold = 0.55 - (depth_factor * 0.15) - (cave_density * 0.1);
+
+        cave_value.abs() > threshold
     }
 
     /// Simple hash for tree placement randomness
@@ -219,109 +303,113 @@ impl TerrainGenerator {
     }
 }
 
-/// Creates a test world with terrain across multiple chunks.
-fn create_game_world() -> World {
-    let mut world = World::new();
-    let terrain = TerrainGenerator::new(42); // Fixed seed for reproducibility
+/// Generates terrain for a single chunk at the given position.
+fn generate_chunk_terrain(terrain: &TerrainGenerator, chunk_pos: Vector3<i32>) -> Chunk {
+    let mut chunk = Chunk::new();
+    let chunk_world_x = chunk_pos.x * CHUNK_SIZE as i32;
+    let chunk_world_y = chunk_pos.y * CHUNK_SIZE as i32;
+    let chunk_world_z = chunk_pos.z * CHUNK_SIZE as i32;
 
-    // Generate all chunks
-    for cx in 0..WORLD_CHUNKS_X {
-        for cy in 0..WORLD_CHUNKS_Y {
-            for cz in 0..WORLD_CHUNKS_Z {
-                let mut chunk = Chunk::new();
-                let chunk_world_x = cx * CHUNK_SIZE as i32;
-                let chunk_world_y = cy * CHUNK_SIZE as i32;
-                let chunk_world_z = cz * CHUNK_SIZE as i32;
+    // Generate terrain for this chunk
+    for lx in 0..CHUNK_SIZE {
+        for lz in 0..CHUNK_SIZE {
+            let world_x = chunk_world_x + lx as i32;
+            let world_z = chunk_world_z + lz as i32;
+            let height = terrain.get_height(world_x, world_z);
 
-                // Generate terrain for this chunk
-                for lx in 0..CHUNK_SIZE {
-                    for lz in 0..CHUNK_SIZE {
-                        let world_x = chunk_world_x + lx as i32;
-                        let world_z = chunk_world_z + lz as i32;
-                        let height = terrain.get_height(world_x, world_z);
+            for ly in 0..CHUNK_SIZE {
+                let world_y = chunk_world_y + ly as i32;
 
-                        for ly in 0..CHUNK_SIZE {
-                            let world_y = chunk_world_y + ly as i32;
-
-                            let block_type = if world_y > height {
-                                BlockType::Air
-                            } else if world_y == height {
-                                BlockType::Grass
-                            } else if world_y > height - 3 {
-                                BlockType::Dirt
-                            } else {
-                                BlockType::Stone
-                            };
-                            chunk.set_block(lx, ly, lz, block_type);
-                        }
+                let block_type = if world_y > height {
+                    // Above terrain = air
+                    BlockType::Air
+                } else if terrain.is_cave(world_x, world_y, world_z, height) {
+                    // Carved out cave
+                    BlockType::Air
+                } else if world_y == height {
+                    // Surface block - varies by elevation (biome)
+                    if height > 70 {
+                        BlockType::Snow // Snow-capped peaks
+                    } else if height > 55 {
+                        BlockType::Stone // Rocky mountain surface
+                    } else {
+                        BlockType::Grass // Normal grassland
                     }
-                }
-
-                world.insert_chunk(vector![cx, cy, cz], chunk);
+                } else if world_y > height - 3 {
+                    // Subsurface layer
+                    if height > 55 {
+                        BlockType::Stone // Mountains: stone all the way
+                    } else {
+                        BlockType::Dirt // Normal: dirt layer
+                    }
+                } else {
+                    BlockType::Stone // Deep underground
+                };
+                chunk.set_block(lx, ly, lz, block_type);
             }
         }
     }
 
-    // Add trees at various locations across the world
-    let tree_positions = [
-        (16, 16),
-        (48, 16),
-        (80, 16),
-        (16, 48),
-        (80, 48),
-        (16, 80),
-        (48, 80),
-        (80, 80),
-        (32, 32),
-        (64, 64),
-        (24, 72),
-        (70, 20),
-        (20, 70),
-        (55, 55),
-    ];
+    // Add trees deterministically based on chunk position
+    // Trees are placed if hash of position within chunk meets threshold
+    for lx in (2..CHUNK_SIZE - 2).step_by(8) {
+        for lz in (2..CHUNK_SIZE - 2).step_by(8) {
+            let world_x = chunk_world_x + lx as i32;
+            let world_z = chunk_world_z + lz as i32;
+            let height = terrain.get_height(world_x, world_z);
 
-    for (tx, tz) in tree_positions {
-        if tx < WORLD_SIZE_X as i32 && tz < WORLD_SIZE_Z as i32 {
-            let height = terrain.get_height(tx, tz);
-            // Taller trunks: 5-7 blocks (randomized)
-            let trunk_height = 5 + (terrain.hash(tx, tz).abs() % 3);
-
-            // Tree trunk
-            for y in (height + 1)..=(height + trunk_height) {
-                if y < WORLD_SIZE_Y as i32 {
-                    world.set_block(vector![tx, y, tz], BlockType::Log);
-                }
+            // Only place trees in grassland areas (not on mountains)
+            if height > 55 {
+                continue;
             }
 
-            // Rounded tree canopy using spherical distance
-            let canopy_center_y = height + trunk_height;
-            let canopy_radius = 2.5 + (terrain.hash(tx + 1, tz).abs() % 2) as f32 * 0.5; // 2.5-3.0
-            let canopy_height = 3 + (terrain.hash(tx, tz + 1).abs() % 2); // 3-4 blocks tall
+            // Deterministic tree placement
+            if terrain.hash(world_x, world_z) % 100 < 15 {
+                let local_base_y = height - chunk_world_y;
 
-            for dx in -3..=3i32 {
-                for dy in -1..=canopy_height {
-                    for dz in -3..=3i32 {
-                        let lx = tx + dx;
-                        let ly = canopy_center_y + dy;
-                        let lz = tz + dz;
+                // Only place tree if the base is in this chunk
+                if local_base_y >= 0 && local_base_y < CHUNK_SIZE as i32 - 6 {
+                    let trunk_height = 5 + (terrain.hash(world_x, world_z).abs() % 3);
 
-                        if lx >= 0
-                            && lx < WORLD_SIZE_X as i32
-                            && ly >= 0
-                            && ly < WORLD_SIZE_Y as i32
-                            && lz >= 0
-                            && lz < WORLD_SIZE_Z as i32
-                        {
-                            // Calculate distance from canopy center (ellipsoid shape)
-                            let dist_xz = ((dx * dx + dz * dz) as f32).sqrt();
-                            let dist_y = (dy as f32 - canopy_height as f32 * 0.3).abs() / 1.5;
-                            let dist = (dist_xz * dist_xz + dist_y * dist_y).sqrt();
+                    // Tree trunk
+                    for dy in 1..=trunk_height {
+                        let ly = (local_base_y + dy) as usize;
+                        if ly < CHUNK_SIZE {
+                            chunk.set_block(lx, ly, lz, BlockType::Log);
+                        }
+                    }
 
-                            // Add leaves if within rounded canopy shape
-                            if dist <= canopy_radius
-                                && world.get_block(vector![lx, ly, lz]) == Some(BlockType::Air)
-                            {
-                                world.set_block(vector![lx, ly, lz], BlockType::Leaves);
+                    // Simple canopy
+                    let canopy_base = (local_base_y + trunk_height) as usize;
+                    for dx in -2i32..=2 {
+                        for dz in -2i32..=2 {
+                            for dy in 0..3 {
+                                let nlx = lx as i32 + dx;
+                                let nly = canopy_base as i32 + dy;
+                                let nlz = lz as i32 + dz;
+
+                                if nlx >= 0
+                                    && nlx < CHUNK_SIZE as i32
+                                    && nly >= 0
+                                    && nly < CHUNK_SIZE as i32
+                                    && nlz >= 0
+                                    && nlz < CHUNK_SIZE as i32
+                                {
+                                    let dist =
+                                        ((dx * dx + dz * dz) as f32).sqrt() + (dy as f32 * 0.5);
+                                    if dist <= 2.5 {
+                                        let block =
+                                            chunk.get_block(nlx as usize, nly as usize, nlz as usize);
+                                        if block == BlockType::Air {
+                                            chunk.set_block(
+                                                nlx as usize,
+                                                nly as usize,
+                                                nlz as usize,
+                                                BlockType::Leaves,
+                                            );
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -330,42 +418,74 @@ fn create_game_world() -> World {
         }
     }
 
-    // Add a water pool in the center - carve out terrain and fill with water
-    let pool_center_x = (WORLD_SIZE_X / 2) as i32;
-    let pool_center_z = (WORLD_SIZE_Z / 2) as i32;
-    let pool_radius = 10i32;
-    let pool_depth = 4; // Depth of water
+    chunk
+}
 
-    for wx in (pool_center_x - pool_radius - 2)..=(pool_center_x + pool_radius + 2) {
-        for wz in (pool_center_z - pool_radius - 2)..=(pool_center_z + pool_radius + 2) {
-            if wx >= 0 && wx < WORLD_SIZE_X as i32 && wz >= 0 && wz < WORLD_SIZE_Z as i32 {
-                let dx = wx - pool_center_x;
-                let dz = wz - pool_center_z;
-                let dist_sq = dx * dx + dz * dz;
-                let terrain_height = terrain.get_height(wx, wz);
+/// Finds the ground level (highest non-air block) at the given world coordinates.
+fn find_ground_level(world: &World, world_x: i32, world_z: i32) -> i32 {
+    // Search from top of world downward
+    for y in (0..WORLD_SIZE_Y as i32).rev() {
+        let pos = vector![world_x, y, world_z];
+        if let Some(block) = world.get_block(pos) {
+            if block != BlockType::Air && block != BlockType::Water {
+                return y;
+            }
+        }
+    }
+    // Fallback to base height if nothing found
+    32
+}
 
-                // Inside pool - carve out and fill with water
-                if dist_sq <= pool_radius * pool_radius {
-                    let pool_bottom = terrain_height - pool_depth;
-                    let water_surface = terrain_height;
+/// Creates a world with only chunks near the spawn point loaded.
+/// Additional chunks are loaded dynamically as the player moves.
+fn create_initial_world(spawn_chunk: Vector3<i32>) -> World {
+    let mut world = World::new();
+    let terrain = TerrainGenerator::new(42);
 
-                    // Carve out the pool (set to air, then fill with water)
-                    for y in pool_bottom..=terrain_height {
-                        world.set_block(vector![wx, y, wz], BlockType::Air);
-                    }
+    // Load chunks within horizontal view distance, all Y levels
+    // Uses circular distance to match runtime loading behavior
+    for dx in -VIEW_DISTANCE..=VIEW_DISTANCE {
+        for dz in -VIEW_DISTANCE..=VIEW_DISTANCE {
+            // Check horizontal distance (circular)
+            let dist_sq = dx * dx + dz * dz;
+            if dist_sq > VIEW_DISTANCE * VIEW_DISTANCE {
+                continue;
+            }
 
-                    // Sand at bottom
-                    world.set_block(vector![wx, pool_bottom, wz], BlockType::Sand);
+            let cx = spawn_chunk.x + dx;
+            let cz = spawn_chunk.z + dz;
 
-                    // Fill with water
-                    for y in (pool_bottom + 1)..=water_surface {
-                        world.set_block(vector![wx, y, wz], BlockType::Water);
-                    }
-                }
-                // Sandy beach around pool
-                else if dist_sq <= (pool_radius + 2) * (pool_radius + 2) {
-                    world.set_block(vector![wx, terrain_height, wz], BlockType::Sand);
-                }
+            // Check horizontal world bounds
+            if cx < 0 || cx >= WORLD_CHUNKS_X || cz < 0 || cz >= WORLD_CHUNKS_Z {
+                continue;
+            }
+
+            // Load ALL Y levels within this horizontal range
+            for cy in 0..WORLD_CHUNKS_Y {
+                let chunk_pos = vector![cx, cy, cz];
+                let chunk = generate_chunk_terrain(&terrain, chunk_pos);
+                world.insert_chunk(chunk_pos, chunk);
+            }
+        }
+    }
+
+    println!("Initial world created with {} chunks", world.chunk_count());
+    world
+}
+
+/// Legacy function - kept for reference but no longer used
+#[allow(dead_code)]
+fn create_game_world_full() -> World {
+    let mut world = World::new();
+    let terrain = TerrainGenerator::new(42); // Fixed seed for reproducibility
+
+    // Generate all chunks
+    for cx in 0..WORLD_CHUNKS_X {
+        for cy in 0..WORLD_CHUNKS_Y {
+            for cz in 0..WORLD_CHUNKS_Z {
+                let chunk_pos = vector![cx, cy, cz];
+                let chunk = generate_chunk_terrain(&terrain, chunk_pos);
+                world.insert_chunk(chunk_pos, chunk);
             }
         }
     }
@@ -402,50 +522,6 @@ fn create_game_world() -> World {
     world
 }
 
-/// Converts the world to a flat array of block data for GPU upload.
-/// Layout: data[x + y * WORLD_SIZE_X + z * WORLD_SIZE_X * WORLD_SIZE_Y]
-fn world_to_block_data(world: &World) -> Vec<u8> {
-    let total_size = WORLD_SIZE_X * WORLD_SIZE_Y * WORLD_SIZE_Z;
-    let mut data = vec![0u8; total_size];
-
-    // Iterate over all chunks in the world
-    for cx in 0..WORLD_CHUNKS_X {
-        for cy in 0..WORLD_CHUNKS_Y {
-            for cz in 0..WORLD_CHUNKS_Z {
-                let chunk_pos = vector![cx, cy, cz];
-                if let Some(chunk) = world.get_chunk(chunk_pos) {
-                    let chunk_data = chunk.to_block_data();
-
-                    // Copy chunk data to correct position in world array
-                    for lx in 0..CHUNK_SIZE {
-                        for ly in 0..CHUNK_SIZE {
-                            for lz in 0..CHUNK_SIZE {
-                                let world_x = cx as usize * CHUNK_SIZE + lx;
-                                let world_y = cy as usize * CHUNK_SIZE + ly;
-                                let world_z = cz as usize * CHUNK_SIZE + lz;
-
-                                let chunk_idx = lx + ly * CHUNK_SIZE + lz * CHUNK_SIZE * CHUNK_SIZE;
-                                let world_idx = world_x
-                                    + world_y * WORLD_SIZE_X
-                                    + world_z * WORLD_SIZE_X * WORLD_SIZE_Y;
-
-                                data[world_idx] = chunk_data[chunk_idx];
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    let non_air: usize = data.iter().filter(|&&b| b != 0).count();
-    println!(
-        "Block data: {} bytes, {} non-air blocks",
-        data.len(),
-        non_air
-    );
-    data
-}
 
 fn get_allocators(
     device: &Arc<Device>,
@@ -596,17 +672,17 @@ fn get_images_and_sets(
     (render_image, render_set, resample_image, resample_set)
 }
 
-fn get_voxel_set(
+/// Creates an empty voxel texture for the world.
+/// Returns (descriptor_set, image) where image is cleared to all zeros (air).
+fn create_empty_voxel_texture(
     memory_allocator: Arc<StandardMemoryAllocator>,
     command_buffer_allocator: Arc<StandardCommandBufferAllocator>,
     descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
     render_pipeline: &ComputePipeline,
     queue: &Arc<Queue>,
-    block_data: Vec<u8>,
     world_extent: [u32; 3],
-) -> Arc<DescriptorSet> {
-    // Each texel is one block (8-bit block type).
-    // 3D texture sized to fit entire world.
+) -> (Arc<DescriptorSet>, Arc<Image>) {
+    // Create 3D texture sized to fit entire world
     let image = Image::new(
         memory_allocator.clone(),
         ImageCreateInfo {
@@ -620,21 +696,7 @@ fn get_voxel_set(
     )
     .unwrap();
 
-    let src_buffer = Buffer::from_iter(
-        memory_allocator.clone(),
-        BufferCreateInfo {
-            usage: BufferUsage::TRANSFER_SRC,
-            ..Default::default()
-        },
-        AllocationCreateInfo {
-            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
-                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-            ..Default::default()
-        },
-        block_data,
-    )
-    .unwrap();
-
+    // Clear the image to all zeros (air)
     let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
         command_buffer_allocator.clone(),
         queue.queue_family_index(),
@@ -644,14 +706,8 @@ fn get_voxel_set(
 
     command_buffer_builder
         .clear_color_image(ClearColorImageInfo::image(image.clone()))
-        .unwrap()
-        .copy_buffer_to_image(CopyBufferToImageInfo::buffer_image(
-            src_buffer,
-            image.clone(),
-        ))
         .unwrap();
 
-    // Wait for the upload to complete before returning the descriptor set
     command_buffer_builder
         .build()
         .unwrap()
@@ -671,13 +727,15 @@ fn get_voxel_set(
         .get(1)
         .unwrap()
         .clone();
-    DescriptorSet::new(
+    let descriptor_set = DescriptorSet::new(
         descriptor_set_allocator.clone(),
         layout.clone(),
         [WriteDescriptorSet::image_view(0, image_view)],
         [],
     )
-    .unwrap()
+    .unwrap();
+
+    (descriptor_set, image)
 }
 
 fn load_icon(icon: &[u8]) -> Icon {
@@ -691,7 +749,7 @@ fn load_icon(icon: &[u8]) -> Icon {
 }
 
 /// Load a texture atlas from a file and create a GPU texture with sampler.
-/// Returns (descriptor_set, sampler) for binding to the shader.
+/// Returns (descriptor_set, sampler, image_view) for binding to the shader and egui.
 fn load_texture_atlas(
     memory_allocator: Arc<StandardMemoryAllocator>,
     command_buffer_allocator: Arc<StandardCommandBufferAllocator>,
@@ -699,7 +757,7 @@ fn load_texture_atlas(
     render_pipeline: &ComputePipeline,
     queue: &Arc<Queue>,
     texture_path: &std::path::Path,
-) -> (Arc<DescriptorSet>, Arc<Sampler>) {
+) -> (Arc<DescriptorSet>, Arc<Sampler>, Arc<ImageView>) {
     // Load the image file
     let img = image::open(texture_path)
         .expect("Failed to load texture")
@@ -794,14 +852,14 @@ fn load_texture_atlas(
         layout,
         [WriteDescriptorSet::image_view_sampler(
             0,
-            image_view,
+            image_view.clone(),
             sampler.clone(),
         )],
         [],
     )
     .unwrap();
 
-    (descriptor_set, sampler)
+    (descriptor_set, sampler, image_view)
 }
 
 /// Creates a storage buffer and descriptor set for particle data.
@@ -847,6 +905,71 @@ fn get_particle_set(
     (particle_buffer, descriptor_set)
 }
 
+/// Maximum number of point lights (torches) that can be active at once.
+const MAX_LIGHTS: usize = 256;
+
+/// GPU-compatible point light data for shader.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct GpuLight {
+    /// Position XYZ + radius W
+    pos_radius: [f32; 4],
+    /// Color RGB + intensity A
+    color_intensity: [f32; 4],
+}
+
+/// Creates a storage buffer and descriptor set for point light data.
+fn get_light_set(
+    memory_allocator: Arc<StandardMemoryAllocator>,
+    descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
+    render_pipeline: &ComputePipeline,
+) -> (Subbuffer<[GpuLight]>, Arc<DescriptorSet>) {
+    // Create a storage buffer for lights (initialized to zeros)
+    let light_buffer = Buffer::new_slice::<GpuLight>(
+        memory_allocator,
+        BufferCreateInfo {
+            usage: BufferUsage::STORAGE_BUFFER,
+            ..Default::default()
+        },
+        AllocationCreateInfo {
+            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+            ..Default::default()
+        },
+        MAX_LIGHTS as u64,
+    )
+    .unwrap();
+
+    // Create descriptor set at set index 4
+    let layout = render_pipeline
+        .layout()
+        .set_layouts()
+        .get(4)
+        .unwrap()
+        .clone();
+
+    let descriptor_set = DescriptorSet::new(
+        descriptor_set_allocator,
+        layout,
+        [WriteDescriptorSet::buffer(0, light_buffer.clone())],
+        [],
+    )
+    .unwrap();
+
+    (light_buffer, descriptor_set)
+}
+
+/// Statistics about loaded chunks for HUD display.
+#[derive(Debug, Clone, Copy, Default)]
+struct ChunkStats {
+    /// Number of chunks currently loaded in memory.
+    loaded_count: usize,
+    /// Number of chunks with pending GPU uploads.
+    dirty_count: usize,
+    /// Estimated GPU memory usage in megabytes.
+    memory_mb: f32,
+}
+
 struct App {
     instance: Arc<Instance>,
     device: Arc<Device>,
@@ -865,14 +988,18 @@ struct App {
     voxel_set: Arc<DescriptorSet>,
     /// GPU descriptor set for texture atlas.
     texture_set: Arc<DescriptorSet>,
+    /// Texture atlas image view (for egui HUD).
+    texture_atlas_view: Arc<ImageView>,
     /// GPU buffer for particle data.
     particle_buffer: Subbuffer<[particles::GpuParticle]>,
     /// GPU descriptor set for particles.
     particle_set: Arc<DescriptorSet>,
+    /// GPU buffer for point light data.
+    light_buffer: Subbuffer<[GpuLight]>,
+    /// GPU descriptor set for lights.
+    light_set: Arc<DescriptorSet>,
     /// World dimensions in blocks [X, Y, Z].
     world_extent: [u32; 3],
-    /// Flag indicating GPU voxel data needs updating.
-    world_dirty: bool,
 
     camera: Camera,
     render_mode: RenderMode,
@@ -881,6 +1008,10 @@ struct App {
     /// Player physics state
     player_velocity: Vector3<f64>,
     on_ground: bool,
+    /// Head bob phase (continuously accumulates while walking)
+    head_bob_timer: f64,
+    /// Head bob intensity (0-1, smoothly fades in/out)
+    head_bob_intensity: f64,
     /// True when player's head is submerged in water
     in_water: bool,
     /// Flying mode (no gravity, vertical movement with Space/Shift)
@@ -892,11 +1023,26 @@ struct App {
     time_of_day: f32,
     /// Whether the day/night cycle is paused
     day_cycle_paused: bool,
+    /// Base ambient light level (0.0 = pitch black, 1.0 = fully lit)
+    ambient_light: f32,
+    /// Fog density (0.0 = no fog, higher = thicker fog)
+    fog_density: f32,
+    /// Maximum ray marching steps (higher = see farther, lower = better FPS)
+    max_ray_steps: u32,
     /// Continuous animation time in seconds (for water waves, etc.)
     animation_time: f32,
 
-    /// Currently selected block type for placing.
-    selected_block: BlockType,
+    /// Chunk streaming: last chunk position the player was in.
+    last_player_chunk: Vector3<i32>,
+    /// The GPU 3D texture storing voxel data (for partial updates).
+    voxel_image: Arc<Image>,
+    /// Current chunk statistics for HUD display.
+    chunk_stats: ChunkStats,
+    /// Terrain generator for creating new chunks.
+    terrain_generator: TerrainGenerator,
+
+    /// Currently selected hotbar slot (0-8).
+    hotbar_index: usize,
     /// Current raycast hit result (for crosshair display).
     current_hit: Option<RaycastHit>,
 
@@ -904,6 +1050,12 @@ struct App {
     breaking_block: Option<Vector3<i32>>,
     /// Progress of breaking current block (0.0 to 1.0).
     break_progress: f32,
+    /// Whether blocks break instantly on click (no hold required).
+    instant_break: bool,
+    /// Cooldown timer after breaking a block in instant mode (seconds remaining).
+    break_cooldown: f32,
+    /// Skip block breaking until mouse is released (used to ignore focus click).
+    skip_break_until_release: bool,
 
     /// Particle system for visual effects.
     particles: ParticleSystem,
@@ -931,11 +1083,18 @@ struct RenderContext {
     resample_set: Arc<DescriptorSet>,
 
     gui: Gui,
+    /// Texture ID for the atlas in egui.
+    atlas_texture_id: egui::TextureId,
 
     recreate_swapchain: bool,
 }
 
 impl App {
+    /// Returns the currently selected block from the hotbar.
+    fn selected_block(&self) -> BlockType {
+        HOTBAR_BLOCKS[self.hotbar_index]
+    }
+
     fn new(event_loop: &EventLoop<()>) -> Self {
         let library = VulkanLibrary::new().unwrap();
 
@@ -1025,22 +1184,28 @@ impl App {
         let resample_pipeline =
             HotReloadComputePipeline::new(device.clone(), &shaders_dir.join("resample.comp"));
 
-        // Create the game world
-        let world = create_game_world();
+        // Calculate spawn chunk (center of world)
+        let spawn_chunk = vector![
+            WORLD_CHUNKS_X / 2,
+            0, // Ground level is in chunk y=0
+            WORLD_CHUNKS_Z / 2
+        ];
+
+        // Create world with only chunks near spawn loaded
+        let world = create_initial_world(spawn_chunk);
         let world_extent = [
             WORLD_SIZE_X as u32,
             WORLD_SIZE_Y as u32,
             WORLD_SIZE_Z as u32,
         ];
-        let block_data = world_to_block_data(&world);
 
-        let voxel_set = get_voxel_set(
+        // Create empty GPU texture (chunks will be uploaded by update_chunk_loading)
+        let (voxel_set, voxel_image) = create_empty_voxel_texture(
             memory_allocator.clone(),
             command_buffer_allocator.clone(),
             descriptor_set_allocator.clone(),
             &render_pipeline,
             &queue,
-            block_data,
             world_extent,
         );
 
@@ -1048,7 +1213,7 @@ impl App {
         let texture_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("textures")
             .join("texture_atlas.png");
-        let (texture_set, _sampler) = load_texture_atlas(
+        let (texture_set, _sampler, texture_atlas_view) = load_texture_atlas(
             memory_allocator.clone(),
             command_buffer_allocator.clone(),
             descriptor_set_allocator.clone(),
@@ -1064,12 +1229,30 @@ impl App {
             &render_pipeline,
         );
 
+        // Create light buffer and descriptor set
+        let (light_buffer, light_set) = get_light_set(
+            memory_allocator.clone(),
+            descriptor_set_allocator.clone(),
+            &render_pipeline,
+        );
+
         let input = WinitInputHelper::new();
 
-        // Position camera - normalized coords (0-1) get scaled by world extent
-        // Start player at center of terrain, above ground
+        // Spawn near center of world, find ground level
+        let spawn_x = (WORLD_SIZE_X / 2) as i32;
+        let spawn_z = (WORLD_SIZE_Z / 2) as i32;
+        let spawn_y = find_ground_level(&world, spawn_x, spawn_z);
+        let spawn_pos = Vector3::new(spawn_x as f64, spawn_y as f64 + 1.0, spawn_z as f64);
+
+        // Convert spawn position to normalized camera coordinates
+        let camera_pos = Vector3::new(
+            spawn_pos.x / world_extent[0] as f64,
+            (spawn_pos.y + PLAYER_EYE_HEIGHT) / world_extent[1] as f64,
+            spawn_pos.z / world_extent[2] as f64,
+        );
+
         let mut camera = Camera::new(
-            Vector3::new(0.5, 0.625, 0.5), // Center of world, will fall to ground
+            camera_pos,
             Vector3::zeros(),
             INITIAL_WINDOW_RESOLUTION.into(),
             70.0,
@@ -1095,30 +1278,45 @@ impl App {
             world,
             voxel_set,
             texture_set,
+            texture_atlas_view,
             particle_buffer,
             particle_set,
+            light_buffer,
+            light_set,
             world_extent,
-            world_dirty: false,
 
             camera,
-            render_mode: RenderMode::Normal,
+            render_mode: RenderMode::Textured,
             render_scale: 1.0,
 
             player_velocity: Vector3::zeros(),
             on_ground: false,
+            head_bob_timer: 0.0,
+            head_bob_intensity: 0.0,
             in_water: false,
             fly_mode: false,
             show_chunk_boundaries: false,
 
             time_of_day: DEFAULT_TIME_OF_DAY,
             day_cycle_paused: true,
+            ambient_light: 0.1,
+            fog_density: 0.007,
+            max_ray_steps: 512,
             animation_time: 0.0,
 
-            selected_block: BlockType::Stone,
+            last_player_chunk: vector![0, 0, 0],
+            voxel_image,
+            chunk_stats: ChunkStats::default(),
+            terrain_generator: TerrainGenerator::new(42),
+
+            hotbar_index: 0,
             current_hit: None,
 
             breaking_block: None,
             break_progress: 0.0,
+            instant_break: true,
+            break_cooldown: 0.0,
+            skip_break_until_release: false,
 
             particles: ParticleSystem::new(),
 
@@ -1148,6 +1346,86 @@ impl App {
         );
         let eye_pos = self.camera.position.component_mul(&scale);
         Vector3::new(eye_pos.x, eye_pos.y - PLAYER_EYE_HEIGHT, eye_pos.z)
+    }
+
+    /// Gets the chunk position the player is currently in.
+    fn get_player_chunk(&self) -> Vector3<i32> {
+        let feet = self.player_feet_pos();
+        vector![
+            (feet.x as i32) / CHUNK_SIZE as i32,
+            (feet.y as i32) / CHUNK_SIZE as i32,
+            (feet.z as i32) / CHUNK_SIZE as i32
+        ]
+    }
+
+    /// Updates chunk loading/unloading based on player position.
+    /// Returns (chunks_loaded, chunks_unloaded) counts.
+    fn update_chunk_loading(&mut self) -> (usize, usize) {
+        let player_chunk = self.get_player_chunk();
+
+        // World bounds for chunk loading
+        let min_chunk = vector![0, 0, 0];
+        let max_chunk = vector![WORLD_CHUNKS_X - 1, WORLD_CHUNKS_Y - 1, WORLD_CHUNKS_Z - 1];
+
+        // Load nearby chunks - collect data for batched upload
+        let to_load = self.world.get_chunks_to_load(
+            player_chunk,
+            VIEW_DISTANCE,
+            (min_chunk, max_chunk),
+        );
+
+        let mut chunks_to_upload: Vec<(Vector3<i32>, Vec<u8>)> = Vec::new();
+        let mut loaded = 0;
+
+        for pos in to_load.iter().take(CHUNKS_PER_FRAME) {
+            let chunk = generate_chunk_terrain(&self.terrain_generator, *pos);
+            let block_data = chunk.to_block_data();
+            chunks_to_upload.push((*pos, block_data));
+            self.world.insert_chunk(*pos, chunk);
+            loaded += 1;
+        }
+
+        // Batch upload all new chunks at once
+        if !chunks_to_upload.is_empty() {
+            self.upload_chunks_batched(&chunks_to_upload);
+
+            // Mark chunks as clean
+            for (pos, _) in &chunks_to_upload {
+                if let Some(chunk) = self.world.get_chunk_mut(*pos) {
+                    chunk.mark_clean();
+                }
+            }
+        }
+
+        // Unload distant chunks - collect positions for batched clear
+        let to_unload = self.world.get_chunks_to_unload(player_chunk, UNLOAD_DISTANCE);
+        let mut chunks_to_clear: Vec<(Vector3<i32>, Vec<u8>)> = Vec::new();
+
+        let mut unloaded = 0;
+        for pos in to_unload.iter().take(CHUNKS_PER_FRAME) {
+            self.world.remove_chunk(*pos);
+            // Create empty (air) chunk data for clearing
+            let empty_data = vec![0u8; CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE];
+            chunks_to_clear.push((*pos, empty_data));
+            unloaded += 1;
+        }
+
+        // Batch clear all unloaded chunks
+        if !chunks_to_clear.is_empty() {
+            self.upload_chunks_batched(&chunks_to_clear);
+        }
+
+        // Update chunk stats
+        self.chunk_stats = ChunkStats {
+            loaded_count: self.world.chunk_count(),
+            dirty_count: self.world.dirty_chunk_count(),
+            memory_mb: (WORLD_SIZE_X * WORLD_SIZE_Y * WORLD_SIZE_Z) as f32 / (1024.0 * 1024.0),
+        };
+
+        // Update last player chunk
+        self.last_player_chunk = player_chunk;
+
+        (loaded, unloaded)
     }
 
     /// Sets the player position from feet position (world coordinates).
@@ -1286,9 +1564,13 @@ impl App {
             -forward * yaw.cos() - right * yaw.sin(),
         );
 
-        // Determine movement speed based on environment
+        // Determine movement speed based on environment and sprint
+        let sprinting =
+            self.input.key_held(KeyCode::ShiftLeft) || self.input.key_held(KeyCode::ShiftRight);
         let current_speed = if touching_water {
             SWIM_SPEED
+        } else if sprinting {
+            SPRINT_SPEED
         } else {
             MOVE_SPEED
         };
@@ -1306,8 +1588,9 @@ impl App {
 
         if self.fly_mode {
             // Fly mode: no gravity, E=up, Q=down for vertical movement
+            let fly_speed = if sprinting { SPRINT_SPEED } else { MOVE_SPEED };
             let up = t(KeyCode::KeyE) - t(KeyCode::KeyQ);
-            self.player_velocity.y = up * MOVE_SPEED;
+            self.player_velocity.y = up * fly_speed;
 
             // Move without collision checks in fly mode
             feet.x += self.player_velocity.x * delta_time;
@@ -1337,9 +1620,12 @@ impl App {
             }
 
             // Move on each axis separately and check collisions
+            // Use a small Y offset for horizontal checks to avoid floor collision due to floating point
+            let horiz_check_y = feet.y + 0.01;
+
             // X axis
             let new_x = feet.x + self.player_velocity.x * delta_time;
-            let test_pos = Vector3::new(new_x, feet.y, feet.z);
+            let test_pos = Vector3::new(new_x, horiz_check_y, feet.z);
             if !self.check_collision(test_pos) {
                 feet.x = new_x;
             } else {
@@ -1348,7 +1634,7 @@ impl App {
 
             // Z axis
             let new_z = feet.z + self.player_velocity.z * delta_time;
-            let test_pos = Vector3::new(feet.x, feet.y, new_z);
+            let test_pos = Vector3::new(feet.x, horiz_check_y, new_z);
             if !self.check_collision(test_pos) {
                 feet.z = new_z;
             } else {
@@ -1377,9 +1663,12 @@ impl App {
             }
 
             // Move on each axis separately and check collisions
+            // Use a small Y offset for horizontal checks to avoid floor collision due to floating point
+            let horiz_check_y = feet.y + 0.01;
+
             // X axis
             let new_x = feet.x + self.player_velocity.x * delta_time;
-            let test_pos = Vector3::new(new_x, feet.y, feet.z);
+            let test_pos = Vector3::new(new_x, horiz_check_y, feet.z);
             if !self.check_collision(test_pos) {
                 feet.x = new_x;
             } else {
@@ -1388,7 +1677,7 @@ impl App {
 
             // Z axis
             let new_z = feet.z + self.player_velocity.z * delta_time;
-            let test_pos = Vector3::new(feet.x, feet.y, new_z);
+            let test_pos = Vector3::new(feet.x, horiz_check_y, new_z);
             if !self.check_collision(test_pos) {
                 feet.z = new_z;
             } else {
@@ -1413,8 +1702,54 @@ impl App {
             }
         }
 
+        // Respawn if fallen out of world
+        if feet.y < -10.0 {
+            println!("Player fell out of world, respawning...");
+            feet = self.get_spawn_position();
+            self.player_velocity = Vector3::zeros();
+            self.on_ground = false;
+        }
+
+        // Safety: if player is stuck inside a block, push them up
+        if self.check_collision(feet) && !self.fly_mode {
+            // Try to find a free position above
+            for offset in 1..10 {
+                let test_pos = Vector3::new(feet.x, feet.y + offset as f64, feet.z);
+                if !self.check_collision(test_pos) {
+                    feet = test_pos;
+                    self.player_velocity.y = 0.0;
+                    println!("Player was stuck, pushed up {} blocks", offset);
+                    break;
+                }
+            }
+        }
+
+        // Update head bob based on horizontal movement
+        let horizontal_speed =
+            (self.player_velocity.x.powi(2) + self.player_velocity.z.powi(2)).sqrt();
+        let is_walking = self.on_ground && horizontal_speed > 0.5 && !self.fly_mode;
+
+        if is_walking {
+            // Accumulate timer based on distance traveled (continuous phase)
+            self.head_bob_timer += horizontal_speed * delta_time * HEAD_BOB_FREQUENCY;
+            // Smoothly ramp up intensity
+            self.head_bob_intensity += (1.0 - self.head_bob_intensity) * delta_time * 8.0;
+        } else {
+            // Smoothly fade out intensity (but keep timer for smooth resume)
+            self.head_bob_intensity *= 0.9_f64.powf(delta_time * 60.0);
+        }
+        self.head_bob_intensity = self.head_bob_intensity.clamp(0.0, 1.0);
+
         // Update camera position
         self.set_player_feet_pos(feet);
+    }
+
+    /// Gets a safe spawn position on land.
+    fn get_spawn_position(&self) -> Vector3<f64> {
+        let spawn_x = (WORLD_SIZE_X / 2) as i32;
+        let spawn_z = (WORLD_SIZE_Z / 2) as i32;
+        let spawn_y = find_ground_level(&self.world, spawn_x, spawn_z);
+        Vector3::new(spawn_x as f64, spawn_y as f64 + 1.0, spawn_z as f64)
     }
 
     /// Performs a raycast from the camera and updates the current hit.
@@ -1434,6 +1769,14 @@ impl App {
     /// Updates block breaking progress while holding left mouse button.
     /// Returns true if a block was broken this frame.
     fn update_block_breaking(&mut self, delta_time: f32, holding_break: bool) -> bool {
+        // Decrement cooldown timer
+        if self.break_cooldown > 0.0 {
+            self.break_cooldown -= delta_time;
+            if self.break_cooldown < 0.0 {
+                self.break_cooldown = 0.0;
+            }
+        }
+
         // Get the block we're looking at
         let target_block = self.current_hit.as_ref().map(|hit| hit.block_pos);
 
@@ -1444,7 +1787,23 @@ impl App {
             return false;
         }
 
+        // Don't start breaking if on cooldown (instant break mode)
+        if self.instant_break && self.break_cooldown > 0.0 {
+            return false;
+        }
+
         let target = target_block.unwrap();
+
+        // Get the block type to determine break time
+        let block_type = self.world.get_block(target).unwrap_or(BlockType::Air);
+        let break_time = block_type.break_time();
+
+        // Can't break air or water
+        if break_time <= 0.0 {
+            self.breaking_block = None;
+            self.break_progress = 0.0;
+            return false;
+        }
 
         // If we're looking at a different block, reset progress
         if self.breaking_block != Some(target) {
@@ -1452,8 +1811,12 @@ impl App {
             self.break_progress = 0.0;
         }
 
-        // Increment break progress
-        self.break_progress += delta_time / BLOCK_BREAK_TIME;
+        // Increment break progress (instant if enabled)
+        if self.instant_break {
+            self.break_progress = 1.0;
+        } else {
+            self.break_progress += delta_time / break_time;
+        }
 
         // Check if block is fully broken
         if self.break_progress >= 1.0 {
@@ -1474,12 +1837,17 @@ impl App {
                 }
 
                 self.world.set_block(target, BlockType::Air);
-                self.world_dirty = true;
             }
 
             // Reset for next block
             self.breaking_block = None;
             self.break_progress = 0.0;
+
+            // Set cooldown for instant break mode (use base break time as minimum)
+            if self.instant_break {
+                self.break_cooldown = BLOCK_BREAK_TIME.max(0.2);
+            }
+
             return true;
         }
 
@@ -1507,9 +1875,8 @@ impl App {
                 let player_pos = self.camera.position.cast::<f32>().component_mul(&scale);
                 let block_center = place_pos.cast::<f32>() + Vector3::new(0.5, 0.5, 0.5);
                 if (player_pos - block_center).norm() > 1.5 {
-                    println!("Placing {:?} at {:?}", self.selected_block, place_pos);
-                    self.world.set_block(place_pos, self.selected_block);
-                    self.world_dirty = true;
+                    println!("Placing {:?} at {:?}", self.selected_block(), place_pos);
+                    self.world.set_block(place_pos, self.selected_block());
                 }
             } else {
                 println!("Place position {:?} out of bounds, ignoring", place_pos);
@@ -1517,25 +1884,290 @@ impl App {
         }
     }
 
-    /// Uploads the world voxels to the GPU if dirty.
+    /// Uploads dirty chunks to the GPU.
     fn upload_world_to_gpu(&mut self) {
-        if !self.world_dirty {
+        // Drain dirty chunk positions from world
+        let dirty_positions = self.world.drain_dirty_chunks();
+        if dirty_positions.is_empty() {
             return;
         }
 
-        println!("Uploading world to GPU...");
-        let block_data = world_to_block_data(&self.world);
-        self.voxel_set = get_voxel_set(
-            self.memory_allocator.clone(),
+        // Collect chunk data for all dirty chunks
+        let chunks_to_upload: Vec<(Vector3<i32>, Vec<u8>)> = dirty_positions
+            .iter()
+            .filter_map(|&pos| {
+                self.world.get_chunk_mut(pos).map(|chunk| {
+                    let data = chunk.to_block_data();
+                    chunk.mark_clean();
+                    (pos, data)
+                })
+            })
+            .collect();
+
+        if !chunks_to_upload.is_empty() {
+            self.upload_chunks_batched(&chunks_to_upload);
+        }
+    }
+
+    /// Uploads multiple chunks to the GPU in a single batched command buffer.
+    /// This is much faster than uploading chunks one at a time.
+    fn upload_chunks_batched(&self, chunks: &[(Vector3<i32>, Vec<u8>)]) {
+        if chunks.is_empty() {
+            return;
+        }
+
+        // Create staging buffers for all chunks
+        let mut buffers_and_regions = Vec::with_capacity(chunks.len());
+
+        for (chunk_pos, block_data) in chunks {
+            let offset = [
+                (chunk_pos.x * CHUNK_SIZE as i32) as u32,
+                (chunk_pos.y * CHUNK_SIZE as i32) as u32,
+                (chunk_pos.z * CHUNK_SIZE as i32) as u32,
+            ];
+
+            let src_buffer = Buffer::from_iter(
+                self.memory_allocator.clone(),
+                BufferCreateInfo {
+                    usage: BufferUsage::TRANSFER_SRC,
+                    ..Default::default()
+                },
+                AllocationCreateInfo {
+                    memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+                        | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                    ..Default::default()
+                },
+                block_data.clone(),
+            )
+            .unwrap();
+
+            let region = BufferImageCopy {
+                buffer_offset: 0,
+                buffer_row_length: CHUNK_SIZE as u32,
+                buffer_image_height: CHUNK_SIZE as u32,
+                image_subresource: self.voxel_image.subresource_layers(),
+                image_offset: offset,
+                image_extent: [CHUNK_SIZE as u32, CHUNK_SIZE as u32, CHUNK_SIZE as u32],
+                ..Default::default()
+            };
+
+            buffers_and_regions.push((src_buffer, region));
+        }
+
+        // Build single command buffer with all copies
+        let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
             self.command_buffer_allocator.clone(),
-            self.descriptor_set_allocator.clone(),
-            &self.render_pipeline,
-            &self.queue,
+            self.queue.queue_family_index(),
+            CommandBufferUsage::OneTimeSubmit,
+        )
+        .unwrap();
+
+        for (src_buffer, region) in buffers_and_regions {
+            command_buffer_builder
+                .copy_buffer_to_image(CopyBufferToImageInfo {
+                    regions: [region].into(),
+                    ..CopyBufferToImageInfo::buffer_image(src_buffer, self.voxel_image.clone())
+                })
+                .unwrap();
+        }
+
+        // Execute - batching reduces per-chunk overhead significantly
+        let _ = command_buffer_builder
+            .build()
+            .unwrap()
+            .execute(self.queue.clone())
+            .unwrap()
+            .then_signal_fence_and_flush()
+            .unwrap();
+    }
+
+    /// Uploads all dirty chunks to GPU at once (used for initial world load).
+    fn upload_all_dirty_chunks(&mut self) {
+        let chunks_to_upload: Vec<(Vector3<i32>, Vec<u8>)> = self
+            .world
+            .chunks()
+            .filter(|(_, chunk)| chunk.dirty)
+            .map(|(pos, chunk)| (*pos, chunk.to_block_data()))
+            .collect();
+
+        if chunks_to_upload.is_empty() {
+            return;
+        }
+
+        println!("Uploading {} initial chunks to GPU...", chunks_to_upload.len());
+
+        // Upload all at once
+        self.upload_chunks_batched(&chunks_to_upload);
+
+        // Mark all as clean
+        for (pos, _) in &chunks_to_upload {
+            if let Some(chunk) = self.world.get_chunk_mut(*pos) {
+                chunk.mark_clean();
+            }
+        }
+
+        // Clear the dirty queue
+        self.world.drain_dirty_chunks();
+
+        println!("Initial chunk upload complete.");
+    }
+
+    /// Clears a chunk region in the GPU 3D texture (fills with air).
+    /// Note: Prefer using upload_chunks_batched with empty data for better performance.
+    #[allow(dead_code)]
+    fn clear_chunk_in_gpu(&self, chunk_pos: Vector3<i32>) {
+        // Calculate image offset for this chunk
+        let offset = [
+            (chunk_pos.x * CHUNK_SIZE as i32) as u32,
+            (chunk_pos.y * CHUNK_SIZE as i32) as u32,
+            (chunk_pos.z * CHUNK_SIZE as i32) as u32,
+        ];
+
+        // Create buffer filled with zeros (air)
+        let block_data = vec![0u8; CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE];
+        let src_buffer = Buffer::from_iter(
+            self.memory_allocator.clone(),
+            BufferCreateInfo {
+                usage: BufferUsage::TRANSFER_SRC,
+                ..Default::default()
+            },
+            AllocationCreateInfo {
+                memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+                    | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                ..Default::default()
+            },
             block_data,
-            self.world_extent,
-        );
-        self.world_dirty = false;
-        println!("GPU upload complete");
+        )
+        .unwrap();
+
+        // Build command buffer for region copy
+        let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
+            self.command_buffer_allocator.clone(),
+            self.queue.queue_family_index(),
+            CommandBufferUsage::OneTimeSubmit,
+        )
+        .unwrap();
+
+        // Copy zeros to specific region in 3D texture
+        let region = BufferImageCopy {
+            buffer_offset: 0,
+            buffer_row_length: CHUNK_SIZE as u32,
+            buffer_image_height: CHUNK_SIZE as u32,
+            image_subresource: self.voxel_image.subresource_layers(),
+            image_offset: offset,
+            image_extent: [CHUNK_SIZE as u32, CHUNK_SIZE as u32, CHUNK_SIZE as u32],
+            ..Default::default()
+        };
+
+        command_buffer_builder
+            .copy_buffer_to_image(CopyBufferToImageInfo {
+                regions: [region].into(),
+                ..CopyBufferToImageInfo::buffer_image(src_buffer, self.voxel_image.clone())
+            })
+            .unwrap();
+
+        // Execute and wait
+        command_buffer_builder
+            .build()
+            .unwrap()
+            .execute(self.queue.clone())
+            .unwrap()
+            .then_signal_fence_and_flush()
+            .unwrap()
+            .wait(None)
+            .unwrap();
+    }
+
+    /// Uploads dirty chunks to the GPU using batched upload.
+    /// Returns the number of chunks uploaded.
+    #[allow(dead_code)]
+    fn upload_dirty_chunks(&mut self) -> usize {
+        let mut chunks_to_upload: Vec<(Vector3<i32>, Vec<u8>)> = Vec::new();
+        let mut dirty_positions: Vec<Vector3<i32>> = Vec::new();
+
+        // Collect dirty chunks
+        for cx in 0..WORLD_CHUNKS_X {
+            if chunks_to_upload.len() >= CHUNKS_PER_FRAME {
+                break;
+            }
+            for cy in 0..WORLD_CHUNKS_Y {
+                if chunks_to_upload.len() >= CHUNKS_PER_FRAME {
+                    break;
+                }
+                for cz in 0..WORLD_CHUNKS_Z {
+                    if chunks_to_upload.len() >= CHUNKS_PER_FRAME {
+                        break;
+                    }
+                    let chunk_pos = vector![cx, cy, cz];
+                    if let Some(chunk) = self.world.get_chunk(chunk_pos) {
+                        if chunk.dirty {
+                            chunks_to_upload.push((chunk_pos, chunk.to_block_data()));
+                            dirty_positions.push(chunk_pos);
+                        }
+                    }
+                }
+            }
+        }
+
+        let uploaded = chunks_to_upload.len();
+
+        // Batch upload
+        if !chunks_to_upload.is_empty() {
+            self.upload_chunks_batched(&chunks_to_upload);
+
+            // Mark as clean
+            for pos in dirty_positions {
+                if let Some(chunk) = self.world.get_chunk_mut(pos) {
+                    chunk.mark_clean();
+                }
+            }
+        }
+
+        uploaded
+    }
+
+    /// Collects all torch positions in the world and returns them as GPU light data.
+    fn collect_torch_lights(&self) -> Vec<GpuLight> {
+        let mut lights = Vec::new();
+
+        // Iterate over all chunks
+        for cx in 0..WORLD_CHUNKS_X {
+            for cy in 0..WORLD_CHUNKS_Y {
+                for cz in 0..WORLD_CHUNKS_Z {
+                    let chunk_pos = vector![cx, cy, cz];
+                    if let Some(chunk) = self.world.get_chunk(chunk_pos) {
+                        // Scan chunk for torches
+                        for lx in 0..CHUNK_SIZE {
+                            for ly in 0..CHUNK_SIZE {
+                                for lz in 0..CHUNK_SIZE {
+                                    let block = chunk.get_block(lx, ly, lz);
+                                    if let Some((color, radius)) = block.light_properties() {
+                                        // Calculate world position (center of block)
+                                        let world_x =
+                                            cx as f32 * CHUNK_SIZE as f32 + lx as f32 + 0.5;
+                                        let world_y =
+                                            cy as f32 * CHUNK_SIZE as f32 + ly as f32 + 0.5;
+                                        let world_z =
+                                            cz as f32 * CHUNK_SIZE as f32 + lz as f32 + 0.5;
+
+                                        lights.push(GpuLight {
+                                            pos_radius: [world_x, world_y, world_z, radius],
+                                            color_intensity: [color[0], color[1], color[2], 1.2],
+                                        });
+
+                                        if lights.len() >= MAX_LIGHTS {
+                                            return lights;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        lights
     }
 
     fn update(&mut self, event_loop: &ActiveEventLoop) {
@@ -1544,6 +2176,21 @@ impl App {
             self.fps = self.frames_since_last_second;
             self.frames_since_last_second = 0;
             self.last_second = now;
+
+            // Debug stats output
+            let player_pos = self.player_feet_pos();
+            let player_chunk = self.get_player_chunk();
+            let frame_time_ms = if self.fps > 0 { 1000.0 / self.fps as f32 } else { 0.0 };
+            println!(
+                "[STATS] FPS: {} ({:.1}ms) | Chunks: {} | Dirty: {} | Pos: ({:.1}, {:.1}, {:.1}) | Chunk: ({}, {}, {}) | Scale: {:.2}",
+                self.fps,
+                frame_time_ms,
+                self.chunk_stats.loaded_count,
+                self.chunk_stats.dirty_count,
+                player_pos.x, player_pos.y, player_pos.z,
+                player_chunk.x, player_chunk.y, player_chunk.z,
+                self.render_scale
+            );
         }
         self.frames_since_last_second += 1;
 
@@ -1568,6 +2215,8 @@ impl App {
             println!("Focus click...");
             self.focused = true;
             self.pending_grab = Some(true);
+            // Skip block breaking until mouse is released to avoid breaking on focus click
+            self.skip_break_until_release = true;
             println!("Focus complete - cursor will be grabbed");
             return;
         }
@@ -1614,34 +2263,43 @@ impl App {
             self.camera.rotation.x = self.camera.rotation.x.clamp(-FRAC_PI_2, FRAC_PI_2);
             self.camera.rotation.y = self.camera.rotation.y.rem_euclid(TAU);
 
+            // Scroll wheel to cycle through hotbar slots
             let ds = self.input.scroll_diff();
-            let tanfov = (self.camera.fov.to_radians() * 0.5).tan();
-            self.camera.fov = ((tanfov * (ds.1 as f64 * -0.1).exp()).atan() * 2.0).to_degrees();
+            if ds.1.abs() > 0.1 {
+                self.hotbar_index = if ds.1 > 0.0 {
+                    (self.hotbar_index + HOTBAR_BLOCKS.len() - 1) % HOTBAR_BLOCKS.len()
+                } else {
+                    (self.hotbar_index + 1) % HOTBAR_BLOCKS.len()
+                };
+            }
 
-            // Block number keys to select block type
+            // Number keys 1-9 to select hotbar slot
             if self.input.key_pressed(KeyCode::Digit1) {
-                self.selected_block = BlockType::Stone;
+                self.hotbar_index = 0;
             }
             if self.input.key_pressed(KeyCode::Digit2) {
-                self.selected_block = BlockType::Dirt;
+                self.hotbar_index = 1;
             }
             if self.input.key_pressed(KeyCode::Digit3) {
-                self.selected_block = BlockType::Grass;
+                self.hotbar_index = 2;
             }
             if self.input.key_pressed(KeyCode::Digit4) {
-                self.selected_block = BlockType::Planks;
+                self.hotbar_index = 3;
             }
             if self.input.key_pressed(KeyCode::Digit5) {
-                self.selected_block = BlockType::Log;
+                self.hotbar_index = 4;
             }
             if self.input.key_pressed(KeyCode::Digit6) {
-                self.selected_block = BlockType::Leaves;
+                self.hotbar_index = 5;
             }
             if self.input.key_pressed(KeyCode::Digit7) {
-                self.selected_block = BlockType::Sand;
+                self.hotbar_index = 6;
             }
             if self.input.key_pressed(KeyCode::Digit8) {
-                self.selected_block = BlockType::Glass;
+                self.hotbar_index = 7;
+            }
+            if self.input.key_pressed(KeyCode::Digit9) {
+                self.hotbar_index = 8;
             }
 
             // Toggle fly mode (F key)
@@ -1676,12 +2334,24 @@ impl App {
         // Block breaking (hold to break) - must be after raycast update
         if self.focused {
             let holding_break = self.input.mouse_held(MouseButton::Left);
-            self.update_block_breaking(delta_time as f32, holding_break);
+
+            // Clear skip flag when mouse is released
+            if self.skip_break_until_release && !holding_break {
+                self.skip_break_until_release = false;
+            }
+
+            // Skip block breaking until mouse is released after focusing
+            if !self.skip_break_until_release {
+                self.update_block_breaking(delta_time as f32, holding_break);
+            }
         } else {
             // Reset breaking if unfocused
             self.breaking_block = None;
             self.break_progress = 0.0;
         }
+
+        // Update chunk loading/unloading based on player position
+        self.update_chunk_loading();
 
         // Upload dirty world data to GPU
         self.upload_world_to_gpu();
@@ -1690,6 +2360,13 @@ impl App {
     fn render(&mut self, _event_loop: &ActiveEventLoop) {
         self.render_pipeline.maybe_reload();
         self.resample_pipeline.maybe_reload();
+
+        // Collect data before borrowing rcx (avoids borrow checker issues)
+        let gpu_lights = self.collect_torch_lights();
+        let light_count = gpu_lights.len() as u32;
+        let player_world_pos = self.player_feet_pos();
+        let selected_block = self.selected_block();
+        let hotbar_index = self.hotbar_index;
 
         let rcx = self.rcx.as_mut().unwrap();
 
@@ -1754,27 +2431,94 @@ impl App {
             rcx.recreate_swapchain = true;
         }
 
+        // Get atlas texture id before borrowing gui
+        let atlas_texture_id = rcx.atlas_texture_id;
+
         rcx.gui.immediate_ui(|gui| {
             let ctx = gui.context();
 
+            // FPS counter and chunk stats in top right corner
+            egui::Area::new(egui::Id::new("fps_overlay"))
+                .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-10.0, 10.0))
+                .show(&ctx, |ui| {
+                    egui::Frame::new()
+                        .fill(egui::Color32::from_rgba_unmultiplied(0, 0, 0, 180))
+                        .corner_radius(egui::CornerRadius::same(4))
+                        .inner_margin(egui::Margin::symmetric(8, 4))
+                        .show(ui, |ui| {
+                            ui.label(
+                                egui::RichText::new(format!("FPS: {}", self.fps))
+                                    .color(egui::Color32::WHITE)
+                                    .strong(),
+                            );
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "Chunks: {}",
+                                    self.chunk_stats.loaded_count
+                                ))
+                                .color(egui::Color32::LIGHT_GRAY)
+                                .small(),
+                            );
+                            if self.chunk_stats.dirty_count > 0 {
+                                ui.label(
+                                    egui::RichText::new(format!(
+                                        "Dirty: {}",
+                                        self.chunk_stats.dirty_count
+                                    ))
+                                    .color(egui::Color32::YELLOW)
+                                    .small(),
+                                );
+                            }
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "GPU: {:.1} MB",
+                                    self.chunk_stats.memory_mb
+                                ))
+                                .color(egui::Color32::LIGHT_GRAY)
+                                .small(),
+                            );
+                        });
+                });
+
+            // World position at top center
+            egui::Area::new(egui::Id::new("position_overlay"))
+                .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 10.0))
+                .show(&ctx, |ui| {
+                    egui::Frame::new()
+                        .fill(egui::Color32::from_rgba_unmultiplied(0, 0, 0, 180))
+                        .corner_radius(egui::CornerRadius::same(4))
+                        .inner_margin(egui::Margin::symmetric(8, 4))
+                        .show(ui, |ui| {
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "Pos: ({:.1}, {:.1}, {:.1})",
+                                    player_world_pos.x, player_world_pos.y, player_world_pos.z
+                                ))
+                                .color(egui::Color32::WHITE)
+                                .strong(),
+                            );
+                        });
+                });
+
             egui::Window::new("Voxel Game")
                 .default_open(false)
+                .default_pos(egui::pos2(10.0, 40.0))
                 .show(&ctx, |ui| {
                     ui.label("Controls:");
                     ui.label("  WASD - Move");
                     ui.label("  Space - Jump");
                     ui.label("  QE - Down/Up (fly & swim)");
                     ui.label("  Mouse - Look around");
-                    ui.label("  Scroll - Zoom");
+                    ui.label("  Scroll - Select block");
+                    ui.label("  Shift - Sprint");
                     ui.label("  F - Toggle fly mode");
                     ui.label("  B - Toggle chunk boundaries");
                     ui.label("  Left Click - Break block");
                     ui.label("  Right Click - Place block");
-                    ui.label("  1-8 - Select block type");
+                    ui.label("  1-9 - Select block type (9=Torch)");
                     ui.label("  Escape - Release cursor");
                     ui.separator();
 
-                    ui.label(format!("FPS: {}", self.fps));
                     ui.label(format!("Chunks: {}", self.world.chunk_count()));
                     if self.in_water {
                         ui.colored_label(egui::Color32::from_rgb(100, 150, 255), "🌊 UNDERWATER");
@@ -1783,7 +2527,7 @@ impl App {
                     ui.separator();
 
                     // Block selection
-                    ui.label(format!("Selected: {:?}", self.selected_block));
+                    ui.label(format!("Selected: {:?}", selected_block));
                     if let Some(hit) = &self.current_hit {
                         ui.label(format!(
                             "Looking at: ({}, {}, {})",
@@ -1857,6 +2601,18 @@ impl App {
                                 format!("{:02}:{:02}", h, m)
                             }),
                     );
+                    ui.add(
+                        egui::Slider::new(&mut self.ambient_light, 0.0..=1.0).text("Ambient Light"),
+                    );
+                    ui.add(egui::Slider::new(&mut self.fog_density, 0.0..=0.1).text("Fog Density"));
+                    ui.add(
+                        egui::Slider::new(&mut self.max_ray_steps, 128..=1024).text("Ray Steps"),
+                    );
+
+                    ui.separator();
+
+                    // Gameplay options
+                    ui.checkbox(&mut self.instant_break, "Instant block break");
 
                     ui.separator();
 
@@ -1868,31 +2624,148 @@ impl App {
                 });
 
             // Draw crosshair at screen center
+            // Changes appearance when targeting a block
             let screen_rect = ctx.screen_rect();
             let center = screen_rect.center();
             let painter = ctx.layer_painter(egui::LayerId::new(
                 egui::Order::Foreground,
                 egui::Id::new("crosshair"),
             ));
-            let crosshair_size = 10.0;
-            let crosshair_color = egui::Color32::WHITE;
+
+            let targeting_block = self.current_hit.is_some();
+            let (crosshair_size, crosshair_gap, crosshair_color) = if targeting_block {
+                (12.0, 4.0, egui::Color32::from_rgb(100, 255, 100)) // Green, larger, with gap
+            } else {
+                (8.0, 0.0, egui::Color32::WHITE) // White, smaller, no gap
+            };
             let stroke = egui::Stroke::new(2.0, crosshair_color);
-            // Horizontal line
+
+            // Horizontal lines (with gap when targeting)
             painter.line_segment(
                 [
                     egui::pos2(center.x - crosshair_size, center.y),
+                    egui::pos2(center.x - crosshair_gap, center.y),
+                ],
+                stroke,
+            );
+            painter.line_segment(
+                [
+                    egui::pos2(center.x + crosshair_gap, center.y),
                     egui::pos2(center.x + crosshair_size, center.y),
                 ],
                 stroke,
             );
-            // Vertical line
+            // Vertical lines (with gap when targeting)
             painter.line_segment(
                 [
                     egui::pos2(center.x, center.y - crosshair_size),
+                    egui::pos2(center.x, center.y - crosshair_gap),
+                ],
+                stroke,
+            );
+            painter.line_segment(
+                [
+                    egui::pos2(center.x, center.y + crosshair_gap),
                     egui::pos2(center.x, center.y + crosshair_size),
                 ],
                 stroke,
             );
+
+            // Hotbar HUD at bottom center - 9 slots
+            const ATLAS_TILE_COUNT: f32 = 18.0;
+            const SLOT_SIZE: f32 = 40.0;
+
+            egui::Area::new(egui::Id::new("hotbar_hud"))
+                .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -10.0))
+                .show(&ctx, |ui| {
+                    // Background frame for the whole hotbar
+                    egui::Frame::new()
+                        .fill(egui::Color32::from_rgba_unmultiplied(0, 0, 0, 180))
+                        .corner_radius(egui::CornerRadius::same(4))
+                        .inner_margin(egui::Margin::same(6))
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing = egui::vec2(4.0, 0.0);
+
+                                for (i, block) in HOTBAR_BLOCKS.iter().enumerate() {
+                                    let is_selected = i == hotbar_index;
+
+                                    // Calculate UV for this block
+                                    let block_idx = *block as u8 as f32;
+                                    let uv_left = block_idx / ATLAS_TILE_COUNT;
+                                    let uv_right = (block_idx + 1.0) / ATLAS_TILE_COUNT;
+                                    let uv_rect = egui::Rect::from_min_max(
+                                        egui::pos2(uv_left, 0.0),
+                                        egui::pos2(uv_right, 1.0),
+                                    );
+
+                                    // Slot border color
+                                    let border_color = if is_selected {
+                                        egui::Color32::from_rgb(100, 255, 100)
+                                    } else {
+                                        egui::Color32::from_rgb(60, 60, 60)
+                                    };
+                                    let border_width = if is_selected { 3.0 } else { 1.0 };
+
+                                    // Allocate space for slot
+                                    let (rect, _response) = ui.allocate_exact_size(
+                                        egui::vec2(SLOT_SIZE + 4.0, SLOT_SIZE + 16.0),
+                                        egui::Sense::hover(),
+                                    );
+
+                                    // Draw slot background
+                                    ui.painter().rect_filled(
+                                        rect,
+                                        egui::CornerRadius::same(2),
+                                        egui::Color32::from_rgb(40, 40, 40),
+                                    );
+
+                                    // Draw texture
+                                    let texture_rect = egui::Rect::from_min_size(
+                                        rect.min + egui::vec2(2.0, 2.0),
+                                        egui::vec2(SLOT_SIZE, SLOT_SIZE),
+                                    );
+                                    ui.painter().image(
+                                        atlas_texture_id,
+                                        texture_rect,
+                                        uv_rect,
+                                        egui::Color32::WHITE,
+                                    );
+
+                                    // Draw border
+                                    ui.painter().rect_stroke(
+                                        rect,
+                                        egui::CornerRadius::same(2),
+                                        egui::Stroke::new(border_width, border_color),
+                                        egui::StrokeKind::Outside,
+                                    );
+
+                                    // Draw number label
+                                    let text_pos = egui::pos2(
+                                        rect.center().x,
+                                        rect.max.y - 8.0,
+                                    );
+                                    ui.painter().text(
+                                        text_pos,
+                                        egui::Align2::CENTER_CENTER,
+                                        format!("{}", i + 1),
+                                        egui::FontId::proportional(10.0),
+                                        egui::Color32::WHITE,
+                                    );
+                                }
+                            });
+
+                            // Selected block name below hotbar
+                            ui.vertical_centered(|ui| {
+                                ui.add_space(4.0);
+                                ui.label(
+                                    egui::RichText::new(format!("{:?}", selected_block))
+                                        .color(egui::Color32::WHITE)
+                                        .strong(),
+                                );
+                            });
+                        });
+                });
         });
 
         let render_extent = rcx.render_image.extent();
@@ -1907,6 +2780,13 @@ impl App {
         pixel_to_ray_scaled.m14 *= self.world_extent[0] as f64;
         pixel_to_ray_scaled.m24 *= self.world_extent[1] as f64;
         pixel_to_ray_scaled.m34 *= self.world_extent[2] as f64;
+
+        // Apply head bob offset to camera Y position for rendering
+        let head_bob_offset = (self.head_bob_timer * std::f64::consts::TAU).sin()
+            * HEAD_BOB_AMPLITUDE
+            * self.head_bob_intensity;
+        pixel_to_ray_scaled.m24 += head_bob_offset;
+
         let pixel_to_ray = pixel_to_ray_scaled;
 
         #[derive(BufferContents)]
@@ -1933,6 +2813,18 @@ impl App {
             preview_block_y: i32,
             preview_block_z: i32,
             preview_block_type: u32,
+            // Point light count
+            light_count: u32,
+            // Ambient light level
+            ambient_light: f32,
+            // Fog density
+            fog_density: f32,
+            // Target block (block player is looking at, -1 = none)
+            target_block_x: i32,
+            target_block_y: i32,
+            target_block_z: i32,
+            // Maximum ray marching steps
+            max_ray_steps: u32,
         }
         let (break_x, break_y, break_z) = self
             .breaking_block
@@ -1940,6 +2832,7 @@ impl App {
             .unwrap_or((-1, -1, -1));
 
         // Calculate preview block position (where block would be placed)
+        let selected_block_id = selected_block as u32;
         let (preview_x, preview_y, preview_z, preview_type) = self
             .current_hit
             .as_ref()
@@ -1961,17 +2854,19 @@ impl App {
                     && place_pos.z < WORLD_SIZE_Z as i32;
                 let not_in_player = (player_pos - block_center).norm() > 1.5;
                 if in_bounds && not_in_player {
-                    (
-                        place_pos.x,
-                        place_pos.y,
-                        place_pos.z,
-                        self.selected_block as u32,
-                    )
+                    (place_pos.x, place_pos.y, place_pos.z, selected_block_id)
                 } else {
                     (-1, -1, -1, 0)
                 }
             })
             .unwrap_or((-1, -1, -1, 0));
+
+        // Target block (block player is looking at)
+        let (target_x, target_y, target_z) = self
+            .current_hit
+            .as_ref()
+            .map(|hit| (hit.block_pos.x, hit.block_pos.y, hit.block_pos.z))
+            .unwrap_or((-1, -1, -1));
 
         // Update particle buffer
         let gpu_particles = self.particles.gpu_data();
@@ -1980,6 +2875,14 @@ impl App {
             let mut write = self.particle_buffer.write().unwrap();
             for (i, p) in gpu_particles.iter().enumerate() {
                 write[i] = *p;
+            }
+        }
+
+        // Update light buffer with torch positions (collected earlier)
+        {
+            let mut write = self.light_buffer.write().unwrap();
+            for (i, l) in gpu_lights.iter().enumerate() {
+                write[i] = *l;
             }
         }
 
@@ -2002,6 +2905,13 @@ impl App {
             preview_block_y: preview_y,
             preview_block_z: preview_z,
             preview_block_type: preview_type,
+            light_count,
+            ambient_light: self.ambient_light,
+            fog_density: self.fog_density,
+            target_block_x: target_x,
+            target_block_y: target_y,
+            target_block_z: target_z,
+            max_ray_steps: self.max_ray_steps,
         };
 
         let mut builder = AutoCommandBufferBuilder::primary(
@@ -2029,6 +2939,7 @@ impl App {
                     self.voxel_set.clone(),
                     self.texture_set.clone(),
                     self.particle_set.clone(),
+                    self.light_set.clone(),
                 ],
             )
             .unwrap();
@@ -2126,13 +3037,24 @@ impl ApplicationHandler for App {
             window_extent,
         );
 
-        let gui = Gui::new(
+        let mut gui = Gui::new(
             event_loop,
             surface,
             self.queue.clone(),
             swapchain.image_format(),
             GuiConfig {
                 is_overlay: true,
+                ..Default::default()
+            },
+        );
+
+        // Register the texture atlas with egui for HUD display
+        let atlas_texture_id = gui.register_user_image_view(
+            self.texture_atlas_view.clone(),
+            SamplerCreateInfo {
+                mag_filter: Filter::Nearest,
+                min_filter: Filter::Nearest,
+                address_mode: [SamplerAddressMode::ClampToEdge; 3],
                 ..Default::default()
             },
         );
@@ -2150,6 +3072,7 @@ impl ApplicationHandler for App {
             resample_set,
 
             gui,
+            atlas_texture_id,
 
             recreate_swapchain,
         });
@@ -2207,5 +3130,9 @@ impl ApplicationHandler for App {
 fn main() {
     let event_loop = EventLoop::new().unwrap();
     let mut app = App::new(&event_loop);
+
+    // Upload all initial chunks to GPU before starting the game
+    app.upload_all_dirty_chunks();
+
     event_loop.run_app(&mut app).unwrap();
 }

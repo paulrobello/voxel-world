@@ -3,9 +3,10 @@
 // Has to match the order of the RenderMode enum in main.rs
 const uint COORD = 0;
 const uint STEPS = 1;
-const uint NORMAL = 2;
-const uint UV = 3;
-const uint DEPTH = 4;
+const uint TEXTURED = 2;  // Full textured rendering (default)
+const uint NORMAL = 3;    // Surface normal visualization
+const uint UV = 4;
+const uint DEPTH = 5;
 
 // Block types (must match BlockType enum in chunk.rs)
 const uint BLOCK_AIR = 0;
@@ -19,6 +20,11 @@ const uint BLOCK_GRAVEL = 7;
 const uint BLOCK_WATER = 8;
 const uint BLOCK_GLASS = 9;
 const uint BLOCK_LOG = 10;
+const uint BLOCK_TORCH = 11;
+const uint BLOCK_BRICK = 12;
+const uint BLOCK_SNOW = 13;
+const uint BLOCK_COBBLESTONE = 14;
+const uint BLOCK_IRON = 15;
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
@@ -46,6 +52,18 @@ layout(push_constant) uniform PushConstants {
     int preview_block_y;
     int preview_block_z;
     uint preview_block_type;
+    // Point light count
+    uint light_count;
+    // Ambient light level
+    float ambient_light;
+    // Fog density
+    float fog_density;
+    // Target block (block player is looking at, -1 = none)
+    int target_block_x;
+    int target_block_y;
+    int target_block_z;
+    // Maximum ray marching steps
+    uint max_ray_steps;
 } pc;
 
 // Particle data (set 3)
@@ -56,6 +74,16 @@ struct Particle {
 
 layout(set = 3, binding = 0) readonly buffer ParticleBuffer {
     Particle particles[];
+};
+
+// Point light data (set 4)
+struct PointLight {
+    vec4 pos_radius;   // xyz = position, w = radius
+    vec4 color;        // rgb = color, a = intensity
+};
+
+layout(set = 4, binding = 0) readonly buffer LightBuffer {
+    PointLight lights[];
 };
 
 // Helper to get world size as vec3
@@ -118,10 +146,11 @@ const float CLOUD_HEIGHT = 80.0;       // Height of cloud layer
 const float CLOUD_SCALE = 0.02;        // Scale of cloud noise
 const float CLOUD_COVERAGE = 0.45;     // 0-1, higher = more clouds
 const vec3 CLOUD_COLOR = vec3(1.0, 1.0, 1.0);   // White clouds
+const vec2 CLOUD_WIND = vec2(0.8, 0.3);  // Wind direction and speed for cloud movement
 
-// Fog settings
-const float FOG_START = 40.0;     // Distance where fog begins
-const float FOG_END = 120.0;      // Distance where fog is fully opaque
+// Fog settings (FOG_START/END used for particle fog, main fog uses density)
+const float FOG_START = 40.0;     // Distance where particle fog begins
+const float FOG_END = 120.0;      // Distance where particle fog is fully opaque
 
 // Calculate sun direction based on time of day
 // time: 0.0 = midnight, 0.25 = sunrise (east), 0.5 = noon (overhead), 0.75 = sunset (west)
@@ -202,7 +231,7 @@ float fbm(vec2 p) {
     return value;
 }
 
-// Calculate cloud density at a point
+// Calculate cloud density at a point (animated with wind)
 float getCloudDensity(vec3 rayOrigin, vec3 rayDir) {
     // Only render clouds above horizon
     if (rayDir.y <= 0.01) return 0.0;
@@ -212,10 +241,17 @@ float getCloudDensity(vec3 rayOrigin, vec3 rayDir) {
     if (t < 0.0) return 0.0;
 
     vec3 cloudPos = rayOrigin + rayDir * t;
-    vec2 cloudUV = cloudPos.xz * CLOUD_SCALE;
 
-    // Sample cloud noise
+    // Animate clouds with wind - offset UV by time
+    vec2 cloudUV = cloudPos.xz * CLOUD_SCALE + pc.animation_time * CLOUD_WIND * CLOUD_SCALE;
+
+    // Sample cloud noise with multiple octaves for detail
     float density = fbm(cloudUV);
+
+    // Add secondary layer moving at different speed for depth
+    vec2 cloudUV2 = cloudPos.xz * CLOUD_SCALE * 0.5 + pc.animation_time * CLOUD_WIND * CLOUD_SCALE * 0.6;
+    float density2 = fbm(cloudUV2) * 0.3;
+    density = density + density2;
 
     // Apply coverage threshold
     density = smoothstep(CLOUD_COVERAGE, CLOUD_COVERAGE + 0.3, density);
@@ -334,9 +370,11 @@ vec3 getSkyColor(vec3 rayDir) {
     return getSkyColorEx(rayDir, false);
 }
 
-// Calculate fog factor based on distance (0 = no fog, 1 = full fog)
+// Calculate fog factor based on distance using exponential fog (0 = no fog, 1 = full fog)
 float getFogFactor(float distance) {
-    return clamp((distance - FOG_START) / (FOG_END - FOG_START), 0.0, 1.0);
+    // Exponential fog: 1 - exp(-density * distance)
+    // pc.fog_density controls thickness (0 = no fog, 0.02 = light, 0.05 = medium, 0.1 = thick)
+    return 1.0 - exp(-pc.fog_density * distance);
 }
 
 // Get current sun direction for lighting calculations
@@ -402,8 +440,8 @@ float castShadowRay(vec3 origin) {
     const float MAX_SHADOW_DIST = 48.0;
     float dist = 0.0;
 
-    // DDA shadow ray march
-    for (int i = 0; i < 64; i++) {
+    // DDA shadow ray march (increased for larger world)
+    for (int i = 0; i < 128; i++) {
         // Check bounds
         if (any(lessThan(pos, ivec3(0))) || any(greaterThanEqual(pos, ivec3(worldSizeU())))) {
             return 1.0;  // Exited world bounds = lit
@@ -441,6 +479,54 @@ float castShadowRay(vec3 origin) {
     }
 
     return 1.0;  // No hit = lit
+}
+
+// Check if a point has sky exposure (for ambient light)
+// Returns 0.0 if underground/blocked, 1.0 if exposed to sky
+float getSkyExposure(vec3 origin) {
+    // Cast ray straight up
+    vec3 dir = vec3(0.0, 1.0, 0.0);
+
+    // Offset origin slightly to avoid self-intersection
+    vec3 rayOrigin = origin + dir * 0.01;
+
+    // Current voxel position
+    ivec3 pos = ivec3(floor(rayOrigin));
+
+    // Only step upward
+    float tMax = (float(pos.y) + 1.0 - rayOrigin.y);
+    float tDelta = 1.0;
+
+    // March upward through voxels (increased for taller world: 128 blocks)
+    for (int i = 0; i < 128; i++) {
+        // Check if we've exited the world (reached sky)
+        if (pos.y >= int(pc.world_size_y)) {
+            return 1.0;  // Reached sky = full exposure
+        }
+
+        // Check bounds (shouldn't happen going up, but safety)
+        if (pos.x < 0 || pos.x >= int(pc.world_size_x) ||
+            pos.z < 0 || pos.z >= int(pc.world_size_z)) {
+            return 1.0;  // Out of bounds = assume sky
+        }
+
+        // Check for solid block
+        uint blockType = readBlockType(pos);
+        if (blockType != BLOCK_AIR && blockType != BLOCK_WATER &&
+            blockType != BLOCK_GLASS && blockType != BLOCK_LEAVES) {
+            return 0.0;  // Blocked = underground
+        }
+
+        // Leaves provide partial sky exposure
+        if (blockType == BLOCK_LEAVES) {
+            return 0.4;  // Partial exposure under leaves
+        }
+
+        // Step up
+        pos.y += 1;
+    }
+
+    return 1.0;  // No hit after max iterations = assume sky
 }
 
 // Calculate ambient occlusion for a face
@@ -526,14 +612,65 @@ float chunkBoundaryFactor(vec3 hitPos, uint steppedAxis) {
 }
 
 // Texture atlas constants
-// Atlas is 832x64 pixels with 13 textures (64x64 each) in a row
-// Order: air(0), stone(1), dirt(2), grass(3), planks(4), leaves(5), sand(6), gravel(7), water(8), glass(9), log(10), grass_side(11), log_top(12)
-const float ATLAS_TILE_COUNT = 13.0;
+// Atlas is 1152x64 pixels with 18 textures (64x64 each) in a row
+// Order: air(0), stone(1), dirt(2), grass(3), planks(4), leaves(5), sand(6), gravel(7), water(8), glass(9), log(10), torch(11), brick(12), snow(13), cobblestone(14), iron(15), grass_side(16), log_top(17)
+const float ATLAS_TILE_COUNT = 18.0;
 const float ATLAS_TILE_SIZE = 1.0 / ATLAS_TILE_COUNT;
 
 // Multi-face texture indices (for blocks with different side textures)
-const uint TEX_GRASS_SIDE = 11;
-const uint TEX_LOG_TOP = 12;
+const uint TEX_GRASS_SIDE = 16;
+const uint TEX_LOG_TOP = 17;
+
+// Torch light settings
+const vec3 TORCH_LIGHT_COLOR = vec3(1.0, 0.8, 0.5);  // Warm orange-yellow
+const float TORCH_LIGHT_RADIUS = 10.0;               // Light falloff radius
+const float TORCH_LIGHT_INTENSITY = 1.2;             // Base intensity
+
+// Calculate point light contribution at a surface point
+// Returns the total light color contribution from all point lights
+vec3 calculatePointLights(vec3 worldPos, vec3 normal) {
+    vec3 totalLight = vec3(0.0);
+
+    for (uint i = 0; i < pc.light_count; i++) {
+        PointLight light = lights[i];
+        vec3 lightPos = light.pos_radius.xyz;
+        float lightRadius = light.pos_radius.w;
+        vec3 lightColor = light.color.rgb;
+        float intensity = light.color.a;
+
+        // Vector from surface to light
+        vec3 toLight = lightPos - worldPos;
+        float distance = length(toLight);
+
+        // Skip if outside light radius
+        if (distance > lightRadius) continue;
+
+        // Normalize direction
+        vec3 lightDir = toLight / distance;
+
+        // Attenuation: smooth falloff based on distance
+        float attenuation = 1.0 - smoothstep(0.0, lightRadius, distance);
+        attenuation = attenuation * attenuation;  // Quadratic falloff
+
+        // Diffuse lighting (N dot L)
+        float diffuse = max(0.0, dot(normal, lightDir));
+
+        // Add a bit of ambient from the light to illuminate even faces pointing away
+        float ambient = 0.15;
+
+        // Combine
+        vec3 lightContrib = lightColor * intensity * attenuation * (diffuse + ambient);
+
+        // Flickering effect for torches (subtle)
+        float flicker = 0.95 + 0.05 * sin(pc.animation_time * 15.0 + float(i) * 7.3);
+        flicker *= 0.97 + 0.03 * sin(pc.animation_time * 23.0 + float(i) * 11.1);
+        lightContrib *= flicker;
+
+        totalLight += lightContrib;
+    }
+
+    return totalLight;
+}
 
 // Sample a specific texture from the atlas
 vec3 sampleTexture(uint textureIndex, vec2 uv) {
@@ -851,6 +988,11 @@ bool hasPreviewBlock() {
     return pc.preview_block_x >= 0;
 }
 
+// Check if target block is active
+bool hasTargetBlock() {
+    return pc.target_block_x >= 0;
+}
+
 // Ray-AABB intersection for unit cube at integer position
 // Returns t (distance) or -1 if no hit, also outputs hit normal and local hit position
 float rayBlockIntersect(vec3 rayOrigin, vec3 rayDir, ivec3 blockPos, out vec3 hitNormal, out vec3 localHit) {
@@ -953,9 +1095,9 @@ bool renderPreviewBlock(vec3 origin, vec3 dir, inout vec3 color, float sceneHitD
     // Calculate wireframe
     float wireframe = getWireframeFactor(localHit, hitNormal);
 
-    // Preview is semi-transparent with bright wireframe edges
-    float baseAlpha = 0.35;
-    float wireAlpha = 0.9;
+    // Preview is mostly opaque with bright wireframe edges
+    float baseAlpha = 0.75;
+    float wireAlpha = 0.95;
 
     // Wireframe color (bright white/cyan)
     vec3 wireColor = vec3(0.8, 1.0, 1.0);
@@ -972,8 +1114,42 @@ bool renderPreviewBlock(vec3 origin, vec3 dir, inout vec3 color, float sceneHitD
     return true;
 }
 
+// Render target block outline (wireframe only, drawn on top of hit block)
+// This shows which block the player is looking at for breaking
+bool renderTargetBlockOutline(vec3 origin, vec3 dir, inout vec3 color, float sceneHitDistance) {
+    if (!hasTargetBlock()) {
+        return false;
+    }
+
+    ivec3 targetPos = ivec3(pc.target_block_x, pc.target_block_y, pc.target_block_z);
+
+    vec3 hitNormal;
+    vec3 localHit;
+    float t = rayBlockIntersect(origin, dir, targetPos, hitNormal, localHit);
+
+    // Only render if we hit the target block at approximately the scene hit distance
+    // Allow some tolerance for floating point precision
+    if (t < 0.0 || abs(t - sceneHitDistance) > 0.01) {
+        return false;
+    }
+
+    // Calculate wireframe
+    float wireframe = getWireframeFactor(localHit, hitNormal);
+
+    // Only draw the outline, not the fill
+    if (wireframe > 0.1) {
+        // Black outline with some transparency
+        vec3 outlineColor = vec3(0.0, 0.0, 0.0);
+        float outlineAlpha = wireframe * 0.8;
+        color = mix(color, outlineColor, outlineAlpha);
+    }
+
+    return true;
+}
+
 bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out float hitDistance) {
     hitDistance = FLT_MAX;
+
     vec3 inv_dir = 1. / dir;
     vec3 sgn_dir = sign(inv_dir);
     inv_dir = clamp(inv_dir, vec3(-FLT_MAX), vec3(FLT_MAX));
@@ -994,6 +1170,16 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
     if (tmin > tmax) {
         return false;
     }
+
+    // Calculate max distance ray can travel in world
+    float maxWorldDistance = tmax - tmin;
+
+    // Step limit: DDA steps = sum of axis distances traveled
+    // Calculate actual ratio based on ray direction for accuracy
+    // Add 10% safety margin for numerical precision at screen corners
+    vec3 absDir = abs(normalize(dir));
+    float stepRatio = (absDir.x + absDir.y + absDir.z) * 1.1;
+    uint dynamicMaxSteps = min(pc.max_ray_steps, uint(maxWorldDistance * stepRatio) + 16u);
 
     // Find which face the ray enters through (the axis with the LARGEST tmins)
     uint stepped_axis;
@@ -1035,7 +1221,7 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
     }
 
     if (!instantHit)
-    while (true) {
+    while (steps < dynamicMaxSteps) {
         steps++;
 
         float prevT = min(min(t.x, t.y), t.z);
@@ -1094,6 +1280,20 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
             break;
     }
 
+    // If we exceeded max steps without hitting anything solid, return miss
+    if (!instantHit && (blockType == BLOCK_AIR || blockType == BLOCK_WATER)) {
+        // Return water color if we passed through water
+        if (inWater && pc.player_in_water == 0) {
+            float currentT = min(min(t.x, t.y), t.z);
+            waterDepth = (currentT - waterEntryT) * length(dir);
+            float depthFactor = 1.0 - exp(-waterDepth / WATER_CLARITY);
+            color = mix(WATER_COLOR, WATER_DEEP_COLOR, depthFactor);
+            hitDistance = waterEntryT * length(dir);
+            return true;
+        }
+        return false;
+    }
+
     // Calculate water depth if we passed through water
     if (inWater) {
         float currentT = min(min(t.x, t.y), t.z) - min(delta.x, min(delta.y, delta.z));
@@ -1127,31 +1327,64 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
         uv = local_hit.xy;
     }
 
-    // Calculate ambient occlusion
-    float ao = calculateAO(ivec3(coord), normal, uv);
+    // Distance-based LOD thresholds for expensive operations
+    const float AO_DISTANCE = 48.0;      // Skip AO beyond this distance
+    const float SHADOW_DISTANCE = 64.0;  // Skip shadows beyond this distance
+    const float POINT_LIGHT_DISTANCE = 32.0; // Skip point lights beyond this distance
+    const float SKY_EXPOSURE_DISTANCE = 48.0; // Skip sky exposure calc beyond this
+    bool nearEnoughForAO = hitDistance < AO_DISTANCE;
+    bool nearEnoughForShadow = hitDistance < SHADOW_DISTANCE;
+    bool nearEnoughForPointLights = hitDistance < POINT_LIGHT_DISTANCE;
+    bool nearEnoughForSkyExposure = hitDistance < SKY_EXPOSURE_DISTANCE;
+
+    // Calculate ambient occlusion only for nearby blocks
+    float ao = nearEnoughForAO ? calculateAO(ivec3(coord), normal, uv) : 1.0;
 
     switch (pc.render_mode) {
         case COORD:
         color = vec3(coord) / (worldSize() - 1.0);
         break;
-        case NORMAL:
+        case TEXTURED:
+        {
         // Get current sun direction and daylight factor
         vec3 sunDir = getCurrentSunDir();
         float daylight = getDaylightFactor(pc.time_of_day);
 
-        // Calculate shadow
-        float shadow = castShadowRay(hit + normal * 0.01);
+        // Calculate sky exposure (reduces ambient light underground) - skip for distant blocks
+        float skyExposure = nearEnoughForSkyExposure ? getSkyExposure(hit + normal * 0.01) : 1.0;
+
+        // Calculate shadow only for nearby blocks
+        float shadow = nearEnoughForShadow ? castShadowRay(hit + normal * 0.01) : 1.0;
 
         // Apply directional lighting based on normal and sun direction
         float sunLight = max(0.0, dot(normal, sunDir));
 
         // Ambient varies with time of day (brighter during day, dimmer at night)
-        float ambient = mix(0.1, 0.35, daylight);
-        float direct = mix(0.2, 0.65, daylight) * sunLight * shadow;
+        // Sky exposure significantly reduces ambient light underground
+        // pc.ambient_light is user-configurable base ambient level
+        float baseAmbient = mix(pc.ambient_light, pc.ambient_light + 0.25, daylight);
+        // Underground minimum scales with ambient setting (20% of base, minimum 0.02)
+        float minAmbient = max(0.02, pc.ambient_light * 0.5);
+        float ambient = mix(minAmbient, baseAmbient, skyExposure);
+
+        // Direct light is also affected by sky exposure (no sun reaches underground)
+        float direct = mix(0.2, 0.65, daylight) * sunLight * shadow * skyExposure;
         float lighting = ambient + direct;
 
-        // Combine lighting with ambient occlusion
-        color = blockColor * lighting * ao;
+        // Add point light contribution (torches, etc.) only for nearby blocks
+        vec3 pointLightContrib = vec3(0.0);
+        if (pc.light_count > 0 && nearEnoughForPointLights) {
+            pointLightContrib = calculatePointLights(hit, normal);
+        }
+
+        // Combine all lighting with ambient occlusion
+        // Point lights add on top of base lighting (not affected by AO as much)
+        color = blockColor * lighting * ao + blockColor * pointLightContrib * (0.7 + 0.3 * ao);
+        }
+        break;
+        case NORMAL:
+        // Visualize surface normals as colors (map -1..1 to 0..1)
+        color = normal * 0.5 + 0.5;
         break;
         case UV:
         color = vec3(uv, 0);
@@ -1239,6 +1472,8 @@ void main() {
         uint maxDim = max(pc.world_size_x, max(pc.world_size_y, pc.world_size_z));
         color = stepsToInferno(steps, 0, (maxDim - 1) * 3);
     } else if (hit) {
+        // Render target block outline (wireframe around block player is looking at)
+        renderTargetBlockOutline(o, d, color, hitDistance);
         // Apply fog to hit blocks
         color = applyFog(color, hitDistance, d);
     } else {

@@ -3,6 +3,7 @@
 //! This module provides DDA (Digital Differential Analyzer) based
 //! raycasting to find which block the player is looking at.
 
+use crate::chunk::BlockType;
 use crate::world::World;
 use nalgebra::Vector3;
 
@@ -116,13 +117,15 @@ pub fn raycast(
 
     // DDA loop
     while distance < max_distance {
-        // Check if current voxel is solid
-        if world.is_solid(pos) {
-            return Some(RaycastHit {
-                block_pos: pos,
-                normal,
-                distance,
-            });
+        // Check if current voxel is non-air (can target any block, not just solid)
+        if let Some(block) = world.get_block(pos) {
+            if block != BlockType::Air {
+                return Some(RaycastHit {
+                    block_pos: pos,
+                    normal,
+                    distance,
+                });
+            }
         }
 
         // Step to next voxel

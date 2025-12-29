@@ -30,13 +30,18 @@ pub enum BlockType {
     Water = 8,
     Glass = 9,
     Log = 10,
+    Torch = 11,
+    Brick = 12,
+    Snow = 13,
+    Cobblestone = 14,
+    Iron = 15,
 }
 
 impl BlockType {
-    /// Returns true if this block type is solid (not air or water).
+    /// Returns true if this block type is solid (not air, water, or torch).
     #[inline]
     pub fn is_solid(self) -> bool {
-        !matches!(self, BlockType::Air | BlockType::Water)
+        !matches!(self, BlockType::Air | BlockType::Water | BlockType::Torch)
     }
 
     /// Returns true if this block type is affected by gravity (sand, gravel).
@@ -50,8 +55,28 @@ impl BlockType {
     pub fn is_transparent(self) -> bool {
         matches!(
             self,
-            BlockType::Air | BlockType::Water | BlockType::Glass | BlockType::Leaves
+            BlockType::Air
+                | BlockType::Water
+                | BlockType::Glass
+                | BlockType::Leaves
+                | BlockType::Torch
         )
+    }
+
+    /// Returns true if this block type emits light.
+    #[inline]
+    pub fn is_light_source(self) -> bool {
+        matches!(self, BlockType::Torch)
+    }
+
+    /// Returns the light color and intensity for light-emitting blocks.
+    /// Returns (color RGB, intensity) or None if not a light source.
+    #[inline]
+    pub fn light_properties(self) -> Option<([f32; 3], f32)> {
+        match self {
+            BlockType::Torch => Some(([1.0, 0.8, 0.4], 8.0)), // Warm orange light, radius ~8 blocks
+            _ => None,
+        }
     }
 
     /// Returns the color for this block type (RGB, 0-1 range).
@@ -69,6 +94,32 @@ impl BlockType {
             BlockType::Water => [0.2, 0.4, 0.8],
             BlockType::Glass => [0.8, 0.9, 1.0],
             BlockType::Log => [0.4, 0.3, 0.2],
+            BlockType::Torch => [0.9, 0.7, 0.3], // Warm torch color
+            BlockType::Brick => [0.7, 0.35, 0.3],
+            BlockType::Snow => [0.95, 0.95, 0.98],
+            BlockType::Cobblestone => [0.45, 0.45, 0.45],
+            BlockType::Iron => [0.75, 0.75, 0.78],
+        }
+    }
+
+    /// Returns the time in seconds to break this block type.
+    /// Higher values = takes longer to break.
+    #[inline]
+    pub fn break_time(self) -> f32 {
+        match self {
+            BlockType::Air => 0.0,
+            // Very fast (instant)
+            BlockType::Leaves | BlockType::Torch => 0.15,
+            // Fast
+            BlockType::Dirt | BlockType::Sand | BlockType::Gravel | BlockType::Snow => 0.3,
+            // Normal
+            BlockType::Grass | BlockType::Planks | BlockType::Log | BlockType::Glass => 0.5,
+            // Slow
+            BlockType::Stone | BlockType::Cobblestone | BlockType::Brick => 0.8,
+            // Very slow
+            BlockType::Iron => 1.2,
+            // Special (can't break or shouldn't)
+            BlockType::Water => 0.0,
         }
     }
 }
@@ -87,6 +138,11 @@ impl From<u8> for BlockType {
             8 => BlockType::Water,
             9 => BlockType::Glass,
             10 => BlockType::Log,
+            11 => BlockType::Torch,
+            12 => BlockType::Brick,
+            13 => BlockType::Snow,
+            14 => BlockType::Cobblestone,
+            15 => BlockType::Iron,
             _ => BlockType::Air,
         }
     }

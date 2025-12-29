@@ -157,6 +157,82 @@ impl World {
         &self.dirty_chunks
     }
 
+    /// Returns the count of chunks with dirty flag set.
+    pub fn dirty_chunk_count(&self) -> usize {
+        self.chunks.values().filter(|c| c.dirty).count()
+    }
+
+    /// Gets chunk positions that should be loaded based on player position.
+    ///
+    /// Returns chunks within the given view distance that are not yet loaded.
+    /// Chunks are sorted by distance to the center (closest first).
+    pub fn get_chunks_to_load(
+        &self,
+        center: ChunkPos,
+        view_distance: i32,
+        world_bounds: (ChunkPos, ChunkPos), // (min_chunk, max_chunk) inclusive
+    ) -> Vec<ChunkPos> {
+        let mut to_load = Vec::new();
+        let (min_chunk, max_chunk) = world_bounds;
+
+        // Use horizontal distance only - load ALL Y levels within horizontal range
+        // This prevents floating chunks when viewing from mountaintops
+        for dx in -view_distance..=view_distance {
+            for dz in -view_distance..=view_distance {
+                // Check horizontal distance (circular, not square)
+                let dist_sq = dx * dx + dz * dz;
+                if dist_sq > view_distance * view_distance {
+                    continue;
+                }
+
+                // Load all Y levels within horizontal range
+                for cy in min_chunk.y..=max_chunk.y {
+                    let chunk_pos = vector![center.x + dx, cy, center.z + dz];
+
+                    // Check horizontal world bounds
+                    if chunk_pos.x < min_chunk.x
+                        || chunk_pos.x > max_chunk.x
+                        || chunk_pos.z < min_chunk.z
+                        || chunk_pos.z > max_chunk.z
+                    {
+                        continue;
+                    }
+
+                    // Only add if not already loaded
+                    if !self.has_chunk(chunk_pos) {
+                        to_load.push(chunk_pos);
+                    }
+                }
+            }
+        }
+
+        // Sort by horizontal distance to center (closest first)
+        to_load.sort_by_key(|pos| {
+            let dx = pos.x - center.x;
+            let dz = pos.z - center.z;
+            dx * dx + dz * dz
+        });
+
+        to_load
+    }
+
+    /// Gets chunk positions that should be unloaded based on player position.
+    ///
+    /// Returns loaded chunks that are beyond the given unload distance (horizontal only).
+    pub fn get_chunks_to_unload(&self, center: ChunkPos, unload_distance: i32) -> Vec<ChunkPos> {
+        let unload_dist_sq = unload_distance * unload_distance;
+        self.chunks
+            .keys()
+            .filter(|pos| {
+                // Use horizontal distance only (matching load behavior)
+                let dx = pos.x - center.x;
+                let dz = pos.z - center.z;
+                dx * dx + dz * dz > unload_dist_sq
+            })
+            .cloned()
+            .collect()
+    }
+
     /// Creates a simple test world with a flat terrain.
     pub fn create_flat_world(size: i32, height: i32) -> Self {
         let mut world = Self::new();
