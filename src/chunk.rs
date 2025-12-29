@@ -148,6 +148,12 @@ impl From<u8> for BlockType {
     }
 }
 
+/// Size of a brick (sub-chunk region) for hierarchical ray skipping.
+/// Each chunk is divided into BRICKS_PER_AXIS³ bricks.
+pub const BRICK_SIZE: usize = 8;
+pub const BRICKS_PER_AXIS: usize = CHUNK_SIZE / BRICK_SIZE; // 4
+pub const BRICKS_PER_CHUNK: usize = BRICKS_PER_AXIS * BRICKS_PER_AXIS * BRICKS_PER_AXIS; // 64
+
 /// A chunk of blocks in the voxel world.
 ///
 /// Chunks are 32³ grids of blocks that can be individually loaded,
@@ -169,6 +175,16 @@ pub struct Chunk {
     /// Cached: true if all blocks are solid (for ray skip optimization).
     cached_is_fully_solid: bool,
 
+    /// Brick occupancy mask: 64 bits, one per 8³ brick region.
+    /// Bit set = brick has solid blocks, bit clear = brick is empty.
+    /// Layout: bit index = bx + by * 4 + bz * 16
+    cached_brick_mask: u64,
+
+    /// Distance field: minimum distance to solid voxel for each brick.
+    /// Values 0-255 represent distance in voxels (0 = has solid, 255 = far from solid).
+    /// Used for sphere-tracing acceleration within chunks.
+    cached_brick_distances: [u8; BRICKS_PER_CHUNK],
+
     /// Whether cached_is_empty/cached_is_fully_solid need recalculation.
     metadata_dirty: bool,
 }
@@ -188,6 +204,8 @@ impl Chunk {
             gpu_texture: None,
             cached_is_empty: true,
             cached_is_fully_solid: false,
+            cached_brick_mask: 0, // All bricks empty
+            cached_brick_distances: [255; BRICKS_PER_CHUNK], // Max distance (no solids)
             metadata_dirty: false,
         }
     }
@@ -196,12 +214,20 @@ impl Chunk {
     pub fn filled(block_type: BlockType) -> Self {
         let is_empty = block_type == BlockType::Air;
         let is_solid = block_type.is_solid();
+        let brick_mask = if is_solid { u64::MAX } else { 0 };
+        let brick_distances = if is_solid {
+            [0; BRICKS_PER_CHUNK]
+        } else {
+            [255; BRICKS_PER_CHUNK]
+        };
         Self {
             blocks: Box::new([block_type; CHUNK_VOLUME]),
             dirty: true,
             gpu_texture: None,
             cached_is_empty: is_empty,
             cached_is_fully_solid: is_solid,
+            cached_brick_mask: brick_mask,
+            cached_brick_distances: brick_distances,
             metadata_dirty: false,
         }
     }
@@ -297,14 +323,108 @@ impl Chunk {
         }
     }
 
-    /// Updates the cached metadata (is_empty, is_fully_solid).
+    /// Updates the cached metadata (is_empty, is_fully_solid, brick_mask, brick_distances).
     /// Call this after bulk modifications to avoid repeated recalculation.
     pub fn update_metadata(&mut self) {
         if self.metadata_dirty {
             self.cached_is_empty = self.blocks.iter().all(|&b| b == BlockType::Air);
             self.cached_is_fully_solid = self.blocks.iter().all(|&b| b.is_solid());
+            self.compute_brick_data();
             self.metadata_dirty = false;
         }
+    }
+
+    /// Computes brick occupancy mask and distance field.
+    fn compute_brick_data(&mut self) {
+        self.cached_brick_mask = 0;
+        self.cached_brick_distances = [255; BRICKS_PER_CHUNK];
+
+        // First pass: compute brick occupancy mask
+        for bz in 0..BRICKS_PER_AXIS {
+            for by in 0..BRICKS_PER_AXIS {
+                for bx in 0..BRICKS_PER_AXIS {
+                    let brick_idx = bx + by * BRICKS_PER_AXIS + bz * BRICKS_PER_AXIS * BRICKS_PER_AXIS;
+                    let has_solid = self.brick_has_solid(bx, by, bz);
+                    if has_solid {
+                        self.cached_brick_mask |= 1u64 << brick_idx;
+                        self.cached_brick_distances[brick_idx] = 0;
+                    }
+                }
+            }
+        }
+
+        // Second pass: compute distance field using 3D Manhattan distance propagation
+        // Start from solid bricks and propagate outward
+        for distance in 1u8..=15 {
+            for bz in 0..BRICKS_PER_AXIS {
+                for by in 0..BRICKS_PER_AXIS {
+                    for bx in 0..BRICKS_PER_AXIS {
+                        let brick_idx =
+                            bx + by * BRICKS_PER_AXIS + bz * BRICKS_PER_AXIS * BRICKS_PER_AXIS;
+                        if self.cached_brick_distances[brick_idx] < distance {
+                            continue; // Already has closer distance
+                        }
+
+                        // Check 6 neighbors
+                        let mut min_neighbor_dist = 255u8;
+                        for (dx, dy, dz) in [
+                            (-1, 0, 0),
+                            (1, 0, 0),
+                            (0, -1, 0),
+                            (0, 1, 0),
+                            (0, 0, -1),
+                            (0, 0, 1),
+                        ] {
+                            let nx = bx as i32 + dx;
+                            let ny = by as i32 + dy;
+                            let nz = bz as i32 + dz;
+                            if nx >= 0
+                                && nx < BRICKS_PER_AXIS as i32
+                                && ny >= 0
+                                && ny < BRICKS_PER_AXIS as i32
+                                && nz >= 0
+                                && nz < BRICKS_PER_AXIS as i32
+                            {
+                                let neighbor_idx = nx as usize
+                                    + ny as usize * BRICKS_PER_AXIS
+                                    + nz as usize * BRICKS_PER_AXIS * BRICKS_PER_AXIS;
+                                min_neighbor_dist =
+                                    min_neighbor_dist.min(self.cached_brick_distances[neighbor_idx]);
+                            }
+                        }
+
+                        if min_neighbor_dist < 255 {
+                            self.cached_brick_distances[brick_idx] =
+                                self.cached_brick_distances[brick_idx].min(min_neighbor_dist + 1);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Scale distances: multiply by BRICK_SIZE to get voxel distances
+        // But cap at 255 (max u8)
+        for dist in &mut self.cached_brick_distances {
+            *dist = (*dist as usize * BRICK_SIZE).min(255) as u8;
+        }
+    }
+
+    /// Checks if a brick (8³ region) contains any solid blocks.
+    fn brick_has_solid(&self, bx: usize, by: usize, bz: usize) -> bool {
+        let base_x = bx * BRICK_SIZE;
+        let base_y = by * BRICK_SIZE;
+        let base_z = bz * BRICK_SIZE;
+
+        for z in base_z..base_z + BRICK_SIZE {
+            for y in base_y..base_y + BRICK_SIZE {
+                for x in base_x..base_x + BRICK_SIZE {
+                    if self.get_block(x, y, z).is_solid() {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
     }
 
     /// Returns the cached is_empty flag directly (for GPU upload).
@@ -319,6 +439,22 @@ impl Chunk {
     #[inline]
     pub fn cached_is_fully_solid(&self) -> bool {
         self.cached_is_fully_solid
+    }
+
+    /// Returns the brick occupancy mask (64 bits, one per 8³ brick).
+    /// Bit set = brick has solid blocks.
+    /// Call update_metadata() first to ensure accuracy.
+    #[inline]
+    pub fn brick_mask(&self) -> u64 {
+        self.cached_brick_mask
+    }
+
+    /// Returns the brick distance field (64 bytes, one per brick).
+    /// Value = minimum voxel distance to nearest solid block.
+    /// Call update_metadata() first to ensure accuracy.
+    #[inline]
+    pub fn brick_distances(&self) -> &[u8; BRICKS_PER_CHUNK] {
+        &self.cached_brick_distances
     }
 
     /// Marks the chunk as needing GPU re-upload.

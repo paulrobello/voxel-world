@@ -1181,6 +1181,70 @@ fn get_chunk_metadata_set(
     (chunk_metadata_buffer, descriptor_set)
 }
 
+/// Creates storage buffers and descriptor set for brick data (masks + distances).
+/// Set 7, binding 0 = brick masks (2 u32 per chunk = 64-bit mask)
+/// Set 7, binding 1 = brick distances (64 bytes per chunk)
+fn get_brick_data_set(
+    memory_allocator: Arc<StandardMemoryAllocator>,
+    descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
+    render_pipeline: &ComputePipeline,
+) -> (Subbuffer<[u32]>, Subbuffer<[u8]>, Arc<DescriptorSet>) {
+    use crate::chunk::BRICKS_PER_CHUNK;
+
+    // Brick mask buffer: 2 u32 per chunk (64-bit mask)
+    let brick_mask_buffer = Buffer::new_slice::<u32>(
+        memory_allocator.clone(),
+        BufferCreateInfo {
+            usage: BufferUsage::STORAGE_BUFFER,
+            ..Default::default()
+        },
+        AllocationCreateInfo {
+            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+            ..Default::default()
+        },
+        (TOTAL_CHUNKS * 2) as u64, // 2 u32 per chunk
+    )
+    .unwrap();
+
+    // Brick distance buffer: 64 bytes per chunk
+    let brick_distance_buffer = Buffer::new_slice::<u8>(
+        memory_allocator,
+        BufferCreateInfo {
+            usage: BufferUsage::STORAGE_BUFFER,
+            ..Default::default()
+        },
+        AllocationCreateInfo {
+            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+            ..Default::default()
+        },
+        (TOTAL_CHUNKS * BRICKS_PER_CHUNK) as u64,
+    )
+    .unwrap();
+
+    // Create descriptor set at set index 7
+    let layout = render_pipeline
+        .layout()
+        .set_layouts()
+        .get(7)
+        .unwrap()
+        .clone();
+
+    let descriptor_set = DescriptorSet::new(
+        descriptor_set_allocator,
+        layout,
+        [
+            WriteDescriptorSet::buffer(0, brick_mask_buffer.clone()),
+            WriteDescriptorSet::buffer(1, brick_distance_buffer.clone()),
+        ],
+        [],
+    )
+    .unwrap();
+
+    (brick_mask_buffer, brick_distance_buffer, descriptor_set)
+}
+
 /// Statistics about loaded chunks for HUD display.
 #[derive(Debug, Clone, Copy, Default)]
 struct ChunkStats {
@@ -1224,6 +1288,12 @@ struct App {
     chunk_metadata_buffer: Subbuffer<[u32]>,
     /// GPU descriptor set for chunk metadata.
     chunk_metadata_set: Arc<DescriptorSet>,
+    /// GPU buffer for brick masks (64-bit per chunk, packed as 2xu32).
+    brick_mask_buffer: Subbuffer<[u32]>,
+    /// GPU buffer for brick distances (64 bytes per chunk).
+    brick_distance_buffer: Subbuffer<[u8]>,
+    /// GPU descriptor set for brick data (set 7).
+    brick_data_set: Arc<DescriptorSet>,
     /// World dimensions in blocks [X, Y, Z].
     world_extent: [u32; 3],
 
@@ -1540,6 +1610,13 @@ impl App {
             &render_pipeline,
         );
 
+        // Create brick data buffers (masks + distances) for hierarchical ray skipping
+        let (brick_mask_buffer, brick_distance_buffer, brick_data_set) = get_brick_data_set(
+            memory_allocator.clone(),
+            descriptor_set_allocator.clone(),
+            &render_pipeline,
+        );
+
         let input = WinitInputHelper::new();
 
         // Spawn at world origin (0, ground_level, 0) for infinite worlds
@@ -1591,6 +1668,9 @@ impl App {
             light_set,
             chunk_metadata_buffer,
             chunk_metadata_set,
+            brick_mask_buffer,
+            brick_distance_buffer,
+            brick_data_set,
             world_extent,
 
             camera,
@@ -2609,8 +2689,13 @@ impl App {
     ///
     /// This creates a bit-packed buffer where each bit indicates if a chunk is empty.
     /// The shader uses this to skip empty chunks during ray traversal for better performance.
+    /// Also updates brick masks and distance fields for hierarchical ray skipping.
     fn update_chunk_metadata(&mut self) {
+        use crate::chunk::BRICKS_PER_CHUNK;
+
         let mut metadata = vec![0u32; CHUNK_METADATA_WORDS];
+        let mut brick_masks = vec![0u32; TOTAL_CHUNKS * 2]; // 2 u32 per chunk (64-bit mask)
+        let mut brick_distances = vec![255u8; TOTAL_CHUNKS * BRICKS_PER_CHUNK];
 
         // Iterate over texture-relative chunk positions
         for cy in 0..WORLD_CHUNKS_Y {
@@ -2622,23 +2707,36 @@ impl App {
                     let world_chunk_z = self.texture_origin.z / CHUNK_SIZE as i32 + cz;
                     let world_chunk_pos = Vector3::new(world_chunk_x, world_chunk_y, world_chunk_z);
 
-                    // Check if chunk exists and is empty
-                    // Use is_empty() which handles dirty metadata internally
-                    let is_empty = self
-                        .world
-                        .get_chunk(world_chunk_pos)
-                        .map(|chunk| chunk.is_empty())
-                        .unwrap_or(true); // Missing chunks are treated as empty
+                    // Calculate flat chunk index for brick data
+                    // Index matches shader layout: x + z * CHUNKS_X + y * CHUNKS_X * CHUNKS_Z
+                    let chunk_idx = cx as usize
+                        + cz as usize * LOADED_CHUNKS_X as usize
+                        + cy as usize * LOADED_CHUNKS_X as usize * LOADED_CHUNKS_Z as usize;
 
-                    if is_empty {
-                        // Set the bit for this chunk
-                        // Index matches shader layout: x + z * CHUNKS_X + y * CHUNKS_X * CHUNKS_Z
-                        let idx = cx as usize
-                            + cz as usize * LOADED_CHUNKS_X as usize
-                            + cy as usize * LOADED_CHUNKS_X as usize * LOADED_CHUNKS_Z as usize;
-                        let word_idx = idx / 32;
-                        let bit_idx = idx % 32;
+                    // Check if chunk exists and get its data
+                    if let Some(chunk) = self.world.get_chunk(world_chunk_pos) {
+                        // Update empty flag
+                        if chunk.is_empty() {
+                            let word_idx = chunk_idx / 32;
+                            let bit_idx = chunk_idx % 32;
+                            metadata[word_idx] |= 1u32 << bit_idx;
+                        }
+
+                        // Get brick mask (64-bit) and store as 2 u32s
+                        let brick_mask = chunk.brick_mask();
+                        brick_masks[chunk_idx * 2] = brick_mask as u32;
+                        brick_masks[chunk_idx * 2 + 1] = (brick_mask >> 32) as u32;
+
+                        // Copy brick distances
+                        let distances = chunk.brick_distances();
+                        let start = chunk_idx * BRICKS_PER_CHUNK;
+                        brick_distances[start..start + BRICKS_PER_CHUNK].copy_from_slice(distances);
+                    } else {
+                        // Missing chunks are treated as empty
+                        let word_idx = chunk_idx / 32;
+                        let bit_idx = chunk_idx % 32;
                         metadata[word_idx] |= 1u32 << bit_idx;
+                        // brick_masks stays 0 (all empty), brick_distances stays 255 (far)
                     }
                 }
             }
@@ -2648,6 +2746,16 @@ impl App {
         {
             let mut buffer_write = self.chunk_metadata_buffer.write().unwrap();
             buffer_write.copy_from_slice(&metadata);
+        }
+
+        // Upload brick data to GPU buffers
+        {
+            let mut mask_write = self.brick_mask_buffer.write().unwrap();
+            mask_write.copy_from_slice(&brick_masks);
+        }
+        {
+            let mut dist_write = self.brick_distance_buffer.write().unwrap();
+            dist_write.copy_from_slice(&brick_distances);
         }
     }
 
@@ -3778,6 +3886,7 @@ impl App {
                     self.light_set.clone(),
                     self.chunk_metadata_set.clone(),
                     rcx.distance_set.clone(),
+                    self.brick_data_set.clone(),
                 ],
             )
             .unwrap();
