@@ -1452,9 +1452,130 @@ impl App {
         ]
     }
 
+    /// Checks if texture origin needs to shift and handles re-upload if necessary.
+    /// Returns true if a shift occurred.
+    fn check_and_shift_texture_origin(&mut self) -> bool {
+        let player_chunk = self.get_player_chunk();
+
+        // Calculate texture center in chunk coordinates
+        let texture_center_chunk = Vector3::new(
+            self.texture_origin.x / CHUNK_SIZE as i32 + LOADED_CHUNKS_X / 2,
+            0, // Y doesn't shift
+            self.texture_origin.z / CHUNK_SIZE as i32 + LOADED_CHUNKS_Z / 2,
+        );
+
+        // Distance from player to texture center (in chunks)
+        let dx = player_chunk.x - texture_center_chunk.x;
+        let dz = player_chunk.z - texture_center_chunk.z;
+
+        // Shift threshold: when player is more than 1/4 of texture size from center
+        let shift_threshold_x = LOADED_CHUNKS_X / 4;
+        let shift_threshold_z = LOADED_CHUNKS_Z / 4;
+
+        if dx.abs() <= shift_threshold_x && dz.abs() <= shift_threshold_z {
+            return false; // No shift needed
+        }
+
+        // Calculate new texture origin centered on player
+        let new_origin = Vector3::new(
+            (player_chunk.x - LOADED_CHUNKS_X / 2) * CHUNK_SIZE as i32,
+            0, // Y origin stays at 0
+            (player_chunk.z - LOADED_CHUNKS_Z / 2) * CHUNK_SIZE as i32,
+        );
+
+        println!(
+            "Shifting texture origin from ({}, {}) to ({}, {}) - player at chunk ({}, {})",
+            self.texture_origin.x,
+            self.texture_origin.z,
+            new_origin.x,
+            new_origin.z,
+            player_chunk.x,
+            player_chunk.z
+        );
+
+        self.texture_origin = new_origin;
+
+        // Re-upload all loaded chunks to their new texture positions
+        let chunks_to_upload: Vec<(Vector3<i32>, Vec<u8>)> = self
+            .world
+            .chunks()
+            .map(|(pos, chunk)| (*pos, chunk.to_block_data()))
+            .collect();
+
+        if !chunks_to_upload.is_empty() {
+            // Clear the texture first (set all to air)
+            self.clear_voxel_texture();
+            // Upload chunks at new positions
+            self.upload_chunks_batched(&chunks_to_upload);
+        }
+
+        true
+    }
+
+    /// Clears the entire voxel texture to air.
+    fn clear_voxel_texture(&self) {
+        let total_size = TEXTURE_SIZE_X * TEXTURE_SIZE_Y * TEXTURE_SIZE_Z;
+        let empty_data = vec![0u8; total_size];
+
+        let src_buffer = Buffer::from_iter(
+            self.memory_allocator.clone(),
+            BufferCreateInfo {
+                usage: BufferUsage::TRANSFER_SRC,
+                ..Default::default()
+            },
+            AllocationCreateInfo {
+                memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+                    | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                ..Default::default()
+            },
+            empty_data,
+        )
+        .unwrap();
+
+        let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
+            self.command_buffer_allocator.clone(),
+            self.queue.queue_family_index(),
+            CommandBufferUsage::OneTimeSubmit,
+        )
+        .unwrap();
+
+        command_buffer_builder
+            .copy_buffer_to_image(CopyBufferToImageInfo {
+                regions: [BufferImageCopy {
+                    buffer_offset: 0,
+                    buffer_row_length: TEXTURE_SIZE_X as u32,
+                    buffer_image_height: TEXTURE_SIZE_Y as u32,
+                    image_subresource: self.voxel_image.subresource_layers(),
+                    image_offset: [0, 0, 0],
+                    image_extent: [
+                        TEXTURE_SIZE_X as u32,
+                        TEXTURE_SIZE_Y as u32,
+                        TEXTURE_SIZE_Z as u32,
+                    ],
+                    ..Default::default()
+                }]
+                .into(),
+                ..CopyBufferToImageInfo::buffer_image(src_buffer, self.voxel_image.clone())
+            })
+            .unwrap();
+
+        command_buffer_builder
+            .build()
+            .unwrap()
+            .execute(self.queue.clone())
+            .unwrap()
+            .then_signal_fence_and_flush()
+            .unwrap()
+            .wait(None)
+            .unwrap();
+    }
+
     /// Updates chunk loading/unloading based on player position.
     /// Returns (chunks_loaded, chunks_unloaded) counts.
     fn update_chunk_loading(&mut self) -> (usize, usize) {
+        // Check if we need to shift the texture origin first
+        self.check_and_shift_texture_origin();
+
         let player_chunk = self.get_player_chunk();
 
         // Infinite world in X/Z, bounded in Y (0 to WORLD_CHUNKS_Y-1)
