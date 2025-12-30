@@ -11,7 +11,6 @@ make run-debug      # Build and run debug with RUST_BACKTRACE=1
 make test           # Run tests
 make fmt            # Format code
 make lint           # Run clippy linter
-make check          # Check formatting and lint (no modifications)
 make checkall       # Format, lint, and test (run after making changes)
 ```
 
@@ -36,132 +35,32 @@ make run -- --verbose           # Debug output
 make checkall
 ```
 
-This will format code, run clippy with warnings as errors, and run all tests. The project is not ready until `make checkall` passes without errors.
+The project is not ready until `make checkall` passes without errors.
 
-## Architecture
+## Architecture Overview
 
-This is a Vulkan compute shader voxel engine. Rendering happens entirely on the GPU via ray marching.
+Vulkan compute shader voxel engine with GPU ray marching. See README.md for detailed technical documentation.
 
-### Data Flow
+**Key files:**
+- `main.rs` - Vulkan setup, render loop, input, physics, HUD
+- `chunk.rs` - BlockType enum, chunk storage (32³)
+- `world.rs` - Multi-chunk management, terrain generation
+- `shaders/traverse.comp` - GPU ray marching, lighting, AO
 
-1. **World** (`world.rs`) manages chunks in a HashMap keyed by chunk position
-2. **Chunk** (`chunk.rs`) stores 32³ blocks as `BlockType` enum values (u8)
-3. **Dirty chunk tracking**: Modified chunks queued for GPU upload via `dirty_chunks` vector
-4. **Per-chunk GPU upload**: Only dirty chunks uploaded (~32KB each) to 3D texture (`R8_UINT`)
-5. **Compute shader** (`shaders/traverse.comp`) ray marches through the 3D texture
-6. Hits sample from **texture atlas** (18 tiles at 64x64 each)
-
-### Source Files
-
-- `main.rs` - Vulkan setup, render loop, input handling, egui HUD, player physics
-- `chunk.rs` - `BlockType` enum (16 types), chunk storage (32³), bit-packing for GPU
-- `world.rs` - Multi-chunk management, coordinate conversion, terrain generation
-- `camera.rs` - Pixel-to-ray matrix generation for GPU ray casting
-- `raycast.rs` - CPU-side DDA for block picking (break/place interaction)
-- `particles.rs` - Particle system for block break effects, water splashes
-- `hot_reload.rs` - Watches shader files and recompiles on save
-- `svt.rs` - SVT-64 sparse voxel tree for brick-level ray skipping
-- `chunk_loader.rs` - Async chunk generation with 4-thread pool
-
-### GPU Pipeline
-
-- Push constants pass camera matrix, world dimensions, time, lighting params to shader
-- Descriptor sets: render target (0), block data (1), texture atlas (2), particles (3), lights (4), chunk metadata (5), distance buffer (6), SVT brick data (7)
-- `HotReloadComputePipeline` watches `shaders/traverse.comp` and recompiles on save
-
-### Ray Marching Optimizations
-
-**Empty Chunk Skip (4.6x FPS improvement)**:
-- `Chunk` tracks `cached_is_empty` and `cached_is_fully_solid` flags
-- Chunk metadata buffer (set 5) uploads bit-packed empty/solid flags to GPU
-- Shader's `isChunkEmpty()` skips entire 32³ chunks during ray traversal
-- Result: 35 FPS → 160 FPS with all features enabled
-
-**SVT-64 Brick-Level Skip**:
-- Each 32³ chunk divided into 4³ = 64 bricks of 8³ voxels
-- 64-bit occupancy mask per chunk (1 bit per brick)
-- Per-brick Manhattan distance field for sphere-tracing
-- GPU buffers at set 7: `brick_masks` (8 bytes/chunk), `brick_distances` (64 bytes/chunk)
-- After chunk skip, shader checks `isBrickEmpty()` and uses distance field for additional skipping
-- Exit face detection uses `mix()`/`step()` pattern for correct `stepped_axis` (normal calculation)
-
-### GPU Upload System
-
-Block edits use efficient per-chunk uploads instead of full world re-upload:
-
-1. `World::set_block()` marks the containing chunk as dirty (adds to `dirty_chunks` queue)
-2. `upload_world_to_gpu()` drains dirty queue and calls `upload_chunks_batched()`
-3. `upload_chunks_batched()` creates staging buffers and issues `BufferImageCopy` for each chunk
-4. Each chunk upload is ~32KB (32³ bytes) vs 32MB for full world
-
-Key functions in `main.rs`:
-- `upload_world_to_gpu()` - Drains dirty chunks, uploads only modified data
-- `upload_chunks_batched()` - Batched GPU upload with region-specific copies
-- `upload_all_dirty_chunks()` - Initial bulk upload at startup
-
-### Coordinate Systems
-
-- **World coordinates**: Global block positions (i32)
-- **Chunk coordinates**: Chunk grid positions (i32), each chunk is 32³
-- **Local coordinates**: Position within a chunk (0-31)
+**Coordinate systems:**
+- World coordinates: Global block positions (i32)
+- Chunk coordinates: Chunk grid positions (i32), each chunk is 32³
+- Local coordinates: Position within chunk (0-31)
 - Conversion: `World::world_to_chunk()`, `World::world_to_local()`
 
-### Block Types
+## Adding New Block Types
 
-Defined in `chunk.rs` as `BlockType` enum (0-15). Must match constants in `traverse.comp`:
-```
-0=Air, 1=Stone, 2=Dirt, 3=Grass, 4=Planks, 5=Leaves, 6=Sand, 7=Gravel,
-8=Water, 9=Glass, 10=Log, 11=Torch, 12=Brick, 13=Snow, 14=Cobblestone, 15=Iron
-```
-Additional texture slots: 16=grass_side, 17=log_top (for multi-face blocks)
-
-### Shader Structure
-
-`traverse.comp` implements:
-- DDA ray marching (Amanatides & Woo algorithm) with dynamic step limit
-- Distance-based LOD for expensive operations (AO, shadows, point lights, sky exposure)
-- Texture atlas sampling via block type index
-- Ambient occlusion (corner neighbor sampling with bilinear interpolation)
-- Day/night cycle with sun position and sky colors
-- Fog with distance-based blending
-- Shadow rays for directional sunlight
-- Block preview rendering (ghost block with wireframe)
-- Target block outline (wireframe on block being looked at)
-- Particle billboard rendering
-- Multiple render modes (normal, coord, steps, UV, depth)
-
-### Player Systems (main.rs)
-
-- **Physics**: Gravity, collision (AABB vs voxels), jump, sprint
-- **Swimming**: Water detection, buoyancy, drag, swim controls
-- **Head bob**: Sine wave camera offset while walking
-- **Block interaction**: Break (hold left click with progress), place (right click)
-- **Hotbar**: 9 slots, keys 1-9 or scroll wheel to select
-
-## Key Constants
-
-- `CHUNK_SIZE = 32` (chunk.rs)
-- `BRICK_SIZE = 8` (svt.rs) - Each chunk has 4³ = 64 bricks
-- `ATLAS_TILE_COUNT = 18.0` (traverse.comp)
-- World size: `WORLD_CHUNKS_X/Y/Z` in main.rs (16x4x16 chunks = 512x128x512 blocks)
-- View distance: `VIEW_DISTANCE = 6` chunks around player
-- LOD distances in shader: AO=48, Shadow=64, PointLight=32, SkyExposure=48 blocks
-- Async chunk workers: 4 threads (chunk_loader.rs)
-
-## Texture Workflow
-
-Textures in `textures/` folder. Atlas order must match BlockType enum indices.
-
-### Creating New Textures
-
-Use the `/voxel-texture` skill to generate new block textures:
-```
-/voxel-texture <block_name>
-```
-
-### Regenerating Atlas
-
-After adding textures, regenerate the atlas (order must match BlockType + extra textures):
+1. Generate texture: `/voxel-texture <name>`
+2. Add variant to `BlockType` enum in `chunk.rs`
+3. Update `From<u8>` impl, `color()`, `break_time()`, and property methods
+4. Add `BLOCK_<NAME>` constant in `traverse.comp`
+5. Update `ATLAS_TILE_COUNT` in shader if adding new texture slot
+6. Regenerate atlas:
 ```bash
 cd textures
 magick air_64x64.png stone_64x64.png dirt_64x64.png grass_64x64.png planks_64x64.png \
@@ -170,31 +69,19 @@ magick air_64x64.png stone_64x64.png dirt_64x64.png grass_64x64.png planks_64x64
   iron_64x64.png grass_side_64x64.png log_top_64x64.png +append texture_atlas.png
 ```
 
-### Adding New Block Types
+## Block Type Sync
 
-1. Generate texture with `/voxel-texture <name>`
-2. Add variant to `BlockType` enum in `chunk.rs`
-3. Update `From<u8>` impl, `color()`, `break_time()`, and property methods
-4. Add `BLOCK_<NAME>` constant in `traverse.comp`
-5. Update `ATLAS_TILE_COUNT` in shader if adding new texture slot
-6. Regenerate atlas with new texture appended
+BlockType enum in `chunk.rs` must match constants in `traverse.comp`:
+```
+0=Air, 1=Stone, 2=Dirt, 3=Grass, 4=Planks, 5=Leaves, 6=Sand, 7=Gravel,
+8=Water, 9=Glass, 10=Log, 11=Torch, 12=Brick, 13=Snow, 14=Cobblestone, 15=Iron
+```
+Extra texture slots: 16=grass_side, 17=log_top
 
-## Controls
+## Key Constants
 
-| Key | Action |
-|-----|--------|
-| WASD | Move |
-| Space | Jump / Fly up / Swim up |
-| Shift | Fly down / Swim down |
-| Ctrl | Toggle sprint (2x speed, 4x in fly mode) |
-| Mouse | Look |
-| Left Click (hold) | Break block |
-| Right Click | Place block |
-| 1-9 | Select hotbar slot |
-| Scroll | Cycle hotbar |
-| F | Toggle fly mode |
-| B | Toggle chunk boundaries |
-| M | Cycle render modes |
-| Esc | Release cursor |
-
-HUD checkboxes provide feature toggles for FPS profiling: Ambient Occlusion, Sun Shadows, Point Lights.
+- `CHUNK_SIZE = 32` (chunk.rs)
+- `BRICK_SIZE = 8` (svt.rs)
+- `ATLAS_TILE_COUNT = 18.0` (traverse.comp)
+- World: 16x4x16 chunks = 512x128x512 blocks
+- View distance: 6 chunks
