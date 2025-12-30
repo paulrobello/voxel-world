@@ -116,16 +116,11 @@ layout(set = 5, binding = 0) readonly buffer ChunkMetadata {
 // Pass 1 writes hit distances, Pass 2 reads them to skip empty space
 layout(set = 6, binding = 0, r32f) uniform image2D distanceImage;
 
-// Brick metadata (set 7) - per-chunk brick occupancy for hierarchical skipping
-// Each chunk has 4×4×4 = 64 bricks of 8³ voxels each
-// Binding 0: Brick masks - 2 uint32 per chunk (64 bits = which bricks have solid blocks)
-// Binding 1: Brick distances - 16 uint32 per chunk (64 bytes = distance to nearest solid brick)
-layout(set = 7, binding = 0) readonly buffer BrickMasks {
-    uint brick_masks[];  // 2 words per chunk (low 32 bits, high 32 bits)
-};
-layout(set = 7, binding = 1) readonly buffer BrickDistances {
-    uint brick_distances[];  // 16 words per chunk (64 bytes accessed as u8)
-};
+// Brick metadata (set 7) - DISABLED due to visual artifacts
+// The brick skip optimization causes black grid patterns.
+// Infrastructure kept for future debugging.
+// layout(set = 7, binding = 0) readonly buffer BrickMasks { uint brick_masks[]; };
+// layout(set = 7, binding = 1) readonly buffer BrickDistances { uint brick_distances[]; };
 
 // Chunk dimension constants (must match Rust LOADED_CHUNKS_X/Y/Z)
 const uint CHUNKS_X = 16;
@@ -167,95 +162,96 @@ float getChunkExitT(vec3 pos, vec3 dir, vec3 invDir, ivec3 chunkPos) {
     return min(min(tFar.x, tFar.y), tFar.z);
 }
 
-// Brick constants
-const uint BRICK_SIZE = 8;        // 8³ voxels per brick
-const uint BRICKS_PER_AXIS = 4;   // 32/8 = 4 bricks per chunk axis
-const uint BRICKS_PER_CHUNK = 64; // 4×4×4 = 64 bricks per chunk
-
-// Check if a brick at given voxel position is empty
-// coord: texture-space voxel coordinate
-bool isBrickEmpty(ivec3 coord) {
-    // Calculate chunk position in texture space
-    ivec3 chunkPos = coord / int(CHUNK_SIZE);
-
-    // Bounds check
-    if (chunkPos.x < 0 || chunkPos.x >= int(CHUNKS_X) ||
-        chunkPos.y < 0 || chunkPos.y >= int(CHUNKS_Y) ||
-        chunkPos.z < 0 || chunkPos.z >= int(CHUNKS_Z)) {
-        return true;
-    }
-
-    // Calculate brick position within chunk (0-3 in each axis)
-    ivec3 localVoxel = coord - chunkPos * int(CHUNK_SIZE);
-    ivec3 brickPos = localVoxel / int(BRICK_SIZE);
-
-    // Calculate brick index within chunk (0-63)
-    uint brickIdx = uint(brickPos.x) + uint(brickPos.y) * BRICKS_PER_AXIS
-                  + uint(brickPos.z) * BRICKS_PER_AXIS * BRICKS_PER_AXIS;
-
-    // Calculate chunk index in flat buffer
-    uint chunkIdx = uint(chunkPos.x) + uint(chunkPos.z) * CHUNKS_X
-                  + uint(chunkPos.y) * CHUNKS_X * CHUNKS_Z;
-
-    // Read brick mask (2 u32 per chunk)
-    uint maskOffset = chunkIdx * 2u;
-    uint wordIdx = brickIdx / 32u;
-    uint bitIdx = brickIdx % 32u;
-    uint mask = brick_masks[maskOffset + wordIdx];
-
-    // Bit set = brick has solid blocks, so NOT set = empty
-    return (mask & (1u << bitIdx)) == 0u;
-}
-
-// Get minimum distance to nearest solid brick (for sphere-tracing)
-// coord: texture-space voxel coordinate
-// Returns distance in brick units (multiply by BRICK_SIZE for voxels)
-uint getBrickDistance(ivec3 coord) {
-    // Calculate chunk position
-    ivec3 chunkPos = coord / int(CHUNK_SIZE);
-
-    // Bounds check - return 0 (treat as solid) for out-of-bounds
-    if (chunkPos.x < 0 || chunkPos.x >= int(CHUNKS_X) ||
-        chunkPos.y < 0 || chunkPos.y >= int(CHUNKS_Y) ||
-        chunkPos.z < 0 || chunkPos.z >= int(CHUNKS_Z)) {
-        return 0u;
-    }
-
-    // Calculate brick position within chunk
-    ivec3 localVoxel = coord - chunkPos * int(CHUNK_SIZE);
-    ivec3 brickPos = localVoxel / int(BRICK_SIZE);
-    uint brickIdx = uint(brickPos.x) + uint(brickPos.y) * BRICKS_PER_AXIS
-                  + uint(brickPos.z) * BRICKS_PER_AXIS * BRICKS_PER_AXIS;
-
-    // Calculate chunk index
-    uint chunkIdx = uint(chunkPos.x) + uint(chunkPos.z) * CHUNKS_X
-                  + uint(chunkPos.y) * CHUNKS_X * CHUNKS_Z;
-
-    // Read distance (16 u32 per chunk = 64 bytes, accessed as individual bytes)
-    uint distOffset = chunkIdx * 16u + brickIdx / 4u;
-    uint byteIdx = brickIdx % 4u;
-    uint distWord = brick_distances[distOffset];
-
-    // Extract byte from word
-    return (distWord >> (byteIdx * 8u)) & 0xFFu;
-}
-
-// Calculate distance to exit current brick
-float getBrickExitT(vec3 pos, vec3 dir, vec3 invDir, ivec3 brickWorldPos) {
-    vec3 brickMin = vec3(brickWorldPos);
-    vec3 brickMax = brickMin + float(BRICK_SIZE);
-
-    vec3 t1 = (brickMin - pos) * invDir;
-    vec3 t2 = (brickMax - pos) * invDir;
-
-    vec3 tFar = max(t1, t2);
-    return min(min(tFar.x, tFar.y), tFar.z);
-}
-
-// Get the world position of the brick containing this voxel
-ivec3 getBrickWorldPos(ivec3 voxelCoord) {
-    return (voxelCoord / int(BRICK_SIZE)) * int(BRICK_SIZE);
-}
+// DISABLED: Brick metadata causes black grid artifacts. Infrastructure kept for future debugging.
+// // Brick constants
+// const uint BRICK_SIZE = 8;        // 8³ voxels per brick
+// const uint BRICKS_PER_AXIS = 4;   // 32/8 = 4 bricks per chunk axis
+// const uint BRICKS_PER_CHUNK = 64; // 4×4×4 = 64 bricks per chunk
+//
+// // Check if a brick at given voxel position is empty
+// // coord: texture-space voxel coordinate
+// bool isBrickEmpty(ivec3 coord) {
+//     // Calculate chunk position in texture space
+//     ivec3 chunkPos = coord / int(CHUNK_SIZE);
+//
+//     // Bounds check
+//     if (chunkPos.x < 0 || chunkPos.x >= int(CHUNKS_X) ||
+//         chunkPos.y < 0 || chunkPos.y >= int(CHUNKS_Y) ||
+//         chunkPos.z < 0 || chunkPos.z >= int(CHUNKS_Z)) {
+//         return true;
+//     }
+//
+//     // Calculate brick position within chunk (0-3 in each axis)
+//     ivec3 localVoxel = coord - chunkPos * int(CHUNK_SIZE);
+//     ivec3 brickPos = localVoxel / int(BRICK_SIZE);
+//
+//     // Calculate brick index within chunk (0-63)
+//     uint brickIdx = uint(brickPos.x) + uint(brickPos.y) * BRICKS_PER_AXIS
+//                   + uint(brickPos.z) * BRICKS_PER_AXIS * BRICKS_PER_AXIS;
+//
+//     // Calculate chunk index in flat buffer
+//     uint chunkIdx = uint(chunkPos.x) + uint(chunkPos.z) * CHUNKS_X
+//                   + uint(chunkPos.y) * CHUNKS_X * CHUNKS_Z;
+//
+//     // Read brick mask (2 u32 per chunk)
+//     uint maskOffset = chunkIdx * 2u;
+//     uint wordIdx = brickIdx / 32u;
+//     uint bitIdx = brickIdx % 32u;
+//     uint mask = brick_masks[maskOffset + wordIdx];
+//
+//     // Bit set = brick has solid blocks, so NOT set = empty
+//     return (mask & (1u << bitIdx)) == 0u;
+// }
+//
+// // Get minimum distance to nearest solid brick (for sphere-tracing)
+// // coord: texture-space voxel coordinate
+// // Returns distance in brick units (multiply by BRICK_SIZE for voxels)
+// uint getBrickDistance(ivec3 coord) {
+//     // Calculate chunk position
+//     ivec3 chunkPos = coord / int(CHUNK_SIZE);
+//
+//     // Bounds check - return 0 (treat as solid) for out-of-bounds
+//     if (chunkPos.x < 0 || chunkPos.x >= int(CHUNKS_X) ||
+//         chunkPos.y < 0 || chunkPos.y >= int(CHUNKS_Y) ||
+//         chunkPos.z < 0 || chunkPos.z >= int(CHUNKS_Z)) {
+//         return 0u;
+//     }
+//
+//     // Calculate brick position within chunk
+//     ivec3 localVoxel = coord - chunkPos * int(CHUNK_SIZE);
+//     ivec3 brickPos = localVoxel / int(BRICK_SIZE);
+//     uint brickIdx = uint(brickPos.x) + uint(brickPos.y) * BRICKS_PER_AXIS
+//                   + uint(brickPos.z) * BRICKS_PER_AXIS * BRICKS_PER_AXIS;
+//
+//     // Calculate chunk index
+//     uint chunkIdx = uint(chunkPos.x) + uint(chunkPos.z) * CHUNKS_X
+//                   + uint(chunkPos.y) * CHUNKS_X * CHUNKS_Z;
+//
+//     // Read distance (16 u32 per chunk = 64 bytes, accessed as individual bytes)
+//     uint distOffset = chunkIdx * 16u + brickIdx / 4u;
+//     uint byteIdx = brickIdx % 4u;
+//     uint distWord = brick_distances[distOffset];
+//
+//     // Extract byte from word
+//     return (distWord >> (byteIdx * 8u)) & 0xFFu;
+// }
+//
+// // Calculate distance to exit current brick
+// float getBrickExitT(vec3 pos, vec3 dir, vec3 invDir, ivec3 brickWorldPos) {
+//     vec3 brickMin = vec3(brickWorldPos);
+//     vec3 brickMax = brickMin + float(BRICK_SIZE);
+//
+//     vec3 t1 = (brickMin - pos) * invDir;
+//     vec3 t2 = (brickMax - pos) * invDir;
+//
+//     vec3 tFar = max(t1, t2);
+//     return min(min(tFar.x, tFar.y), tFar.z);
+// }
+//
+// // Get the world position of the brick containing this voxel
+// ivec3 getBrickWorldPos(ivec3 voxelCoord) {
+//     return (voxelCoord / int(BRICK_SIZE)) * int(BRICK_SIZE);
+// }
 
 // Helper to get texture size as vec3 (the loaded chunk window)
 vec3 textureSize3D() {
@@ -1517,6 +1513,8 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
         // The issue is that bricks containing solid blocks are being incorrectly
         // identified as empty, causing rays to skip through terrain.
         // TODO: Debug brick mask calculation in update_brick_metadata()
+        // Keep dummy references to prevent shader optimizer from removing set 7
+        // if (false && brick_masks[0] == 0u && brick_distances[0] == 0u) { }
         /*
         if (isBrickEmpty(ivec3(coord))) {
             uint brickDist = getBrickDistance(ivec3(coord));
