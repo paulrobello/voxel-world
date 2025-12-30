@@ -178,6 +178,10 @@ const UNLOAD_DISTANCE: i32 = 7;
 /// Maximum chunks to load or unload per frame
 const CHUNKS_PER_FRAME: usize = 4;
 
+/// Cached empty chunk data for GPU clearing (avoids repeated allocations)
+static EMPTY_CHUNK_DATA: std::sync::LazyLock<Vec<u8>> =
+    std::sync::LazyLock::new(|| vec![0u8; CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE]);
+
 // Player physics constants (in world/voxel units, where 1 unit = 1 block)
 /// Gravity acceleration in blocks per second squared
 const GRAVITY: f64 = 20.0;
@@ -1840,8 +1844,12 @@ impl App {
         if !chunks_to_upload.is_empty() {
             // Clear the texture first (set all to air)
             self.clear_voxel_texture();
-            // Upload chunks at new positions
-            self.upload_chunks_batched(&chunks_to_upload);
+            // Upload chunks at new positions - convert to slice references
+            let upload_refs: Vec<_> = chunks_to_upload
+                .iter()
+                .map(|(pos, data)| (*pos, data.as_slice()))
+                .collect();
+            self.upload_chunks_batched(&upload_refs);
         }
 
         true
@@ -1939,7 +1947,12 @@ impl App {
 
         // Batch upload completed chunks to GPU
         if !chunks_to_upload.is_empty() {
-            self.upload_chunks_batched(&chunks_to_upload);
+            // Convert to slice references for upload
+            let upload_refs: Vec<_> = chunks_to_upload
+                .iter()
+                .map(|(pos, data)| (*pos, data.as_slice()))
+                .collect();
+            self.upload_chunks_batched(&upload_refs);
 
             // Mark chunks as clean
             for (pos, _) in &chunks_to_upload {
@@ -1972,26 +1985,31 @@ impl App {
         let to_unload = self
             .world
             .get_chunks_to_unload(player_chunk, self.unload_distance);
-        let mut chunks_to_clear: Vec<(Vector3<i32>, Vec<u8>)> = Vec::new();
 
         let mut unloaded = 0;
-        for pos in to_unload.iter().take(CHUNKS_PER_FRAME) {
-            // Cancel pending generation for this chunk if queued
-            self.chunk_loader.cancel_chunk(*pos);
-            self.world.remove_chunk(*pos);
-            // Create empty (air) chunk data for clearing
-            let empty_data = vec![0u8; CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE];
-            chunks_to_clear.push((*pos, empty_data));
-            unloaded += 1;
-        }
+        let positions_to_clear: Vec<_> = to_unload
+            .iter()
+            .take(CHUNKS_PER_FRAME)
+            .map(|pos| {
+                // Cancel pending generation for this chunk if queued
+                self.chunk_loader.cancel_chunk(*pos);
+                self.world.remove_chunk(*pos);
+                unloaded += 1;
+                *pos
+            })
+            .collect();
 
-        // Batch clear all unloaded chunks
-        if !chunks_to_clear.is_empty() {
+        // Batch clear all unloaded chunks using static empty data (no allocation)
+        if !positions_to_clear.is_empty() {
+            let chunks_to_clear: Vec<_> = positions_to_clear
+                .iter()
+                .map(|pos| (*pos, EMPTY_CHUNK_DATA.as_slice()))
+                .collect();
             self.upload_chunks_batched(&chunks_to_clear);
         }
 
         // Update chunk metadata if any chunks were loaded or unloaded
-        if !chunks_to_upload.is_empty() || !chunks_to_clear.is_empty() {
+        if !chunks_to_upload.is_empty() || !positions_to_clear.is_empty() {
             self.update_chunk_metadata();
         }
 
@@ -2553,13 +2571,18 @@ impl App {
 
         if !chunks_to_upload.is_empty() {
             self.profiler.chunks_uploaded += chunks_to_upload.len() as u32;
-            self.upload_chunks_batched(&chunks_to_upload);
+            // Convert to slice references for upload
+            let upload_refs: Vec<_> = chunks_to_upload
+                .iter()
+                .map(|(pos, data)| (*pos, data.as_slice()))
+                .collect();
+            self.upload_chunks_batched(&upload_refs);
         }
     }
 
     /// Uploads multiple chunks to the GPU in a single batched command buffer.
     /// This is much faster than uploading chunks one at a time.
-    fn upload_chunks_batched(&self, chunks: &[(Vector3<i32>, Vec<u8>)]) {
+    fn upload_chunks_batched(&self, chunks: &[(Vector3<i32>, &[u8])]) {
         if chunks.is_empty() {
             return;
         }
@@ -2603,7 +2626,7 @@ impl App {
                         | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
                     ..Default::default()
                 },
-                block_data.clone(),
+                block_data.iter().copied(),
             )
             .unwrap();
 
@@ -2667,8 +2690,12 @@ impl App {
             chunks_to_upload.len()
         );
 
-        // Upload all at once
-        self.upload_chunks_batched(&chunks_to_upload);
+        // Upload all at once - convert to slice references
+        let upload_refs: Vec<_> = chunks_to_upload
+            .iter()
+            .map(|(pos, data)| (*pos, data.as_slice()))
+            .collect();
+        self.upload_chunks_batched(&upload_refs);
 
         // Mark all as clean
         for (pos, _) in &chunks_to_upload {
@@ -2828,7 +2855,12 @@ impl App {
 
         // Batch upload
         if !chunks_to_upload.is_empty() {
-            self.upload_chunks_batched(&chunks_to_upload);
+            // Convert to slice references for upload
+            let upload_refs: Vec<_> = chunks_to_upload
+                .iter()
+                .map(|(pos, data)| (*pos, data.as_slice()))
+                .collect();
+            self.upload_chunks_batched(&upload_refs);
 
             // Mark as clean
             for pos in dirty_positions {
