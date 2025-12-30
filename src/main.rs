@@ -436,7 +436,10 @@ fn generate_chunk_terrain(terrain: &TerrainGenerator, chunk_pos: Vector3<i32>) -
             for ly in 0..CHUNK_SIZE {
                 let world_y = chunk_world_y + ly as i32;
 
-                let block_type = if world_y > height && world_y > SEA_LEVEL {
+                let block_type = if world_y == 0 {
+                    // Bedrock floor - unbreakable, prevents falling out of world
+                    BlockType::Bedrock
+                } else if world_y > height && world_y > SEA_LEVEL {
                     // Above terrain and above sea level = air
                     BlockType::Air
                 } else if world_y > height && world_y <= SEA_LEVEL {
@@ -1181,70 +1184,6 @@ fn get_chunk_metadata_set(
     (chunk_metadata_buffer, descriptor_set)
 }
 
-/// Creates storage buffers and descriptor set for brick data (masks + distances).
-/// Set 7, binding 0 = brick masks (2 u32 per chunk = 64-bit mask)
-/// Set 7, binding 1 = brick distances (64 bytes per chunk)
-fn get_brick_data_set(
-    memory_allocator: Arc<StandardMemoryAllocator>,
-    descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
-    render_pipeline: &ComputePipeline,
-) -> (Subbuffer<[u32]>, Subbuffer<[u8]>, Arc<DescriptorSet>) {
-    use crate::chunk::BRICKS_PER_CHUNK;
-
-    // Brick mask buffer: 2 u32 per chunk (64-bit mask)
-    let brick_mask_buffer = Buffer::new_slice::<u32>(
-        memory_allocator.clone(),
-        BufferCreateInfo {
-            usage: BufferUsage::STORAGE_BUFFER,
-            ..Default::default()
-        },
-        AllocationCreateInfo {
-            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
-                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-            ..Default::default()
-        },
-        (TOTAL_CHUNKS * 2) as u64, // 2 u32 per chunk
-    )
-    .unwrap();
-
-    // Brick distance buffer: 64 bytes per chunk
-    let brick_distance_buffer = Buffer::new_slice::<u8>(
-        memory_allocator,
-        BufferCreateInfo {
-            usage: BufferUsage::STORAGE_BUFFER,
-            ..Default::default()
-        },
-        AllocationCreateInfo {
-            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
-                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-            ..Default::default()
-        },
-        (TOTAL_CHUNKS * BRICKS_PER_CHUNK) as u64,
-    )
-    .unwrap();
-
-    // Create descriptor set at set index 7
-    let layout = render_pipeline
-        .layout()
-        .set_layouts()
-        .get(7)
-        .unwrap()
-        .clone();
-
-    let descriptor_set = DescriptorSet::new(
-        descriptor_set_allocator,
-        layout,
-        [
-            WriteDescriptorSet::buffer(0, brick_mask_buffer.clone()),
-            WriteDescriptorSet::buffer(1, brick_distance_buffer.clone()),
-        ],
-        [],
-    )
-    .unwrap();
-
-    (brick_mask_buffer, brick_distance_buffer, descriptor_set)
-}
-
 /// Statistics about loaded chunks for HUD display.
 #[derive(Debug, Clone, Copy, Default)]
 struct ChunkStats {
@@ -1254,6 +1193,49 @@ struct ChunkStats {
     dirty_count: usize,
     /// Estimated GPU memory usage in megabytes.
     memory_mb: f32,
+}
+
+/// Performance profiler for tracking operation timings.
+#[derive(Debug, Default)]
+struct Profiler {
+    /// Accumulated time for chunk loading/streaming (microseconds).
+    chunk_loading_us: u64,
+    /// Accumulated time for GPU uploads (microseconds).
+    gpu_upload_us: u64,
+    /// Accumulated time for metadata updates (microseconds).
+    metadata_update_us: u64,
+    /// Accumulated time for rendering (microseconds).
+    render_us: u64,
+    /// Number of samples accumulated.
+    sample_count: u32,
+    /// Number of chunks uploaded this period.
+    chunks_uploaded: u32,
+}
+
+impl Profiler {
+    fn reset(&mut self) {
+        self.chunk_loading_us = 0;
+        self.gpu_upload_us = 0;
+        self.metadata_update_us = 0;
+        self.render_us = 0;
+        self.sample_count = 0;
+        self.chunks_uploaded = 0;
+    }
+
+    fn print_stats(&self) {
+        if self.sample_count == 0 {
+            return;
+        }
+        let n = self.sample_count as f64;
+        println!(
+            "[PROFILE] ChunkLoad: {:.2}ms | Upload: {:.2}ms ({} chunks) | Metadata: {:.2}ms | Render: {:.2}ms",
+            self.chunk_loading_us as f64 / 1000.0 / n,
+            self.gpu_upload_us as f64 / 1000.0 / n,
+            self.chunks_uploaded,
+            self.metadata_update_us as f64 / 1000.0 / n,
+            self.render_us as f64 / 1000.0 / n,
+        );
+    }
 }
 
 struct App {
@@ -1288,12 +1270,6 @@ struct App {
     chunk_metadata_buffer: Subbuffer<[u32]>,
     /// GPU descriptor set for chunk metadata.
     chunk_metadata_set: Arc<DescriptorSet>,
-    /// GPU buffer for brick masks (64-bit per chunk, packed as 2xu32).
-    brick_mask_buffer: Subbuffer<[u32]>,
-    /// GPU buffer for brick distances (64 bytes per chunk).
-    brick_distance_buffer: Subbuffer<[u8]>,
-    /// GPU descriptor set for brick data (set 7).
-    brick_data_set: Arc<DescriptorSet>,
     /// World dimensions in blocks [X, Y, Z].
     world_extent: [u32; 3],
 
@@ -1326,6 +1302,14 @@ struct App {
     enable_shadows: bool,
     /// Enable point lights (torches)
     enable_point_lights: bool,
+
+    // LOD distance thresholds (0 = use shader defaults)
+    /// Distance for AO calculations (default 32)
+    lod_ao_distance: f32,
+    /// Distance for shadow rays (default 64)
+    lod_shadow_distance: f32,
+    /// Distance for point light calculations (default 24)
+    lod_point_light_distance: f32,
 
     /// Current time of day (0.0 = midnight, 0.5 = noon, 1.0 = midnight)
     time_of_day: f32,
@@ -1390,6 +1374,8 @@ struct App {
     screenshot_taken: bool,
     /// Total frame count since start (for debug interval).
     total_frames: u64,
+    /// Performance profiler for timing operations.
+    profiler: Profiler,
     /// View distance in chunks (adjustable via slider)
     view_distance: i32,
     /// Unload distance in chunks (adjustable via slider)
@@ -1610,13 +1596,6 @@ impl App {
             &render_pipeline,
         );
 
-        // Create brick data buffers (masks + distances) for hierarchical ray skipping
-        let (brick_mask_buffer, brick_distance_buffer, brick_data_set) = get_brick_data_set(
-            memory_allocator.clone(),
-            descriptor_set_allocator.clone(),
-            &render_pipeline,
-        );
-
         let input = WinitInputHelper::new();
 
         // Spawn at world origin (0, ground_level, 0) for infinite worlds
@@ -1668,9 +1647,6 @@ impl App {
             light_set,
             chunk_metadata_buffer,
             chunk_metadata_set,
-            brick_mask_buffer,
-            brick_distance_buffer,
-            brick_data_set,
             world_extent,
 
             camera,
@@ -1698,6 +1674,12 @@ impl App {
             enable_ao: true,
             enable_shadows: true,
             enable_point_lights: true,
+
+            // LOD distances - use more aggressive defaults for better performance
+            // Set to 0 to use shader defaults (32, 64, 24)
+            lod_ao_distance: 24.0,      // Reduced from 32
+            lod_shadow_distance: 48.0,  // Reduced from 64
+            lod_point_light_distance: 20.0, // Reduced from 24
 
             time_of_day: args
                 .time_of_day
@@ -1738,6 +1720,7 @@ impl App {
             start_time: Instant::now(),
             screenshot_taken: false,
             total_frames: 0,
+            profiler: Profiler::default(),
             view_distance,
             unload_distance,
 
@@ -2552,6 +2535,7 @@ impl App {
             .collect();
 
         if !chunks_to_upload.is_empty() {
+            self.profiler.chunks_uploaded += chunks_to_upload.len() as u32;
             self.upload_chunks_batched(&chunks_to_upload);
         }
     }
@@ -2689,13 +2673,9 @@ impl App {
     ///
     /// This creates a bit-packed buffer where each bit indicates if a chunk is empty.
     /// The shader uses this to skip empty chunks during ray traversal for better performance.
-    /// Also updates brick masks and distance fields for hierarchical ray skipping.
     fn update_chunk_metadata(&mut self) {
-        use crate::chunk::BRICKS_PER_CHUNK;
-
+        let t_start = Instant::now();
         let mut metadata = vec![0u32; CHUNK_METADATA_WORDS];
-        let mut brick_masks = vec![0u32; TOTAL_CHUNKS * 2]; // 2 u32 per chunk (64-bit mask)
-        let mut brick_distances = vec![255u8; TOTAL_CHUNKS * BRICKS_PER_CHUNK];
 
         // Iterate over texture-relative chunk positions
         for cy in 0..WORLD_CHUNKS_Y {
@@ -2707,7 +2687,7 @@ impl App {
                     let world_chunk_z = self.texture_origin.z / CHUNK_SIZE as i32 + cz;
                     let world_chunk_pos = Vector3::new(world_chunk_x, world_chunk_y, world_chunk_z);
 
-                    // Calculate flat chunk index for brick data
+                    // Calculate flat chunk index
                     // Index matches shader layout: x + z * CHUNKS_X + y * CHUNKS_X * CHUNKS_Z
                     let chunk_idx = cx as usize
                         + cz as usize * LOADED_CHUNKS_X as usize
@@ -2715,7 +2695,7 @@ impl App {
 
                     // Check if chunk exists and get its data
                     if let Some(chunk) = self.world.get_chunk_mut(world_chunk_pos) {
-                        // Ensure brick data is up-to-date before reading
+                        // Ensure metadata is up-to-date before reading
                         chunk.update_metadata();
 
                         // Update empty flag
@@ -2724,22 +2704,11 @@ impl App {
                             let bit_idx = chunk_idx % 32;
                             metadata[word_idx] |= 1u32 << bit_idx;
                         }
-
-                        // Get brick mask (64-bit) and store as 2 u32s
-                        let brick_mask = chunk.brick_mask();
-                        brick_masks[chunk_idx * 2] = brick_mask as u32;
-                        brick_masks[chunk_idx * 2 + 1] = (brick_mask >> 32) as u32;
-
-                        // Copy brick distances
-                        let distances = chunk.brick_distances();
-                        let start = chunk_idx * BRICKS_PER_CHUNK;
-                        brick_distances[start..start + BRICKS_PER_CHUNK].copy_from_slice(distances);
                     } else {
                         // Missing chunks are treated as empty
                         let word_idx = chunk_idx / 32;
                         let bit_idx = chunk_idx % 32;
                         metadata[word_idx] |= 1u32 << bit_idx;
-                        // brick_masks stays 0 (all empty), brick_distances stays 255 (far)
                     }
                 }
             }
@@ -2751,15 +2720,7 @@ impl App {
             buffer_write.copy_from_slice(&metadata);
         }
 
-        // Upload brick data to GPU buffers
-        {
-            let mut mask_write = self.brick_mask_buffer.write().unwrap();
-            mask_write.copy_from_slice(&brick_masks);
-        }
-        {
-            let mut dist_write = self.brick_distance_buffer.write().unwrap();
-            dist_write.copy_from_slice(&brick_distances);
-        }
+        self.profiler.metadata_update_us += t_start.elapsed().as_micros() as u64;
     }
 
     /// Clears a chunk region in the GPU 3D texture (fills with air).
@@ -2983,6 +2944,10 @@ impl App {
                     player_chunk.z,
                 );
             }
+
+            // Print profiler stats and reset
+            self.profiler.print_stats();
+            self.profiler.reset();
         }
         self.frames_since_last_second += 1;
 
@@ -3011,8 +2976,13 @@ impl App {
 
         // Always update chunks and upload to GPU, even before delta_time is available
         // This ensures initial chunks are uploaded on the first frame
+        let t0 = Instant::now();
         self.update_chunk_loading();
+        self.profiler.chunk_loading_us += t0.elapsed().as_micros() as u64;
+
+        let t1 = Instant::now();
         self.upload_world_to_gpu();
+        self.profiler.gpu_upload_us += t1.elapsed().as_micros() as u64;
 
         let Some(delta_time) = self.input.delta_time().as_ref().map(Duration::as_secs_f64) else {
             return;
@@ -3182,6 +3152,7 @@ impl App {
     }
 
     fn render(&mut self, _event_loop: &ActiveEventLoop) {
+        let t_render_start = Instant::now();
         self.render_pipeline.maybe_reload();
         self.resample_pipeline.maybe_reload();
 
@@ -3522,6 +3493,36 @@ impl App {
                     }
 
                     ui.separator();
+                    ui.label("LOD Distances (lower = faster):");
+                    ui.horizontal(|ui| {
+                        ui.label("AO:");
+                        if ui
+                            .add(egui::Slider::new(&mut self.lod_ao_distance, 8.0..=64.0).suffix(" blocks"))
+                            .changed()
+                        {
+                            println!("[LOD] AO distance: {:.0}", self.lod_ao_distance);
+                        }
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Shadows:");
+                        if ui
+                            .add(egui::Slider::new(&mut self.lod_shadow_distance, 16.0..=128.0).suffix(" blocks"))
+                            .changed()
+                        {
+                            println!("[LOD] Shadow distance: {:.0}", self.lod_shadow_distance);
+                        }
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Lights:");
+                        if ui
+                            .add(egui::Slider::new(&mut self.lod_point_light_distance, 8.0..=48.0).suffix(" blocks"))
+                            .changed()
+                        {
+                            println!("[LOD] Point light distance: {:.0}", self.lod_point_light_distance);
+                        }
+                    });
+
+                    ui.separator();
 
                     // Gameplay options
                     ui.checkbox(&mut self.instant_break, "Instant block break");
@@ -3758,6 +3759,10 @@ impl App {
             enable_point_lights: u32,
             // Two-pass beam optimization: 0 = normal, 1 = distance only, 2 = use distance hints
             pass_mode: u32,
+            // LOD distance thresholds (0 = use defaults)
+            lod_ao_distance: f32,
+            lod_shadow_distance: f32,
+            lod_point_light_distance: f32,
         }
         // Convert world coordinates to texture coordinates for shader
         // Shader works in texture space, so we subtract texture_origin
@@ -3856,6 +3861,9 @@ impl App {
             enable_shadows: if self.enable_shadows { 1 } else { 0 },
             enable_point_lights: if self.enable_point_lights { 1 } else { 0 },
             pass_mode: 0, // Will be set per-pass
+            lod_ao_distance: self.lod_ao_distance,
+            lod_shadow_distance: self.lod_shadow_distance,
+            lod_point_light_distance: self.lod_point_light_distance,
         };
 
         let mut builder = AutoCommandBufferBuilder::primary(
@@ -3889,7 +3897,6 @@ impl App {
                     self.light_set.clone(),
                     self.chunk_metadata_set.clone(),
                     rcx.distance_set.clone(),
-                    self.brick_data_set.clone(),
                 ],
             )
             .unwrap();
@@ -3972,6 +3979,10 @@ impl App {
             self.save_screenshot(&image_view, "voxel_world_screen_shot.png");
             self.screenshot_taken = true;
         }
+
+        // Record render time and increment sample count
+        self.profiler.render_us += t_render_start.elapsed().as_micros() as u64;
+        self.profiler.sample_count += 1;
     }
 }
 

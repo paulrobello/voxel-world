@@ -25,6 +25,7 @@ const uint BLOCK_BRICK = 12;
 const uint BLOCK_SNOW = 13;
 const uint BLOCK_COBBLESTONE = 14;
 const uint BLOCK_IRON = 15;
+const uint BLOCK_BEDROCK = 16;
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
@@ -78,6 +79,10 @@ layout(push_constant) uniform PushConstants {
     uint enable_point_lights; // Torch lighting
     // Two-pass beam optimization: 0 = normal render, 1 = distance only, 2 = use distance hints
     uint pass_mode;
+    // LOD distance thresholds (0 = use defaults)
+    float lod_ao_distance;         // Skip AO beyond this distance
+    float lod_shadow_distance;     // Skip shadows beyond this distance
+    float lod_point_light_distance; // Skip point lights beyond this distance
 } pc;
 
 // Particle data (set 3)
@@ -111,26 +116,10 @@ layout(set = 5, binding = 0) readonly buffer ChunkMetadata {
 // Pass 1 writes hit distances, Pass 2 reads them to skip empty space
 layout(set = 6, binding = 0, r32f) uniform image2D distanceImage;
 
-// Brick data (set 7) - for hierarchical ray skipping
-// Each chunk is divided into 4³ = 64 bricks of 8³ voxels each
-// brick_masks: 64-bit mask per chunk stored as 2 x uint32 (bit set = brick has solid blocks)
-layout(set = 7, binding = 0) readonly buffer BrickMasks {
-    uint brick_masks[];  // 2 uints per chunk (64 bits total)
-};
-// NOTE: brick_distances (binding 1) disabled - Phase 4 sphere-tracing had bugs
-layout(set = 7, binding = 1) readonly buffer BrickDistances {
-    uint brick_distances[];  // Keep binding to satisfy descriptor set layout
-};
-
 // Chunk dimension constants (must match Rust LOADED_CHUNKS_X/Y/Z)
 const uint CHUNKS_X = 16;
 const uint CHUNKS_Y = 4;
 const uint CHUNKS_Z = 16;
-
-// Brick constants (must match Rust BRICK_SIZE, BRICKS_PER_AXIS)
-const uint BRICK_SIZE = 8;
-const uint BRICKS_PER_AXIS = 4;  // CHUNK_SIZE / BRICK_SIZE
-const uint BRICKS_PER_CHUNK = 64; // 4³
 
 // Check if a chunk at given texture-space chunk position is empty
 bool isChunkEmpty(ivec3 chunkPos) {
@@ -165,99 +154,6 @@ float getChunkExitT(vec3 pos, vec3 dir, vec3 invDir, ivec3 chunkPos) {
 
     // Return the closest exit (minimum of far faces)
     return min(min(tFar.x, tFar.y), tFar.z);
-}
-
-// Get brick index within a chunk from local brick coordinates (0-3 per axis)
-uint getBrickIndex(ivec3 brickLocal) {
-    return uint(brickLocal.x + brickLocal.y * int(BRICKS_PER_AXIS) +
-                brickLocal.z * int(BRICKS_PER_AXIS * BRICKS_PER_AXIS));
-}
-
-// Check if a brick at given texture-space position is empty
-// texPos: position in texture coordinates (voxel units)
-bool isBrickEmpty(ivec3 texPos) {
-    // Get chunk position
-    ivec3 chunkPos = texPos / int(CHUNK_SIZE);
-
-    // Bounds check
-    if (chunkPos.x < 0 || chunkPos.x >= int(CHUNKS_X) ||
-        chunkPos.y < 0 || chunkPos.y >= int(CHUNKS_Y) ||
-        chunkPos.z < 0 || chunkPos.z >= int(CHUNKS_Z)) {
-        return true;
-    }
-
-    // Get local position within chunk
-    ivec3 localPos = texPos - chunkPos * int(CHUNK_SIZE);
-
-    // Get brick position within chunk (0-3 per axis)
-    ivec3 brickLocal = localPos / int(BRICK_SIZE);
-    uint brickIdx = getBrickIndex(brickLocal);
-
-    // Get chunk flat index
-    uint chunkIdx = uint(chunkPos.x) + uint(chunkPos.z) * CHUNKS_X +
-                    uint(chunkPos.y) * CHUNKS_X * CHUNKS_Z;
-
-    // Read 64-bit brick mask from two uint32s
-    uint maskOffset = chunkIdx * 2u;
-    uint word = brickIdx < 32u ? brick_masks[maskOffset] : brick_masks[maskOffset + 1u];
-    uint bitIdx = brickIdx % 32u;
-
-    // Bit set = has solid blocks, so empty = bit NOT set
-    return (word & (1u << bitIdx)) == 0u;
-}
-
-// Get minimum distance to solid voxel for a brick (for sphere-tracing)
-// Returns 0 if brick has solid blocks at boundary, up to 4 for center of empty brick
-uint getBrickMinDistance(ivec3 texPos) {
-    // Get chunk position
-    ivec3 chunkPos = texPos / int(CHUNK_SIZE);
-
-    // Bounds check - out of bounds = 0 distance (treat as solid boundary)
-    if (chunkPos.x < 0 || chunkPos.x >= int(CHUNKS_X) ||
-        chunkPos.y < 0 || chunkPos.y >= int(CHUNKS_Y) ||
-        chunkPos.z < 0 || chunkPos.z >= int(CHUNKS_Z)) {
-        return 0u;
-    }
-
-    // Get local position within chunk
-    ivec3 localPos = texPos - chunkPos * int(CHUNK_SIZE);
-
-    // Get brick position within chunk (0-3 per axis)
-    ivec3 brickLocal = localPos / int(BRICK_SIZE);
-    uint brickIdx = getBrickIndex(brickLocal);
-
-    // Get chunk flat index
-    uint chunkIdx = uint(chunkPos.x) + uint(chunkPos.z) * CHUNKS_X +
-                    uint(chunkPos.y) * CHUNKS_X * CHUNKS_Z;
-
-    // Read distance value (64 bytes per chunk, packed as 16 uints with 4 bytes each)
-    uint distOffset = chunkIdx * 16u + brickIdx / 4u;
-    uint word = brick_distances[distOffset];
-    uint byteIdx = brickIdx % 4u;
-
-    // Extract the byte for this brick
-    return (word >> (byteIdx * 8u)) & 0xFFu;
-}
-
-// Calculate distance to exit current brick (for brick skipping)
-float getBrickExitT(vec3 pos, vec3 dir, vec3 invDir, ivec3 brickWorldPos) {
-    vec3 brickMin = vec3(brickWorldPos);
-    vec3 brickMax = brickMin + float(BRICK_SIZE);
-
-    // Calculate t values to each face
-    vec3 t1 = (brickMin - pos) * invDir;
-    vec3 t2 = (brickMax - pos) * invDir;
-
-    // Get exit t values (the far faces)
-    vec3 tFar = max(t1, t2);
-
-    // Return the closest exit (minimum of far faces)
-    return min(min(tFar.x, tFar.y), tFar.z);
-}
-
-// Get brick-aligned world position from texture coordinate
-ivec3 getBrickWorldPos(ivec3 texPos) {
-    return (texPos / int(BRICK_SIZE)) * int(BRICK_SIZE);
 }
 
 // Helper to get texture size as vec3 (the loaded chunk window)
@@ -838,14 +734,14 @@ float chunkBoundaryFactor(vec3 hitPos, uint steppedAxis) {
 }
 
 // Texture atlas constants
-// Atlas is 1152x64 pixels with 18 textures (64x64 each) in a row
-// Order: air(0), stone(1), dirt(2), grass(3), planks(4), leaves(5), sand(6), gravel(7), water(8), glass(9), log(10), torch(11), brick(12), snow(13), cobblestone(14), iron(15), grass_side(16), log_top(17)
-const float ATLAS_TILE_COUNT = 18.0;
+// Atlas is 1216x64 pixels with 19 textures (64x64 each) in a row
+// Order: air(0), stone(1), dirt(2), grass(3), planks(4), leaves(5), sand(6), gravel(7), water(8), glass(9), log(10), torch(11), brick(12), snow(13), cobblestone(14), iron(15), bedrock(16), grass_side(17), log_top(18)
+const float ATLAS_TILE_COUNT = 19.0;
 const float ATLAS_TILE_SIZE = 1.0 / ATLAS_TILE_COUNT;
 
 // Multi-face texture indices (for blocks with different side textures)
-const uint TEX_GRASS_SIDE = 16;
-const uint TEX_LOG_TOP = 17;
+const uint TEX_GRASS_SIDE = 17;
+const uint TEX_LOG_TOP = 18;
 
 // Torch light settings
 const vec3 TORCH_LIGHT_COLOR = vec3(1.0, 0.8, 0.5);  // Warm orange-yellow
@@ -1516,11 +1412,6 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
             continue;
         }
 
-        // NOTE: Brick skip optimization disabled - causes visual artifacts
-        // The chunk-level skip (above) provides sufficient performance gain
-        // Keeping brick buffer bindings alive for potential future use
-        if (brick_masks[0] == 0xFFFFFFFFu && brick_distances[0] == 0xFFFFFFFFu && coord.x == 0xFFFFFFFFu) continue;
-
         blockType = readBlockTypeAtTexCoord(ivec3(coord));
 
         // Entering water
@@ -1588,14 +1479,16 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
     }
 
     // Distance-based LOD thresholds for expensive operations
-    const float AO_DISTANCE = 32.0;      // Skip AO beyond this distance
-    const float SHADOW_DISTANCE = 64.0;  // Skip shadows beyond this distance
-    const float POINT_LIGHT_DISTANCE = 24.0; // Skip point lights beyond this distance
-    const float SKY_EXPOSURE_DISTANCE = 32.0; // Skip sky exposure calc beyond this
-    bool nearEnoughForAO = hitDistance < AO_DISTANCE && pc.enable_ao != 0;
-    bool nearEnoughForShadow = hitDistance < SHADOW_DISTANCE && pc.enable_shadows != 0;
-    bool nearEnoughForPointLights = hitDistance < POINT_LIGHT_DISTANCE && pc.enable_point_lights != 0;
-    bool nearEnoughForSkyExposure = hitDistance < SKY_EXPOSURE_DISTANCE;
+    // Use push constant values if set, otherwise use defaults
+    float aoDistance = pc.lod_ao_distance > 0.0 ? pc.lod_ao_distance : 32.0;
+    float shadowDistance = pc.lod_shadow_distance > 0.0 ? pc.lod_shadow_distance : 64.0;
+    float pointLightDistance = pc.lod_point_light_distance > 0.0 ? pc.lod_point_light_distance : 24.0;
+    float skyExposureDistance = aoDistance; // Use same distance as AO
+
+    bool nearEnoughForAO = hitDistance < aoDistance && pc.enable_ao != 0;
+    bool nearEnoughForShadow = hitDistance < shadowDistance && pc.enable_shadows != 0;
+    bool nearEnoughForPointLights = hitDistance < pointLightDistance && pc.enable_point_lights != 0;
+    bool nearEnoughForSkyExposure = hitDistance < skyExposureDistance;
 
     // Calculate ambient occlusion only for nearby blocks (when enabled)
     float ao = nearEnoughForAO ? calculateAO(ivec3(coord), normal, uv) : 1.0;
