@@ -1513,39 +1513,30 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
             continue;
         }
 
-        // OPTIMIZATION: Check if current brick is empty and use distance field for sphere-tracing
-        // This provides finer-grained skipping within non-empty chunks
+        // DISABLED: Brick skip causes black grid artifacts
+        // The issue is that bricks containing solid blocks are being incorrectly
+        // identified as empty, causing rays to skip through terrain.
+        // TODO: Debug brick mask calculation in update_brick_metadata()
+        /*
         if (isBrickEmpty(ivec3(coord))) {
-            // Get distance to nearest solid brick (in brick units)
             uint brickDist = getBrickDistance(ivec3(coord));
-
-            // Calculate exit point from this brick
             vec3 currentPos = origin + dir * min(min(t.x, t.y), t.z);
             ivec3 brickWorldPos = getBrickWorldPos(ivec3(coord));
 
-            // Use distance field for faster skipping when far from solid bricks
-            // Skip distance = brick distance * brick size (conservative - use half to be safe)
             float skipDist;
             if (brickDist > 1u) {
-                // Far from solid: sphere-trace using distance field
                 skipDist = float(brickDist - 1u) * float(BRICK_SIZE) * 0.5;
             } else {
-                // Close to or at solid: just exit this brick
                 float exitT = getBrickExitT(currentPos, dir, inv_dir, brickWorldPos);
                 skipDist = exitT + 0.001;
             }
 
             vec3 newPos = currentPos + dir * skipDist;
-
-            // Update coord to new position
             coord = uvec3(clamp(floor(newPos), vec3(0), worldSize() - 1.0));
-
-            // Recalculate t values for new position
             t = (vec3(coord) + 0.5 * (1.0 + sgn_dir) - origin) * inv_dir;
-
-            // Skip to next iteration
             continue;
         }
+        */
 
         blockType = readBlockTypeAtTexCoord(ivec3(coord));
 
