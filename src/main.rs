@@ -87,6 +87,7 @@ use winit_input_helper::WinitInputHelper;
 
 mod camera;
 mod chunk;
+mod chunk_loader;
 mod hot_reload;
 mod particles;
 mod raycast;
@@ -94,6 +95,7 @@ mod world;
 
 use crate::camera::Camera;
 use crate::chunk::{BlockType, CHUNK_SIZE, Chunk};
+use crate::chunk_loader::ChunkLoader;
 use crate::hot_reload::HotReloadComputePipeline;
 use crate::particles::ParticleSystem;
 use crate::raycast::{MAX_RAYCAST_DISTANCE, RaycastHit, get_place_position, raycast};
@@ -254,6 +256,7 @@ impl RenderMode {
 }
 
 /// Terrain generator using multiple noise layers for varied landscapes
+#[derive(Clone)]
 struct TerrainGenerator {
     height_noise: Fbm<Perlin>,
     detail_noise: Perlin,
@@ -1191,6 +1194,8 @@ struct ChunkStats {
     loaded_count: usize,
     /// Number of chunks with pending GPU uploads.
     dirty_count: usize,
+    /// Number of chunks being generated in background.
+    in_flight_count: usize,
     /// Estimated GPU memory usage in megabytes.
     memory_mb: f32,
 }
@@ -1335,8 +1340,8 @@ struct App {
     texture_origin: Vector3<i32>,
     /// Current chunk statistics for HUD display.
     chunk_stats: ChunkStats,
-    /// Terrain generator for creating new chunks.
-    terrain_generator: TerrainGenerator,
+    /// Async chunk loader for background terrain generation.
+    chunk_loader: ChunkLoader,
 
     /// Currently selected hotbar slot (0-8).
     hotbar_index: usize,
@@ -1677,8 +1682,8 @@ impl App {
 
             // LOD distances - use more aggressive defaults for better performance
             // Set to 0 to use shader defaults (32, 64, 24)
-            lod_ao_distance: 24.0,      // Reduced from 32
-            lod_shadow_distance: 48.0,  // Reduced from 64
+            lod_ao_distance: 24.0,          // Reduced from 32
+            lod_shadow_distance: 48.0,      // Reduced from 64
             lod_point_light_distance: 20.0, // Reduced from 24
 
             time_of_day: args
@@ -1696,7 +1701,10 @@ impl App {
             voxel_image,
             texture_origin,
             chunk_stats: ChunkStats::default(),
-            terrain_generator: TerrainGenerator::new(seed),
+            chunk_loader: {
+                let terrain = TerrainGenerator::new(seed);
+                ChunkLoader::new(move |pos| generate_chunk_terrain(&terrain, pos))
+            },
 
             hotbar_index: 0,
             current_hit: None,
@@ -1898,6 +1906,8 @@ impl App {
     }
 
     /// Updates chunk loading/unloading based on player position.
+    /// Uses async chunk generation - queues chunks for background generation
+    /// and uploads completed chunks to GPU.
     /// Returns (chunks_loaded, chunks_unloaded) counts.
     fn update_chunk_loading(&mut self) -> (usize, usize) {
         // Check if we need to shift the texture origin first
@@ -1915,34 +1925,19 @@ impl App {
         let min_chunk = vector![i32::MIN, 0, i32::MIN];
         let max_chunk = vector![i32::MAX, WORLD_CHUNKS_Y - 1, i32::MAX];
 
-        // Load nearby chunks - collect data for batched upload
-        let to_load =
-            self.world
-                .get_chunks_to_load(player_chunk, self.view_distance, (min_chunk, max_chunk));
-
-        // Only log when there are many chunks to load (reduces console spam)
-        if to_load.len() > 20 {
-            println!(
-                "Loading {} chunks around ({}, {}, {})",
-                to_load.len(),
-                player_chunk.x,
-                player_chunk.y,
-                player_chunk.z
-            );
-        }
-
+        // === STEP 1: Receive completed chunks from background threads ===
+        let completed = self.chunk_loader.receive_chunks();
         let mut chunks_to_upload: Vec<(Vector3<i32>, Vec<u8>)> = Vec::new();
         let mut loaded = 0;
 
-        for pos in to_load.iter().take(CHUNKS_PER_FRAME) {
-            let chunk = generate_chunk_terrain(&self.terrain_generator, *pos);
-            let block_data = chunk.to_block_data();
-            chunks_to_upload.push((*pos, block_data));
-            self.world.insert_chunk(*pos, chunk);
+        for result in completed {
+            // Insert chunk into world
+            self.world.insert_chunk(result.position, result.chunk);
+            chunks_to_upload.push((result.position, result.block_data));
             loaded += 1;
         }
 
-        // Batch upload all new chunks at once
+        // Batch upload completed chunks to GPU
         if !chunks_to_upload.is_empty() {
             self.upload_chunks_batched(&chunks_to_upload);
 
@@ -1954,7 +1949,26 @@ impl App {
             }
         }
 
-        // Unload distant chunks - collect positions for batched clear
+        // === STEP 2: Queue new chunks for generation ===
+        let to_load =
+            self.world
+                .get_chunks_to_load(player_chunk, self.view_distance, (min_chunk, max_chunk));
+
+        // Queue chunks for async generation (ChunkLoader handles deduplication)
+        // We can queue more than CHUNKS_PER_FRAME since generation is async
+        let max_to_queue = CHUNKS_PER_FRAME * 4; // Allow larger batches since it's non-blocking
+        let queued = self
+            .chunk_loader
+            .request_chunks(&to_load.into_iter().take(max_to_queue).collect::<Vec<_>>());
+
+        if queued > 20 {
+            println!(
+                "Queued {} chunks for generation around ({}, {}, {})",
+                queued, player_chunk.x, player_chunk.y, player_chunk.z
+            );
+        }
+
+        // === STEP 3: Unload distant chunks ===
         let to_unload = self
             .world
             .get_chunks_to_unload(player_chunk, self.unload_distance);
@@ -1962,6 +1976,8 @@ impl App {
 
         let mut unloaded = 0;
         for pos in to_unload.iter().take(CHUNKS_PER_FRAME) {
+            // Cancel pending generation for this chunk if queued
+            self.chunk_loader.cancel_chunk(*pos);
             self.world.remove_chunk(*pos);
             // Create empty (air) chunk data for clearing
             let empty_data = vec![0u8; CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE];
@@ -1983,6 +1999,7 @@ impl App {
         self.chunk_stats = ChunkStats {
             loaded_count: self.world.chunk_count(),
             dirty_count: self.world.dirty_chunk_count(),
+            in_flight_count: self.chunk_loader.in_flight_count(),
             memory_mb: (TEXTURE_SIZE_X * TEXTURE_SIZE_Y * TEXTURE_SIZE_Z) as f32
                 / (1024.0 * 1024.0),
         };
@@ -2915,11 +2932,12 @@ impl App {
 
             if self.args.verbose {
                 println!(
-                    "[STATS] FPS: {} ({:.1}ms) | Chunks: {} | Dirty: {} | Pos: ({:.1}, {:.1}, {:.1}) | Chunk: ({}, {}, {}) | TexOrigin: ({}, {}) | Scale: {:.2}",
+                    "[STATS] FPS: {} ({:.1}ms) | Chunks: {} | Dirty: {} | Gen: {} | Pos: ({:.1}, {:.1}, {:.1}) | Chunk: ({}, {}, {}) | TexOrigin: ({}, {}) | Scale: {:.2}",
                     self.fps,
                     frame_time_ms,
                     self.chunk_stats.loaded_count,
                     self.chunk_stats.dirty_count,
+                    self.chunk_stats.in_flight_count,
                     player_pos.x,
                     player_pos.y,
                     player_pos.z,
@@ -2932,10 +2950,11 @@ impl App {
                 );
             } else {
                 println!(
-                    "[STATS] FPS: {} ({:.1}ms) | Chunks: {} | Pos: ({:.1}, {:.1}, {:.1}) | Chunk: ({}, {}, {})",
+                    "[STATS] FPS: {} ({:.1}ms) | Chunks: {} | Gen: {} | Pos: ({:.1}, {:.1}, {:.1}) | Chunk: ({}, {}, {})",
                     self.fps,
                     frame_time_ms,
                     self.chunk_stats.loaded_count,
+                    self.chunk_stats.in_flight_count,
                     player_pos.x,
                     player_pos.y,
                     player_pos.z,
@@ -3272,6 +3291,16 @@ impl App {
                                     .small(),
                                 );
                             }
+                            if self.chunk_stats.in_flight_count > 0 {
+                                ui.label(
+                                    egui::RichText::new(format!(
+                                        "Generating: {}",
+                                        self.chunk_stats.in_flight_count
+                                    ))
+                                    .color(egui::Color32::LIGHT_GREEN)
+                                    .small(),
+                                );
+                            }
                             ui.label(
                                 egui::RichText::new(format!(
                                     "GPU: {:.1} MB",
@@ -3497,7 +3526,10 @@ impl App {
                     ui.horizontal(|ui| {
                         ui.label("AO:");
                         if ui
-                            .add(egui::Slider::new(&mut self.lod_ao_distance, 8.0..=64.0).suffix(" blocks"))
+                            .add(
+                                egui::Slider::new(&mut self.lod_ao_distance, 8.0..=64.0)
+                                    .suffix(" blocks"),
+                            )
                             .changed()
                         {
                             println!("[LOD] AO distance: {:.0}", self.lod_ao_distance);
@@ -3506,7 +3538,10 @@ impl App {
                     ui.horizontal(|ui| {
                         ui.label("Shadows:");
                         if ui
-                            .add(egui::Slider::new(&mut self.lod_shadow_distance, 16.0..=128.0).suffix(" blocks"))
+                            .add(
+                                egui::Slider::new(&mut self.lod_shadow_distance, 16.0..=128.0)
+                                    .suffix(" blocks"),
+                            )
                             .changed()
                         {
                             println!("[LOD] Shadow distance: {:.0}", self.lod_shadow_distance);
@@ -3515,10 +3550,16 @@ impl App {
                     ui.horizontal(|ui| {
                         ui.label("Lights:");
                         if ui
-                            .add(egui::Slider::new(&mut self.lod_point_light_distance, 8.0..=48.0).suffix(" blocks"))
+                            .add(
+                                egui::Slider::new(&mut self.lod_point_light_distance, 8.0..=48.0)
+                                    .suffix(" blocks"),
+                            )
                             .changed()
                         {
-                            println!("[LOD] Point light distance: {:.0}", self.lod_point_light_distance);
+                            println!(
+                                "[LOD] Point light distance: {:.0}",
+                                self.lod_point_light_distance
+                            );
                         }
                     });
 
