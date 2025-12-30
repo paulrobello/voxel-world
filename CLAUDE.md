@@ -60,11 +60,13 @@ This is a Vulkan compute shader voxel engine. Rendering happens entirely on the 
 - `raycast.rs` - CPU-side DDA for block picking (break/place interaction)
 - `particles.rs` - Particle system for block break effects, water splashes
 - `hot_reload.rs` - Watches shader files and recompiles on save
+- `svt.rs` - SVT-64 sparse voxel tree for brick-level ray skipping
+- `chunk_loader.rs` - Async chunk generation with 4-thread pool
 
 ### GPU Pipeline
 
 - Push constants pass camera matrix, world dimensions, time, lighting params to shader
-- Descriptor sets: render target (0), block data (1), texture atlas (2), particles (3), lights (4), chunk metadata (5), distance buffer (6)
+- Descriptor sets: render target (0), block data (1), texture atlas (2), particles (3), lights (4), chunk metadata (5), distance buffer (6), SVT brick data (7)
 - `HotReloadComputePipeline` watches `shaders/traverse.comp` and recompiles on save
 
 ### Ray Marching Optimizations
@@ -74,6 +76,14 @@ This is a Vulkan compute shader voxel engine. Rendering happens entirely on the 
 - Chunk metadata buffer (set 5) uploads bit-packed empty/solid flags to GPU
 - Shader's `isChunkEmpty()` skips entire 32³ chunks during ray traversal
 - Result: 35 FPS → 160 FPS with all features enabled
+
+**SVT-64 Brick-Level Skip**:
+- Each 32³ chunk divided into 4³ = 64 bricks of 8³ voxels
+- 64-bit occupancy mask per chunk (1 bit per brick)
+- Per-brick Manhattan distance field for sphere-tracing
+- GPU buffers at set 7: `brick_masks` (8 bytes/chunk), `brick_distances` (64 bytes/chunk)
+- After chunk skip, shader checks `isBrickEmpty()` and uses distance field for additional skipping
+- Exit face detection uses `mix()`/`step()` pattern for correct `stepped_axis` (normal calculation)
 
 ### GPU Upload System
 
@@ -131,10 +141,12 @@ Additional texture slots: 16=grass_side, 17=log_top (for multi-face blocks)
 ## Key Constants
 
 - `CHUNK_SIZE = 32` (chunk.rs)
+- `BRICK_SIZE = 8` (svt.rs) - Each chunk has 4³ = 64 bricks
 - `ATLAS_TILE_COUNT = 18.0` (traverse.comp)
 - World size: `WORLD_CHUNKS_X/Y/Z` in main.rs (16x4x16 chunks = 512x128x512 blocks)
 - View distance: `VIEW_DISTANCE = 6` chunks around player
 - LOD distances in shader: AO=48, Shadow=64, PointLight=32, SkyExposure=48 blocks
+- Async chunk workers: 4 threads (chunk_loader.rs)
 
 ## Texture Workflow
 

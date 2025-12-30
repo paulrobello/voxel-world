@@ -113,10 +113,12 @@ make run
 src/
 ├── main.rs          # Vulkan setup, render loop, input, physics, HUD
 ├── chunk.rs         # Chunk storage (32³), BlockType enum, bit-packing
+├── chunk_loader.rs  # Async chunk generation with thread pool
 ├── world.rs         # Multi-chunk management, terrain generation
 ├── camera.rs        # Pixel-to-ray matrix for GPU ray casting
 ├── raycast.rs       # CPU-side DDA for block picking
 ├── particles.rs     # Particle system (break effects, splashes)
+├── svt.rs           # SVT-64 sparse voxel tree for ray skipping
 └── hot_reload.rs    # Shader hot reloading
 
 shaders/
@@ -168,10 +170,13 @@ Based on the 1987 paper by Amanatides and Woo: [A Fast Voxel Traversal Algorithm
 The compute shader (`traverse.comp`) performs DDA ray marching through a 3D texture containing block type data. Each pixel spawns a ray, traverses until hitting a solid block, then samples the texture atlas and applies lighting.
 
 **Performance Optimizations:**
+- Empty chunk skip: Rays skip entire 32³ chunks that contain only air (4.6x FPS improvement)
+- SVT-64 brick skip: Each chunk divided into 64 bricks (8³), rays skip empty bricks using distance fields
 - Per-ray dynamic step limit: calculates optimal DDA steps using ray direction (`|dx| + |dy| + |dz|`)
 - Configurable max ray steps (128-1024) via HUD slider
 - Distance-based LOD: AO (48 blocks), shadows (64), point lights (32), sky exposure (48)
 - Per-chunk GPU uploads: only modified 32KB chunks uploaded, not entire 32MB world
+- Async chunk generation: 4-thread pool for background terrain generation
 
 ### Ambient Occlusion
 

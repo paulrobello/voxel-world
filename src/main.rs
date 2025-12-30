@@ -100,8 +100,6 @@ use crate::chunk_loader::ChunkLoader;
 use crate::hot_reload::HotReloadComputePipeline;
 use crate::particles::ParticleSystem;
 use crate::raycast::{MAX_RAYCAST_DISTANCE, RaycastHit, get_place_position, raycast};
-// DISABLED: Brick metadata causes black grid artifacts.
-#[allow(unused_imports)]
 use crate::svt::ChunkSVT;
 use crate::world::World;
 
@@ -250,6 +248,7 @@ enum RenderMode {
     Normal = 3,
     UV = 4,
     Depth = 5,
+    BrickDebug = 6,
 }
 
 impl RenderMode {
@@ -260,6 +259,7 @@ impl RenderMode {
         RenderMode::Normal,
         RenderMode::UV,
         RenderMode::Depth,
+        RenderMode::BrickDebug,
     ];
 }
 
@@ -1195,78 +1195,74 @@ fn get_chunk_metadata_set(
     (chunk_metadata_buffer, descriptor_set)
 }
 
-// DISABLED: Brick metadata causes black grid artifacts.
 /// Number of u32 words for brick masks (2 words = 64 bits per chunk).
-#[allow(dead_code)]
 const BRICK_MASK_WORDS: usize = TOTAL_CHUNKS * 2;
 /// Number of u32 words for brick distances (16 words = 64 bytes per chunk).
-#[allow(dead_code)]
 const BRICK_DIST_WORDS: usize = TOTAL_CHUNKS * 16;
 
-// DISABLED: Brick metadata causes black grid artifacts. Infrastructure kept for future debugging.
-// /// Creates storage buffers and descriptor set for brick metadata.
-// ///
-// /// Layout:
-// /// - Binding 0: Brick masks - 64 bits per chunk (2 u32 words per chunk)
-// /// - Binding 1: Brick distances - 64 bytes per chunk (distance to nearest solid brick)
-// fn get_brick_metadata_set(
-//     memory_allocator: Arc<StandardMemoryAllocator>,
-//     descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
-//     render_pipeline: &ComputePipeline,
-// ) -> (Subbuffer<[u32]>, Subbuffer<[u32]>, Arc<DescriptorSet>) {
-//     // Create buffer for brick masks (64 bits per chunk)
-//     let brick_mask_buffer = Buffer::new_slice::<u32>(
-//         memory_allocator.clone(),
-//         BufferCreateInfo {
-//             usage: BufferUsage::STORAGE_BUFFER,
-//             ..Default::default()
-//         },
-//         AllocationCreateInfo {
-//             memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
-//                 | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-//             ..Default::default()
-//         },
-//         BRICK_MASK_WORDS as u64,
-//     )
-//     .unwrap();
-//
-//     // Create buffer for brick distances (64 bytes per chunk)
-//     let brick_dist_buffer = Buffer::new_slice::<u32>(
-//         memory_allocator,
-//         BufferCreateInfo {
-//             usage: BufferUsage::STORAGE_BUFFER,
-//             ..Default::default()
-//         },
-//         AllocationCreateInfo {
-//             memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
-//                 | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-//             ..Default::default()
-//         },
-//         BRICK_DIST_WORDS as u64,
-//     )
-//     .unwrap();
-//
-//     // Create descriptor set at set index 7
-//     let layout = render_pipeline
-//         .layout()
-//         .set_layouts()
-//         .get(7)
-//         .unwrap()
-//         .clone();
-//
-//     let descriptor_set = DescriptorSet::new(
-//         descriptor_set_allocator,
-//         layout,
-//         [
-//             WriteDescriptorSet::buffer(0, brick_mask_buffer.clone()),
-//             WriteDescriptorSet::buffer(1, brick_dist_buffer.clone()),
-//         ],
-//         [],
-//     )
-//     .unwrap();
-//
-//     (brick_mask_buffer, brick_dist_buffer, descriptor_set)
-// }
+/// Creates storage buffers and descriptor set for brick metadata.
+///
+/// Layout:
+/// - Binding 0: Brick masks - 64 bits per chunk (2 u32 words per chunk)
+/// - Binding 1: Brick distances - 64 bytes per chunk (distance to nearest solid brick)
+fn get_brick_metadata_set(
+    memory_allocator: Arc<StandardMemoryAllocator>,
+    descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
+    render_pipeline: &ComputePipeline,
+) -> (Subbuffer<[u32]>, Subbuffer<[u32]>, Arc<DescriptorSet>) {
+    // Create buffer for brick masks (64 bits per chunk)
+    let brick_mask_buffer = Buffer::new_slice::<u32>(
+        memory_allocator.clone(),
+        BufferCreateInfo {
+            usage: BufferUsage::STORAGE_BUFFER,
+            ..Default::default()
+        },
+        AllocationCreateInfo {
+            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+            ..Default::default()
+        },
+        BRICK_MASK_WORDS as u64,
+    )
+    .unwrap();
+
+    // Create buffer for brick distances (64 bytes per chunk)
+    let brick_dist_buffer = Buffer::new_slice::<u32>(
+        memory_allocator,
+        BufferCreateInfo {
+            usage: BufferUsage::STORAGE_BUFFER,
+            ..Default::default()
+        },
+        AllocationCreateInfo {
+            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+            ..Default::default()
+        },
+        BRICK_DIST_WORDS as u64,
+    )
+    .unwrap();
+
+    // Create descriptor set at set index 7
+    let layout = render_pipeline
+        .layout()
+        .set_layouts()
+        .get(7)
+        .unwrap()
+        .clone();
+
+    let descriptor_set = DescriptorSet::new(
+        descriptor_set_allocator,
+        layout,
+        [
+            WriteDescriptorSet::buffer(0, brick_mask_buffer.clone()),
+            WriteDescriptorSet::buffer(1, brick_dist_buffer.clone()),
+        ],
+        [],
+    )
+    .unwrap();
+
+    (brick_mask_buffer, brick_dist_buffer, descriptor_set)
+}
 
 /// Statistics about loaded chunks for HUD display.
 #[derive(Debug, Clone, Copy, Default)]
@@ -1356,19 +1352,20 @@ struct App {
     chunk_metadata_buffer: Subbuffer<[u32]>,
     /// GPU descriptor set for chunk metadata.
     chunk_metadata_set: Arc<DescriptorSet>,
-    // DISABLED: Brick metadata causes black grid artifacts.
-    // /// GPU buffer for brick masks (64 bits per chunk, which of 64 bricks are solid).
-    // brick_mask_buffer: Subbuffer<[u32]>,
-    // /// GPU buffer for brick distances (distance to nearest solid brick, per brick).
-    // brick_dist_buffer: Subbuffer<[u32]>,
-    // /// GPU descriptor set for brick metadata.
-    // brick_metadata_set: Arc<DescriptorSet>,
+    /// GPU buffer for brick masks (64 bits per chunk, which of 64 bricks are solid).
+    brick_mask_buffer: Subbuffer<[u32]>,
+    /// GPU buffer for brick distances (distance to nearest solid brick, per brick).
+    brick_dist_buffer: Subbuffer<[u32]>,
+    /// GPU descriptor set for brick metadata.
+    brick_metadata_set: Arc<DescriptorSet>,
     /// World dimensions in blocks [X, Y, Z].
     world_extent: [u32; 3],
 
     camera: Camera,
     render_mode: RenderMode,
     render_scale: f32,
+    /// Current window size for debug output
+    window_size: [u32; 2],
 
     /// Player physics state
     player_velocity: Vector3<f64>,
@@ -1414,6 +1411,8 @@ struct App {
     fog_density: f32,
     /// Distance where fog starts (blocks)
     fog_start: f32,
+    /// Whether fog affects the sky (false = clear sky regardless of fog)
+    fog_affects_sky: bool,
     /// Maximum ray marching steps (higher = see farther, lower = better FPS)
     max_ray_steps: u32,
     /// Continuous animation time in seconds (for water waves, etc.)
@@ -1689,12 +1688,12 @@ impl App {
             &render_pipeline,
         );
 
-        // DISABLED: Brick metadata causes black grid artifacts.
-        // let (brick_mask_buffer, brick_dist_buffer, brick_metadata_set) = get_brick_metadata_set(
-        //     memory_allocator.clone(),
-        //     descriptor_set_allocator.clone(),
-        //     &render_pipeline,
-        // );
+        // Create brick metadata buffers and descriptor set
+        let (brick_mask_buffer, brick_dist_buffer, brick_metadata_set) = get_brick_metadata_set(
+            memory_allocator.clone(),
+            descriptor_set_allocator.clone(),
+            &render_pipeline,
+        );
 
         let input = WinitInputHelper::new();
 
@@ -1747,10 +1746,9 @@ impl App {
             light_set,
             chunk_metadata_buffer,
             chunk_metadata_set,
-            // DISABLED: Brick metadata causes black grid artifacts.
-            // brick_mask_buffer,
-            // brick_dist_buffer,
-            // brick_metadata_set,
+            brick_mask_buffer,
+            brick_dist_buffer,
+            brick_metadata_set,
             world_extent,
 
             camera,
@@ -1763,6 +1761,7 @@ impl App {
                 _ => RenderMode::Textured,
             },
             render_scale: 0.75, // Balance between quality and FPS, upscaled to window
+            window_size: INITIAL_WINDOW_RESOLUTION.into(),
 
             player_velocity: Vector3::zeros(),
             on_ground: false,
@@ -1793,6 +1792,7 @@ impl App {
             ambient_light: 0.1,
             fog_density: 0.01,
             fog_start: 128.0,
+            fog_affects_sky: false,
             max_ray_steps: 256,
             animation_time: 0.0,
 
@@ -2106,8 +2106,7 @@ impl App {
         // Update chunk metadata if any chunks were loaded or unloaded
         if !chunks_to_upload.is_empty() || !positions_to_clear.is_empty() {
             self.update_chunk_metadata();
-            // DISABLED: Brick metadata causes black grid artifacts.
-            // self.update_brick_metadata();
+            self.update_brick_metadata();
         }
 
         // Update chunk stats
@@ -2808,8 +2807,7 @@ impl App {
 
         // Update chunk and brick metadata after initial upload
         self.update_chunk_metadata();
-        // DISABLED: Brick metadata causes black grid artifacts.
-        // self.update_brick_metadata();
+        self.update_brick_metadata();
     }
 
     /// Updates the chunk metadata buffer on the GPU.
@@ -2866,78 +2864,77 @@ impl App {
         self.profiler.metadata_update_us += t_start.elapsed().as_micros() as u64;
     }
 
-    // DISABLED: Brick metadata causes black grid artifacts.
-    // /// Updates the brick metadata buffers on the GPU.
-    // ///
-    // /// This creates:
-    // /// - Brick masks: 64-bit mask per chunk indicating which bricks have solid blocks
-    // /// - Brick distances: Per-brick distance to nearest solid brick
-    // ///
-    // /// The shader uses these for hierarchical brick-level ray skipping.
-    // fn update_brick_metadata(&mut self) {
-    //     let t_start = Instant::now();
-    //
-    //     // Brick mask buffer: 2 u32 per chunk (64 bits)
-    //     let mut brick_masks = vec![0u32; BRICK_MASK_WORDS];
-    //     // Brick distance buffer: 16 u32 per chunk (64 bytes)
-    //     let mut brick_distances = vec![0u32; BRICK_DIST_WORDS];
-    //
-    //     // Iterate over texture-relative chunk positions
-    //     for cy in 0..WORLD_CHUNKS_Y {
-    //         for cz in 0..LOADED_CHUNKS_Z {
-    //             for cx in 0..LOADED_CHUNKS_X {
-    //                 // Convert texture-relative chunk position to world chunk position
-    //                 let world_chunk_x = self.texture_origin.x / CHUNK_SIZE as i32 + cx;
-    //                 let world_chunk_y = cy;
-    //                 let world_chunk_z = self.texture_origin.z / CHUNK_SIZE as i32 + cz;
-    //                 let world_chunk_pos = Vector3::new(world_chunk_x, world_chunk_y, world_chunk_z);
-    //
-    //                 // Calculate flat chunk index (matches shader layout)
-    //                 let chunk_idx = cx as usize
-    //                     + cz as usize * LOADED_CHUNKS_X as usize
-    //                     + cy as usize * LOADED_CHUNKS_X as usize * LOADED_CHUNKS_Z as usize;
-    //
-    //                 if let Some(chunk) = self.world.get_chunk(world_chunk_pos) {
-    //                     // Build SVT for this chunk
-    //                     let svt = ChunkSVT::from_chunk(chunk);
-    //
-    //                     // Store brick mask (64 bits = 2 u32)
-    //                     let mask_offset = chunk_idx * 2;
-    //                     brick_masks[mask_offset] = svt.brick_mask as u32;
-    //                     brick_masks[mask_offset + 1] = (svt.brick_mask >> 32) as u32;
-    //
-    //                     // Store brick distances (64 bytes = 16 u32)
-    //                     let dist_offset = chunk_idx * 16;
-    //                     for (i, chunk_distances) in svt.brick_distances.chunks(4).enumerate() {
-    //                         let word = (chunk_distances[0] as u32)
-    //                             | ((chunk_distances[1] as u32) << 8)
-    //                             | ((chunk_distances[2] as u32) << 16)
-    //                             | ((chunk_distances[3] as u32) << 24);
-    //                         brick_distances[dist_offset + i] = word;
-    //                     }
-    //                 } else {
-    //                     // Missing chunk: mask = 0 (all empty), distances = 255
-    //                     let dist_offset = chunk_idx * 16;
-    //                     for i in 0..16 {
-    //                         brick_distances[dist_offset + i] = 0xFFFFFFFF;
-    //                     }
-    //                 }
-    //             }
-    //         }
-    //     }
-    //
-    //     // Upload to GPU buffers
-    //     {
-    //         let mut mask_write = self.brick_mask_buffer.write().unwrap();
-    //         mask_write.copy_from_slice(&brick_masks);
-    //     }
-    //     {
-    //         let mut dist_write = self.brick_dist_buffer.write().unwrap();
-    //         dist_write.copy_from_slice(&brick_distances);
-    //     }
-    //
-    //     self.profiler.metadata_update_us += t_start.elapsed().as_micros() as u64;
-    // }
+    /// Updates the brick metadata buffers on the GPU.
+    ///
+    /// This creates:
+    /// - Brick masks: 64-bit mask per chunk indicating which bricks have solid blocks
+    /// - Brick distances: Per-brick distance to nearest solid brick
+    ///
+    /// The shader uses these for hierarchical brick-level ray skipping.
+    fn update_brick_metadata(&mut self) {
+        let t_start = Instant::now();
+
+        // Brick mask buffer: 2 u32 per chunk (64 bits)
+        let mut brick_masks = vec![0u32; BRICK_MASK_WORDS];
+        // Brick distance buffer: 16 u32 per chunk (64 bytes)
+        let mut brick_distances = vec![0u32; BRICK_DIST_WORDS];
+
+        // Iterate over texture-relative chunk positions
+        for cy in 0..WORLD_CHUNKS_Y {
+            for cz in 0..LOADED_CHUNKS_Z {
+                for cx in 0..LOADED_CHUNKS_X {
+                    // Convert texture-relative chunk position to world chunk position
+                    let world_chunk_x = self.texture_origin.x / CHUNK_SIZE as i32 + cx;
+                    let world_chunk_y = cy;
+                    let world_chunk_z = self.texture_origin.z / CHUNK_SIZE as i32 + cz;
+                    let world_chunk_pos = Vector3::new(world_chunk_x, world_chunk_y, world_chunk_z);
+
+                    // Calculate flat chunk index (matches shader layout)
+                    let chunk_idx = cx as usize
+                        + cz as usize * LOADED_CHUNKS_X as usize
+                        + cy as usize * LOADED_CHUNKS_X as usize * LOADED_CHUNKS_Z as usize;
+
+                    if let Some(chunk) = self.world.get_chunk(world_chunk_pos) {
+                        // Build SVT for this chunk
+                        let svt = ChunkSVT::from_chunk(chunk);
+
+                        // Store brick mask (64 bits = 2 u32)
+                        let mask_offset = chunk_idx * 2;
+                        brick_masks[mask_offset] = svt.brick_mask as u32;
+                        brick_masks[mask_offset + 1] = (svt.brick_mask >> 32) as u32;
+
+                        // Store brick distances (64 bytes = 16 u32)
+                        let dist_offset = chunk_idx * 16;
+                        for (i, chunk_distances) in svt.brick_distances.chunks(4).enumerate() {
+                            let word = (chunk_distances[0] as u32)
+                                | ((chunk_distances[1] as u32) << 8)
+                                | ((chunk_distances[2] as u32) << 16)
+                                | ((chunk_distances[3] as u32) << 24);
+                            brick_distances[dist_offset + i] = word;
+                        }
+                    } else {
+                        // Missing chunk: mask = 0 (all empty), distances = 255
+                        let dist_offset = chunk_idx * 16;
+                        for i in 0..16 {
+                            brick_distances[dist_offset + i] = 0xFFFFFFFF;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Upload to GPU buffers
+        {
+            let mut mask_write = self.brick_mask_buffer.write().unwrap();
+            mask_write.copy_from_slice(&brick_masks);
+        }
+        {
+            let mut dist_write = self.brick_dist_buffer.write().unwrap();
+            dist_write.copy_from_slice(&brick_distances);
+        }
+
+        self.profiler.metadata_update_us += t_start.elapsed().as_micros() as u64;
+    }
 
     /// Clears a chunk region in the GPU 3D texture (fills with air).
     /// Note: Prefer using upload_chunks_batched with empty data for better performance.
@@ -3043,8 +3040,7 @@ impl App {
 
             // Update chunk and brick metadata since chunks may have changed empty status
             self.update_chunk_metadata();
-            // DISABLED: Brick metadata causes black grid artifacts.
-            // self.update_brick_metadata();
+            self.update_brick_metadata();
         }
 
         uploaded
@@ -3136,11 +3132,19 @@ impl App {
                 0.0
             };
 
+            let render_res = [
+                (self.window_size[0] as f32 * self.render_scale) as u32,
+                (self.window_size[1] as f32 * self.render_scale) as u32,
+            ];
             if self.args.verbose {
                 println!(
-                    "[STATS] FPS: {} ({:.1}ms) | Chunks: {} | Dirty: {} | Gen: {} | Pos: ({:.1}, {:.1}, {:.1}) | Chunk: ({}, {}, {}) | TexOrigin: ({}, {}) | Scale: {:.2}",
+                    "[STATS] FPS: {} ({:.1}ms) | Win: {}x{} Render: {}x{} | Chunks: {} | Dirty: {} | Gen: {} | Pos: ({:.1}, {:.1}, {:.1}) | Chunk: ({}, {}, {}) | TexOrigin: ({}, {})",
                     self.fps,
                     frame_time_ms,
+                    self.window_size[0],
+                    self.window_size[1],
+                    render_res[0],
+                    render_res[1],
                     self.chunk_stats.loaded_count,
                     self.chunk_stats.dirty_count,
                     self.chunk_stats.in_flight_count,
@@ -3152,21 +3156,21 @@ impl App {
                     player_chunk.z,
                     self.texture_origin.x,
                     self.texture_origin.z,
-                    self.render_scale
                 );
             } else {
                 println!(
-                    "[STATS] FPS: {} ({:.1}ms) | Chunks: {} | Gen: {} | Pos: ({:.1}, {:.1}, {:.1}) | Chunk: ({}, {}, {})",
+                    "[STATS] FPS: {} ({:.1}ms) | Win: {}x{} Render: {}x{} | Chunks: {} | Gen: {} | Pos: ({:.1}, {:.1}, {:.1})",
                     self.fps,
                     frame_time_ms,
+                    self.window_size[0],
+                    self.window_size[1],
+                    render_res[0],
+                    render_res[1],
                     self.chunk_stats.loaded_count,
                     self.chunk_stats.in_flight_count,
                     player_pos.x,
                     player_pos.y,
                     player_pos.z,
-                    player_chunk.x,
-                    player_chunk.y,
-                    player_chunk.z,
                 );
             }
 
@@ -3416,6 +3420,7 @@ impl App {
                 .collect();
 
             let window_extent: [u32; 2] = window_size.into();
+            self.window_size = window_extent;
             let render_extent = [
                 (window_extent[0] as f32 * self.render_scale) as u32,
                 (window_extent[1] as f32 * self.render_scale) as u32,
@@ -3573,9 +3578,13 @@ impl App {
                     // Block selection
                     ui.label(format!("Selected: {:?}", selected_block));
                     if let Some(hit) = &self.current_hit {
+                        let block_type = self.world.get_block(hit.block_pos);
+                        let block_name = block_type
+                            .map(|b| format!("{:?}", b))
+                            .unwrap_or_else(|| "Unknown".to_string());
                         ui.label(format!(
-                            "Looking at: ({}, {}, {})",
-                            hit.block_pos.x, hit.block_pos.y, hit.block_pos.z
+                            "Looking at: {} ({}, {}, {})",
+                            block_name, hit.block_pos.x, hit.block_pos.y, hit.block_pos.z
                         ));
                         ui.label(format!("Distance: {:.1}", hit.distance));
                     } else {
@@ -3657,6 +3666,7 @@ impl App {
                     );
                     ui.add(egui::Slider::new(&mut self.fog_density, 0.0..=0.1).text("Fog Density"));
                     ui.add(egui::Slider::new(&mut self.fog_start, 0.0..=128.0).text("Fog Start"));
+                    ui.checkbox(&mut self.fog_affects_sky, "Fog Affects Sky");
                     if ui
                         .add(
                             egui::Slider::new(&mut self.max_ray_steps, 128..=1024)
@@ -3990,6 +4000,8 @@ impl App {
             fog_density: f32,
             // Fog start distance
             fog_start: f32,
+            // Whether fog affects sky (0 = false, 1 = true)
+            fog_affects_sky: u32,
             // Target block (block player is looking at, -1 = none)
             target_block_x: i32,
             target_block_y: i32,
@@ -4097,6 +4109,7 @@ impl App {
             ambient_light: self.ambient_light,
             fog_density: self.fog_density,
             fog_start: self.fog_start,
+            fog_affects_sky: self.fog_affects_sky as u32,
             target_block_x: target_x,
             target_block_y: target_y,
             target_block_z: target_z,
@@ -4144,8 +4157,7 @@ impl App {
                     self.light_set.clone(),
                     self.chunk_metadata_set.clone(),
                     rcx.distance_set.clone(),
-                    // DISABLED: Brick metadata causes black grid artifacts.
-                    // self.brick_metadata_set.clone(),
+                    self.brick_metadata_set.clone(),
                 ],
             )
             .unwrap();
