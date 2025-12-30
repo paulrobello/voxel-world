@@ -87,6 +87,7 @@ use winit_input_helper::WinitInputHelper;
 
 mod camera;
 mod chunk;
+mod chunk_loader;
 mod hot_reload;
 mod particles;
 mod raycast;
@@ -94,6 +95,7 @@ mod world;
 
 use crate::camera::Camera;
 use crate::chunk::{BlockType, CHUNK_SIZE, Chunk};
+use crate::chunk_loader::ChunkLoader;
 use crate::hot_reload::HotReloadComputePipeline;
 use crate::particles::ParticleSystem;
 use crate::raycast::{MAX_RAYCAST_DISTANCE, RaycastHit, get_place_position, raycast};
@@ -176,6 +178,10 @@ const UNLOAD_DISTANCE: i32 = 7;
 /// Maximum chunks to load or unload per frame
 const CHUNKS_PER_FRAME: usize = 4;
 
+/// Cached empty chunk data for GPU clearing (avoids repeated allocations)
+static EMPTY_CHUNK_DATA: std::sync::LazyLock<Vec<u8>> =
+    std::sync::LazyLock::new(|| vec![0u8; CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE]);
+
 // Player physics constants (in world/voxel units, where 1 unit = 1 block)
 /// Gravity acceleration in blocks per second squared
 const GRAVITY: f64 = 20.0;
@@ -254,6 +260,7 @@ impl RenderMode {
 }
 
 /// Terrain generator using multiple noise layers for varied landscapes
+#[derive(Clone)]
 struct TerrainGenerator {
     height_noise: Fbm<Perlin>,
     detail_noise: Perlin,
@@ -436,7 +443,10 @@ fn generate_chunk_terrain(terrain: &TerrainGenerator, chunk_pos: Vector3<i32>) -
             for ly in 0..CHUNK_SIZE {
                 let world_y = chunk_world_y + ly as i32;
 
-                let block_type = if world_y > height && world_y > SEA_LEVEL {
+                let block_type = if world_y == 0 {
+                    // Bedrock floor - unbreakable, prevents falling out of world
+                    BlockType::Bedrock
+                } else if world_y > height && world_y > SEA_LEVEL {
                     // Above terrain and above sea level = air
                     BlockType::Air
                 } else if world_y > height && world_y <= SEA_LEVEL {
@@ -1188,8 +1198,53 @@ struct ChunkStats {
     loaded_count: usize,
     /// Number of chunks with pending GPU uploads.
     dirty_count: usize,
+    /// Number of chunks being generated in background.
+    in_flight_count: usize,
     /// Estimated GPU memory usage in megabytes.
     memory_mb: f32,
+}
+
+/// Performance profiler for tracking operation timings.
+#[derive(Debug, Default)]
+struct Profiler {
+    /// Accumulated time for chunk loading/streaming (microseconds).
+    chunk_loading_us: u64,
+    /// Accumulated time for GPU uploads (microseconds).
+    gpu_upload_us: u64,
+    /// Accumulated time for metadata updates (microseconds).
+    metadata_update_us: u64,
+    /// Accumulated time for rendering (microseconds).
+    render_us: u64,
+    /// Number of samples accumulated.
+    sample_count: u32,
+    /// Number of chunks uploaded this period.
+    chunks_uploaded: u32,
+}
+
+impl Profiler {
+    fn reset(&mut self) {
+        self.chunk_loading_us = 0;
+        self.gpu_upload_us = 0;
+        self.metadata_update_us = 0;
+        self.render_us = 0;
+        self.sample_count = 0;
+        self.chunks_uploaded = 0;
+    }
+
+    fn print_stats(&self) {
+        if self.sample_count == 0 {
+            return;
+        }
+        let n = self.sample_count as f64;
+        println!(
+            "[PROFILE] ChunkLoad: {:.2}ms | Upload: {:.2}ms ({} chunks) | Metadata: {:.2}ms | Render: {:.2}ms",
+            self.chunk_loading_us as f64 / 1000.0 / n,
+            self.gpu_upload_us as f64 / 1000.0 / n,
+            self.chunks_uploaded,
+            self.metadata_update_us as f64 / 1000.0 / n,
+            self.render_us as f64 / 1000.0 / n,
+        );
+    }
 }
 
 struct App {
@@ -1257,6 +1312,14 @@ struct App {
     /// Enable point lights (torches)
     enable_point_lights: bool,
 
+    // LOD distance thresholds (0 = use shader defaults)
+    /// Distance for AO calculations (default 32)
+    lod_ao_distance: f32,
+    /// Distance for shadow rays (default 64)
+    lod_shadow_distance: f32,
+    /// Distance for point light calculations (default 24)
+    lod_point_light_distance: f32,
+
     /// Current time of day (0.0 = midnight, 0.5 = noon, 1.0 = midnight)
     time_of_day: f32,
     /// Whether the day/night cycle is paused
@@ -1281,8 +1344,8 @@ struct App {
     texture_origin: Vector3<i32>,
     /// Current chunk statistics for HUD display.
     chunk_stats: ChunkStats,
-    /// Terrain generator for creating new chunks.
-    terrain_generator: TerrainGenerator,
+    /// Async chunk loader for background terrain generation.
+    chunk_loader: ChunkLoader,
 
     /// Currently selected hotbar slot (0-8).
     hotbar_index: usize,
@@ -1320,6 +1383,8 @@ struct App {
     screenshot_taken: bool,
     /// Total frame count since start (for debug interval).
     total_frames: u64,
+    /// Performance profiler for timing operations.
+    profiler: Profiler,
     /// View distance in chunks (adjustable via slider)
     view_distance: i32,
     /// Unload distance in chunks (adjustable via slider)
@@ -1619,6 +1684,12 @@ impl App {
             enable_shadows: true,
             enable_point_lights: true,
 
+            // LOD distances - use more aggressive defaults for better performance
+            // Set to 0 to use shader defaults (32, 64, 24)
+            lod_ao_distance: 24.0,          // Reduced from 32
+            lod_shadow_distance: 48.0,      // Reduced from 64
+            lod_point_light_distance: 20.0, // Reduced from 24
+
             time_of_day: args
                 .time_of_day
                 .map(|t| t as f32)
@@ -1634,7 +1705,10 @@ impl App {
             voxel_image,
             texture_origin,
             chunk_stats: ChunkStats::default(),
-            terrain_generator: TerrainGenerator::new(seed),
+            chunk_loader: {
+                let terrain = TerrainGenerator::new(seed);
+                ChunkLoader::new(move |pos| generate_chunk_terrain(&terrain, pos))
+            },
 
             hotbar_index: 0,
             current_hit: None,
@@ -1658,6 +1732,7 @@ impl App {
             start_time: Instant::now(),
             screenshot_taken: false,
             total_frames: 0,
+            profiler: Profiler::default(),
             view_distance,
             unload_distance,
 
@@ -1769,8 +1844,12 @@ impl App {
         if !chunks_to_upload.is_empty() {
             // Clear the texture first (set all to air)
             self.clear_voxel_texture();
-            // Upload chunks at new positions
-            self.upload_chunks_batched(&chunks_to_upload);
+            // Upload chunks at new positions - convert to slice references
+            let upload_refs: Vec<_> = chunks_to_upload
+                .iter()
+                .map(|(pos, data)| (*pos, data.as_slice()))
+                .collect();
+            self.upload_chunks_batched(&upload_refs);
         }
 
         true
@@ -1835,6 +1914,8 @@ impl App {
     }
 
     /// Updates chunk loading/unloading based on player position.
+    /// Uses async chunk generation - queues chunks for background generation
+    /// and uploads completed chunks to GPU.
     /// Returns (chunks_loaded, chunks_unloaded) counts.
     fn update_chunk_loading(&mut self) -> (usize, usize) {
         // Check if we need to shift the texture origin first
@@ -1852,36 +1933,26 @@ impl App {
         let min_chunk = vector![i32::MIN, 0, i32::MIN];
         let max_chunk = vector![i32::MAX, WORLD_CHUNKS_Y - 1, i32::MAX];
 
-        // Load nearby chunks - collect data for batched upload
-        let to_load =
-            self.world
-                .get_chunks_to_load(player_chunk, self.view_distance, (min_chunk, max_chunk));
-
-        // Only log when there are many chunks to load (reduces console spam)
-        if to_load.len() > 20 {
-            println!(
-                "Loading {} chunks around ({}, {}, {})",
-                to_load.len(),
-                player_chunk.x,
-                player_chunk.y,
-                player_chunk.z
-            );
-        }
-
+        // === STEP 1: Receive completed chunks from background threads ===
+        let completed = self.chunk_loader.receive_chunks();
         let mut chunks_to_upload: Vec<(Vector3<i32>, Vec<u8>)> = Vec::new();
         let mut loaded = 0;
 
-        for pos in to_load.iter().take(CHUNKS_PER_FRAME) {
-            let chunk = generate_chunk_terrain(&self.terrain_generator, *pos);
-            let block_data = chunk.to_block_data();
-            chunks_to_upload.push((*pos, block_data));
-            self.world.insert_chunk(*pos, chunk);
+        for result in completed {
+            // Insert chunk into world
+            self.world.insert_chunk(result.position, result.chunk);
+            chunks_to_upload.push((result.position, result.block_data));
             loaded += 1;
         }
 
-        // Batch upload all new chunks at once
+        // Batch upload completed chunks to GPU
         if !chunks_to_upload.is_empty() {
-            self.upload_chunks_batched(&chunks_to_upload);
+            // Convert to slice references for upload
+            let upload_refs: Vec<_> = chunks_to_upload
+                .iter()
+                .map(|(pos, data)| (*pos, data.as_slice()))
+                .collect();
+            self.upload_chunks_batched(&upload_refs);
 
             // Mark chunks as clean
             for (pos, _) in &chunks_to_upload {
@@ -1891,28 +1962,54 @@ impl App {
             }
         }
 
-        // Unload distant chunks - collect positions for batched clear
+        // === STEP 2: Queue new chunks for generation ===
+        let to_load =
+            self.world
+                .get_chunks_to_load(player_chunk, self.view_distance, (min_chunk, max_chunk));
+
+        // Queue chunks for async generation (ChunkLoader handles deduplication)
+        // We can queue more than CHUNKS_PER_FRAME since generation is async
+        let max_to_queue = CHUNKS_PER_FRAME * 4; // Allow larger batches since it's non-blocking
+        let queued = self
+            .chunk_loader
+            .request_chunks(&to_load.into_iter().take(max_to_queue).collect::<Vec<_>>());
+
+        if queued > 20 {
+            println!(
+                "Queued {} chunks for generation around ({}, {}, {})",
+                queued, player_chunk.x, player_chunk.y, player_chunk.z
+            );
+        }
+
+        // === STEP 3: Unload distant chunks ===
         let to_unload = self
             .world
             .get_chunks_to_unload(player_chunk, self.unload_distance);
-        let mut chunks_to_clear: Vec<(Vector3<i32>, Vec<u8>)> = Vec::new();
 
         let mut unloaded = 0;
-        for pos in to_unload.iter().take(CHUNKS_PER_FRAME) {
-            self.world.remove_chunk(*pos);
-            // Create empty (air) chunk data for clearing
-            let empty_data = vec![0u8; CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE];
-            chunks_to_clear.push((*pos, empty_data));
-            unloaded += 1;
-        }
+        let positions_to_clear: Vec<_> = to_unload
+            .iter()
+            .take(CHUNKS_PER_FRAME)
+            .map(|pos| {
+                // Cancel pending generation for this chunk if queued
+                self.chunk_loader.cancel_chunk(*pos);
+                self.world.remove_chunk(*pos);
+                unloaded += 1;
+                *pos
+            })
+            .collect();
 
-        // Batch clear all unloaded chunks
-        if !chunks_to_clear.is_empty() {
+        // Batch clear all unloaded chunks using static empty data (no allocation)
+        if !positions_to_clear.is_empty() {
+            let chunks_to_clear: Vec<_> = positions_to_clear
+                .iter()
+                .map(|pos| (*pos, EMPTY_CHUNK_DATA.as_slice()))
+                .collect();
             self.upload_chunks_batched(&chunks_to_clear);
         }
 
         // Update chunk metadata if any chunks were loaded or unloaded
-        if !chunks_to_upload.is_empty() || !chunks_to_clear.is_empty() {
+        if !chunks_to_upload.is_empty() || !positions_to_clear.is_empty() {
             self.update_chunk_metadata();
         }
 
@@ -1920,6 +2017,7 @@ impl App {
         self.chunk_stats = ChunkStats {
             loaded_count: self.world.chunk_count(),
             dirty_count: self.world.dirty_chunk_count(),
+            in_flight_count: self.chunk_loader.in_flight_count(),
             memory_mb: (TEXTURE_SIZE_X * TEXTURE_SIZE_Y * TEXTURE_SIZE_Z) as f32
                 / (1024.0 * 1024.0),
         };
@@ -2472,13 +2570,19 @@ impl App {
             .collect();
 
         if !chunks_to_upload.is_empty() {
-            self.upload_chunks_batched(&chunks_to_upload);
+            self.profiler.chunks_uploaded += chunks_to_upload.len() as u32;
+            // Convert to slice references for upload
+            let upload_refs: Vec<_> = chunks_to_upload
+                .iter()
+                .map(|(pos, data)| (*pos, data.as_slice()))
+                .collect();
+            self.upload_chunks_batched(&upload_refs);
         }
     }
 
     /// Uploads multiple chunks to the GPU in a single batched command buffer.
     /// This is much faster than uploading chunks one at a time.
-    fn upload_chunks_batched(&self, chunks: &[(Vector3<i32>, Vec<u8>)]) {
+    fn upload_chunks_batched(&self, chunks: &[(Vector3<i32>, &[u8])]) {
         if chunks.is_empty() {
             return;
         }
@@ -2522,7 +2626,7 @@ impl App {
                         | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
                     ..Default::default()
                 },
-                block_data.clone(),
+                block_data.iter().copied(),
             )
             .unwrap();
 
@@ -2586,8 +2690,12 @@ impl App {
             chunks_to_upload.len()
         );
 
-        // Upload all at once
-        self.upload_chunks_batched(&chunks_to_upload);
+        // Upload all at once - convert to slice references
+        let upload_refs: Vec<_> = chunks_to_upload
+            .iter()
+            .map(|(pos, data)| (*pos, data.as_slice()))
+            .collect();
+        self.upload_chunks_batched(&upload_refs);
 
         // Mark all as clean
         for (pos, _) in &chunks_to_upload {
@@ -2610,6 +2718,7 @@ impl App {
     /// This creates a bit-packed buffer where each bit indicates if a chunk is empty.
     /// The shader uses this to skip empty chunks during ray traversal for better performance.
     fn update_chunk_metadata(&mut self) {
+        let t_start = Instant::now();
         let mut metadata = vec![0u32; CHUNK_METADATA_WORDS];
 
         // Iterate over texture-relative chunk positions
@@ -2622,22 +2731,27 @@ impl App {
                     let world_chunk_z = self.texture_origin.z / CHUNK_SIZE as i32 + cz;
                     let world_chunk_pos = Vector3::new(world_chunk_x, world_chunk_y, world_chunk_z);
 
-                    // Check if chunk exists and is empty
-                    // Use is_empty() which handles dirty metadata internally
-                    let is_empty = self
-                        .world
-                        .get_chunk(world_chunk_pos)
-                        .map(|chunk| chunk.is_empty())
-                        .unwrap_or(true); // Missing chunks are treated as empty
+                    // Calculate flat chunk index
+                    // Index matches shader layout: x + z * CHUNKS_X + y * CHUNKS_X * CHUNKS_Z
+                    let chunk_idx = cx as usize
+                        + cz as usize * LOADED_CHUNKS_X as usize
+                        + cy as usize * LOADED_CHUNKS_X as usize * LOADED_CHUNKS_Z as usize;
 
-                    if is_empty {
-                        // Set the bit for this chunk
-                        // Index matches shader layout: x + z * CHUNKS_X + y * CHUNKS_X * CHUNKS_Z
-                        let idx = cx as usize
-                            + cz as usize * LOADED_CHUNKS_X as usize
-                            + cy as usize * LOADED_CHUNKS_X as usize * LOADED_CHUNKS_Z as usize;
-                        let word_idx = idx / 32;
-                        let bit_idx = idx % 32;
+                    // Check if chunk exists and get its data
+                    if let Some(chunk) = self.world.get_chunk_mut(world_chunk_pos) {
+                        // Ensure metadata is up-to-date before reading
+                        chunk.update_metadata();
+
+                        // Update empty flag
+                        if chunk.is_empty() {
+                            let word_idx = chunk_idx / 32;
+                            let bit_idx = chunk_idx % 32;
+                            metadata[word_idx] |= 1u32 << bit_idx;
+                        }
+                    } else {
+                        // Missing chunks are treated as empty
+                        let word_idx = chunk_idx / 32;
+                        let bit_idx = chunk_idx % 32;
                         metadata[word_idx] |= 1u32 << bit_idx;
                     }
                 }
@@ -2649,6 +2763,8 @@ impl App {
             let mut buffer_write = self.chunk_metadata_buffer.write().unwrap();
             buffer_write.copy_from_slice(&metadata);
         }
+
+        self.profiler.metadata_update_us += t_start.elapsed().as_micros() as u64;
     }
 
     /// Clears a chunk region in the GPU 3D texture (fills with air).
@@ -2739,7 +2855,12 @@ impl App {
 
         // Batch upload
         if !chunks_to_upload.is_empty() {
-            self.upload_chunks_batched(&chunks_to_upload);
+            // Convert to slice references for upload
+            let upload_refs: Vec<_> = chunks_to_upload
+                .iter()
+                .map(|(pos, data)| (*pos, data.as_slice()))
+                .collect();
+            self.upload_chunks_batched(&upload_refs);
 
             // Mark as clean
             for pos in dirty_positions {
@@ -2843,11 +2964,12 @@ impl App {
 
             if self.args.verbose {
                 println!(
-                    "[STATS] FPS: {} ({:.1}ms) | Chunks: {} | Dirty: {} | Pos: ({:.1}, {:.1}, {:.1}) | Chunk: ({}, {}, {}) | TexOrigin: ({}, {}) | Scale: {:.2}",
+                    "[STATS] FPS: {} ({:.1}ms) | Chunks: {} | Dirty: {} | Gen: {} | Pos: ({:.1}, {:.1}, {:.1}) | Chunk: ({}, {}, {}) | TexOrigin: ({}, {}) | Scale: {:.2}",
                     self.fps,
                     frame_time_ms,
                     self.chunk_stats.loaded_count,
                     self.chunk_stats.dirty_count,
+                    self.chunk_stats.in_flight_count,
                     player_pos.x,
                     player_pos.y,
                     player_pos.z,
@@ -2860,10 +2982,11 @@ impl App {
                 );
             } else {
                 println!(
-                    "[STATS] FPS: {} ({:.1}ms) | Chunks: {} | Pos: ({:.1}, {:.1}, {:.1}) | Chunk: ({}, {}, {})",
+                    "[STATS] FPS: {} ({:.1}ms) | Chunks: {} | Gen: {} | Pos: ({:.1}, {:.1}, {:.1}) | Chunk: ({}, {}, {})",
                     self.fps,
                     frame_time_ms,
                     self.chunk_stats.loaded_count,
+                    self.chunk_stats.in_flight_count,
                     player_pos.x,
                     player_pos.y,
                     player_pos.z,
@@ -2872,6 +2995,10 @@ impl App {
                     player_chunk.z,
                 );
             }
+
+            // Print profiler stats and reset
+            self.profiler.print_stats();
+            self.profiler.reset();
         }
         self.frames_since_last_second += 1;
 
@@ -2900,8 +3027,13 @@ impl App {
 
         // Always update chunks and upload to GPU, even before delta_time is available
         // This ensures initial chunks are uploaded on the first frame
+        let t0 = Instant::now();
         self.update_chunk_loading();
+        self.profiler.chunk_loading_us += t0.elapsed().as_micros() as u64;
+
+        let t1 = Instant::now();
         self.upload_world_to_gpu();
+        self.profiler.gpu_upload_us += t1.elapsed().as_micros() as u64;
 
         let Some(delta_time) = self.input.delta_time().as_ref().map(Duration::as_secs_f64) else {
             return;
@@ -3071,6 +3203,7 @@ impl App {
     }
 
     fn render(&mut self, _event_loop: &ActiveEventLoop) {
+        let t_render_start = Instant::now();
         self.render_pipeline.maybe_reload();
         self.resample_pipeline.maybe_reload();
 
@@ -3187,6 +3320,16 @@ impl App {
                                         self.chunk_stats.dirty_count
                                     ))
                                     .color(egui::Color32::YELLOW)
+                                    .small(),
+                                );
+                            }
+                            if self.chunk_stats.in_flight_count > 0 {
+                                ui.label(
+                                    egui::RichText::new(format!(
+                                        "Generating: {}",
+                                        self.chunk_stats.in_flight_count
+                                    ))
+                                    .color(egui::Color32::LIGHT_GREEN)
                                     .small(),
                                 );
                             }
@@ -3409,6 +3552,48 @@ impl App {
                             }
                         );
                     }
+
+                    ui.separator();
+                    ui.label("LOD Distances (lower = faster):");
+                    ui.horizontal(|ui| {
+                        ui.label("AO:");
+                        if ui
+                            .add(
+                                egui::Slider::new(&mut self.lod_ao_distance, 8.0..=64.0)
+                                    .suffix(" blocks"),
+                            )
+                            .changed()
+                        {
+                            println!("[LOD] AO distance: {:.0}", self.lod_ao_distance);
+                        }
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Shadows:");
+                        if ui
+                            .add(
+                                egui::Slider::new(&mut self.lod_shadow_distance, 16.0..=128.0)
+                                    .suffix(" blocks"),
+                            )
+                            .changed()
+                        {
+                            println!("[LOD] Shadow distance: {:.0}", self.lod_shadow_distance);
+                        }
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Lights:");
+                        if ui
+                            .add(
+                                egui::Slider::new(&mut self.lod_point_light_distance, 8.0..=48.0)
+                                    .suffix(" blocks"),
+                            )
+                            .changed()
+                        {
+                            println!(
+                                "[LOD] Point light distance: {:.0}",
+                                self.lod_point_light_distance
+                            );
+                        }
+                    });
 
                     ui.separator();
 
@@ -3647,6 +3832,10 @@ impl App {
             enable_point_lights: u32,
             // Two-pass beam optimization: 0 = normal, 1 = distance only, 2 = use distance hints
             pass_mode: u32,
+            // LOD distance thresholds (0 = use defaults)
+            lod_ao_distance: f32,
+            lod_shadow_distance: f32,
+            lod_point_light_distance: f32,
         }
         // Convert world coordinates to texture coordinates for shader
         // Shader works in texture space, so we subtract texture_origin
@@ -3745,6 +3934,9 @@ impl App {
             enable_shadows: if self.enable_shadows { 1 } else { 0 },
             enable_point_lights: if self.enable_point_lights { 1 } else { 0 },
             pass_mode: 0, // Will be set per-pass
+            lod_ao_distance: self.lod_ao_distance,
+            lod_shadow_distance: self.lod_shadow_distance,
+            lod_point_light_distance: self.lod_point_light_distance,
         };
 
         let mut builder = AutoCommandBufferBuilder::primary(
@@ -3860,6 +4052,10 @@ impl App {
             self.save_screenshot(&image_view, "voxel_world_screen_shot.png");
             self.screenshot_taken = true;
         }
+
+        // Record render time and increment sample count
+        self.profiler.render_us += t_render_start.elapsed().as_micros() as u64;
+        self.profiler.sample_count += 1;
     }
 }
 

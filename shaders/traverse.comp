@@ -25,6 +25,7 @@ const uint BLOCK_BRICK = 12;
 const uint BLOCK_SNOW = 13;
 const uint BLOCK_COBBLESTONE = 14;
 const uint BLOCK_IRON = 15;
+const uint BLOCK_BEDROCK = 16;
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
@@ -78,6 +79,10 @@ layout(push_constant) uniform PushConstants {
     uint enable_point_lights; // Torch lighting
     // Two-pass beam optimization: 0 = normal render, 1 = distance only, 2 = use distance hints
     uint pass_mode;
+    // LOD distance thresholds (0 = use defaults)
+    float lod_ao_distance;         // Skip AO beyond this distance
+    float lod_shadow_distance;     // Skip shadows beyond this distance
+    float lod_point_light_distance; // Skip point lights beyond this distance
 } pc;
 
 // Particle data (set 3)
@@ -729,14 +734,14 @@ float chunkBoundaryFactor(vec3 hitPos, uint steppedAxis) {
 }
 
 // Texture atlas constants
-// Atlas is 1152x64 pixels with 18 textures (64x64 each) in a row
-// Order: air(0), stone(1), dirt(2), grass(3), planks(4), leaves(5), sand(6), gravel(7), water(8), glass(9), log(10), torch(11), brick(12), snow(13), cobblestone(14), iron(15), grass_side(16), log_top(17)
-const float ATLAS_TILE_COUNT = 18.0;
+// Atlas is 1216x64 pixels with 19 textures (64x64 each) in a row
+// Order: air(0), stone(1), dirt(2), grass(3), planks(4), leaves(5), sand(6), gravel(7), water(8), glass(9), log(10), torch(11), brick(12), snow(13), cobblestone(14), iron(15), bedrock(16), grass_side(17), log_top(18)
+const float ATLAS_TILE_COUNT = 19.0;
 const float ATLAS_TILE_SIZE = 1.0 / ATLAS_TILE_COUNT;
 
 // Multi-face texture indices (for blocks with different side textures)
-const uint TEX_GRASS_SIDE = 16;
-const uint TEX_LOG_TOP = 17;
+const uint TEX_GRASS_SIDE = 17;
+const uint TEX_LOG_TOP = 18;
 
 // Torch light settings
 const vec3 TORCH_LIGHT_COLOR = vec3(1.0, 0.8, 0.5);  // Warm orange-yellow
@@ -1474,14 +1479,16 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
     }
 
     // Distance-based LOD thresholds for expensive operations
-    const float AO_DISTANCE = 32.0;      // Skip AO beyond this distance
-    const float SHADOW_DISTANCE = 64.0;  // Skip shadows beyond this distance
-    const float POINT_LIGHT_DISTANCE = 24.0; // Skip point lights beyond this distance
-    const float SKY_EXPOSURE_DISTANCE = 32.0; // Skip sky exposure calc beyond this
-    bool nearEnoughForAO = hitDistance < AO_DISTANCE && pc.enable_ao != 0;
-    bool nearEnoughForShadow = hitDistance < SHADOW_DISTANCE && pc.enable_shadows != 0;
-    bool nearEnoughForPointLights = hitDistance < POINT_LIGHT_DISTANCE && pc.enable_point_lights != 0;
-    bool nearEnoughForSkyExposure = hitDistance < SKY_EXPOSURE_DISTANCE;
+    // Use push constant values if set, otherwise use defaults
+    float aoDistance = pc.lod_ao_distance > 0.0 ? pc.lod_ao_distance : 32.0;
+    float shadowDistance = pc.lod_shadow_distance > 0.0 ? pc.lod_shadow_distance : 64.0;
+    float pointLightDistance = pc.lod_point_light_distance > 0.0 ? pc.lod_point_light_distance : 24.0;
+    float skyExposureDistance = aoDistance; // Use same distance as AO
+
+    bool nearEnoughForAO = hitDistance < aoDistance && pc.enable_ao != 0;
+    bool nearEnoughForShadow = hitDistance < shadowDistance && pc.enable_shadows != 0;
+    bool nearEnoughForPointLights = hitDistance < pointLightDistance && pc.enable_point_lights != 0;
+    bool nearEnoughForSkyExposure = hitDistance < skyExposureDistance;
 
     // Calculate ambient occlusion only for nearby blocks (when enabled)
     float ao = nearEnoughForAO ? calculateAO(ivec3(coord), normal, uv) : 1.0;

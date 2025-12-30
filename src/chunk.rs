@@ -35,6 +35,7 @@ pub enum BlockType {
     Snow = 13,
     Cobblestone = 14,
     Iron = 15,
+    Bedrock = 16,
 }
 
 impl BlockType {
@@ -99,6 +100,7 @@ impl BlockType {
             BlockType::Snow => [0.95, 0.95, 0.98],
             BlockType::Cobblestone => [0.45, 0.45, 0.45],
             BlockType::Iron => [0.75, 0.75, 0.78],
+            BlockType::Bedrock => [0.2, 0.2, 0.2], // Dark gray, nearly black
         }
     }
 
@@ -120,6 +122,8 @@ impl BlockType {
             BlockType::Iron => 1.2,
             // Special (can't break or shouldn't)
             BlockType::Water => 0.0,
+            // Indestructible
+            BlockType::Bedrock => 0.0,
         }
     }
 }
@@ -143,6 +147,7 @@ impl From<u8> for BlockType {
             13 => BlockType::Snow,
             14 => BlockType::Cobblestone,
             15 => BlockType::Iron,
+            16 => BlockType::Bedrock,
             _ => BlockType::Air,
         }
     }
