@@ -149,7 +149,7 @@ layout(set = 7, binding = 5) readonly buffer ModelPropertiesBuffer {
 const uint SUB_VOXEL_SIZE = 8;
 const float SUB_VOXEL_SCALE = 1.0 / float(SUB_VOXEL_SIZE);
 // Small epsilon used to nudge ray starts inside the sub-voxel grid and avoid boundary misses.
-const float SUB_VOXEL_EPS = 5e-4;
+const float SUB_VOXEL_EPS = 1e-3;
 
 // Maximum LOD distance for sub-voxel rendering (beyond this, skip sub-voxel details)
 const float SUB_VOXEL_LOD_DISTANCE = 32.0;
@@ -243,7 +243,7 @@ bool marchSubVoxelModel(
 
     // Avoid infinities / NaNs for near-zero components
     vec3 safeDir = dir;
-    const float DIR_EPS = 1e-5;
+    const float DIR_EPS = 1e-4;
     safeDir.x = (abs(safeDir.x) < DIR_EPS) ? (safeDir.x >= 0.0 ? DIR_EPS : -DIR_EPS) : safeDir.x;
     safeDir.y = (abs(safeDir.y) < DIR_EPS) ? (safeDir.y >= 0.0 ? DIR_EPS : -DIR_EPS) : safeDir.y;
     safeDir.z = (abs(safeDir.z) < DIR_EPS) ? (safeDir.z >= 0.0 ? DIR_EPS : -DIR_EPS) : safeDir.z;
@@ -1592,7 +1592,7 @@ float rayBlockIntersect(vec3 rayOrigin, vec3 rayDir, ivec3 blockPos, out vec3 hi
 
     // Guard against zero components to avoid INF/NaN when the ray is axis-aligned
     vec3 safeDir = rayDir;
-    const float DIR_EPS = 1e-5;
+    const float DIR_EPS = 1e-4;
     safeDir.x = (abs(safeDir.x) < DIR_EPS) ? (safeDir.x >= 0.0 ? DIR_EPS : -DIR_EPS) : safeDir.x;
     safeDir.y = (abs(safeDir.y) < DIR_EPS) ? (safeDir.y >= 0.0 ? DIR_EPS : -DIR_EPS) : safeDir.y;
     safeDir.z = (abs(safeDir.z) < DIR_EPS) ? (safeDir.z >= 0.0 ? DIR_EPS : -DIR_EPS) : safeDir.z;
