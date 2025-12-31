@@ -909,21 +909,14 @@ const float FLT_MAX = 3.4028235e+38;
 // Helper: test whether a ray segment through a model block hits its sub-voxel geometry
 // rayOrigin: point on the ray near the current voxel (world/texture space)
 bool modelBlocksRay(vec3 rayOrigin, vec3 dir, ivec3 blockPos, uint model_id, uint rotation) {
-    // Compute entry into the block AABB to start marching from the entry point
-    vec3 entryNormal;
-    vec3 entryLocal;
-    float entryT = rayBlockIntersect(rayOrigin, dir, blockPos, entryNormal, entryLocal);
-    if (entryT < 0.0) {
-        return false;
-    }
+    // Transform to block-local space (0-1) using world coords
+    vec3 localOrigin = clamp(rayOrigin - vec3(blockPos), vec3(SUB_VOXEL_EPS), vec3(1.0 - SUB_VOXEL_EPS));
 
-    // Clamp to inside the block to avoid boundary misses
-    vec3 localEntry = clamp(entryLocal, vec3(SUB_VOXEL_EPS), vec3(1.0 - SUB_VOXEL_EPS));
-
+    // March sub-voxels
     ivec3 subHit;
     vec3 n;
     float t;
-    return findSubVoxelHit(localEntry, dir, model_id, rotation, subHit, n, t);
+    return findSubVoxelHit(localOrigin, dir, model_id, rotation, subHit, n, t);
 }
 
 // Cast shadow ray from a point toward the sun
