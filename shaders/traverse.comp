@@ -968,6 +968,7 @@ float castShadowRayInternal(vec3 origin, out uint debugFlag) {
 
         // Check bounds in loaded texture window
         if (!isInTextureBounds(texPos)) {
+            debugFlag = 7u; // out of bounds -> treated as lit
             return 1.0;  // Outside loaded area = lit
         }
 
@@ -1058,8 +1059,12 @@ float castShadowRayInternal(vec3 origin, out uint debugFlag) {
         }
 
         if (dist > MAX_SHADOW_DIST) {
+            debugFlag = 8u; // exceeded range
             return 1.0;  // Too far = assume lit
         }
+
+        // Advance ray position to current voxel boundary
+        rayPos += dir * dist;
     }
 
     return 1.0;  // No hit = lit
