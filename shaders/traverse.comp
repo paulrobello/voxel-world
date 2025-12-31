@@ -958,7 +958,7 @@ float castShadowRayInternal(vec3 origin, out uint debugFlag) {
     vec3 tDelta = abs(inv_dir);
 
     // Max shadow ray distance
-    const float MAX_SHADOW_DIST = 48.0;
+    const float MAX_SHADOW_DIST = 256.0;
     float dist = 0.0;
 
     // DDA shadow ray march (increased for larger world)
