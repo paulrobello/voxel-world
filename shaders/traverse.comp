@@ -946,18 +946,26 @@ float castShadowRay(vec3 origin) {
 
         if (!skipSelf) {
             if (blockType == BLOCK_MODEL) {
-                // Consult model properties for light blocking
+                // Consult model properties and march sub-voxels for actual occlusion
                 uvec2 meta = readModelMetadata(pos);
                 uint model_id = meta.r;
+                uint rotation = meta.g & 3u;
                 ModelProperties props = model_properties[model_id];
 
+                // Fully blocking models act like solids
                 if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u) {
-                    return 0.0;  // Fully blocks light
+                    return 0.0;
                 }
-                if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
-                    return 0.4;  // Partial shadow through model geometry
+
+                // Test detailed geometry for partial/none blockers
+                vec3 localOrigin = clamp(shadowOrigin - vec3(pos), vec3(0.0), vec3(1.0));
+                vec3 dummyColor, dummyNormal;
+                float dummyT;
+                if (marchSubVoxelModel(localOrigin, sunDir, model_id, rotation, dummyColor, dummyNormal, dummyT)) {
+                    // Partial or none: treat as soft shadow
+                    return 0.4;
                 }
-                // Non-blocking model: continue
+                // No hit: light passes through model block
             } else if (blockType != BLOCK_AIR && blockType != BLOCK_LEAVES && blockType != BLOCK_GLASS && blockType != BLOCK_WATER) {
                 return 0.0;  // Hit solid = in shadow
             }
@@ -1030,15 +1038,20 @@ float getSkyExposure(vec3 origin) {
             if (blockType == BLOCK_MODEL) {
                 uvec2 meta = readModelMetadata(pos);
                 uint model_id = meta.r;
+                uint rotation = meta.g & 3u;
                 ModelProperties props = model_properties[model_id];
 
                 if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u) {
                     return 0.0;  // Fully blocked
                 }
-                if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
-                    return 0.4;  // Partial exposure through model
+
+                vec3 localOrigin = clamp(rayOrigin - vec3(pos), vec3(0.0), vec3(1.0));
+                vec3 dummyColor, dummyNormal;
+                float dummyT;
+                if (marchSubVoxelModel(localOrigin, dir, model_id, rotation, dummyColor, dummyNormal, dummyT)) {
+                    return 0.4;  // Partial exposure through model geometry
                 }
-                // Non-blocking model: continue
+                // No hit: continue upward
             } else if (blockType != BLOCK_AIR && blockType != BLOCK_WATER &&
                        blockType != BLOCK_GLASS && blockType != BLOCK_LEAVES) {
                 return 0.0;  // Blocked = underground
