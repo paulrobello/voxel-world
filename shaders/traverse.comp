@@ -2492,18 +2492,8 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
         uint dbgFlag;
         // Always trace in debug mode regardless of distance/toggles
         float shadow = castShadowRayInternal(lightingHit + normal * 0.01, dbgFlag);
-        vec3 flagColor;
-        if (dbgFlag == 0u) flagColor = vec3(0.2, 0.8, 0.2); // lit
-        else if (dbgFlag == 1u) flagColor = vec3(0.0, 0.0, 1.0); // solid block
-        else if (dbgFlag == 2u) flagColor = vec3(1.0, 0.0, 0.0); // model full geom
-        else if (dbgFlag == 3u) flagColor = vec3(1.0, 0.5, 0.0); // model partial geom
-        else if (dbgFlag == 4u) flagColor = vec3(0.7, 0.0, 0.7); // model full fallback
-        else if (dbgFlag == 5u) flagColor = vec3(0.7, 0.7, 0.0); // model partial fallback
-        else if (dbgFlag == 6u) flagColor = vec3(0.0, 0.6, 0.6); // leaves
-        else if (dbgFlag == 7u) flagColor = vec3(1.0, 0.0, 1.0); // magenta out-of-bounds
-        else if (dbgFlag == 8u) flagColor = vec3(0.6, 0.6, 0.6); // gray max distance
-        else flagColor = vec3(1.0,1.0,1.0);
-        color = mix(flagColor, vec3(shadow), 0.5);
+        // Encode: R = shadow factor, G = dbgFlag/9, B = 0
+        color = vec3(shadow, float(dbgFlag) / 9.0, 0.0);
         }
         break;
         case NORMAL:
