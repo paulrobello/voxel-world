@@ -943,10 +943,10 @@ float castShadowRayInternal(vec3 origin, out uint debugFlag) {
     vec3 dir = sunDir;
     vec3 inv_dir = clamp(1.0 / dir, vec3(-FLT_MAX), vec3(FLT_MAX));
 
-    // Track current ray position in world space
-    vec3 rayPos = origin;
+    // Work entirely in texture-space coordinates for shadow march
+    vec3 rayPos = origin - vec3(textureOrigin());
 
-    // Current voxel position (world coordinates)
+    // Current voxel position (texture-space)
     ivec3 pos = ivec3(floor(rayPos));
     ivec3 startPos = pos;  // used to skip self-voxel on first iteration
 
@@ -963,8 +963,7 @@ float castShadowRayInternal(vec3 origin, out uint debugFlag) {
 
     // DDA shadow ray march (increased for larger world)
     for (int i = 0; i < 128; i++) {
-        // Convert world voxel to texture coords for sampling
-        ivec3 texPos = worldToTexture(pos);
+        ivec3 texPos = pos;
 
         // Check bounds in loaded texture window
         if (!isInTextureBounds(texPos)) {
@@ -1000,7 +999,7 @@ float castShadowRayInternal(vec3 origin, out uint debugFlag) {
                     // Check actual sub-voxel geometry to decide shadowing
                     if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u ||
                         (props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
-                        bool hitGeo = modelBlocksRay(blockOrigin, dir, pos, model_id, rotation);
+                        bool hitGeo = modelBlocksRay(blockOrigin + vec3(textureOrigin()), dir, pos + textureOrigin(), model_id, rotation);
                         if (hitGeo) {
                             if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
                                 debugFlag = 3u;
@@ -1084,11 +1083,11 @@ float getSkyExposure(vec3 origin) {
     // Cast ray straight up
     vec3 dir = vec3(0.0, 1.0, 0.0);
 
-    // Caller already biases by surface normal; avoid extra shift
-    vec3 rayOrigin = origin;
+    // Work in texture-space coordinates
+    vec3 rayOrigin = origin - vec3(textureOrigin());
     vec3 rayPos = rayOrigin;
 
-    // Current voxel position (world coordinates)
+    // Current voxel position (texture-space)
     ivec3 pos = ivec3(floor(rayOrigin));
     ivec3 startPos = pos;
 
@@ -1098,8 +1097,7 @@ float getSkyExposure(vec3 origin) {
 
     // March upward through voxels (increased for taller world: 128 blocks)
     for (int i = 0; i < 128; i++) {
-        // Convert world voxel to texture coords for sampling
-        ivec3 texPos = worldToTexture(pos);
+        ivec3 texPos = pos;
 
         // Check if we've exited the loaded world (treated as sky)
         if (!isInTextureBounds(texPos)) {
@@ -1131,7 +1129,7 @@ float getSkyExposure(vec3 origin) {
                     bool blocksRay = false;
                     if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u ||
                         (props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
-                        blocksRay = modelBlocksRay(blockOrigin, dir, pos, model_id, rotation);
+                        blocksRay = modelBlocksRay(blockOrigin + vec3(textureOrigin()), dir, pos + textureOrigin(), model_id, rotation);
                     }
 
                     if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u ||
