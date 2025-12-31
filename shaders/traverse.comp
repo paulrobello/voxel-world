@@ -1058,6 +1058,9 @@ float castShadowRayInternal(vec3 origin, out uint debugFlag) {
             pos.z += step.z;
         }
 
+        // Advance ray position to the boundary we just crossed so subsequent tests use the correct voxel entry
+        rayPos += dir * dist;
+
         if (dist > MAX_SHADOW_DIST) {
             debugFlag = 8u; // exceeded range
             return 1.0;  // Too far = assume lit
@@ -2497,6 +2500,8 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
         else if (dbgFlag == 4u) flagColor = vec3(0.7, 0.0, 0.7); // model full fallback
         else if (dbgFlag == 5u) flagColor = vec3(0.7, 0.7, 0.0); // model partial fallback
         else if (dbgFlag == 6u) flagColor = vec3(0.0, 0.6, 0.6); // leaves
+        else if (dbgFlag == 7u) flagColor = vec3(1.0, 0.0, 1.0); // magenta out-of-bounds
+        else if (dbgFlag == 8u) flagColor = vec3(0.6, 0.6, 0.6); // gray max distance
         else flagColor = vec3(1.0,1.0,1.0);
         color = mix(flagColor, vec3(shadow), 0.5);
         }
