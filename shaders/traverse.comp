@@ -227,6 +227,9 @@ vec3 inverseRotateNormal(vec3 n, uint rotation) {
 
 // Forward declaration for block ray intersection (used before definition in shadow/sky)
 float rayBlockIntersect(vec3 rayOrigin, vec3 rayDir, ivec3 blockPos, out vec3 hitNormal, out vec3 localHit);
+// Forward declaration for sub-voxel hit test (used for model shadows/sky)
+bool findSubVoxelHit(vec3 origin, vec3 dir, uint model_id, uint rotation,
+                     out ivec3 hitSubVoxel, out vec3 hitNormal, out float hitT);
 
 // March through sub-voxel model using DDA
 // Returns true if hit, false if ray passed through
@@ -902,6 +905,20 @@ bool isOccluderSafe(ivec3 texCoord) {
 
 const float FLT_MAX = 3.4028235e+38;
 
+// Helper: test whether a ray passing through a model block actually hits its sub-voxel geometry
+// rayOrigin should be inside the block being tested (or just beyond its entry face)
+bool modelBlocksRay(vec3 rayOrigin, vec3 dir, ivec3 blockPos, uint model_id, uint rotation) {
+    // Convert to block-local space and keep slightly inside bounds to avoid precision misses
+    vec3 localOrigin = clamp(rayOrigin - vec3(blockPos),
+                             vec3(SUB_VOXEL_EPS),
+                             vec3(1.0 - SUB_VOXEL_EPS));
+
+    ivec3 subHit;
+    vec3 n;
+    float t;
+    return findSubVoxelHit(localOrigin, dir, model_id, rotation, subHit, n, t);
+}
+
 // Cast shadow ray from a point toward the sun
 // Returns shadow factor: 0 = fully in shadow, 1 = fully lit
 float castShadowRay(vec3 origin) {
@@ -933,6 +950,7 @@ float castShadowRay(vec3 origin) {
     // Max shadow ray distance
     const float MAX_SHADOW_DIST = 48.0;
     float dist = 0.0;
+    float tCurrent = 0.0;  // distance along ray to current voxel entry from shadowOrigin
 
     // DDA shadow ray march (increased for larger world)
     for (int i = 0; i < 128; i++) {
@@ -947,53 +965,37 @@ float castShadowRay(vec3 origin) {
 
         // Skip self-voxel to avoid self-shadow when origin is inside the hit block
         bool skipSelf = all(equal(pos, startPos));
-        bool allowSelfForModel = (blockType == BLOCK_MODEL); // let models still shadow
 
-        if (!skipSelf || allowSelfForModel) {
+        if (!skipSelf) {
+            // Compute a point inside the current voxel for sub-voxel tests
+            vec3 blockOrigin = shadowOrigin + dir * (tCurrent + 0.001);
             if (blockType == BLOCK_MODEL) {
                 if (pc.enable_model_shadows == 0u) {
                     // Treat model as non-blocking when disabled
                 } else {
-                    // Consult model properties and march sub-voxels for actual occlusion
+                    // Consult model properties
                     uvec2 meta = readModelMetadata(pos);
                     uint model_id = meta.r;
                     uint rotation = meta.g & 3u;
+                    const float MODEL_PARTIAL_SHADOW = 0.4;
                     // If metadata missing, still cast a soft shadow to avoid disappearing
                     if (model_id == 0u) {
-                        return 0.4;
+                        return MODEL_PARTIAL_SHADOW;
                     }
                     ModelProperties props = model_properties[model_id];
 
-                    // Compute entry point into the model block
-                    vec3 entryNormal;
-                    vec3 entryLocal;
-                    float entryT = rayBlockIntersect(shadowOrigin, sunDir, pos, entryNormal, entryLocal);
-                    bool hit = false;
-                    if (entryT >= 0.0) {
-                        vec3 localEntry = clamp(entryLocal, vec3(SUB_VOXEL_EPS), vec3(1.0 - SUB_VOXEL_EPS));
-                        vec3 dummyColor, dummyNormal;
-                        float dummyT;
-                        hit = marchSubVoxelModel(localEntry, sunDir, model_id, rotation, dummyColor, dummyNormal, dummyT);
+                    // Check actual sub-voxel geometry to decide shadowing
+                    if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u ||
+                        (props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
+                        if (modelBlocksRay(blockOrigin, dir, pos, model_id, rotation)) {
+                            if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
+                                return MODEL_PARTIAL_SHADOW;  // soft shadow through gaps
+                            } else {
+                                return 0.0;  // fully blocked
+                            }
+                        }
                     }
-                    if (hit) {
-                        // Fully blocking models act like solids
-                        if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u) {
-                            return 0.0;
-                        }
-                        // Partial blockers cast soft shadow when geometry is hit
-                        if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
-                            return 0.4;
-                        }
-                    } else {
-                        // Fallback: if model advertises blocking, honor it even if voxel march missed (prevents lost shadows)
-                        if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u) {
-                            return 0.0;
-                        }
-                        if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
-                            return 0.4;
-                        }
-                        // else non-blocking -> continue
-                    }
+                    // Non-blocking models: let light pass
                 }
             } else if (blockType != BLOCK_AIR && blockType != BLOCK_LEAVES && blockType != BLOCK_GLASS && blockType != BLOCK_WATER) {
                 return 0.0;  // Hit solid = in shadow
@@ -1011,6 +1013,7 @@ float castShadowRay(vec3 origin) {
             pos = ivec3(floor(shadowOrigin));
             // Recompute tMax from the new position
             tMax = (vec3(pos) + 0.5 + 0.5 * vec3(step) - shadowOrigin) * inv_dir;
+            tCurrent = 0.0;
             continue;
         }
 
@@ -1028,6 +1031,9 @@ float castShadowRay(vec3 origin) {
             tMax.z += tDelta.z;
             pos.z += step.z;
         }
+
+        // Next voxel entry is at distance dist along the current origin
+        tCurrent = dist;
 
         if (dist > MAX_SHADOW_DIST) {
             return 1.0;  // Too far = assume lit
@@ -1053,6 +1059,7 @@ float getSkyExposure(vec3 origin) {
     // Only step upward
     float tMax = (float(pos.y) + 1.0 - rayOrigin.y);
     float tDelta = 1.0;
+    float tCurrent = 0.0;
 
     // March upward through voxels (increased for taller world: 128 blocks)
     for (int i = 0; i < 128; i++) {
@@ -1067,13 +1074,16 @@ float getSkyExposure(vec3 origin) {
             return 1.0;  // Out of loaded area = assume sky
         }
 
+        // Point inside the current voxel (just past the entry face)
+        vec3 blockOrigin = rayOrigin + dir * (tCurrent + 0.001);
+
         // Check for solid block (pos is in texture coordinates)
         // Skip the starting voxel to avoid self-occlusion when inside a model
         uint blockType = readBlockTypeAtTexCoord(pos);
         bool skipSelf = all(equal(pos, startPos));
-        bool allowSelfForModel = (blockType == BLOCK_MODEL);
 
-        if (!skipSelf || allowSelfForModel) {
+        if (!skipSelf) {
+            const float MODEL_PARTIAL_EXPOSURE = 0.4;
             if (blockType == BLOCK_MODEL) {
                 if (pc.enable_model_shadows == 0u) {
                     // Treat model as non-blocking for sky when disabled
@@ -1082,37 +1092,23 @@ float getSkyExposure(vec3 origin) {
                     uint model_id = meta.r;
                     uint rotation = meta.g & 3u;
                     if (model_id == 0u) {
-                        return 0.4;  // Soft block sky if metadata missing
+                        return MODEL_PARTIAL_EXPOSURE;  // Soft block sky if metadata missing
                     }
                     ModelProperties props = model_properties[model_id];
 
-                    vec3 entryNormal;
-                    vec3 entryLocal;
-                    float entryT = rayBlockIntersect(rayOrigin, dir, pos, entryNormal, entryLocal);
-                    bool hit = false;
-                    if (entryT >= 0.0) {
-                        vec3 localEntry = clamp(entryLocal, vec3(SUB_VOXEL_EPS), vec3(1.0 - SUB_VOXEL_EPS));
-                        vec3 dummyColor, dummyNormal;
-                        float dummyT;
-                        hit = marchSubVoxelModel(localEntry, dir, model_id, rotation, dummyColor, dummyNormal, dummyT);
+                    bool blocksRay = false;
+                    if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u ||
+                        (props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
+                        blocksRay = modelBlocksRay(blockOrigin, dir, pos, model_id, rotation);
                     }
-                    if (hit) {
-                        if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u) {
-                            return 0.0;  // Fully blocked
-                        }
-                        if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
-                            return 0.4;  // Partial exposure through model geometry
-                        }
-                    } else {
-                        // Fallback to advertised blocking if march missed geometry
-                        if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u) {
-                            return 0.0;
-                        }
-                        if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
-                            return 0.4;
-                        }
-                        // else non-blocking -> continue upward
+
+                    if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u && blocksRay) {
+                        return 0.0;  // Fully blocked
                     }
+                    if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u && blocksRay) {
+                        return MODEL_PARTIAL_EXPOSURE;  // Partial exposure through model geometry
+                    }
+                    // Non-blocking models let sky through
                 }
             } else if (blockType != BLOCK_AIR && blockType != BLOCK_WATER &&
                        blockType != BLOCK_GLASS && blockType != BLOCK_LEAVES) {
@@ -1129,11 +1125,13 @@ float getSkyExposure(vec3 origin) {
             rayOrigin += dir * (tMax + 0.001);
             pos = ivec3(floor(rayOrigin));
             tMax = 1.0;
+            tCurrent = 0.0;
             continue;
         }
 
         // Step up
         pos.y += 1;
+        tCurrent += 1.0;
     }
 
     return 1.0;  // No hit after max iterations = assume sky

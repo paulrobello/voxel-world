@@ -357,7 +357,8 @@ impl SubVoxelModel {
             }
         }
 
-        model.light_blocking = LightBlocking::None;
+        // Fences should cast soft shadows while still letting light through gaps
+        model.light_blocking = LightBlocking::Partial;
         model.rotatable = false;
         model.requires_ground_support = true;
 
