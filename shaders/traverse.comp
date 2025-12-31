@@ -947,8 +947,9 @@ float castShadowRay(vec3 origin) {
 
         // Skip self-voxel to avoid self-shadow when origin is inside the hit block
         bool skipSelf = all(equal(pos, startPos));
+        bool allowSelfForModel = (blockType == BLOCK_MODEL); // let models still shadow
 
-        if (!skipSelf) {
+        if (!skipSelf || allowSelfForModel) {
             if (blockType == BLOCK_MODEL) {
                 if (pc.enable_model_shadows == 0u) {
                     // Treat model as non-blocking when disabled
@@ -1057,8 +1058,9 @@ float getSkyExposure(vec3 origin) {
         // Skip the starting voxel to avoid self-occlusion when inside a model
         uint blockType = readBlockTypeAtTexCoord(pos);
         bool skipSelf = all(equal(pos, startPos));
+        bool allowSelfForModel = (blockType == BLOCK_MODEL);
 
-        if (!skipSelf) {
+        if (!skipSelf || allowSelfForModel) {
             if (blockType == BLOCK_MODEL) {
                 if (pc.enable_model_shadows == 0u) {
                     // Treat model as non-blocking for sky when disabled
