@@ -924,7 +924,9 @@ bool modelBlocksRay(vec3 rayOrigin, vec3 dir, ivec3 blockPos, uint model_id, uin
 // If debugFlag is provided, it encodes the occlusion reason:
 // 0=lit, 1=solid block, 2=model full (geometry), 3=model partial (geometry),
 // 4=model full fallback, 5=model partial fallback, 6=leaves partial
-float castShadowRayInternal(vec3 origin, out uint debugFlag) {
+// origin is in texture-space coordinates
+// ignoreStartModel: when true, if the first voxel is a MODEL block we skip testing it (avoids self-shadow on model surfaces)
+float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFlag) {
     debugFlag = 0u;
     vec3 sunDir = getCurrentSunDir();
 
@@ -936,10 +938,10 @@ float castShadowRayInternal(vec3 origin, out uint debugFlag) {
     vec3 dir = sunDir;
     vec3 inv_dir = clamp(1.0 / dir, vec3(-FLT_MAX), vec3(FLT_MAX));
 
-    // March in world space; convert to texture coords for sampling
+    // March in texture space
     vec3 rayPos = origin;
 
-    // Current voxel position (world space)
+    // Current voxel position (texture space)
     ivec3 pos = ivec3(floor(rayPos));
     ivec3 startPos = pos;  // used to skip self-voxel on first iteration
 
@@ -956,28 +958,29 @@ float castShadowRayInternal(vec3 origin, out uint debugFlag) {
 
     // DDA shadow ray march (increased for larger world)
     for (int i = 0; i < 128; i++) {
-        ivec3 texPos = worldToTexture(pos);
-
-        // Check bounds in loaded texture window; treat OOB as air (debug) instead of early exit
-        uint blockType = BLOCK_AIR;
-        if (isInTextureBounds(texPos)) {
-            blockType = readBlockTypeAtTexCoord(texPos);
-        } else {
-            debugFlag = 7u; // out of bounds
+        bool oob = !isInTextureBounds(pos);
+        if (oob) {
+            debugFlag = 7u; // out of loaded area = sky
+            return 1.0;
         }
+        uint blockType = readBlockTypeAtTexCoord(pos);
 
         // Skip self-voxel to avoid self-shadow when origin is inside the hit block
         bool skipSelf = all(equal(pos, startPos));
+        if (skipSelf && blockType == BLOCK_MODEL && !ignoreStartModel) {
+            // For models, optionally allow testing start voxel to cast shadows onto other blocks
+            skipSelf = false;
+        }
 
         if (!skipSelf) {
             // Compute a point slightly inside the current voxel along the ray for sub-voxel tests
-            vec3 blockOrigin = rayPos + dir * 0.01; // world space
+            vec3 blockOrigin = rayPos + dir * 0.01; // texture space
             if (blockType == BLOCK_MODEL) {
                 if (pc.enable_model_shadows == 0u) {
                     // Treat model as non-blocking when disabled
                 } else {
                     // Consult model properties
-                    uvec2 meta = readModelMetadata(texPos);
+                    uvec2 meta = readModelMetadata(pos);
                     uint model_id = meta.r;
                     uint rotation = meta.g & 3u;
                     const float MODEL_PARTIAL_SHADOW = 0.4;
@@ -1000,7 +1003,7 @@ float castShadowRayInternal(vec3 origin, out uint debugFlag) {
                                 return 0.0;  // fully blocked
                             }
                         }
-                        // Fallback: fully blocking models always block; partial models *do not* shadow if march missed (avoid block-sized shadow)
+                        // Fallback: fully blocking models always block; partial models let light through if geometry wasn't hit
                         if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u) {
                             debugFlag = 4u;
                             return 0.0;
@@ -1055,9 +1058,6 @@ float castShadowRayInternal(vec3 origin, out uint debugFlag) {
             debugFlag = 8u; // exceeded range
             return 1.0;  // Too far = assume lit
         }
-
-        // Advance ray position to current voxel boundary
-        rayPos += dir * dist;
     }
 
     return 1.0;  // No hit = lit
@@ -1065,30 +1065,30 @@ float castShadowRayInternal(vec3 origin, out uint debugFlag) {
 
 float castShadowRay(vec3 origin) {
     uint dbg;
-    return castShadowRayInternal(origin, dbg);
+    return castShadowRayInternal(origin, false, dbg);
 }
 
 // Check if a point has sky exposure (for ambient light)
 // Returns 0.0 if underground/blocked, 1.0 if exposed to sky
+// origin is in texture-space coordinates
 float getSkyExposure(vec3 origin) {
     // Cast ray straight up
     vec3 dir = vec3(0.0, 1.0, 0.0);
 
-    // Work in texture-space coordinates
-    vec3 rayOrigin = origin - vec3(textureOrigin());
-    vec3 rayPos = rayOrigin;
+    // Work in texture space
+    vec3 rayPos = origin;
 
-    // Current voxel position (texture-space)
-    ivec3 pos = ivec3(floor(rayOrigin));
+    // Current voxel position (texture space)
+    ivec3 pos = ivec3(floor(rayPos));
     ivec3 startPos = pos;
 
     // Only step upward
-    float tMax = (float(pos.y) + 1.0 - rayOrigin.y);
+    float tMax = (float(pos.y) + 1.0 - rayPos.y);
     float tDelta = 1.0;
 
     // March upward through voxels (increased for taller world: 128 blocks)
     for (int i = 0; i < 128; i++) {
-        ivec3 texPos = pos;
+        ivec3 texPos = worldToTexture(pos);
 
         // Check if we've exited the loaded world (treated as sky)
         if (!isInTextureBounds(texPos)) {
@@ -1099,10 +1099,7 @@ float getSkyExposure(vec3 origin) {
         vec3 blockOrigin = rayPos + dir * 0.01;
 
         // Check for solid block; treat OOB as air for debug
-        uint blockType = BLOCK_AIR;
-        if (isInTextureBounds(texPos)) {
-            blockType = readBlockTypeAtTexCoord(texPos);
-        }
+        uint blockType = readBlockTypeAtTexCoord(texPos);
         bool skipSelf = all(equal(pos, startPos));
 
         if (!skipSelf) {
@@ -2449,7 +2446,8 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
         float skyExposure = nearEnoughForSkyExposure ? getSkyExposure(lightingHit + normal * 0.01) : 1.0;
 
         // Calculate shadow only for nearby blocks
-        float shadow = nearEnoughForShadow ? castShadowRay(lightingHit + normal * 0.01) : 1.0;
+        uint dummyDbg;
+        float shadow = nearEnoughForShadow ? castShadowRayInternal(lightingHit + normal * 0.01, subVoxelHit, dummyDbg) : 1.0;
 
         // Apply directional lighting based on normal and sun direction
         float sunLight = max(0.0, dot(normal, sunDir));
@@ -2482,7 +2480,7 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
         vec3 lightingHit = subVoxelHit ? subVoxelHitPos : hit;
         uint dbgFlag;
         // Always trace in debug mode regardless of distance/toggles
-        float shadow = castShadowRayInternal(lightingHit + normal * 0.01, dbgFlag);
+        float shadow = castShadowRayInternal(lightingHit + normal * 0.01, subVoxelHit, dbgFlag);
         // Discrete colors by flag for easy reading
         if (dbgFlag == 0u) color = vec3(0.0, 1.0, 0.0); // green lit
         else if (dbgFlag == 1u) color = vec3(0.0, 0.0, 1.0); // blue solid block
