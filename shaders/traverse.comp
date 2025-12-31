@@ -958,6 +958,10 @@ float castShadowRay(vec3 origin) {
                     uvec2 meta = readModelMetadata(pos);
                     uint model_id = meta.r;
                     uint rotation = meta.g & 3u;
+                    // If metadata missing, still cast a soft shadow to avoid disappearing
+                    if (model_id == 0u) {
+                        return 0.4;
+                    }
                     ModelProperties props = model_properties[model_id];
 
                     // Compute entry point into the model block
@@ -1077,6 +1081,9 @@ float getSkyExposure(vec3 origin) {
                     uvec2 meta = readModelMetadata(pos);
                     uint model_id = meta.r;
                     uint rotation = meta.g & 3u;
+                    if (model_id == 0u) {
+                        return 0.4;  // Soft block sky if metadata missing
+                    }
                     ModelProperties props = model_properties[model_id];
 
                     vec3 entryNormal;
