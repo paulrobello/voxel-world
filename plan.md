@@ -600,6 +600,26 @@ Maintain 90+ FPS with all features enabled.
 
 ---
 
+## Current Work (2025-12-31)
+- Sub-voxel models (ladders/fences/gates) rendering & shadows:
+  - Single fence post shadows fixed (thin footprint, no self-intersection).
+  - Connected fence shadows restored via collision-mask + AABB fallback after sub-voxel miss.
+  - Remaining issues: missing top faces on tall posts; model normals still unstable in some views.
+  - Shader changes: shadow ray partial fallback (mask/AABB), sub-voxel normal calc and inverse rotation.
+- UX: default target block outline set **off** (toggled in UI).
+- Handoff notes: see `sub_voxel_debug.md`.
+
+## In Progress
+- Stabilize sub-voxel face rendering (missing top faces) and normals for models while keeping correct shadows.
+
+## Done Recently
+- Restored model shadows without block-sized fallback.
+- Fixed single-post shadow self-intersection.
+- Added partial-model collision-mask shadow fallback.
+- Defaulted target outline off.
+
+---
+
 ## Research References
 
 - `docs/research/infinite-voxel-world-optimization-2025-12-28.md`

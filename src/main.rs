@@ -2232,7 +2232,7 @@ impl App {
             player_light: false,
             show_chunk_boundaries: args.show_chunk_boundaries,
             show_block_preview: false, // Off by default
-            show_target_outline: true, // On by default
+            show_target_outline: false, // Off by default (toggle in UI)
 
             // Minimap - disabled by default, toggle with M
             show_minimap: false,

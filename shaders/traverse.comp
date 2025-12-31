@@ -211,6 +211,94 @@ ivec3 rotateModelPos(ivec3 pos, uint rotation) {
     }
 }
 
+// Compute coarse 4x4x4 collision mask bounds for a model (in block-local 0-1 space)
+void modelCollisionBounds(uint model_id, out vec3 minB, out vec3 maxB) {
+    ModelProperties props = model_properties[model_id];
+    // emulate 64-bit mask from two uints
+    uint hi = props.collision_mask.y;
+    uint lo = props.collision_mask.x;
+    ivec3 minV = ivec3(4,4,4);
+    ivec3 maxV = ivec3(-1);
+    for (int i = 0; i < 64; i++) {
+        bool bit;
+        if (i < 32) {
+            bit = (lo & (1u << i)) != 0u;
+        } else {
+            bit = (hi & (1u << (i - 32))) != 0u;
+        }
+        if (bit) {
+            int x = i & 3;
+            int y = (i >> 2) & 3;
+            int z = (i >> 4) & 3;
+            minV = min(minV, ivec3(x,y,z));
+            maxV = max(maxV, ivec3(x,y,z));
+        }
+    }
+    if (maxV.x < 0) {
+        minB = vec3(0.0);
+        maxB = vec3(0.0);
+    } else {
+        minB = vec3(minV) * 0.25;
+        maxB = vec3(maxV + ivec3(1)) * 0.25;
+    }
+}
+
+// Quick coarse 4x4x4 mask ray test (block-local 0-1 space). Returns true on hit.
+bool modelMaskBlocksRay(vec3 origin, vec3 dir, uint model_id) {
+    ModelProperties props = model_properties[model_id];
+    uint hi = props.collision_mask.y;
+    uint lo = props.collision_mask.x;
+
+    // Transform to 4x4x4 grid
+    vec3 pos = origin * 4.0;
+    vec3 safeDir = dir;
+    const float DIR_EPS = 1e-4;
+    safeDir.x = (abs(safeDir.x) < DIR_EPS) ? (safeDir.x >= 0.0 ? DIR_EPS : -DIR_EPS) : safeDir.x;
+    safeDir.y = (abs(safeDir.y) < DIR_EPS) ? (safeDir.y >= 0.0 ? DIR_EPS : -DIR_EPS) : safeDir.y;
+    safeDir.z = (abs(safeDir.z) < DIR_EPS) ? (safeDir.z >= 0.0 ? DIR_EPS : -DIR_EPS) : safeDir.z;
+    vec3 invDir = 1.0 / safeDir;
+
+    ivec3 voxel = ivec3(clamp(floor(pos), vec3(0.0), vec3(3.0)));
+    ivec3 step = ivec3(sign(safeDir));
+    vec3 tDelta = abs(invDir);
+    vec3 tMax;
+    tMax.x = (step.x > 0) ? (float(voxel.x + 1) - pos.x) * invDir.x
+                          : (step.x < 0) ? (pos.x - float(voxel.x)) * (-invDir.x)
+                                         : 1e30;
+    tMax.y = (step.y > 0) ? (float(voxel.y + 1) - pos.y) * invDir.y
+                          : (step.y < 0) ? (pos.y - float(voxel.y)) * (-invDir.y)
+                                         : 1e30;
+    tMax.z = (step.z > 0) ? (float(voxel.z + 1) - pos.z) * invDir.z
+                          : (step.z < 0) ? (pos.z - float(voxel.z)) * (-invDir.z)
+                                         : 1e30;
+
+    for (int i = 0; i < 16; i++) {
+        if (any(lessThan(voxel, ivec3(0))) || any(greaterThan(voxel, ivec3(3)))) break;
+        int idx = voxel.x + voxel.y * 4 + voxel.z * 16;
+        bool bit = (idx < 32) ? ((lo & (1u << idx)) != 0u) : ((hi & (1u << (idx - 32))) != 0u);
+        if (bit) return true;
+
+        if (tMax.x < tMax.y) {
+            if (tMax.x < tMax.z) {
+                voxel.x += step.x;
+                tMax.x += tDelta.x;
+            } else {
+                voxel.z += step.z;
+                tMax.z += tDelta.z;
+            }
+        } else {
+            if (tMax.y < tMax.z) {
+                voxel.y += step.y;
+                tMax.y += tDelta.y;
+            } else {
+                voxel.z += step.z;
+                tMax.z += tDelta.z;
+            }
+        }
+    }
+    return false;
+}
+
 // Inverse-rotate a normal to match model rotation
 // Since positions are rotated CW, normals need to be rotated CCW (inverse) to get world-space normal
 vec3 inverseRotateNormal(vec3 n, uint rotation) {
@@ -303,7 +391,7 @@ bool marchSubVoxelModel(
                               : (step.z < 0) ? (startPos.z - float(voxel.z)) * (-invDir.z)
                                              : 1e30;
 
-    // Track which axis we last stepped on (for normal calculation)
+    // Track which axis was last crossed (for normal calculation)
     uint stepped_axis = 0u;
 
     // March through sub-voxels
@@ -330,12 +418,19 @@ bool marchSubVoxelModel(
                 out_color += props.emission.rgb * props.emission.a * 0.5;
             }
 
-            // Calculate normal based on which axis was stepped
+            // Surface normal: use stepped axis after the first move; first voxel picks nearest boundary
+            uint hitAxis = (i == 0)
+                ? ((tMaxAxis.x < tMaxAxis.y)
+                    ? ((tMaxAxis.x < tMaxAxis.z) ? 0u : 2u)
+                    : ((tMaxAxis.y < tMaxAxis.z) ? 1u : 2u))
+                : stepped_axis;
             out_normal = vec3(0.0);
-            out_normal[stepped_axis] = -float(step[stepped_axis]);
+            out_normal[hitAxis] = -float(step[hitAxis]);
+            // Rotate normal to match model orientation
+            out_normal = inverseRotateNormal(out_normal, rotation);
 
             // Calculate t value (in block-local 0-1 space)
-            float t = startT + min(min(tMaxAxis.x, tMaxAxis.y), tMaxAxis.z);
+            float t = startT + ((hitAxis == 0u) ? tMaxAxis.x : (hitAxis == 1u) ? tMaxAxis.y : tMaxAxis.z);
             out_t = t / float(SUB_VOXEL_SIZE);
 
             return true;
@@ -346,21 +441,17 @@ bool marchSubVoxelModel(
             if (tMaxAxis.x < tMaxAxis.z) {
                 voxel.x += step.x;
                 tMaxAxis.x += tDelta.x;
-                stepped_axis = 0u;
             } else {
                 voxel.z += step.z;
                 tMaxAxis.z += tDelta.z;
-                stepped_axis = 2u;
             }
         } else {
             if (tMaxAxis.y < tMaxAxis.z) {
                 voxel.y += step.y;
                 tMaxAxis.y += tDelta.y;
-                stepped_axis = 1u;
             } else {
                 voxel.z += step.z;
                 tMaxAxis.z += tDelta.z;
-                stepped_axis = 2u;
             }
         }
     }
@@ -1003,13 +1094,33 @@ float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFl
                                 return 0.0;  // fully blocked
                             }
                         }
-                        // Fallback: fully blocking models always block; partial models let light through if geometry wasn't hit
+                        // Fallback: fully blocking models always block; partial models try coarse mask before letting light through
                         if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u) {
                             debugFlag = 4u;
                             return 0.0;
                         }
                         if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
-                            debugFlag = 5u;
+                            vec3 localO = blockOrigin - vec3(pos); // 0-1
+                            // Try coarse mask first
+                            if (modelMaskBlocksRay(localO, dir, model_id)) {
+                                debugFlag = 5u;
+                                return MODEL_PARTIAL_SHADOW; // soft shadow through mask
+                            }
+                            // Then try model AABB
+                            vec3 bbMin, bbMax;
+                            modelCollisionBounds(model_id, bbMin, bbMax);
+                            vec3 invd = 1.0 / dir;
+                            vec3 t1b = (bbMin - localO) * invd;
+                            vec3 t2b = (bbMax - localO) * invd;
+                            vec3 tminb = min(t1b, t2b);
+                            vec3 tmaxb = max(t1b, t2b);
+                            float tNear = max(max(tminb.x, tminb.y), tminb.z);
+                            float tFar = min(min(tmaxb.x, tmaxb.y), tmaxb.z);
+                            if (tNear <= tFar && tFar > 0.0) {
+                                debugFlag = 5u;
+                                return MODEL_PARTIAL_SHADOW; // soft shadow sized to bounding box
+                            }
+                            debugFlag = 0u;
                             return 1.0;
                         }
                     }
