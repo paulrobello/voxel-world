@@ -935,9 +935,8 @@ float castShadowRay(vec3 origin) {
         return 0.3;  // Dim ambient at night
     }
 
-    // Offset origin slightly to avoid self-intersection
-    vec3 shadowOrigin = origin + sunDir * 0.01;
-    vec3 rayPos = shadowOrigin; // tracked position along the shadow ray
+    // Caller already biases by surface normal; avoid extra shift that can miss thin geometry
+    vec3 rayPos = origin;
 
     vec3 dir = sunDir;
     vec3 inv_dir = 1.0 / dir;
@@ -974,7 +973,7 @@ float castShadowRay(vec3 origin) {
 
         if (!skipSelf) {
             // Compute a point on the ray near/inside the current voxel for sub-voxel tests
-            vec3 blockOrigin = rayPos + dir * 0.001;
+            vec3 blockOrigin = rayPos;
             if (blockType == BLOCK_MODEL) {
                 if (pc.enable_model_shadows == 0u) {
                     // Treat model as non-blocking when disabled
@@ -1059,8 +1058,8 @@ float getSkyExposure(vec3 origin) {
     // Cast ray straight up
     vec3 dir = vec3(0.0, 1.0, 0.0);
 
-    // Offset origin slightly to avoid self-intersection
-    vec3 rayOrigin = origin + dir * 0.01;
+    // Caller already biases by surface normal; avoid extra shift
+    vec3 rayOrigin = origin;
     vec3 rayPos = rayOrigin;
 
     // Current voxel position
