@@ -975,8 +975,8 @@ float castShadowRay(vec3 origin) {
         bool skipSelf = all(equal(pos, startPos));
 
         if (!skipSelf) {
-            // Compute a point on the ray near/inside the current voxel for sub-voxel tests
-            vec3 blockOrigin = rayPos;
+            // Compute a point slightly inside the current voxel along the ray for sub-voxel tests
+            vec3 blockOrigin = rayPos + dir * 0.001;
             if (blockType == BLOCK_MODEL) {
                 if (pc.enable_model_shadows == 0u) {
                     // Treat model as non-blocking when disabled
@@ -1003,9 +1003,12 @@ float castShadowRay(vec3 origin) {
                                 return 0.0;  // fully blocked
                             }
                         }
-                        // Fallback ONLY for fully blocking models; partial models rely on geometry to size the shadow
+                        // Fallback: fully blocking models always block; partial models cast soft shadow even if march missed
                         if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u) {
                             return 0.0;
+                        }
+                        if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
+                            return MODEL_PARTIAL_SHADOW;
                         }
                     }
                     // Non-blocking models: let light pass
@@ -1083,7 +1086,7 @@ float getSkyExposure(vec3 origin) {
             return 1.0;  // Out of loaded area = assume sky
         }
 
-        // Point inside the current voxel (just past the entry face)
+        // Point slightly inside the current voxel (toward +Y) to avoid boundary misses
         vec3 blockOrigin = rayPos + dir * 0.001;
 
         // Check for solid block (pos is in texture coordinates)
@@ -1121,9 +1124,12 @@ float getSkyExposure(vec3 origin) {
                                 return MODEL_PARTIAL_EXPOSURE;  // Partial exposure through model geometry
                             }
                         } else {
-                            // Fallback only for fully blocking models; partial models rely on actual geometry
+                            // Fallback: fully blocking models always block; partial models give soft reduction
                             if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u) {
                                 return 0.0;
+                            }
+                            if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
+                                return MODEL_PARTIAL_EXPOSURE;
                             }
                         }
                     }
