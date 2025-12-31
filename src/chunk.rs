@@ -2,9 +2,13 @@
 //!
 //! Each chunk is a 32³ grid of blocks. Blocks are stored as u8 values
 //! where 0 = air and other values represent different block types.
+//!
+//! Blocks of type `Model` use sparse metadata storage to associate
+//! a model_id and rotation with each model block.
 
 #![allow(dead_code)]
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use vulkano::image::view::ImageView;
 
@@ -30,7 +34,8 @@ pub enum BlockType {
     Water = 8,
     Glass = 9,
     Log = 10,
-    Torch = 11,
+    /// Sub-voxel model block. Use BlockModelData to get model_id and rotation.
+    Model = 11,
     Brick = 12,
     Snow = 13,
     Cobblestone = 14,
@@ -38,17 +43,49 @@ pub enum BlockType {
     Bedrock = 16,
 }
 
+/// Metadata for a block that uses a sub-voxel model.
+///
+/// This is stored sparsely in chunks - only blocks of type `Model` have metadata.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct BlockModelData {
+    /// Model ID from the model registry (1 = torch, 2 = slab_bottom, etc.).
+    pub model_id: u8,
+
+    /// Rotation around Y axis (0-3 = 0°/90°/180°/270°).
+    pub rotation: u8,
+}
+
 impl BlockType {
-    /// Returns true if this block type is solid (not air, water, or torch).
+    /// Returns true if this block type is solid (not air, water, or model blocks).
+    /// Note: Model blocks may have sub-voxel collision, but are not solid at block level.
     #[inline]
     pub fn is_solid(self) -> bool {
-        !matches!(self, BlockType::Air | BlockType::Water | BlockType::Torch)
+        !matches!(self, BlockType::Air | BlockType::Water | BlockType::Model)
+    }
+
+    /// Returns true if this block can be targeted by raycast for breaking/interaction.
+    /// Includes Model blocks which are not solid but can still be broken.
+    #[inline]
+    pub fn is_targetable(self) -> bool {
+        !matches!(self, BlockType::Air | BlockType::Water)
     }
 
     /// Returns true if this block type is affected by gravity (sand, gravel).
     #[inline]
     pub fn is_affected_by_gravity(self) -> bool {
         matches!(self, BlockType::Sand | BlockType::Gravel)
+    }
+
+    /// Returns true if this block is a log (tree trunk).
+    #[inline]
+    pub fn is_log(self) -> bool {
+        matches!(self, BlockType::Log)
+    }
+
+    /// Returns true if this block is part of a tree (log or leaves).
+    #[inline]
+    pub fn is_tree_part(self) -> bool {
+        matches!(self, BlockType::Log | BlockType::Leaves)
     }
 
     /// Returns true if this block type is transparent.
@@ -60,27 +97,29 @@ impl BlockType {
                 | BlockType::Water
                 | BlockType::Glass
                 | BlockType::Leaves
-                | BlockType::Torch
+                | BlockType::Model
         )
     }
 
     /// Returns true if this block type emits light.
+    /// Note: For Model blocks, check the model's emission property instead.
     #[inline]
     pub fn is_light_source(self) -> bool {
-        matches!(self, BlockType::Torch)
+        // Model blocks handle light emission via their model data
+        false
     }
 
     /// Returns the light color and intensity for light-emitting blocks.
     /// Returns (color RGB, intensity) or None if not a light source.
+    /// Note: For Model blocks, use the model registry to get emission properties.
     #[inline]
     pub fn light_properties(self) -> Option<([f32; 3], f32)> {
-        match self {
-            BlockType::Torch => Some(([1.0, 0.8, 0.4], 8.0)), // Warm orange light, radius ~8 blocks
-            _ => None,
-        }
+        // Model blocks get light properties from their model data
+        None
     }
 
     /// Returns the color for this block type (RGB, 0-1 range).
+    /// Note: Model blocks use their sub-voxel palette for coloring.
     #[inline]
     pub fn color(self) -> [f32; 3] {
         match self {
@@ -95,7 +134,7 @@ impl BlockType {
             BlockType::Water => [0.2, 0.4, 0.8],
             BlockType::Glass => [0.8, 0.9, 1.0],
             BlockType::Log => [0.4, 0.3, 0.2],
-            BlockType::Torch => [0.9, 0.7, 0.3], // Warm torch color
+            BlockType::Model => [0.5, 0.5, 0.5], // Fallback gray (uses sub-voxel colors)
             BlockType::Brick => [0.7, 0.35, 0.3],
             BlockType::Snow => [0.95, 0.95, 0.98],
             BlockType::Cobblestone => [0.45, 0.45, 0.45],
@@ -111,7 +150,7 @@ impl BlockType {
         match self {
             BlockType::Air => 0.0,
             // Very fast (instant)
-            BlockType::Leaves | BlockType::Torch => 0.15,
+            BlockType::Leaves | BlockType::Model => 0.15,
             // Fast
             BlockType::Dirt | BlockType::Sand | BlockType::Gravel | BlockType::Snow => 0.3,
             // Normal
@@ -125,6 +164,12 @@ impl BlockType {
             // Indestructible
             BlockType::Bedrock => 0.0,
         }
+    }
+
+    /// Returns true if this block type uses sub-voxel model rendering.
+    #[inline]
+    pub fn is_model(self) -> bool {
+        matches!(self, BlockType::Model)
     }
 }
 
@@ -142,7 +187,7 @@ impl From<u8> for BlockType {
             8 => BlockType::Water,
             9 => BlockType::Glass,
             10 => BlockType::Log,
-            11 => BlockType::Torch,
+            11 => BlockType::Model,
             12 => BlockType::Brick,
             13 => BlockType::Snow,
             14 => BlockType::Cobblestone,
@@ -161,6 +206,11 @@ pub struct Chunk {
     /// Block data stored as a flat array.
     /// Index = x + y * CHUNK_SIZE + z * CHUNK_SIZE * CHUNK_SIZE
     blocks: Box<[BlockType; CHUNK_VOLUME]>,
+
+    /// Sparse storage for sub-voxel model metadata.
+    /// Only blocks of type `Model` have entries here.
+    /// Key: block index, Value: model_id and rotation.
+    model_data: HashMap<usize, BlockModelData>,
 
     /// Whether this chunk has been modified since last GPU upload.
     pub dirty: bool,
@@ -189,6 +239,7 @@ impl Chunk {
     pub fn new() -> Self {
         Self {
             blocks: Box::new([BlockType::Air; CHUNK_VOLUME]),
+            model_data: HashMap::new(),
             dirty: true,
             gpu_texture: None,
             cached_is_empty: true,
@@ -203,6 +254,7 @@ impl Chunk {
         let is_solid = block_type.is_solid();
         Self {
             blocks: Box::new([block_type; CHUNK_VOLUME]),
+            model_data: HashMap::new(),
             dirty: true,
             gpu_texture: None,
             cached_is_empty: is_empty,
@@ -232,7 +284,46 @@ impl Chunk {
             self.blocks[idx] = block;
             self.dirty = true;
             self.metadata_dirty = true;
+
+            // Clean up model data if block is no longer a Model
+            if block != BlockType::Model {
+                self.model_data.remove(&idx);
+            }
         }
+    }
+
+    /// Sets a model block with its metadata at the given local coordinates.
+    #[inline]
+    pub fn set_model_block(&mut self, x: usize, y: usize, z: usize, model_id: u8, rotation: u8) {
+        let idx = Self::index(x, y, z);
+        self.blocks[idx] = BlockType::Model;
+        self.model_data
+            .insert(idx, BlockModelData { model_id, rotation });
+        self.dirty = true;
+        self.metadata_dirty = true;
+    }
+
+    /// Gets the model data for a block at the given local coordinates.
+    /// Returns None if the block is not a Model type.
+    #[inline]
+    pub fn get_model_data(&self, x: usize, y: usize, z: usize) -> Option<BlockModelData> {
+        let idx = Self::index(x, y, z);
+        self.model_data.get(&idx).copied()
+    }
+
+    /// Sets the model data for a block at the given local coordinates.
+    /// The block should already be of type Model.
+    #[inline]
+    pub fn set_model_data(&mut self, x: usize, y: usize, z: usize, data: BlockModelData) {
+        let idx = Self::index(x, y, z);
+        self.model_data.insert(idx, data);
+        self.dirty = true;
+    }
+
+    /// Returns the number of model blocks in this chunk.
+    #[inline]
+    pub fn model_count(&self) -> usize {
+        self.model_data.len()
     }
 
     /// Checks if a block is solid at the given local coordinates.
@@ -274,6 +365,25 @@ impl Chunk {
     /// uploading to an R8_UINT 3D texture.
     pub fn to_block_data(&self) -> Vec<u8> {
         self.blocks.iter().map(|&b| b as u8).collect()
+    }
+
+    /// Converts the chunk's model metadata to GPU format.
+    ///
+    /// This returns a Vec<u8> with 2 bytes per block (RG8 format):
+    /// - R channel: model_id (0 for non-model blocks)
+    /// - G channel: rotation (0 for non-model blocks)
+    ///
+    /// Suitable for uploading to an RG8_UINT 3D texture.
+    pub fn to_model_metadata(&self) -> Vec<u8> {
+        let mut metadata = vec![0u8; CHUNK_VOLUME * 2]; // 2 bytes per block
+
+        for (idx, data) in &self.model_data {
+            let offset = idx * 2;
+            metadata[offset] = data.model_id;
+            metadata[offset + 1] = data.rotation;
+        }
+
+        metadata
     }
 
     /// Returns the number of non-air blocks in the chunk.

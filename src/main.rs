@@ -85,22 +85,30 @@ use winit::{
 };
 use winit_input_helper::WinitInputHelper;
 
+mod block_update;
 mod camera;
 mod chunk;
 mod chunk_loader;
+mod falling_block;
 mod hot_reload;
 mod particles;
 mod raycast;
+mod sub_voxel;
 mod svt;
+mod water;
 mod world;
 
+use crate::block_update::{BlockUpdateQueue, BlockUpdateType};
 use crate::camera::Camera;
 use crate::chunk::{BlockType, CHUNK_SIZE, Chunk};
 use crate::chunk_loader::ChunkLoader;
+use crate::falling_block::{FallingBlockSystem, GpuFallingBlock, MAX_FALLING_BLOCKS};
 use crate::hot_reload::HotReloadComputePipeline;
 use crate::particles::ParticleSystem;
 use crate::raycast::{MAX_RAYCAST_DISTANCE, RaycastHit, get_place_position, raycast};
+use crate::sub_voxel::{MAX_MODELS, ModelRegistry, PALETTE_SIZE, SUB_VOXEL_SIZE};
 use crate::svt::ChunkSVT;
+use crate::water::WaterGrid;
 use crate::world::World;
 
 /// Voxel Game Engine - A Minecraft-like voxel game with GPU ray-marching rendering.
@@ -184,6 +192,10 @@ const CHUNKS_PER_FRAME: usize = 4;
 static EMPTY_CHUNK_DATA: std::sync::LazyLock<Vec<u8>> =
     std::sync::LazyLock::new(|| vec![0u8; CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE]);
 
+/// Cached empty model metadata for GPU clearing (2 bytes per block: model_id + rotation)
+static EMPTY_MODEL_METADATA: std::sync::LazyLock<Vec<u8>> =
+    std::sync::LazyLock::new(|| vec![0u8; CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE * 2]);
+
 // Player physics constants (in world/voxel units, where 1 unit = 1 block)
 /// Gravity acceleration in blocks per second squared
 const GRAVITY: f64 = 20.0;
@@ -212,6 +224,14 @@ const SWIM_DOWN_SPEED: f64 = 3.0;
 /// Water drag (velocity multiplier per second, lower = more drag)
 const WATER_DRAG: f64 = 0.85;
 
+// Ladder/climbing constants
+/// Vertical climb speed (when pressing Space to climb up)
+const CLIMB_UP_SPEED: f64 = 4.0;
+/// Vertical climb speed (when pressing Shift to climb down)
+const CLIMB_DOWN_SPEED: f64 = 3.0;
+/// Horizontal movement speed while on ladder (slower than walking)
+const CLIMB_HORIZ_SPEED: f64 = 2.0;
+
 // Day/night cycle constants
 /// Duration of a full day cycle in seconds (real time)
 const DAY_CYCLE_DURATION: f32 = 120.0;
@@ -224,17 +244,31 @@ const HEAD_BOB_AMPLITUDE: f64 = 0.04;
 /// Head bob frequency (cycles per block walked)
 const HEAD_BOB_FREQUENCY: f64 = 0.8;
 
-/// Blocks available in the hotbar (9 slots, keys 1-9)
-const HOTBAR_BLOCKS: [BlockType; 9] = [
+/// Default blocks available in the hotbar (9 slots, keys 1-9)
+const DEFAULT_HOTBAR_BLOCKS: [BlockType; 9] = [
     BlockType::Stone,
     BlockType::Dirt,
     BlockType::Grass,
-    BlockType::Planks,
+    BlockType::Sand,
     BlockType::Log,
-    BlockType::Cobblestone,
-    BlockType::Glass,
-    BlockType::Torch,
-    BlockType::Water,
+    BlockType::Model, // Fence (model_id=4)
+    BlockType::Model, // Gate (model_id=20)
+    BlockType::Model, // Ladder (model_id=29)
+    BlockType::Model, // Torch model (model_id=1)
+];
+
+/// Default model IDs for Model blocks in hotbar.
+/// 0 means the slot is not a Model block, non-zero is the model_id.
+const DEFAULT_HOTBAR_MODEL_IDS: [u8; 9] = [
+    0,  // Stone
+    0,  // Dirt
+    0,  // Grass
+    0,  // Sand
+    0,  // Log
+    4,  // Fence (fence base model_id, connections computed dynamically)
+    20, // Gate closed (gate base model_id, connections computed dynamically)
+    29, // Ladder
+    1,  // Torch
 ];
 
 /// Render modes for debugging.
@@ -1051,17 +1085,22 @@ fn load_texture_atlas(
     (descriptor_set, sampler, image_view)
 }
 
-/// Creates a storage buffer and descriptor set for particle data.
-fn get_particle_set(
+/// Creates storage buffers and descriptor set for particle and falling block data.
+/// Both share set index 3: particles at binding 0, falling blocks at binding 1.
+fn get_particle_and_falling_block_set(
     memory_allocator: Arc<StandardMemoryAllocator>,
     descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
     render_pipeline: &ComputePipeline,
-) -> (Subbuffer<[particles::GpuParticle]>, Arc<DescriptorSet>) {
+) -> (
+    Subbuffer<[particles::GpuParticle]>,
+    Subbuffer<[GpuFallingBlock]>,
+    Arc<DescriptorSet>,
+) {
     use particles::{GpuParticle, MAX_PARTICLES};
 
     // Create a storage buffer for particles (initialized to zeros)
     let particle_buffer = Buffer::new_slice::<GpuParticle>(
-        memory_allocator,
+        memory_allocator.clone(),
         BufferCreateInfo {
             usage: BufferUsage::STORAGE_BUFFER,
             ..Default::default()
@@ -1075,7 +1114,23 @@ fn get_particle_set(
     )
     .unwrap();
 
-    // Create descriptor set at set index 3
+    // Create a storage buffer for falling blocks (initialized to zeros)
+    let falling_block_buffer = Buffer::new_slice::<GpuFallingBlock>(
+        memory_allocator,
+        BufferCreateInfo {
+            usage: BufferUsage::STORAGE_BUFFER,
+            ..Default::default()
+        },
+        AllocationCreateInfo {
+            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+            ..Default::default()
+        },
+        MAX_FALLING_BLOCKS as u64,
+    )
+    .unwrap();
+
+    // Create descriptor set at set index 3 with both buffers
     let layout = render_pipeline
         .layout()
         .set_layouts()
@@ -1086,12 +1141,15 @@ fn get_particle_set(
     let descriptor_set = DescriptorSet::new(
         descriptor_set_allocator,
         layout,
-        [WriteDescriptorSet::buffer(0, particle_buffer.clone())],
+        [
+            WriteDescriptorSet::buffer(0, particle_buffer.clone()),
+            WriteDescriptorSet::buffer(1, falling_block_buffer.clone()),
+        ],
         [],
     )
     .unwrap();
 
-    (particle_buffer, descriptor_set)
+    (particle_buffer, falling_block_buffer, descriptor_set)
 }
 
 /// Maximum number of point lights (torches) that can be active at once.
@@ -1200,16 +1258,34 @@ const BRICK_MASK_WORDS: usize = TOTAL_CHUNKS * 2;
 /// Number of u32 words for brick distances (16 words = 64 bytes per chunk).
 const BRICK_DIST_WORDS: usize = TOTAL_CHUNKS * 16;
 
-/// Creates storage buffers and descriptor set for brick metadata.
+/// Creates combined descriptor set 7 containing brick metadata AND model resources.
+/// This merges brick metadata with model resources to stay within the 8 descriptor set limit.
 ///
 /// Layout:
 /// - Binding 0: Brick masks - 64 bits per chunk (2 u32 words per chunk)
 /// - Binding 1: Brick distances - 64 bytes per chunk (distance to nearest solid brick)
-fn get_brick_metadata_set(
+/// - Binding 2: Model atlas - 128×8×128 (256 models, each 8³ voxels), R8_UINT palette indices
+/// - Binding 3: Model palettes - 256×16 (256 models × 16 colors), RGBA8
+/// - Binding 4: Model metadata - model_id (R) + rotation (G) per block
+/// - Binding 5: Model properties - collision mask, emission, flags per model
+#[allow(clippy::type_complexity)]
+fn get_brick_and_model_set(
     memory_allocator: Arc<StandardMemoryAllocator>,
+    command_buffer_allocator: Arc<StandardCommandBufferAllocator>,
     descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
     render_pipeline: &ComputePipeline,
-) -> (Subbuffer<[u32]>, Subbuffer<[u32]>, Arc<DescriptorSet>) {
+    queue: &Arc<Queue>,
+    world_extent: [u32; 3],
+    model_registry: &ModelRegistry,
+) -> (
+    Subbuffer<[u32]>,   // brick_mask_buffer
+    Subbuffer<[u32]>,   // brick_dist_buffer
+    Arc<Image>,         // model_atlas
+    Arc<Image>,         // model_metadata
+    Arc<DescriptorSet>, // combined set 7
+) {
+    // === Brick metadata resources (bindings 0-1) ===
+
     // Create buffer for brick masks (64 bits per chunk)
     let brick_mask_buffer = Buffer::new_slice::<u32>(
         memory_allocator.clone(),
@@ -1228,7 +1304,7 @@ fn get_brick_metadata_set(
 
     // Create buffer for brick distances (64 bytes per chunk)
     let brick_dist_buffer = Buffer::new_slice::<u32>(
-        memory_allocator,
+        memory_allocator.clone(),
         BufferCreateInfo {
             usage: BufferUsage::STORAGE_BUFFER,
             ..Default::default()
@@ -1242,7 +1318,131 @@ fn get_brick_metadata_set(
     )
     .unwrap();
 
-    // Create descriptor set at set index 7
+    // === Model resources (bindings 2-5) ===
+
+    // Create model atlas 3D texture (R8_UINT, 128×8×128)
+    let model_atlas = Image::new(
+        memory_allocator.clone(),
+        ImageCreateInfo {
+            image_type: ImageType::Dim3d,
+            format: Format::R8_UINT,
+            extent: [MODEL_ATLAS_WIDTH, MODEL_ATLAS_HEIGHT, MODEL_ATLAS_DEPTH],
+            usage: ImageUsage::STORAGE | ImageUsage::TRANSFER_DST,
+            ..Default::default()
+        },
+        AllocationCreateInfo::default(),
+    )
+    .unwrap();
+
+    // Create model palette 2D texture (RGBA8, 256×16)
+    let model_palettes = Image::new(
+        memory_allocator.clone(),
+        ImageCreateInfo {
+            image_type: ImageType::Dim2d,
+            format: Format::R8G8B8A8_UNORM,
+            extent: [MAX_MODELS as u32, PALETTE_SIZE as u32, 1],
+            usage: ImageUsage::SAMPLED | ImageUsage::TRANSFER_DST,
+            ..Default::default()
+        },
+        AllocationCreateInfo::default(),
+    )
+    .unwrap();
+
+    // Create model metadata 3D texture (RG8_UINT, same extent as blocks)
+    let model_metadata = Image::new(
+        memory_allocator.clone(),
+        ImageCreateInfo {
+            image_type: ImageType::Dim3d,
+            format: Format::R8G8_UINT,
+            extent: world_extent,
+            usage: ImageUsage::STORAGE | ImageUsage::TRANSFER_DST,
+            ..Default::default()
+        },
+        AllocationCreateInfo::default(),
+    )
+    .unwrap();
+
+    // Create model properties buffer (SSBO)
+    let model_properties_buffer = Buffer::new_slice::<GpuModelProperties>(
+        memory_allocator.clone(),
+        BufferCreateInfo {
+            usage: BufferUsage::STORAGE_BUFFER | BufferUsage::TRANSFER_DST,
+            ..Default::default()
+        },
+        AllocationCreateInfo {
+            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+            ..Default::default()
+        },
+        MAX_MODELS as u64,
+    )
+    .unwrap();
+
+    // Upload model registry data to GPU
+    upload_model_registry(
+        memory_allocator.clone(),
+        command_buffer_allocator.clone(),
+        queue,
+        model_registry,
+        &model_atlas,
+        &model_palettes,
+        &model_properties_buffer,
+    );
+
+    // Clear metadata to all zeros (no models placed yet)
+    let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
+        command_buffer_allocator,
+        queue.queue_family_index(),
+        CommandBufferUsage::OneTimeSubmit,
+    )
+    .unwrap();
+
+    command_buffer_builder
+        .clear_color_image(ClearColorImageInfo::image(model_metadata.clone()))
+        .unwrap();
+
+    command_buffer_builder
+        .build()
+        .unwrap()
+        .execute(queue.clone())
+        .unwrap()
+        .then_signal_fence_and_flush()
+        .unwrap()
+        .wait(None)
+        .unwrap();
+
+    // Create image views
+    let atlas_view = ImageView::new(
+        model_atlas.clone(),
+        ImageViewCreateInfo::from_image(&model_atlas),
+    )
+    .unwrap();
+
+    let palette_view = ImageView::new(
+        model_palettes.clone(),
+        ImageViewCreateInfo::from_image(&model_palettes),
+    )
+    .unwrap();
+
+    let metadata_view = ImageView::new(
+        model_metadata.clone(),
+        ImageViewCreateInfo::from_image(&model_metadata),
+    )
+    .unwrap();
+
+    // Create sampler for palette texture
+    let palette_sampler = Sampler::new(
+        memory_allocator.device().clone(),
+        SamplerCreateInfo {
+            mag_filter: Filter::Nearest,
+            min_filter: Filter::Nearest,
+            address_mode: [SamplerAddressMode::ClampToEdge; 3],
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    // === Create combined descriptor set at set index 7 ===
     let layout = render_pipeline
         .layout()
         .set_layouts()
@@ -1254,14 +1454,173 @@ fn get_brick_metadata_set(
         descriptor_set_allocator,
         layout,
         [
+            // Brick metadata (bindings 0-1)
             WriteDescriptorSet::buffer(0, brick_mask_buffer.clone()),
             WriteDescriptorSet::buffer(1, brick_dist_buffer.clone()),
+            // Model resources (bindings 2-5)
+            WriteDescriptorSet::image_view(2, atlas_view),
+            WriteDescriptorSet::image_view_sampler(3, palette_view, palette_sampler),
+            WriteDescriptorSet::image_view(4, metadata_view),
+            WriteDescriptorSet::buffer(5, model_properties_buffer),
         ],
         [],
     )
     .unwrap();
 
-    (brick_mask_buffer, brick_dist_buffer, descriptor_set)
+    (
+        brick_mask_buffer,
+        brick_dist_buffer,
+        model_atlas,
+        model_metadata,
+        descriptor_set,
+    )
+}
+
+/// GPU-side model properties for sub-voxel rendering.
+/// Must match the shader struct layout.
+#[derive(Debug, Clone, Copy, Default, BufferContents)]
+#[repr(C)]
+struct GpuModelProperties {
+    /// 64-bit collision mask (4×4×4 grid) stored as two u32s.
+    collision_mask: [u32; 2],
+    /// Light emission color (RGB) and intensity (A).
+    emission: [f32; 4],
+    /// Flags: bit 0 = rotatable, bit 1 = light_blocking_full, bit 2 = light_blocking_partial.
+    flags: u32,
+    /// Padding to align to 32 bytes (8 words).
+    _pad: [u32; 3],
+}
+
+/// Model atlas dimensions: 16 models per row, 16 rows = 256 models.
+const MODEL_ATLAS_WIDTH: u32 = 16 * SUB_VOXEL_SIZE as u32; // 128
+const MODEL_ATLAS_DEPTH: u32 = 16 * SUB_VOXEL_SIZE as u32; // 128
+const MODEL_ATLAS_HEIGHT: u32 = SUB_VOXEL_SIZE as u32; // 8
+
+/// Uploads model registry data (atlas, palettes, properties) to GPU.
+fn upload_model_registry(
+    memory_allocator: Arc<StandardMemoryAllocator>,
+    command_buffer_allocator: Arc<StandardCommandBufferAllocator>,
+    queue: &Arc<Queue>,
+    registry: &ModelRegistry,
+    atlas: &Arc<Image>,
+    palettes: &Arc<Image>,
+    properties_buffer: &Subbuffer<[GpuModelProperties]>,
+) {
+    // Pack model voxels into atlas layout
+    let atlas_data = registry.pack_voxels_for_gpu();
+    let palette_data = registry.pack_palettes_for_gpu();
+    let properties_data = registry.pack_properties_for_gpu();
+
+    // Create staging buffers
+    let atlas_staging = Buffer::from_iter(
+        memory_allocator.clone(),
+        BufferCreateInfo {
+            usage: BufferUsage::TRANSFER_SRC,
+            ..Default::default()
+        },
+        AllocationCreateInfo {
+            memory_type_filter: MemoryTypeFilter::PREFER_HOST
+                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+            ..Default::default()
+        },
+        atlas_data,
+    )
+    .unwrap();
+
+    let palette_staging = Buffer::from_iter(
+        memory_allocator.clone(),
+        BufferCreateInfo {
+            usage: BufferUsage::TRANSFER_SRC,
+            ..Default::default()
+        },
+        AllocationCreateInfo {
+            memory_type_filter: MemoryTypeFilter::PREFER_HOST
+                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+            ..Default::default()
+        },
+        palette_data,
+    )
+    .unwrap();
+
+    // Convert properties data to GpuModelProperties
+    let gpu_properties: Vec<GpuModelProperties> = properties_data
+        .chunks(32)
+        .map(|chunk| {
+            let mut props = GpuModelProperties::default();
+            if chunk.len() >= 32 {
+                // collision_mask (8 bytes)
+                props.collision_mask[0] =
+                    u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+                props.collision_mask[1] =
+                    u32::from_le_bytes([chunk[4], chunk[5], chunk[6], chunk[7]]);
+                // emission (16 bytes as 4 floats)
+                props.emission[0] = f32::from_le_bytes([chunk[8], chunk[9], chunk[10], chunk[11]]);
+                props.emission[1] =
+                    f32::from_le_bytes([chunk[12], chunk[13], chunk[14], chunk[15]]);
+                props.emission[2] =
+                    f32::from_le_bytes([chunk[16], chunk[17], chunk[18], chunk[19]]);
+                props.emission[3] =
+                    f32::from_le_bytes([chunk[20], chunk[21], chunk[22], chunk[23]]);
+                // flags (4 bytes)
+                props.flags = u32::from_le_bytes([chunk[24], chunk[25], chunk[26], chunk[27]]);
+            }
+            props
+        })
+        .collect();
+
+    // Write properties directly to mapped buffer
+    {
+        let mut write_guard = properties_buffer.write().unwrap();
+        for (i, prop) in gpu_properties.iter().enumerate() {
+            if i < write_guard.len() {
+                write_guard[i] = *prop;
+            }
+        }
+    }
+
+    // Build command buffer to copy staging data to images
+    let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
+        command_buffer_allocator,
+        queue.queue_family_index(),
+        CommandBufferUsage::OneTimeSubmit,
+    )
+    .unwrap();
+
+    // Copy atlas data
+    command_buffer_builder
+        .copy_buffer_to_image(CopyBufferToImageInfo {
+            regions: [BufferImageCopy {
+                image_subresource: atlas.subresource_layers(),
+                image_extent: atlas.extent(),
+                ..Default::default()
+            }]
+            .into(),
+            ..CopyBufferToImageInfo::buffer_image(atlas_staging, atlas.clone())
+        })
+        .unwrap();
+
+    // Copy palette data
+    command_buffer_builder
+        .copy_buffer_to_image(CopyBufferToImageInfo {
+            regions: [BufferImageCopy {
+                image_subresource: palettes.subresource_layers(),
+                image_extent: palettes.extent(),
+                ..Default::default()
+            }]
+            .into(),
+            ..CopyBufferToImageInfo::buffer_image(palette_staging, palettes.clone())
+        })
+        .unwrap();
+
+    command_buffer_builder
+        .build()
+        .unwrap()
+        .execute(queue.clone())
+        .unwrap()
+        .then_signal_fence_and_flush()
+        .unwrap()
+        .wait(None)
+        .unwrap();
 }
 
 /// Statistics about loaded chunks for HUD display.
@@ -1356,10 +1715,20 @@ struct App {
     brick_mask_buffer: Subbuffer<[u32]>,
     /// GPU buffer for brick distances (distance to nearest solid brick, per brick).
     brick_dist_buffer: Subbuffer<[u32]>,
-    /// GPU descriptor set for brick metadata.
-    brick_metadata_set: Arc<DescriptorSet>,
+    /// GPU descriptor set for brick metadata AND model resources (combined set 7).
+    brick_and_model_set: Arc<DescriptorSet>,
+    /// GPU buffer for falling block data (shares descriptor set with particles).
+    falling_block_buffer: Subbuffer<[GpuFallingBlock]>,
     /// World dimensions in blocks [X, Y, Z].
     world_extent: [u32; 3],
+
+    /// Sub-voxel model registry.
+    model_registry: ModelRegistry,
+    /// GPU 3D texture for model atlas (8³ voxels per model).
+    #[allow(dead_code)] // Held for GPU lifetime
+    model_atlas: Arc<Image>,
+    /// GPU 3D texture for model metadata (model_id + rotation per block).
+    model_metadata: Arc<Image>,
 
     camera: Camera,
     render_mode: RenderMode,
@@ -1380,10 +1749,42 @@ struct App {
     fly_mode: bool,
     /// Sprint mode (toggle with Caps Lock for faster movement)
     sprint_mode: bool,
+    /// Auto-jump when walking into 1-block obstacles
+    auto_jump: bool,
     /// Player carries a torch-like light
     player_light: bool,
     /// Show debug chunk boundary wireframes
     show_chunk_boundaries: bool,
+    /// Show block placement preview
+    show_block_preview: bool,
+    /// Show target block outline (wireframe around block player is looking at)
+    show_target_outline: bool,
+
+    // Minimap settings
+    /// Whether to show the minimap
+    show_minimap: bool,
+    /// Minimap size in pixels (128, 192, or 256)
+    minimap_size: u32,
+    /// Minimap color mode: 0=block colors, 1=height, 2=both
+    minimap_color_mode: u8,
+    /// Whether to rotate minimap to match player direction
+    minimap_rotate: bool,
+    /// Minimap zoom level (0.5 = zoomed in 2x, 1.0 = normal, 2.0 = zoomed out 2x)
+    minimap_zoom: f32,
+    /// Cached minimap image for reuse between frames
+    minimap_cached_image: Option<egui::ColorImage>,
+    /// Last player position for minimap update throttling
+    minimap_last_pos: Vector3<i32>,
+    /// Last minimap update time for rate limiting
+    minimap_last_update: Instant,
+    /// Last player yaw for rotation-based updates
+    minimap_last_yaw: f32,
+    /// Height cache for minimap: (x, z) -> (block_type, height)
+    minimap_height_cache: std::collections::HashMap<(i32, i32), (BlockType, i32)>,
+
+    // Compass settings
+    /// Whether to show the compass
+    show_compass: bool,
 
     // Performance profiling toggles
     /// Enable ambient occlusion
@@ -1432,6 +1833,10 @@ struct App {
 
     /// Currently selected hotbar slot (0-8).
     hotbar_index: usize,
+    /// Blocks in the hotbar (can be modified by middle-click picker).
+    hotbar_blocks: [BlockType; 9],
+    /// Model IDs for Model blocks in hotbar (0 = not a model block).
+    hotbar_model_ids: [u8; 9],
     /// Current raycast hit result (for crosshair display).
     current_hit: Option<RaycastHit>,
 
@@ -1443,11 +1848,36 @@ struct App {
     instant_break: bool,
     /// Cooldown timer after breaking a block in instant mode (seconds remaining).
     break_cooldown: f32,
+    /// Configurable cooldown duration for breaking blocks (seconds).
+    break_cooldown_duration: f32,
     /// Skip block breaking until mouse is released (used to ignore focus click).
     skip_break_until_release: bool,
 
+    /// Last position where a block was placed (for continuous placing).
+    last_place_pos: Option<Vector3<i32>>,
+    /// Cooldown timer for continuous block placing.
+    place_cooldown: f32,
+    /// Configurable cooldown duration for placing blocks (seconds).
+    place_cooldown_duration: f32,
+    /// Whether we need to release right-click before placing another model.
+    model_needs_reclick: bool,
+    /// Whether we need to release left-click before toggling another gate.
+    gate_needs_reclick: bool,
+    /// Starting position for line building (first block in the line).
+    line_start_pos: Option<Vector3<i32>>,
+    /// Locked axis for line building: 0=X, 1=Y, 2=Z, None=not locked yet.
+    line_locked_axis: Option<u8>,
+
     /// Particle system for visual effects.
     particles: ParticleSystem,
+    /// Falling block system for gravity-affected blocks.
+    falling_blocks: FallingBlockSystem,
+    /// Queue for frame-distributed block physics updates.
+    block_updates: BlockUpdateQueue,
+    /// Water flow simulation grid.
+    water_grid: WaterGrid,
+    /// Whether water simulation is enabled.
+    water_simulation_enabled: bool,
 
     input: WinitInputHelper,
     focused: bool,
@@ -1472,6 +1902,11 @@ struct App {
     view_distance: i32,
     /// Unload distance in chunks (adjustable via slider)
     unload_distance: i32,
+
+    /// Timer for throttled debug logging (sub-voxel collision debug)
+    debug_log_timer: f64,
+    /// Last logged sub-voxel debug state
+    debug_last_ladder_state: bool,
 
     rcx: Option<RenderContext>,
 }
@@ -1500,7 +1935,7 @@ struct RenderContext {
 impl App {
     /// Returns the currently selected block from the hotbar.
     fn selected_block(&self) -> BlockType {
-        HOTBAR_BLOCKS[self.hotbar_index]
+        self.hotbar_blocks[self.hotbar_index]
     }
 
     fn new(event_loop: &EventLoop<()>) -> Self {
@@ -1667,12 +2102,13 @@ impl App {
             &texture_path,
         );
 
-        // Create particle buffer and descriptor set
-        let (particle_buffer, particle_set) = get_particle_set(
-            memory_allocator.clone(),
-            descriptor_set_allocator.clone(),
-            &render_pipeline,
-        );
+        // Create particle and falling block buffers (share set 3)
+        let (particle_buffer, falling_block_buffer, particle_set) =
+            get_particle_and_falling_block_set(
+                memory_allocator.clone(),
+                descriptor_set_allocator.clone(),
+                &render_pipeline,
+            );
 
         // Create light buffer and descriptor set
         let (light_buffer, light_set) = get_light_set(
@@ -1688,11 +2124,24 @@ impl App {
             &render_pipeline,
         );
 
-        // Create brick metadata buffers and descriptor set
-        let (brick_mask_buffer, brick_dist_buffer, brick_metadata_set) = get_brick_metadata_set(
+        // Create model registry with built-in models
+        let model_registry = ModelRegistry::new();
+
+        // Create combined brick metadata and model resources (set 7)
+        let (
+            brick_mask_buffer,
+            brick_dist_buffer,
+            model_atlas,
+            model_metadata,
+            brick_and_model_set,
+        ) = get_brick_and_model_set(
             memory_allocator.clone(),
+            command_buffer_allocator.clone(),
             descriptor_set_allocator.clone(),
             &render_pipeline,
+            &queue,
+            world_extent,
+            &model_registry,
         );
 
         let input = WinitInputHelper::new();
@@ -1748,8 +2197,13 @@ impl App {
             chunk_metadata_set,
             brick_mask_buffer,
             brick_dist_buffer,
-            brick_metadata_set,
+            brick_and_model_set,
+            falling_block_buffer,
             world_extent,
+
+            model_registry,
+            model_atlas,
+            model_metadata,
 
             camera,
             render_mode: match args.render_mode.as_deref() {
@@ -1770,8 +2224,26 @@ impl App {
             in_water: false,
             fly_mode: args.fly_mode,
             sprint_mode: false,
+            auto_jump: true, // Enabled by default
             player_light: false,
             show_chunk_boundaries: args.show_chunk_boundaries,
+            show_block_preview: false, // Off by default
+            show_target_outline: true, // On by default
+
+            // Minimap - disabled by default, toggle with M
+            show_minimap: false,
+            minimap_size: 256,     // Large
+            minimap_color_mode: 2, // Both (block colors + height)
+            minimap_rotate: true,  // Rotate with player by default
+            minimap_zoom: 0.5,     // Zoomed in 2x
+            minimap_cached_image: None,
+            minimap_last_pos: Vector3::new(i32::MAX, 0, i32::MAX), // Force initial update
+            minimap_last_update: Instant::now(),
+            minimap_last_yaw: f32::MAX, // Force initial update
+            minimap_height_cache: std::collections::HashMap::new(),
+
+            // Compass - enabled by default
+            show_compass: true,
 
             // Performance toggles - all enabled by default
             enable_ao: true,
@@ -1806,15 +2278,30 @@ impl App {
             },
 
             hotbar_index: 0,
+            hotbar_blocks: DEFAULT_HOTBAR_BLOCKS,
+            hotbar_model_ids: DEFAULT_HOTBAR_MODEL_IDS,
             current_hit: None,
 
             breaking_block: None,
             break_progress: 0.0,
             instant_break: true,
             break_cooldown: 0.0,
+            break_cooldown_duration: 0.1,
             skip_break_until_release: false,
 
+            last_place_pos: None,
+            place_cooldown: 0.0,
+            place_cooldown_duration: 0.1,
+            model_needs_reclick: false,
+            gate_needs_reclick: false,
+            line_start_pos: None,
+            line_locked_axis: None,
+
             particles: ParticleSystem::new(),
+            falling_blocks: FallingBlockSystem::new(),
+            block_updates: BlockUpdateQueue::new(32),
+            water_grid: WaterGrid::new(),
+            water_simulation_enabled: true,
 
             input,
             focused: false,
@@ -1830,6 +2317,9 @@ impl App {
             profiler: Profiler::default(),
             view_distance,
             unload_distance,
+
+            debug_log_timer: 0.0,
+            debug_last_ladder_state: false,
 
             rcx: None,
         }
@@ -1930,10 +2420,10 @@ impl App {
         self.camera.position.z += origin_delta.z as f64 / scale.z;
 
         // Re-upload all loaded chunks to their new texture positions
-        let chunks_to_upload: Vec<(Vector3<i32>, Vec<u8>)> = self
+        let chunks_to_upload: Vec<(Vector3<i32>, Vec<u8>, Vec<u8>)> = self
             .world
             .chunks()
-            .map(|(pos, chunk)| (*pos, chunk.to_block_data()))
+            .map(|(pos, chunk)| (*pos, chunk.to_block_data(), chunk.to_model_metadata()))
             .collect();
 
         if !chunks_to_upload.is_empty() {
@@ -1942,7 +2432,9 @@ impl App {
             // Upload chunks at new positions - convert to slice references
             let upload_refs: Vec<_> = chunks_to_upload
                 .iter()
-                .map(|(pos, data)| (*pos, data.as_slice()))
+                .map(|(pos, block_data, model_metadata)| {
+                    (*pos, block_data.as_slice(), model_metadata.as_slice())
+                })
                 .collect();
             self.upload_chunks_batched(&upload_refs);
         }
@@ -2030,13 +2522,15 @@ impl App {
 
         // === STEP 1: Receive completed chunks from background threads ===
         let completed = self.chunk_loader.receive_chunks();
-        let mut chunks_to_upload: Vec<(Vector3<i32>, Vec<u8>)> = Vec::new();
+        let mut chunks_to_upload: Vec<(Vector3<i32>, Vec<u8>, Vec<u8>)> = Vec::new();
         let mut loaded = 0;
 
         for result in completed {
+            // Get model metadata before inserting chunk
+            let model_metadata = result.chunk.to_model_metadata();
             // Insert chunk into world
             self.world.insert_chunk(result.position, result.chunk);
-            chunks_to_upload.push((result.position, result.block_data));
+            chunks_to_upload.push((result.position, result.block_data, model_metadata));
             loaded += 1;
         }
 
@@ -2045,12 +2539,14 @@ impl App {
             // Convert to slice references for upload
             let upload_refs: Vec<_> = chunks_to_upload
                 .iter()
-                .map(|(pos, data)| (*pos, data.as_slice()))
+                .map(|(pos, block_data, model_metadata)| {
+                    (*pos, block_data.as_slice(), model_metadata.as_slice())
+                })
                 .collect();
             self.upload_chunks_batched(&upload_refs);
 
             // Mark chunks as clean
-            for (pos, _) in &chunks_to_upload {
+            for (pos, _, _) in &chunks_to_upload {
                 if let Some(chunk) = self.world.get_chunk_mut(*pos) {
                     chunk.mark_clean();
                 }
@@ -2098,7 +2594,13 @@ impl App {
         if !positions_to_clear.is_empty() {
             let chunks_to_clear: Vec<_> = positions_to_clear
                 .iter()
-                .map(|pos| (*pos, EMPTY_CHUNK_DATA.as_slice()))
+                .map(|pos| {
+                    (
+                        *pos,
+                        EMPTY_CHUNK_DATA.as_slice(),
+                        EMPTY_MODEL_METADATA.as_slice(),
+                    )
+                })
                 .collect();
             self.upload_chunks_batched(&chunks_to_clear);
         }
@@ -2145,6 +2647,8 @@ impl App {
     }
 
     /// Checks if a block position is solid (not air, water, or other non-solid blocks).
+    /// Note: For Model blocks, this returns false - use check_model_collision for sub-voxel collision.
+    #[allow(dead_code)]
     fn is_solid(&self, x: i32, y: i32, z: i32) -> bool {
         // Y is bounded, X and Z are infinite (handled by World returning None for unloaded chunks)
         if y < 0 || y >= TEXTURE_SIZE_Y as i32 {
@@ -2196,8 +2700,53 @@ impl App {
         false
     }
 
+    /// Checks if the block at given position is a ladder.
+    fn is_ladder(&self, x: i32, y: i32, z: i32) -> bool {
+        // Y is bounded, X and Z are infinite
+        if y < 0 || y >= TEXTURE_SIZE_Y as i32 {
+            return false;
+        }
+        let pos = Vector3::new(x, y, z);
+        if let Some(BlockType::Model) = self.world.get_block(pos) {
+            if let Some(model_data) = self.world.get_model_data(pos) {
+                return ModelRegistry::is_ladder_model(model_data.model_id);
+            }
+        }
+        false
+    }
+
+    /// Checks if any part of the player's body is touching a ladder.
+    fn check_player_touching_ladder(&self, feet_pos: Vector3<f64>) -> bool {
+        // Check all blocks the player's body might occupy
+        let min_x = (feet_pos.x - PLAYER_HALF_WIDTH).floor() as i32;
+        let max_x = (feet_pos.x + PLAYER_HALF_WIDTH).floor() as i32;
+        let min_y = (feet_pos.y - 0.1).floor() as i32; // Slightly below feet
+        let max_y = (feet_pos.y + PLAYER_HEIGHT).floor() as i32;
+        let min_z = (feet_pos.z - PLAYER_HALF_WIDTH).floor() as i32;
+        let max_z = (feet_pos.z + PLAYER_HALF_WIDTH).floor() as i32;
+
+        for bx in min_x..=max_x {
+            for by in min_y..=max_y {
+                for bz in min_z..=max_z {
+                    if self.is_ladder(bx, by, bz) {
+                        if self.args.verbose {
+                            println!(
+                                "[LADDER] Touching ladder at ({}, {}, {}), player feet: ({:.2}, {:.2}, {:.2})",
+                                bx, by, bz, feet_pos.x, feet_pos.y, feet_pos.z
+                            );
+                        }
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
     /// Checks if player AABB collides with any solid blocks at given feet position.
-    fn check_collision(&self, feet_pos: Vector3<f64>) -> bool {
+    /// For Model blocks, uses sub-voxel collision from the 4³ collision mask.
+    /// If `skip_ladders` is true, ladder models are ignored (for climbing).
+    fn check_collision_ex(&self, feet_pos: Vector3<f64>, skip_ladders: bool) -> bool {
         // Player AABB: centered on X/Z, extends from feet to feet+height on Y
         let min_x = (feet_pos.x - PLAYER_HALF_WIDTH).floor() as i32;
         let max_x = (feet_pos.x + PLAYER_HALF_WIDTH).floor() as i32;
@@ -2206,32 +2755,81 @@ impl App {
         let min_z = (feet_pos.z - PLAYER_HALF_WIDTH).floor() as i32;
         let max_z = (feet_pos.z + PLAYER_HALF_WIDTH).floor() as i32;
 
+        let player_min = Vector3::new(
+            feet_pos.x - PLAYER_HALF_WIDTH,
+            feet_pos.y,
+            feet_pos.z - PLAYER_HALF_WIDTH,
+        );
+        let player_max = Vector3::new(
+            feet_pos.x + PLAYER_HALF_WIDTH,
+            feet_pos.y + PLAYER_HEIGHT,
+            feet_pos.z + PLAYER_HALF_WIDTH,
+        );
+
         for bx in min_x..=max_x {
             for by in min_y..=max_y {
                 for bz in min_z..=max_z {
-                    if self.is_solid(bx, by, bz) {
-                        // Check actual AABB overlap
-                        let block_min = Vector3::new(bx as f64, by as f64, bz as f64);
-                        let block_max = block_min + Vector3::new(1.0, 1.0, 1.0);
-                        let player_min = Vector3::new(
-                            feet_pos.x - PLAYER_HALF_WIDTH,
-                            feet_pos.y,
-                            feet_pos.z - PLAYER_HALF_WIDTH,
-                        );
-                        let player_max = Vector3::new(
-                            feet_pos.x + PLAYER_HALF_WIDTH,
-                            feet_pos.y + PLAYER_HEIGHT,
-                            feet_pos.z + PLAYER_HALF_WIDTH,
-                        );
-                        // AABB overlap test
-                        if player_min.x < block_max.x
-                            && player_max.x > block_min.x
-                            && player_min.y < block_max.y
-                            && player_max.y > block_min.y
-                            && player_min.z < block_max.z
-                            && player_max.z > block_min.z
-                        {
-                            return true;
+                    let world_pos = Vector3::new(bx, by, bz);
+                    let block = self.world.get_block(world_pos);
+
+                    if let Some(block_type) = block {
+                        if block_type.is_solid() {
+                            // Full block collision check
+                            let block_min = Vector3::new(bx as f64, by as f64, bz as f64);
+                            let block_max = block_min + Vector3::new(1.0, 1.0, 1.0);
+
+                            // AABB overlap test
+                            if player_min.x < block_max.x
+                                && player_max.x > block_min.x
+                                && player_min.y < block_max.y
+                                && player_max.y > block_min.y
+                                && player_min.z < block_max.z
+                                && player_max.z > block_min.z
+                            {
+                                return true;
+                            }
+                        } else if block_type == BlockType::Model {
+                            // Skip ladder collision when climbing
+                            if skip_ladders {
+                                if let Some(model_data) = self.world.get_model_data(world_pos) {
+                                    if ModelRegistry::is_ladder_model(model_data.model_id) {
+                                        if self.args.verbose {
+                                            println!(
+                                                "[LADDER SKIP] Skipping collision for ladder at ({}, {}, {})",
+                                                world_pos.x, world_pos.y, world_pos.z
+                                            );
+                                        }
+                                        continue;
+                                    }
+                                }
+                            }
+
+                            // Sub-voxel collision check for Model blocks
+                            let collides =
+                                self.check_model_collision(world_pos, &player_min, &player_max);
+                            if self.args.verbose {
+                                // Get model info for debug output
+                                if let Some(model_data) = self.world.get_model_data(world_pos) {
+                                    let model_name = self
+                                        .model_registry
+                                        .get(model_data.model_id)
+                                        .map(|m| m.name.as_str())
+                                        .unwrap_or("unknown");
+                                    println!(
+                                        "[MODEL COLLISION] Block ({}, {}, {}): {} (id={}, rot={}), collides={}",
+                                        world_pos.x,
+                                        world_pos.y,
+                                        world_pos.z,
+                                        model_name,
+                                        model_data.model_id,
+                                        model_data.rotation,
+                                        collides
+                                    );
+                                }
+                            }
+                            if collides {
+                                return true;
+                            }
                         }
                     }
                 }
@@ -2240,14 +2838,187 @@ impl App {
         false
     }
 
+    /// Checks if player AABB collides with any solid blocks at given feet position.
+    /// For Model blocks, uses sub-voxel collision from the 4³ collision mask.
+    fn check_collision(&self, feet_pos: Vector3<f64>) -> bool {
+        self.check_collision_ex(feet_pos, false)
+    }
+
+    /// Checks if player AABB collides with a Model block's sub-voxel collision mask.
+    fn check_model_collision(
+        &self,
+        block_pos: Vector3<i32>,
+        player_min: &Vector3<f64>,
+        player_max: &Vector3<f64>,
+    ) -> bool {
+        // Get the chunk and model data
+        let chunk_pos = World::world_to_chunk(block_pos);
+        let (lx, ly, lz) = World::world_to_local(block_pos);
+
+        let chunk = match self.world.get_chunk(chunk_pos) {
+            Some(c) => c,
+            None => return false,
+        };
+
+        let model_data = match chunk.get_model_data(lx, ly, lz) {
+            Some(d) => d,
+            None => return false,
+        };
+
+        let model = match self.model_registry.get(model_data.model_id) {
+            Some(m) => m,
+            None => return false,
+        };
+
+        // Calculate player AABB overlap with this block
+        let block_min = Vector3::new(block_pos.x as f64, block_pos.y as f64, block_pos.z as f64);
+        let block_max = block_min + Vector3::new(1.0, 1.0, 1.0);
+
+        // Check if player AABB overlaps with block at all
+        if player_min.x >= block_max.x
+            || player_max.x <= block_min.x
+            || player_min.y >= block_max.y
+            || player_max.y <= block_min.y
+            || player_min.z >= block_max.z
+            || player_max.z <= block_min.z
+        {
+            return false;
+        }
+
+        // Calculate the overlap region in local block coordinates (0-1)
+        let overlap_min_x = (player_min.x - block_min.x).max(0.0);
+        let overlap_max_x = (player_max.x - block_min.x).min(1.0);
+        let overlap_min_y = (player_min.y - block_min.y).max(0.0);
+        let overlap_max_y = (player_max.y - block_min.y).min(1.0);
+        let overlap_min_z = (player_min.z - block_min.z).max(0.0);
+        let overlap_max_z = (player_max.z - block_min.z).min(1.0);
+
+        if self.args.verbose {
+            println!(
+                "[MODEL DETAIL] {} at ({},{},{}): mask=0x{:016X}, overlap=({:.2}-{:.2}, {:.2}-{:.2}, {:.2}-{:.2})",
+                model.name,
+                block_pos.x,
+                block_pos.y,
+                block_pos.z,
+                model.collision_mask,
+                overlap_min_x,
+                overlap_max_x,
+                overlap_min_y,
+                overlap_max_y,
+                overlap_min_z,
+                overlap_max_z
+            );
+        }
+
+        // Get rotation for coordinate transformation
+        let rotation = model_data.rotation;
+
+        // Helper to rotate local coordinates based on model rotation
+        // Rotation is around Y axis: 0=none, 1=90°CW, 2=180°, 3=270°CW
+        let rotate_point = |x: f64, z: f64| -> (f64, f64) {
+            match rotation {
+                0 => (x, z),
+                1 => (1.0 - z, x),
+                2 => (1.0 - x, 1.0 - z),
+                3 => (z, 1.0 - x),
+                _ => (x, z),
+            }
+        };
+
+        // Sample multiple points in the overlap region to check against collision mask
+        // The collision mask is 4³, so sample at collision cell resolution
+        let step = 0.25; // 1/4 block = one collision cell
+        let mut local_y = overlap_min_y;
+        while local_y < overlap_max_y {
+            let mut local_z = overlap_min_z;
+            while local_z < overlap_max_z {
+                let mut local_x = overlap_min_x;
+                while local_x < overlap_max_x {
+                    // Rotate the test point to model space
+                    let (rot_x, rot_z) = rotate_point(local_x, local_z);
+                    if model.point_collides(rot_x as f32, local_y as f32, rot_z as f32) {
+                        return true;
+                    }
+                    local_x += step;
+                }
+                local_z += step;
+            }
+            local_y += step;
+        }
+
+        // Also check the max corners (rotated)
+        let (rot_max_x, rot_max_z) = rotate_point(overlap_max_x - 0.001, overlap_max_z - 0.001);
+        if model.point_collides(
+            rot_max_x as f32,
+            (overlap_max_y - 0.001) as f32,
+            rot_max_z as f32,
+        ) {
+            return true;
+        }
+
+        false
+    }
+
     /// Updates player physics: applies gravity, handles movement, checks collisions.
     fn update_physics(&mut self, delta_time: f64) {
         let mut feet = self.player_feet_pos();
 
-        // Check if player is in water
+        // Check if player is in water or on ladder
         let head_in_water = self.check_player_in_water(feet);
         let touching_water = self.check_player_touching_water(feet);
+        let touching_ladder = self.check_player_touching_ladder(feet);
         self.in_water = head_in_water;
+
+        // Debug logging for ladder state changes (throttled)
+        if self.args.verbose {
+            self.debug_log_timer += delta_time;
+            if touching_ladder != self.debug_last_ladder_state {
+                let camera_pos = self.camera.position;
+                let block_x = feet.x.floor() as i32;
+                let block_y = feet.y.floor() as i32;
+                let block_z = feet.z.floor() as i32;
+                println!(
+                    "[LADDER STATE] {} -> {}, feet=({:.3}, {:.3}, {:.3}), camera=({:.3}, {:.3}, {:.3}), block=({}, {}, {})",
+                    if self.debug_last_ladder_state {
+                        "ON"
+                    } else {
+                        "OFF"
+                    },
+                    if touching_ladder { "ON" } else { "OFF" },
+                    feet.x,
+                    feet.y,
+                    feet.z,
+                    camera_pos.x,
+                    camera_pos.y,
+                    camera_pos.z,
+                    block_x,
+                    block_y,
+                    block_z
+                );
+                self.debug_last_ladder_state = touching_ladder;
+            }
+            // Periodic position logging while on ladder (every 0.5 seconds)
+            if touching_ladder && self.debug_log_timer >= 0.5 {
+                let camera_pos = self.camera.position;
+                // Calculate local position within the block
+                let local_x = feet.x - feet.x.floor();
+                let local_y = feet.y - feet.y.floor();
+                let local_z = feet.z - feet.z.floor();
+                println!(
+                    "[LADDER POS] feet=({:.3}, {:.3}, {:.3}), local=({:.3}, {:.3}, {:.3}), camera=({:.3}, {:.3}, {:.3})",
+                    feet.x,
+                    feet.y,
+                    feet.z,
+                    local_x,
+                    local_y,
+                    local_z,
+                    camera_pos.x,
+                    camera_pos.y,
+                    camera_pos.z
+                );
+                self.debug_log_timer = 0.0;
+            }
+        }
 
         // Get movement input
         let t = |k: KeyCode| self.input.key_held(k) as u8 as f64;
@@ -2266,6 +3037,8 @@ impl App {
         // Fly mode doubles speed, sprint doubles that again
         let base_speed = if touching_water {
             SWIM_SPEED
+        } else if touching_ladder {
+            CLIMB_HORIZ_SPEED // Slower horizontal movement on ladder
         } else if self.fly_mode {
             MOVE_SPEED * 2.0 // Fly mode: 2x speed
         } else {
@@ -2357,6 +3130,54 @@ impl App {
 
             // Not on ground while swimming
             self.on_ground = false;
+        } else if touching_ladder
+            && (self.input.key_held(KeyCode::Space)
+                || self.input.key_held(KeyCode::ShiftLeft)
+                || self.input.key_held(KeyCode::ShiftRight))
+        {
+            // Climbing mode: only when pressing climb keys (Space/Shift)
+            // No gravity while actively climbing
+
+            // Climb up with Space, climb down with Shift
+            if self.input.key_held(KeyCode::Space) {
+                self.player_velocity.y = CLIMB_UP_SPEED;
+            } else {
+                self.player_velocity.y = -CLIMB_DOWN_SPEED;
+            }
+
+            // Move on each axis separately and check collisions
+            // Skip ladder collision while climbing (allows moving through ladder blocks)
+            let horiz_check_y = feet.y + 0.01;
+
+            // X axis
+            let new_x = feet.x + self.player_velocity.x * delta_time;
+            let test_pos = Vector3::new(new_x, horiz_check_y, feet.z);
+            if !self.check_collision_ex(test_pos, true) {
+                feet.x = new_x;
+            } else {
+                self.player_velocity.x = 0.0;
+            }
+
+            // Z axis
+            let new_z = feet.z + self.player_velocity.z * delta_time;
+            let test_pos = Vector3::new(feet.x, horiz_check_y, new_z);
+            if !self.check_collision_ex(test_pos, true) {
+                feet.z = new_z;
+            } else {
+                self.player_velocity.z = 0.0;
+            }
+
+            // Y axis
+            let new_y = feet.y + self.player_velocity.y * delta_time;
+            let test_pos = Vector3::new(feet.x, new_y, feet.z);
+            if !self.check_collision_ex(test_pos, true) {
+                feet.y = new_y;
+            } else {
+                self.player_velocity.y = 0.0;
+            }
+
+            // Not on ground while climbing
+            self.on_ground = false;
         } else {
             // Normal ground mode: apply gravity
             self.player_velocity.y -= GRAVITY * delta_time;
@@ -2371,12 +3192,22 @@ impl App {
             // Use a small Y offset for horizontal checks to avoid floor collision due to floating point
             let horiz_check_y = feet.y + 0.01;
 
+            // Track if we should auto-jump due to 1-block obstacle
+            let mut should_auto_jump = false;
+
             // X axis
             let new_x = feet.x + self.player_velocity.x * delta_time;
             let test_pos = Vector3::new(new_x, horiz_check_y, feet.z);
             if !self.check_collision(test_pos) {
                 feet.x = new_x;
             } else {
+                // Check for auto-jump: is this a 1-block-high obstacle?
+                if self.auto_jump && self.on_ground && self.player_velocity.x.abs() > 0.1 {
+                    let step_up_pos = Vector3::new(new_x, feet.y + 1.01, feet.z);
+                    if !self.check_collision(step_up_pos) {
+                        should_auto_jump = true;
+                    }
+                }
                 self.player_velocity.x = 0.0;
             }
 
@@ -2386,7 +3217,20 @@ impl App {
             if !self.check_collision(test_pos) {
                 feet.z = new_z;
             } else {
+                // Check for auto-jump: is this a 1-block-high obstacle?
+                if self.auto_jump && self.on_ground && self.player_velocity.z.abs() > 0.1 {
+                    let step_up_pos = Vector3::new(feet.x, feet.y + 1.01, new_z);
+                    if !self.check_collision(step_up_pos) {
+                        should_auto_jump = true;
+                    }
+                }
                 self.player_velocity.z = 0.0;
+            }
+
+            // Execute auto-jump if needed
+            if should_auto_jump {
+                self.player_velocity.y = JUMP_VELOCITY;
+                self.on_ground = false;
             }
 
             // Y axis
@@ -2544,15 +3388,65 @@ impl App {
                 }
 
                 self.world.set_block(target, BlockType::Air);
+                self.invalidate_minimap_cache(target.x, target.z);
+
+                // Update neighboring fence/gate connections
+                self.update_fence_connections(target);
+
+                // Notify water grid that a block was removed (may trigger flow)
+                self.water_grid.on_block_removed(target);
+
+                // Check if any adjacent terrain water should start flowing
+                self.activate_adjacent_terrain_water(target);
+
+                // Queue physics checks (frame-distributed to prevent FPS spikes)
+                let player_pos = self.player_feet_pos().cast::<f32>();
+
+                // Queue gravity check for block above
+                self.block_updates.enqueue(
+                    target + Vector3::new(0, 1, 0),
+                    BlockUpdateType::Gravity,
+                    player_pos,
+                );
+
+                // Queue ground support check for model block above (fences, torches, gates)
+                self.block_updates.enqueue(
+                    target + Vector3::new(0, 1, 0),
+                    BlockUpdateType::ModelGroundSupport,
+                    player_pos,
+                );
+
+                // Queue tree support checks for all nearby logs
+                if block_type.is_log() {
+                    self.block_updates.enqueue_neighbors(
+                        target,
+                        BlockUpdateType::TreeSupport,
+                        player_pos,
+                    );
+                }
+                self.block_updates.enqueue_radius(
+                    target,
+                    3,
+                    BlockUpdateType::TreeSupport,
+                    player_pos,
+                );
+
+                // Queue orphaned leaves checks
+                self.block_updates.enqueue_radius(
+                    target,
+                    4,
+                    BlockUpdateType::OrphanedLeaves,
+                    player_pos,
+                );
             }
 
             // Reset for next block
             self.breaking_block = None;
             self.break_progress = 0.0;
 
-            // Set cooldown for instant break mode (0.1 second between breaks)
+            // Set cooldown for instant break mode
             if self.instant_break {
-                self.break_cooldown = 0.1;
+                self.break_cooldown = self.break_cooldown_duration;
             }
 
             return true;
@@ -2561,27 +3455,1021 @@ impl App {
         false
     }
 
-    /// Places a block adjacent to the one the player is looking at.
-    fn place_block(&mut self) {
+    /// Toggles a gate between open and closed states.
+    /// Returns true if a gate was toggled.
+    fn toggle_gate_at(&mut self, pos: Vector3<i32>) -> bool {
+        // Check if target is a Model block
+        let Some(BlockType::Model) = self.world.get_block(pos) else {
+            return false;
+        };
+
+        // Get model data
+        let Some(model_data) = self.world.get_model_data(pos) else {
+            return false;
+        };
+
+        let model_id = model_data.model_id;
+        let rotation = model_data.rotation;
+
+        // Check if it's a gate (closed: 20-23, open: 24-27)
+        if !(20..=27).contains(&model_id) {
+            return false;
+        }
+
+        // Calculate new model_id (toggle between closed and open)
+        let new_model_id = if model_id < 24 {
+            // Closed -> Open: add 4
+            model_id + 4
+        } else {
+            // Open -> Closed: subtract 4
+            model_id - 4
+        };
+
+        // Update the gate
+        self.world.set_model_block(pos, new_model_id, rotation);
+
+        true
+    }
+
+    /// Updates block placing - allows continuous placing while holding right mouse button.
+    /// Implements line-locking: once a direction is established, blocks are placed along that axis.
+    fn update_block_placing(&mut self, delta_time: f32) {
+        // Decrease cooldown
+        if self.place_cooldown > 0.0 {
+            self.place_cooldown -= delta_time;
+        }
+
+        let holding_place = self.input.mouse_held(MouseButton::Right);
+
+        if !holding_place {
+            // Reset all line building state when mouse released
+            self.last_place_pos = None;
+            self.line_start_pos = None;
+            self.line_locked_axis = None;
+            self.model_needs_reclick = false; // Allow model placement on next click
+            self.gate_needs_reclick = false; // Allow gate toggle on next click
+            return;
+        }
+
+        // Check if right-clicking on a gate - toggle it instead of placing
         if let Some(hit) = &self.current_hit {
-            let place_pos = get_place_position(hit);
-            // Bounds check (Y only, X/Z are infinite)
-            if place_pos.y >= 0 && place_pos.y < TEXTURE_SIZE_Y as i32 {
-                // Don't place if it would be inside the player (convert camera to world coords)
-                let scale = Vector3::new(
-                    self.world_extent[0] as f32,
-                    self.world_extent[1] as f32,
-                    self.world_extent[2] as f32,
-                );
-                let player_pos = self.camera.position.cast::<f32>().component_mul(&scale);
-                let block_center = place_pos.cast::<f32>() + Vector3::new(0.5, 0.5, 0.5);
-                if (player_pos - block_center).norm() > 1.5 {
-                    println!("Placing {:?} at {:?}", self.selected_block(), place_pos);
-                    self.world.set_block(place_pos, self.selected_block());
+            // Check if target is a gate
+            if let Some(BlockType::Model) = self.world.get_block(hit.block_pos) {
+                if let Some(model_data) = self.world.get_model_data(hit.block_pos) {
+                    if (20..=27).contains(&model_data.model_id) {
+                        // It's a gate - toggle if not already toggled this click
+                        if !self.gate_needs_reclick {
+                            self.toggle_gate_at(hit.block_pos);
+                            self.gate_needs_reclick = true;
+                        }
+                        return; // Don't place a block when targeting a gate
+                    }
                 }
-            } else {
-                println!("Place position {:?} out of bounds, ignoring", place_pos);
             }
+        }
+
+        // Get current target position
+        let Some(raw_place_pos) = self.current_hit.as_ref().map(get_place_position) else {
+            return;
+        };
+
+        // Apply line-locking constraint if axis is locked
+        let constrained_pos =
+            if let (Some(start), Some(axis)) = (self.line_start_pos, self.line_locked_axis) {
+                // Constrain position to the locked axis
+                let mut pos = raw_place_pos;
+                match axis {
+                    0 => {
+                        // X-axis locked: Y and Z must match start
+                        pos.y = start.y;
+                        pos.z = start.z;
+                    }
+                    1 => {
+                        // Y-axis locked: X and Z must match start
+                        pos.x = start.x;
+                        pos.z = start.z;
+                    }
+                    _ => {
+                        // Z-axis locked: X and Y must match start
+                        pos.x = start.x;
+                        pos.y = start.y;
+                    }
+                }
+                pos
+            } else {
+                raw_place_pos
+            };
+
+        // Check if we should place a block
+        let is_model_block = self.selected_block() == BlockType::Model;
+        let should_place = if self.last_place_pos.is_none() {
+            // First click - no cooldown needed, but check model reclick
+            !is_model_block || !self.model_needs_reclick
+        } else {
+            // Must wait for cooldown, and check model reclick
+            self.place_cooldown <= 0.0 && (!is_model_block || !self.model_needs_reclick)
+        };
+
+        if should_place && self.place_block_at(constrained_pos) {
+            // Model blocks require releasing and re-clicking
+            if is_model_block {
+                self.model_needs_reclick = true;
+            }
+            // First block: set as line start
+            if self.line_start_pos.is_none() {
+                self.line_start_pos = Some(constrained_pos);
+            }
+            // Second block: detect and lock the axis
+            else if self.line_locked_axis.is_none() {
+                if let Some(start) = self.line_start_pos {
+                    let dx = (constrained_pos.x - start.x).abs();
+                    let dy = (constrained_pos.y - start.y).abs();
+                    let dz = (constrained_pos.z - start.z).abs();
+                    // Lock to the axis with the largest movement
+                    if dx >= dy && dx >= dz && dx > 0 {
+                        self.line_locked_axis = Some(0); // X
+                    } else if dy >= dx && dy >= dz && dy > 0 {
+                        self.line_locked_axis = Some(1); // Y
+                    } else if dz > 0 {
+                        self.line_locked_axis = Some(2); // Z
+                    }
+                }
+            }
+
+            self.last_place_pos = Some(constrained_pos);
+            self.place_cooldown = self.place_cooldown_duration;
+        }
+    }
+
+    /// Places a block at a specific position (used for line-locked building).
+    fn place_block_at(&mut self, place_pos: Vector3<i32>) -> bool {
+        // Bounds check (Y only, X/Z are infinite)
+        if place_pos.y < 0 || place_pos.y >= TEXTURE_SIZE_Y as i32 {
+            return false;
+        }
+
+        // Check if block would overlap with player hitbox (AABB collision)
+        let feet = self.player_feet_pos();
+        let player_min = Vector3::new(
+            feet.x - PLAYER_HALF_WIDTH,
+            feet.y,
+            feet.z - PLAYER_HALF_WIDTH,
+        );
+        let player_max = Vector3::new(
+            feet.x + PLAYER_HALF_WIDTH,
+            feet.y + PLAYER_HEIGHT,
+            feet.z + PLAYER_HALF_WIDTH,
+        );
+        let block_min = place_pos.cast::<f64>();
+        let block_max = block_min + Vector3::new(1.0, 1.0, 1.0);
+
+        // AABB overlap check
+        let overlaps = player_min.x < block_max.x
+            && player_max.x > block_min.x
+            && player_min.y < block_max.y
+            && player_max.y > block_min.y
+            && player_min.z < block_max.z
+            && player_max.z > block_min.z;
+
+        if overlaps {
+            return false; // Can't place block inside player
+        }
+
+        // Check if target position already has a block
+        if let Some(existing) = self.world.get_block(place_pos) {
+            if existing != BlockType::Air {
+                return false; // Can't place on non-air
+            }
+        }
+
+        println!("Placing {:?} at {:?}", self.selected_block(), place_pos);
+        let block_to_place = self.selected_block();
+
+        // Handle model blocks specially - set both block type and metadata
+        if block_to_place == BlockType::Model {
+            let base_model_id = self.hotbar_model_ids[self.hotbar_index];
+            let rotation = 0u8;
+
+            // Determine final model_id based on type and connections
+            let model_id = if ModelRegistry::is_fence_model(base_model_id)
+                || (4..20).contains(&base_model_id)
+            {
+                // Fence: calculate connections and get correct variant
+                let connections = self.calculate_fence_connections(place_pos);
+                ModelRegistry::fence_model_id(connections)
+            } else if ModelRegistry::is_gate_model(base_model_id)
+                || (20..28).contains(&base_model_id)
+            {
+                // Gate: auto-detect orientation based on neighboring fences
+                // Check E/W neighbors vs N/S neighbors to determine orientation
+                let has_west = self.is_fence_connectable(place_pos + Vector3::new(-1, 0, 0));
+                let has_east = self.is_fence_connectable(place_pos + Vector3::new(1, 0, 0));
+                let has_north = self.is_fence_connectable(place_pos + Vector3::new(0, 0, -1));
+                let has_south = self.is_fence_connectable(place_pos + Vector3::new(0, 0, 1));
+
+                // Calculate player position relative to gate for open direction
+                let player_pos = self.player_feet_pos();
+                let gate_center = place_pos.cast::<f64>() + Vector3::new(0.5, 0.0, 0.5);
+                let to_player = player_pos - gate_center;
+
+                // Determine fence line orientation and rotation for gate to open toward player
+                // Gate model: doors swing toward -Z in model space
+                // rotation=0: swing -Z, rotation=1: swing +X, rotation=2: swing +Z, rotation=3: swing -X
+                let (connections, rotation) = if (has_north || has_south) && !has_west && !has_east
+                {
+                    // N/S fence line - gate spans Z axis
+                    // Player to the west (-X): rotation=1 (doors swing toward player)
+                    // Player to the east (+X): rotation=3 (doors swing toward player)
+                    let mut conn = 0u8;
+                    if has_north {
+                        conn |= 1;
+                    }
+                    if has_south {
+                        conn |= 2;
+                    }
+                    let rot = if to_player.x < 0.0 { 1u8 } else { 3u8 };
+                    (conn, rot)
+                } else {
+                    // E/W fence line or no clear preference - gate spans X axis
+                    // Player to the north (-Z): rotation=0 (doors swing -Z toward player)
+                    // Player to the south (+Z): rotation=2 (doors swing +Z toward player)
+                    let connections = self.calculate_gate_connections(place_pos);
+                    let rot = if to_player.z < 0.0 { 0u8 } else { 2u8 };
+                    (connections, rot)
+                };
+                // Use closed gate by default (base_model_id 20-23)
+                // Store rotation for the gate
+                self.world.set_model_block(
+                    place_pos,
+                    ModelRegistry::gate_closed_model_id(connections),
+                    rotation,
+                );
+
+                // Update neighboring fences/gates
+                self.update_fence_connections(place_pos);
+                // Skip the normal set_model_block below since we already did it
+                return true;
+            } else if ModelRegistry::is_ladder_model(base_model_id) {
+                // Ladder: auto-orient to face the player
+                // The ladder model has rungs at Z=7, so rotation determines which wall it faces
+                // rotation=0: against +Z wall (facing -Z toward player)
+                // rotation=1: against +X wall (facing -X)
+                // rotation=2: against -Z wall (facing +Z)
+                // rotation=3: against -X wall (facing +X)
+                let player_pos = self.player_feet_pos();
+                let ladder_center = place_pos.cast::<f64>() + Vector3::new(0.5, 0.0, 0.5);
+                let to_player = player_pos - ladder_center;
+
+                // Determine which direction the player is from the ladder
+                // Ladder should face the player (player climbs from the front)
+                let rotation = if to_player.x.abs() > to_player.z.abs() {
+                    // Player is more to E/W
+                    if to_player.x > 0.0 { 3 } else { 1 } // Face +X or -X
+                } else {
+                    // Player is more to N/S
+                    if to_player.z > 0.0 { 2 } else { 0 } // Face +Z or -Z
+                };
+
+                self.world
+                    .set_model_block(place_pos, base_model_id, rotation);
+                return true;
+            } else {
+                // Other model types (torch, slab, etc.) - use as-is
+                base_model_id
+            };
+
+            self.world.set_model_block(place_pos, model_id, rotation);
+
+            // Update neighboring fences/gates if we placed a fence-connectable block
+            if ModelRegistry::is_fence_or_gate(model_id) {
+                self.update_fence_connections(place_pos);
+            }
+        } else {
+            self.world.set_block(place_pos, block_to_place);
+
+            // Solid blocks can also connect to fences
+            if block_to_place.is_solid() {
+                self.update_fence_connections(place_pos);
+            }
+        }
+        self.invalidate_minimap_cache(place_pos.x, place_pos.z);
+
+        // Update water grid based on what was placed
+        if block_to_place == BlockType::Water {
+            // Player-placed water becomes a source (infinite water)
+            self.water_grid.place_source(place_pos);
+        } else {
+            // Solid block placed - removes any water at this position
+            self.water_grid.on_block_placed(place_pos);
+        }
+
+        true
+    }
+
+    /// Calculates fence connection bitmask based on neighboring fences/gates.
+    /// Returns N=1, S=2, E=4, W=8 bitmask.
+    /// Note: North is -Z, South is +Z (matching model definition)
+    fn calculate_fence_connections(&self, pos: Vector3<i32>) -> u8 {
+        let mut connections = 0u8;
+
+        // Check north (-Z)
+        if self.is_fence_connectable(pos + Vector3::new(0, 0, -1)) {
+            connections |= 1;
+        }
+        // Check south (+Z)
+        if self.is_fence_connectable(pos + Vector3::new(0, 0, 1)) {
+            connections |= 2;
+        }
+        // Check east (+X)
+        if self.is_fence_connectable(pos + Vector3::new(1, 0, 0)) {
+            connections |= 4;
+        }
+        // Check west (-X)
+        if self.is_fence_connectable(pos + Vector3::new(-1, 0, 0)) {
+            connections |= 8;
+        }
+
+        connections
+    }
+
+    /// Calculates gate connection bitmask based on neighboring fences/gates.
+    /// Returns W=1, E=2 bitmask (gates only connect east-west).
+    fn calculate_gate_connections(&self, pos: Vector3<i32>) -> u8 {
+        let mut connections = 0u8;
+
+        // Check west (-X)
+        if self.is_fence_connectable(pos + Vector3::new(-1, 0, 0)) {
+            connections |= 1;
+        }
+        // Check east (+X)
+        if self.is_fence_connectable(pos + Vector3::new(1, 0, 0)) {
+            connections |= 2;
+        }
+
+        connections
+    }
+
+    /// Returns true if the block at pos can connect to fences/gates.
+    fn is_fence_connectable(&self, pos: Vector3<i32>) -> bool {
+        if let Some(block) = self.world.get_block(pos) {
+            match block {
+                BlockType::Model => {
+                    // Check if it's a fence or gate model
+                    if let Some(data) = self.world.get_model_data(pos) {
+                        ModelRegistry::is_fence_or_gate(data.model_id)
+                    } else {
+                        false
+                    }
+                }
+                // Solid blocks also connect to fences
+                b if b.is_solid() => true,
+                _ => false,
+            }
+        } else {
+            false
+        }
+    }
+
+    /// Updates fence/gate connections for a position and its neighbors.
+    fn update_fence_connections(&mut self, center_pos: Vector3<i32>) {
+        // Update neighbors in all 4 horizontal directions
+        let neighbors = [
+            Vector3::new(0, 0, 1),  // North
+            Vector3::new(0, 0, -1), // South
+            Vector3::new(1, 0, 0),  // East
+            Vector3::new(-1, 0, 0), // West
+        ];
+
+        for offset in &neighbors {
+            let neighbor_pos = center_pos + offset;
+            if let Some(BlockType::Model) = self.world.get_block(neighbor_pos) {
+                if let Some(data) = self.world.get_model_data(neighbor_pos) {
+                    if ModelRegistry::is_fence_model(data.model_id) {
+                        // Update fence connections
+                        let connections = self.calculate_fence_connections(neighbor_pos);
+                        let new_model_id = ModelRegistry::fence_model_id(connections);
+                        if new_model_id != data.model_id {
+                            self.world
+                                .set_model_block(neighbor_pos, new_model_id, data.rotation);
+                        }
+                    } else if ModelRegistry::is_gate_model(data.model_id) {
+                        // Update gate connections
+                        let connections = self.calculate_gate_connections(neighbor_pos);
+                        let is_open = ModelRegistry::is_gate_open_model(data.model_id);
+                        let new_model_id = if is_open {
+                            ModelRegistry::gate_open_model_id(connections)
+                        } else {
+                            ModelRegistry::gate_closed_model_id(connections)
+                        };
+                        if new_model_id != data.model_id {
+                            self.world
+                                .set_model_block(neighbor_pos, new_model_id, data.rotation);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Finds all leaves connected to the starting leaf, and checks if any connect to a log.
+    /// Returns (leaf_positions, has_log_connection).
+    fn find_leaf_cluster_and_check_log(
+        &self,
+        start: Vector3<i32>,
+    ) -> (Vec<(Vector3<i32>, BlockType)>, bool) {
+        use std::collections::{HashSet, VecDeque};
+
+        let mut leaves = Vec::new();
+        let mut visited = HashSet::new();
+        let mut queue = VecDeque::new();
+        let mut found_log = false;
+
+        // Verify starting block is leaves
+        if let Some(block) = self.world.get_block(start) {
+            if block != BlockType::Leaves {
+                return (leaves, true); // Not leaves, assume connected
+            }
+        } else {
+            return (leaves, true);
+        }
+
+        queue.push_back(start);
+        visited.insert(start);
+
+        // 26-directional for leaf-to-leaf, 6-directional for leaf-to-log check
+        let mut neighbors_26 = Vec::with_capacity(26);
+        for dx in -1..=1 {
+            for dy in -1..=1 {
+                for dz in -1..=1 {
+                    if dx != 0 || dy != 0 || dz != 0 {
+                        neighbors_26.push(Vector3::new(dx, dy, dz));
+                    }
+                }
+            }
+        }
+
+        while let Some(pos) = queue.pop_front() {
+            if let Some(block) = self.world.get_block(pos) {
+                if block == BlockType::Leaves {
+                    leaves.push((pos, block));
+
+                    for offset in &neighbors_26 {
+                        let neighbor = pos + offset;
+                        let is_cardinal = (offset.x != 0) as i32
+                            + (offset.y != 0) as i32
+                            + (offset.z != 0) as i32
+                            == 1;
+
+                        if let Some(neighbor_block) = self.world.get_block(neighbor) {
+                            // Check for log connection (orthogonal only)
+                            if neighbor_block.is_log() && is_cardinal {
+                                found_log = true;
+                            }
+
+                            // Add unvisited leaves to queue (any direction)
+                            if neighbor_block == BlockType::Leaves && !visited.contains(&neighbor) {
+                                visited.insert(neighbor);
+                                queue.push_back(neighbor);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        (leaves, found_log)
+    }
+
+    /// Flood-fill to find all connected tree blocks (logs and leaves) starting from a log.
+    /// Returns a vector of (position, block_type) for all connected blocks.
+    fn find_connected_tree(&self, start: Vector3<i32>) -> Vec<(Vector3<i32>, BlockType)> {
+        use std::collections::{HashSet, VecDeque};
+
+        let mut tree_blocks = Vec::new();
+        let mut visited = HashSet::new();
+        let mut queue = VecDeque::new();
+
+        // Verify starting block is a log
+        if let Some(block) = self.world.get_block(start) {
+            if !block.is_log() {
+                return tree_blocks;
+            }
+        } else {
+            return tree_blocks;
+        }
+
+        queue.push_back(start);
+        visited.insert(start);
+
+        // 26-directional neighbors (including diagonals)
+        let mut neighbors_26 = Vec::with_capacity(26);
+        for dx in -1..=1 {
+            for dy in -1..=1 {
+                for dz in -1..=1 {
+                    if dx != 0 || dy != 0 || dz != 0 {
+                        neighbors_26.push(Vector3::new(dx, dy, dz));
+                    }
+                }
+            }
+        }
+
+        while let Some(pos) = queue.pop_front() {
+            if let Some(block) = self.world.get_block(pos) {
+                if block.is_tree_part() {
+                    tree_blocks.push((pos, block));
+
+                    // Connectivity rules to prevent merging separate trees:
+                    // - Logs: only connect orthogonally (6-dir) to logs and leaves
+                    // - Leaves: connect diagonally (26-dir) to OTHER leaves,
+                    //           but only orthogonally (6-dir) to logs
+                    for offset in &neighbors_26 {
+                        let neighbor = pos + offset;
+                        if !visited.contains(&neighbor) {
+                            if let Some(neighbor_block) = self.world.get_block(neighbor) {
+                                if !neighbor_block.is_tree_part() {
+                                    continue;
+                                }
+
+                                // is_cardinal: exactly one axis is non-zero (orthogonal neighbor)
+                                let is_cardinal = (offset.x != 0) as i32
+                                    + (offset.y != 0) as i32
+                                    + (offset.z != 0) as i32
+                                    == 1;
+
+                                let should_connect = if block.is_log() {
+                                    // Logs only connect orthogonally (6-dir)
+                                    is_cardinal
+                                } else {
+                                    // Leaves: connect to other leaves diagonally (26-dir),
+                                    // but only connect to logs orthogonally (6-dir)
+                                    if neighbor_block.is_log() {
+                                        is_cardinal
+                                    } else {
+                                        true // leaf-to-leaf: any direction
+                                    }
+                                };
+
+                                if should_connect {
+                                    visited.insert(neighbor);
+                                    queue.push_back(neighbor);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        tree_blocks
+    }
+
+    /// Checks if any log in the tree has ground support.
+    /// A log has ground support if the block below it is solid and NOT a log.
+    fn tree_has_ground_support(&self, tree_blocks: &[(Vector3<i32>, BlockType)]) -> bool {
+        for (pos, block) in tree_blocks {
+            if block.is_log() {
+                let below_pos = pos + Vector3::new(0, -1, 0);
+                if let Some(below_block) = self.world.get_block(below_pos) {
+                    // Supported if block below is solid and NOT part of the tree
+                    // (leaves don't count as support either!)
+                    if below_block.is_solid() && !below_block.is_tree_part() {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    /// Converts all tree blocks to falling entities.
+    fn fell_tree(&mut self, tree_blocks: Vec<(Vector3<i32>, BlockType)>) {
+        for (pos, block_type) in tree_blocks {
+            // Remove the block from the world
+            self.world.set_block(pos, BlockType::Air);
+            self.invalidate_minimap_cache(pos.x, pos.z);
+
+            // Spawn a falling block entity
+            self.falling_blocks.spawn(pos, block_type);
+        }
+    }
+
+    /// Processes blocks that have landed and places them in the world.
+    /// Handles multiple blocks landing at the same X,Z by stacking them.
+    fn process_landed_blocks(&mut self, mut landed: Vec<crate::falling_block::LandedBlock>) {
+        // Sort by Y position (lowest first) so blocks stack properly
+        landed.sort_by_key(|lb| lb.position.y);
+
+        for lb in landed {
+            // Bounds check
+            if lb.position.y >= 0 && lb.position.y < TEXTURE_SIZE_Y as i32 {
+                // Find the actual landing position by checking what's already there
+                let mut place_y = lb.position.y;
+                while place_y < TEXTURE_SIZE_Y as i32 {
+                    let check_pos = Vector3::new(lb.position.x, place_y, lb.position.z);
+                    if let Some(existing) = self.world.get_block(check_pos) {
+                        if existing == BlockType::Air {
+                            // Found empty spot, place here
+                            break;
+                        }
+                    }
+                    place_y += 1;
+                }
+
+                // Place the block if within bounds
+                if place_y < TEXTURE_SIZE_Y as i32 {
+                    let final_pos = Vector3::new(lb.position.x, place_y, lb.position.z);
+                    self.world.set_block(final_pos, lb.block_type);
+                    self.invalidate_minimap_cache(final_pos.x, final_pos.z);
+
+                    // Queue gravity check for chain reaction (blocks above might now fall)
+                    let player_pos = self.player_feet_pos().cast::<f32>();
+                    self.block_updates.enqueue(
+                        final_pos + Vector3::new(0, 1, 0),
+                        BlockUpdateType::Gravity,
+                        player_pos,
+                    );
+                }
+            }
+        }
+    }
+
+    /// Processes queued block physics updates.
+    ///
+    /// This is called each frame and processes up to `max_per_frame` updates
+    /// from the queue. Each update type triggers specific physics checks:
+    /// - CheckGravity: Check if block at position should fall
+    /// - CheckTreeSupport: Check if log lost ground support
+    /// - CheckOrphanedLeaves: Check if leaf cluster is disconnected from logs
+    fn process_block_updates(&mut self) {
+        let player_pos = self.player_feet_pos().cast::<f32>();
+        let batch = self.block_updates.take_batch();
+
+        for update in batch {
+            match update.update_type {
+                BlockUpdateType::Gravity => {
+                    self.process_gravity_update(update.position, player_pos);
+                }
+                BlockUpdateType::TreeSupport => {
+                    self.process_tree_support_update(update.position, player_pos);
+                }
+                BlockUpdateType::OrphanedLeaves => {
+                    self.process_orphaned_leaves_update(update.position, player_pos);
+                }
+                BlockUpdateType::ModelGroundSupport => {
+                    self.process_model_ground_support_update(update.position, player_pos);
+                }
+            }
+        }
+    }
+
+    /// Processes a gravity check for a single position.
+    /// If the block is gravity-affected, converts it to falling and queues the block above.
+    fn process_gravity_update(&mut self, pos: Vector3<i32>, player_pos: Vector3<f32>) {
+        // Bounds check
+        if pos.y < 0 || pos.y >= TEXTURE_SIZE_Y as i32 {
+            return;
+        }
+
+        if let Some(block_type) = self.world.get_block(pos) {
+            if block_type.is_affected_by_gravity() {
+                // Remove the block from the world
+                self.world.set_block(pos, BlockType::Air);
+                self.invalidate_minimap_cache(pos.x, pos.z);
+
+                // Spawn a falling block entity
+                self.falling_blocks.spawn(pos, block_type);
+
+                // Queue the next block up for cascade
+                self.block_updates.enqueue(
+                    pos + Vector3::new(0, 1, 0),
+                    BlockUpdateType::Gravity,
+                    player_pos,
+                );
+            }
+        }
+    }
+
+    /// Processes a tree support check for a log position.
+    /// If the log is part of an unsupported tree, the entire tree falls.
+    fn process_tree_support_update(&mut self, pos: Vector3<i32>, _player_pos: Vector3<f32>) {
+        // Bounds check
+        if pos.y < 0 || pos.y >= TEXTURE_SIZE_Y as i32 {
+            return;
+        }
+
+        if let Some(block) = self.world.get_block(pos) {
+            if block.is_log() {
+                // Find all connected tree blocks
+                let tree_blocks = self.find_connected_tree(pos);
+
+                if !tree_blocks.is_empty() && !self.tree_has_ground_support(&tree_blocks) {
+                    // Tree has no ground support, fell it
+                    self.fell_tree(tree_blocks);
+                }
+            }
+        }
+    }
+
+    /// Processes an orphaned leaves check for a leaf position.
+    /// If the leaf cluster is disconnected from all logs, the cluster falls.
+    fn process_orphaned_leaves_update(&mut self, pos: Vector3<i32>, _player_pos: Vector3<f32>) {
+        // Bounds check
+        if pos.y < 0 || pos.y >= TEXTURE_SIZE_Y as i32 {
+            return;
+        }
+
+        if let Some(block) = self.world.get_block(pos) {
+            if block == BlockType::Leaves {
+                // Check if this leaf cluster is connected to any log
+                let (leaves, has_log) = self.find_leaf_cluster_and_check_log(pos);
+
+                if !has_log && !leaves.is_empty() {
+                    // Orphaned leaf cluster, fell it
+                    self.fell_tree(leaves);
+                }
+            }
+        }
+    }
+
+    /// Processes a model ground support check for a position.
+    /// If the model requires ground support and the block below is air, the model breaks.
+    fn process_model_ground_support_update(
+        &mut self,
+        pos: Vector3<i32>,
+        _player_pos: Vector3<f32>,
+    ) {
+        // Bounds check
+        if pos.y < 1 || pos.y >= TEXTURE_SIZE_Y as i32 {
+            return;
+        }
+
+        // Check if there's a model block at this position
+        if let Some(BlockType::Model) = self.world.get_block(pos) {
+            if let Some(data) = self.world.get_model_data(pos) {
+                // Check if this model requires ground support
+                if self.model_registry.requires_ground_support(data.model_id) {
+                    // Check if ground below is gone
+                    let below = pos - Vector3::new(0, 1, 0);
+                    let has_support = if let Some(block_below) = self.world.get_block(below) {
+                        block_below.is_solid()
+                            || (block_below == BlockType::Model
+                                && self
+                                    .world
+                                    .get_model_data(below)
+                                    .map(|d| {
+                                        !self.model_registry.requires_ground_support(d.model_id)
+                                    })
+                                    .unwrap_or(false))
+                    } else {
+                        false
+                    };
+
+                    if !has_support {
+                        // Get particle color before breaking
+                        let particle_color = nalgebra::Vector3::new(0.5, 0.35, 0.2); // Wood brown
+                        self.particles
+                            .spawn_block_break(pos.cast::<f32>(), particle_color);
+
+                        // Break the model
+                        self.world.set_block(pos, BlockType::Air);
+                        self.invalidate_minimap_cache(pos.x, pos.z);
+
+                        // Update neighboring fence/gate connections
+                        self.update_fence_connections(pos);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Processes water flow simulation.
+    ///
+    /// This is called each frame and processes water cell updates.
+    /// Water flows using the W-Shadow cellular automata algorithm:
+    /// - Down (gravity) has highest priority
+    /// - Horizontal flow equalizes water levels
+    /// - Upward flow only occurs under pressure
+    ///
+    /// Boundary handling:
+    /// - World bounds (y < 0): Water drains into void and is destroyed
+    /// - Unloaded chunks: Water is blocked (treated as solid wall)
+    fn process_water_simulation(&mut self) {
+        if !self.water_simulation_enabled {
+            return;
+        }
+
+        let player_pos = self.player_feet_pos().cast::<f32>();
+        let texture_height = TEXTURE_SIZE_Y as i32;
+
+        // Create a closure that checks if a block is solid
+        // Also returns true for unloaded chunks (blocks water flow until chunk loads)
+        let world = &self.world;
+        let is_solid = |pos: Vector3<i32>| -> bool {
+            // Check Y bounds first
+            if pos.y < 0 || pos.y >= texture_height {
+                return true; // Out of bounds = solid (blocks flow)
+            }
+            // For loaded chunks, check if block is solid
+            // For unloaded chunks, get_block returns None, treat as solid (block flow)
+            world.get_block(pos).map(|b| b.is_solid()).unwrap_or(true) // Unloaded chunk = treat as solid wall
+        };
+
+        // Check if position is truly out of world bounds (water should drain here)
+        // Only Y < 0 is considered "out of bounds" for draining
+        // Water at unloaded chunk boundaries should NOT drain, just be blocked
+        let is_out_of_bounds = |pos: Vector3<i32>| -> bool {
+            pos.y < 0 // Only drain water that falls below the world
+        };
+
+        // Run water simulation tick
+        let changed_positions = self.water_grid.tick(is_solid, is_out_of_bounds, player_pos);
+
+        // Update world blocks and GPU for changed water cells
+        for pos in changed_positions {
+            // Skip out-of-bounds positions
+            if pos.y < 0 || pos.y >= texture_height {
+                continue;
+            }
+
+            let has_water = self.water_grid.has_water(pos);
+            let current_block = self.world.get_block(pos);
+
+            match (current_block, has_water) {
+                (Some(BlockType::Air), true) => {
+                    // Air became water
+                    self.world.set_block(pos, BlockType::Water);
+                    self.invalidate_minimap_cache(pos.x, pos.z);
+                }
+                (Some(BlockType::Water), false) => {
+                    // Water evaporated/drained
+                    self.world.set_block(pos, BlockType::Air);
+                    self.invalidate_minimap_cache(pos.x, pos.z);
+                }
+                _ => {
+                    // No block type change needed, but may need GPU update for water level
+                    // (This will be used when shader supports variable water heights)
+                }
+            }
+        }
+    }
+
+    /// Checks adjacent blocks for terrain water (BlockType::Water that exists in the world
+    /// but not yet in the water grid) and adds them to the water grid.
+    ///
+    /// This is called when a block is broken to allow nearby static terrain water
+    /// to start flowing into the newly empty space.
+    fn activate_adjacent_terrain_water(&mut self, pos: Vector3<i32>) {
+        let directions = [
+            Vector3::new(1, 0, 0),
+            Vector3::new(-1, 0, 0),
+            Vector3::new(0, 1, 0),
+            Vector3::new(0, -1, 0),
+            Vector3::new(0, 0, 1),
+            Vector3::new(0, 0, -1),
+        ];
+
+        for dir in directions {
+            let neighbor = pos + dir;
+
+            // Skip if out of Y bounds
+            if neighbor.y < 0 || neighbor.y >= TEXTURE_SIZE_Y as i32 {
+                continue;
+            }
+
+            // Check if this neighbor is terrain water
+            if let Some(BlockType::Water) = self.world.get_block(neighbor) {
+                // If it's not already in the water grid, add it as a source
+                // (terrain water is treated as infinite source until we convert all water)
+                if !self.water_grid.has_water(neighbor) {
+                    self.water_grid.place_source(neighbor);
+                } else {
+                    // Already in grid, just activate it for flow
+                    self.water_grid.activate_neighbors(neighbor);
+                }
+            }
+        }
+    }
+
+    /// Finds the surface block at a given X, Z world coordinate.
+    /// Returns the block type and Y height of the topmost non-air block.
+    /// Uses cached values when available.
+    fn find_surface_block(&mut self, world_x: i32, world_z: i32) -> (BlockType, i32) {
+        // Check cache first
+        if let Some(&cached) = self.minimap_height_cache.get(&(world_x, world_z)) {
+            return cached;
+        }
+
+        // Calculate and cache
+        let result = self.calculate_surface_block(world_x, world_z);
+        self.minimap_height_cache.insert((world_x, world_z), result);
+        result
+    }
+
+    /// Invalidates the minimap height cache for a given (x, z) position.
+    fn invalidate_minimap_cache(&mut self, world_x: i32, world_z: i32) {
+        self.minimap_height_cache.remove(&(world_x, world_z));
+    }
+
+    /// Calculates the surface block without caching (for internal use).
+    fn calculate_surface_block(&self, world_x: i32, world_z: i32) -> (BlockType, i32) {
+        for y in (0..TEXTURE_SIZE_Y as i32).rev() {
+            if let Some(block) = self.world.get_block(Vector3::new(world_x, y, world_z)) {
+                if block != BlockType::Air {
+                    return (block, y);
+                }
+            }
+        }
+        (BlockType::Air, 0)
+    }
+
+    /// Gets the color for a minimap pixel based on block type and height.
+    fn get_minimap_color(&self, block: BlockType, height: i32) -> egui::Color32 {
+        let base_color = block.color();
+        let (r, g, b) = (base_color[0], base_color[1], base_color[2]);
+
+        match self.minimap_color_mode {
+            0 => {
+                // Block colors only
+                egui::Color32::from_rgb((r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8)
+            }
+            1 => {
+                // Height shading only (grayscale)
+                let brightness = ((height as f32 / 128.0) * 200.0 + 55.0).min(255.0) as u8;
+                egui::Color32::from_rgb(brightness, brightness, brightness)
+            }
+            _ => {
+                // Both: block colors with height brightness
+                let height_factor = 0.5 + (height as f32 / 128.0) * 0.5;
+                egui::Color32::from_rgb(
+                    (r * 255.0 * height_factor).min(255.0) as u8,
+                    (g * 255.0 * height_factor).min(255.0) as u8,
+                    (b * 255.0 * height_factor).min(255.0) as u8,
+                )
+            }
+        }
+    }
+
+    /// Generates a minimap image centered on the player's position.
+    /// When rotate is enabled, samples from a larger area to fill corners after rotation.
+    /// Returns a ColorImage that can be loaded as a texture.
+    fn generate_minimap_image(&mut self, player_pos: Vector3<f64>, yaw: f32) -> egui::ColorImage {
+        let display_size = self.minimap_size as usize;
+        let center_x = player_pos.x as f32;
+        let center_z = player_pos.z as f32;
+
+        // Base sample radius adjusted by zoom (higher zoom = larger area = zoomed out)
+        // When rotating, multiply by sqrt(2) ≈ 1.42 to fill corners
+        let base_radius = (display_size as f32 / 2.0) * self.minimap_zoom;
+        let sample_radius = if self.minimap_rotate {
+            base_radius * 1.42
+        } else {
+            base_radius
+        };
+
+        let mut pixels = vec![egui::Color32::BLACK; display_size * display_size];
+
+        // Precompute rotation (rotate world coords to align with player facing direction)
+        let (sin_yaw, cos_yaw) = if self.minimap_rotate {
+            (yaw.sin(), yaw.cos())
+        } else {
+            (0.0, 1.0) // No rotation
+        };
+
+        let half = display_size as f32 / 2.0;
+
+        for dz in 0..display_size {
+            for dx in 0..display_size {
+                // Screen-space offset from center (-half to +half)
+                let sx = dx as f32 - half;
+                let sz = dz as f32 - half;
+
+                // Scale to sample radius
+                let scale = sample_radius / half;
+                let scaled_x = sx * scale;
+                let scaled_z = sz * scale;
+
+                // Apply rotation to get world-space offset
+                // Screen right (+sx) maps to player's right direction
+                // Screen down (+sz) maps to player's backward direction
+                let world_offset_x = scaled_x * cos_yaw + scaled_z * sin_yaw;
+                let world_offset_z = -scaled_x * sin_yaw + scaled_z * cos_yaw;
+
+                let world_x = (center_x + world_offset_x).floor() as i32;
+                let world_z = (center_z + world_offset_z).floor() as i32;
+
+                // Find surface block (top-down)
+                let (block_type, height) = self.find_surface_block(world_x, world_z);
+
+                // Calculate color based on mode
+                let color = self.get_minimap_color(block_type, height);
+
+                pixels[dz * display_size + dx] = color;
+            }
+        }
+
+        egui::ColorImage {
+            size: [display_size, display_size],
+            pixels,
         }
     }
 
@@ -2654,13 +4542,14 @@ impl App {
         }
 
         // Collect chunk data for all dirty chunks
-        let chunks_to_upload: Vec<(Vector3<i32>, Vec<u8>)> = dirty_positions
+        let chunks_to_upload: Vec<(Vector3<i32>, Vec<u8>, Vec<u8>)> = dirty_positions
             .iter()
             .filter_map(|&pos| {
                 self.world.get_chunk_mut(pos).map(|chunk| {
-                    let data = chunk.to_block_data();
+                    let block_data = chunk.to_block_data();
+                    let model_metadata = chunk.to_model_metadata();
                     chunk.mark_clean();
-                    (pos, data)
+                    (pos, block_data, model_metadata)
                 })
             })
             .collect();
@@ -2670,23 +4559,34 @@ impl App {
             // Convert to slice references for upload
             let upload_refs: Vec<_> = chunks_to_upload
                 .iter()
-                .map(|(pos, data)| (*pos, data.as_slice()))
+                .map(|(pos, block_data, model_metadata)| {
+                    (*pos, block_data.as_slice(), model_metadata.as_slice())
+                })
                 .collect();
             self.upload_chunks_batched(&upload_refs);
+
+            // Update metadata so shader doesn't skip newly non-empty bricks
+            self.update_chunk_metadata();
+            self.update_brick_metadata();
         }
     }
 
     /// Uploads multiple chunks to the GPU in a single batched command buffer.
     /// This is much faster than uploading chunks one at a time.
-    fn upload_chunks_batched(&self, chunks: &[(Vector3<i32>, &[u8])]) {
+    ///
+    /// Each chunk tuple contains: (chunk_position, block_data, model_metadata)
+    /// - block_data: R8_UINT format, one byte per block
+    /// - model_metadata: RG8_UINT format, two bytes per block (model_id, rotation)
+    fn upload_chunks_batched(&self, chunks: &[(Vector3<i32>, &[u8], &[u8])]) {
         if chunks.is_empty() {
             return;
         }
 
-        // Create staging buffers for all chunks
-        let mut buffers_and_regions = Vec::with_capacity(chunks.len());
+        // Create staging buffers for all chunks (both block data and model metadata)
+        let mut block_buffers_and_regions = Vec::with_capacity(chunks.len());
+        let mut metadata_buffers_and_regions = Vec::with_capacity(chunks.len());
 
-        for (chunk_pos, block_data) in chunks {
+        for (chunk_pos, block_data, model_metadata) in chunks {
             // Convert world chunk position to texture position
             // World block position = chunk_pos * CHUNK_SIZE
             // Texture block position = world_block_pos - texture_origin
@@ -2711,7 +4611,8 @@ impl App {
 
             let offset = [texture_x as u32, texture_y as u32, texture_z as u32];
 
-            let src_buffer = Buffer::from_iter(
+            // Block data buffer (R8_UINT)
+            let block_buffer = Buffer::from_iter(
                 self.memory_allocator.clone(),
                 BufferCreateInfo {
                     usage: BufferUsage::TRANSFER_SRC,
@@ -2726,7 +4627,7 @@ impl App {
             )
             .unwrap();
 
-            let region = BufferImageCopy {
+            let block_region = BufferImageCopy {
                 buffer_offset: 0,
                 buffer_row_length: CHUNK_SIZE as u32,
                 buffer_image_height: CHUNK_SIZE as u32,
@@ -2736,7 +4637,35 @@ impl App {
                 ..Default::default()
             };
 
-            buffers_and_regions.push((src_buffer, region));
+            block_buffers_and_regions.push((block_buffer, block_region));
+
+            // Model metadata buffer (RG8_UINT - 2 bytes per block)
+            let metadata_buffer = Buffer::from_iter(
+                self.memory_allocator.clone(),
+                BufferCreateInfo {
+                    usage: BufferUsage::TRANSFER_SRC,
+                    ..Default::default()
+                },
+                AllocationCreateInfo {
+                    memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+                        | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                    ..Default::default()
+                },
+                model_metadata.iter().copied(),
+            )
+            .unwrap();
+
+            let metadata_region = BufferImageCopy {
+                buffer_offset: 0,
+                buffer_row_length: CHUNK_SIZE as u32,
+                buffer_image_height: CHUNK_SIZE as u32,
+                image_subresource: self.model_metadata.subresource_layers(),
+                image_offset: offset,
+                image_extent: [CHUNK_SIZE as u32, CHUNK_SIZE as u32, CHUNK_SIZE as u32],
+                ..Default::default()
+            };
+
+            metadata_buffers_and_regions.push((metadata_buffer, metadata_region));
         }
 
         // Build single command buffer with all copies
@@ -2747,11 +4676,22 @@ impl App {
         )
         .unwrap();
 
-        for (src_buffer, region) in buffers_and_regions {
+        // Copy block data to voxel_image
+        for (src_buffer, region) in block_buffers_and_regions {
             command_buffer_builder
                 .copy_buffer_to_image(CopyBufferToImageInfo {
                     regions: [region].into(),
                     ..CopyBufferToImageInfo::buffer_image(src_buffer, self.voxel_image.clone())
+                })
+                .unwrap();
+        }
+
+        // Copy model metadata to model_metadata image
+        for (src_buffer, region) in metadata_buffers_and_regions {
+            command_buffer_builder
+                .copy_buffer_to_image(CopyBufferToImageInfo {
+                    regions: [region].into(),
+                    ..CopyBufferToImageInfo::buffer_image(src_buffer, self.model_metadata.clone())
                 })
                 .unwrap();
         }
@@ -2770,11 +4710,11 @@ impl App {
 
     /// Uploads all dirty chunks to GPU at once (used for initial world load).
     fn upload_all_dirty_chunks(&mut self) {
-        let chunks_to_upload: Vec<(Vector3<i32>, Vec<u8>)> = self
+        let chunks_to_upload: Vec<(Vector3<i32>, Vec<u8>, Vec<u8>)> = self
             .world
             .chunks()
             .filter(|(_, chunk)| chunk.dirty)
-            .map(|(pos, chunk)| (*pos, chunk.to_block_data()))
+            .map(|(pos, chunk)| (*pos, chunk.to_block_data(), chunk.to_model_metadata()))
             .collect();
 
         if chunks_to_upload.is_empty() {
@@ -2789,12 +4729,14 @@ impl App {
         // Upload all at once - convert to slice references
         let upload_refs: Vec<_> = chunks_to_upload
             .iter()
-            .map(|(pos, data)| (*pos, data.as_slice()))
+            .map(|(pos, block_data, model_metadata)| {
+                (*pos, block_data.as_slice(), model_metadata.as_slice())
+            })
             .collect();
         self.upload_chunks_batched(&upload_refs);
 
         // Mark all as clean
-        for (pos, _) in &chunks_to_upload {
+        for (pos, _, _) in &chunks_to_upload {
             if let Some(chunk) = self.world.get_chunk_mut(*pos) {
                 chunk.mark_clean();
             }
@@ -3006,13 +4948,17 @@ impl App {
     /// Returns the number of chunks uploaded.
     #[allow(dead_code)]
     fn upload_dirty_chunks(&mut self) -> usize {
-        let mut chunks_to_upload: Vec<(Vector3<i32>, Vec<u8>)> = Vec::new();
+        let mut chunks_to_upload: Vec<(Vector3<i32>, Vec<u8>, Vec<u8>)> = Vec::new();
         let mut dirty_positions: Vec<Vector3<i32>> = Vec::new();
 
         // Collect dirty chunks from all loaded chunks
         for (chunk_pos, chunk) in self.world.chunks() {
             if chunk.dirty {
-                chunks_to_upload.push((*chunk_pos, chunk.to_block_data()));
+                chunks_to_upload.push((
+                    *chunk_pos,
+                    chunk.to_block_data(),
+                    chunk.to_model_metadata(),
+                ));
                 dirty_positions.push(*chunk_pos);
                 if chunks_to_upload.len() >= CHUNKS_PER_FRAME {
                     break;
@@ -3027,7 +4973,9 @@ impl App {
             // Convert to slice references for upload
             let upload_refs: Vec<_> = chunks_to_upload
                 .iter()
-                .map(|(pos, data)| (*pos, data.as_slice()))
+                .map(|(pos, block_data, model_metadata)| {
+                    (*pos, block_data.as_slice(), model_metadata.as_slice())
+                })
                 .collect();
             self.upload_chunks_batched(&upload_refs);
 
@@ -3046,7 +4994,8 @@ impl App {
         uploaded
     }
 
-    /// Collects all torch positions in the world and returns them as GPU light data.
+    /// Collects all light-emitting blocks (including model blocks like torches)
+    /// and returns them as GPU light data.
     fn collect_torch_lights(&self) -> Vec<GpuLight> {
         let mut lights = Vec::new();
 
@@ -3066,12 +5015,45 @@ impl App {
 
         // Iterate over all loaded chunks
         for (chunk_pos, chunk) in self.world.chunks() {
-            // Scan chunk for torches
+            // Scan chunk for light-emitting blocks
             for lx in 0..CHUNK_SIZE {
                 for ly in 0..CHUNK_SIZE {
                     for lz in 0..CHUNK_SIZE {
                         let block = chunk.get_block(lx, ly, lz);
-                        if let Some((color, radius)) = block.light_properties() {
+
+                        // Check for Model blocks with emission
+                        if block == BlockType::Model {
+                            if let Some(model_data) = chunk.get_model_data(lx, ly, lz) {
+                                if let Some(model) = self.model_registry.get(model_data.model_id) {
+                                    if let Some(emission) = &model.emission {
+                                        // Calculate world position (center of block)
+                                        let world_x = chunk_pos.x * CHUNK_SIZE as i32 + lx as i32;
+                                        let world_y = chunk_pos.y * CHUNK_SIZE as i32 + ly as i32;
+                                        let world_z = chunk_pos.z * CHUNK_SIZE as i32 + lz as i32;
+
+                                        // Convert to texture coordinates
+                                        let tex_x = (world_x - self.texture_origin.x) as f32 + 0.5;
+                                        let tex_y = (world_y - self.texture_origin.y) as f32 + 0.5;
+                                        let tex_z = (world_z - self.texture_origin.z) as f32 + 0.5;
+
+                                        let r = emission.r as f32 / 255.0;
+                                        let g = emission.g as f32 / 255.0;
+                                        let b = emission.b as f32 / 255.0;
+
+                                        lights.push(GpuLight {
+                                            pos_radius: [tex_x, tex_y, tex_z, 10.0], // Torch radius
+                                            color_intensity: [r, g, b, 1.2],
+                                        });
+
+                                        if lights.len() >= MAX_LIGHTS {
+                                            return lights;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        // Also check regular block light properties (for future non-model lights)
+                        else if let Some((color, radius)) = block.light_properties() {
                             // Calculate world position (center of block)
                             let world_x = chunk_pos.x * CHUNK_SIZE as i32 + lx as i32;
                             let world_y = chunk_pos.y * CHUNK_SIZE as i32 + ly as i32;
@@ -3250,23 +5232,42 @@ impl App {
         self.animation_time += delta_time as f32;
 
         // Update particle system with world collision
+        // Note: X and Z can be any value in an infinite world, only Y has bounds
         let world = &self.world;
-        let world_extent = self.world_extent;
         self.particles.update(delta_time as f32, |x, y, z| {
-            // Bounds check
-            if x < 0 || y < 0 || z < 0 {
+            // Y bounds check only (X and Z are infinite)
+            if y < 0 || y >= TEXTURE_SIZE_Y as i32 {
                 return false;
             }
-            if x >= world_extent[0] as i32
-                || y >= world_extent[1] as i32
-                || z >= world_extent[2] as i32
-            {
-                return false;
-            }
+            // Check if block is solid - world.get_block handles infinite X/Z
             world
                 .get_block(Vector3::new(x, y, z))
                 .is_some_and(|b| b.is_solid())
         });
+
+        // Update falling blocks with world collision
+        // Note: X and Z can be any value in an infinite world, only Y has bounds
+        let landed = self.falling_blocks.update(delta_time as f32, |x, y, z| {
+            // Y bounds check only (X and Z are infinite)
+            if y < 0 || y >= TEXTURE_SIZE_Y as i32 {
+                return false;
+            }
+            // Check if block is solid - world.get_block handles infinite X/Z
+            world
+                .get_block(Vector3::new(x, y, z))
+                .is_some_and(|b| b.is_solid())
+        });
+
+        // Process any blocks that have landed
+        if !landed.is_empty() {
+            self.process_landed_blocks(landed);
+        }
+
+        // Process queued block physics updates (frame-distributed to prevent FPS spikes)
+        self.process_block_updates();
+
+        // Process water flow simulation (frame-distributed)
+        self.process_water_simulation();
 
         if self.focused {
             // Update player physics (movement, gravity, collisions)
@@ -3286,9 +5287,9 @@ impl App {
             let ds = self.input.scroll_diff();
             if ds.1.abs() > 0.1 {
                 self.hotbar_index = if ds.1 > 0.0 {
-                    (self.hotbar_index + HOTBAR_BLOCKS.len() - 1) % HOTBAR_BLOCKS.len()
+                    (self.hotbar_index + self.hotbar_blocks.len() - 1) % self.hotbar_blocks.len()
                 } else {
-                    (self.hotbar_index + 1) % HOTBAR_BLOCKS.len()
+                    (self.hotbar_index + 1) % self.hotbar_blocks.len()
                 };
             }
 
@@ -3351,10 +5352,14 @@ impl App {
                 }
             }
 
-            // Block placing (instant on click)
-            if self.input.mouse_pressed(MouseButton::Right) {
-                self.place_block();
+            // Toggle minimap (M key)
+            if self.input.key_pressed(KeyCode::KeyM) {
+                self.show_minimap = !self.show_minimap;
+                println!("Minimap: {}", if self.show_minimap { "ON" } else { "OFF" });
             }
+
+            // Block placing - continuous when holding right mouse button
+            self.update_block_placing(delta_time as f32);
         }
 
         // Update raycast for block selection
@@ -3378,6 +5383,31 @@ impl App {
             self.breaking_block = None;
             self.break_progress = 0.0;
         }
+
+        // Middle-click block picker: pick block type under cursor
+        if self.focused && self.input.mouse_pressed(MouseButton::Middle) {
+            if let Some(hit) = self.current_hit {
+                if let Some(block_type) = self.world.get_block(hit.block_pos) {
+                    if block_type != BlockType::Air {
+                        // Check if block type is already in hotbar
+                        if let Some(idx) = self.hotbar_blocks.iter().position(|&b| b == block_type)
+                        {
+                            // Switch to that slot
+                            self.hotbar_index = idx;
+                            println!("Picked {:?} (slot {})", block_type, idx + 1);
+                        } else {
+                            // Replace current slot with the picked block
+                            self.hotbar_blocks[self.hotbar_index] = block_type;
+                            println!(
+                                "Replaced slot {} with {:?}",
+                                self.hotbar_index + 1,
+                                block_type
+                            );
+                        }
+                    }
+                }
+            }
+        }
     }
 
     fn render(&mut self, _event_loop: &ActiveEventLoop) {
@@ -3391,6 +5421,52 @@ impl App {
         let player_world_pos = self.player_feet_pos();
         let selected_block = self.selected_block();
         let hotbar_index = self.hotbar_index;
+        let hotbar_blocks = self.hotbar_blocks;
+        let hotbar_model_ids = self.hotbar_model_ids;
+
+        // Pre-generate minimap image if showing (before entering gui closure)
+        // Throttle updates based on position change and rotation change
+        let camera_yaw = self.camera.rotation.y as f32;
+        let minimap_image: Option<egui::ColorImage> = if self.show_minimap {
+            let current_pos = Vector3::new(
+                player_world_pos.x.floor() as i32,
+                player_world_pos.y.floor() as i32,
+                player_world_pos.z.floor() as i32,
+            );
+            // Check if player moved at least 1 block
+            let moved = (current_pos.x - self.minimap_last_pos.x).abs() >= 1
+                || (current_pos.z - self.minimap_last_pos.z).abs() >= 1;
+            // Check if player rotated significantly (5 degrees) - only matters when rotate mode is on
+            let yaw_changed =
+                self.minimap_rotate && (camera_yaw - self.minimap_last_yaw).abs() > 0.087; // ~5 degrees
+            // Check if enough time has passed (0.1 seconds for rotation, 0.5 for position)
+            let time_elapsed = self.minimap_last_update.elapsed().as_secs_f32();
+            let time_ok = if self.minimap_rotate {
+                time_elapsed >= 0.1 // Faster updates for rotation
+            } else {
+                time_elapsed >= 0.5
+            };
+
+            if ((moved || yaw_changed) && time_ok) || self.minimap_cached_image.is_none() {
+                // Update last position/time/yaw and regenerate
+                self.minimap_last_pos = current_pos;
+                self.minimap_last_update = Instant::now();
+                self.minimap_last_yaw = camera_yaw;
+                let image = self.generate_minimap_image(player_world_pos, camera_yaw);
+                self.minimap_cached_image = Some(image.clone());
+                Some(image)
+            } else {
+                // Use cached image
+                self.minimap_cached_image.clone()
+            }
+        } else {
+            None
+        };
+        // Get minimap settings for HUD
+        let show_minimap = self.show_minimap;
+        let minimap_size = self.minimap_size;
+        let minimap_rotate = self.minimap_rotate;
+        let show_compass = self.show_compass;
 
         let rcx = self.rcx.as_mut().unwrap();
 
@@ -3479,6 +5555,7 @@ impl App {
                         .corner_radius(egui::CornerRadius::same(4))
                         .inner_margin(egui::Margin::symmetric(8, 4))
                         .show(ui, |ui| {
+                            ui.set_min_width(100.0);
                             ui.label(
                                 egui::RichText::new(format!("FPS: {}", self.fps))
                                     .color(egui::Color32::WHITE)
@@ -3553,253 +5630,402 @@ impl App {
                 .default_open(false)
                 .default_pos(egui::pos2(10.0, 40.0))
                 .show(&ctx, |ui| {
-                    ui.label("Controls:");
-                    ui.label("  WASD - Move");
-                    ui.label("  Space - Jump");
-                    ui.label("  Space/Shift - Up/Down (fly & swim)");
-                    ui.label("  Mouse - Look around");
-                    ui.label("  Scroll - Select block");
-                    ui.label("  Ctrl - Toggle sprint");
-                    ui.label("  F - Toggle fly mode");
-                    ui.label("  B - Toggle chunk boundaries");
-                    ui.label("  Left Click - Break block");
-                    ui.label("  Right Click - Place block");
-                    ui.label("  1-9 - Select block type (9=Torch)");
-                    ui.label("  Escape - Release cursor");
-                    ui.separator();
+                    egui::ScrollArea::vertical()
+                        .max_height(500.0)
+                        .show(ui, |ui| {
+                            ui.label("Controls:");
+                            ui.label("  WASD - Move");
+                            ui.label("  Space - Jump");
+                            ui.label("  Space/Shift - Up/Down (fly, swim & climb)");
+                            ui.label("  Mouse - Look around");
+                            ui.label("  Scroll - Select block");
+                            ui.label("  Ctrl - Toggle sprint");
+                            ui.label("  F - Toggle fly mode");
+                            ui.label("  B - Toggle chunk boundaries");
+                            ui.label("  Left Click - Break block");
+                            ui.label("  Right Click - Place block");
+                            ui.label("  1-9 - Select block type (8=Ladder, 9=Torch)");
+                            ui.label("  Escape - Release cursor");
+                            ui.separator();
 
-                    ui.label(format!("Chunks: {}", self.world.chunk_count()));
-                    if self.in_water {
-                        ui.colored_label(egui::Color32::from_rgb(100, 150, 255), "🌊 UNDERWATER");
-                    }
-
-                    ui.separator();
-
-                    // Block selection
-                    ui.label(format!("Selected: {:?}", selected_block));
-                    if let Some(hit) = &self.current_hit {
-                        let block_type = self.world.get_block(hit.block_pos);
-                        let block_name = block_type
-                            .map(|b| format!("{:?}", b))
-                            .unwrap_or_else(|| "Unknown".to_string());
-                        ui.label(format!(
-                            "Looking at: {} ({}, {}, {})",
-                            block_name, hit.block_pos.x, hit.block_pos.y, hit.block_pos.z
-                        ));
-                        ui.label(format!("Distance: {:.1}", hit.distance));
-                    } else {
-                        ui.label("Looking at: (nothing)");
-                    }
-
-                    ui.separator();
-
-                    // Debug render mode
-                    ui.label("Render Mode:");
-                    ui.horizontal(|ui| {
-                        for &mode in RenderMode::ALL {
-                            ui.selectable_value(&mut self.render_mode, mode, format!("{:?}", mode));
-                        }
-                    });
-
-                    ui.separator();
-
-                    ui.add(egui::Slider::new(&mut self.camera.fov, 20.0..=120.0).text("FOV"));
-
-                    if ui
-                        .add(
-                            egui::Slider::new(&mut self.render_scale, 0.25..=2.0)
-                                .text("Render Scale"),
-                        )
-                        .changed()
-                    {
-                        let window_extent: [u32; 2] = rcx.window.inner_size().into();
-                        let render_extent = [
-                            (window_extent[0] as f32 * self.render_scale) as u32,
-                            (window_extent[1] as f32 * self.render_scale) as u32,
-                        ];
-                        (
-                            rcx.render_image,
-                            rcx.render_set,
-                            rcx.resample_image,
-                            rcx.resample_set,
-                        ) = get_images_and_sets(
-                            self.memory_allocator.clone(),
-                            self.descriptor_set_allocator.clone(),
-                            &self.render_pipeline,
-                            &self.resample_pipeline,
-                            render_extent,
-                            window_extent,
-                        );
-                        // Recreate distance buffer for two-pass beam optimization
-                        (rcx.distance_image, rcx.distance_set) = get_distance_image_and_set(
-                            self.memory_allocator.clone(),
-                            self.descriptor_set_allocator.clone(),
-                            &self.render_pipeline,
-                            render_extent,
-                        );
-                    }
-
-                    ui.separator();
-
-                    // Day/night cycle controls
-                    ui.label("Day/Night Cycle:");
-                    ui.checkbox(&mut self.day_cycle_paused, "Pause cycle");
-                    let time_label = match (self.time_of_day * 4.0) as u32 {
-                        0 => "Night",
-                        1 => "Sunrise",
-                        2 => "Day",
-                        3 => "Sunset",
-                        _ => "Day",
-                    };
-                    ui.add(
-                        egui::Slider::new(&mut self.time_of_day, 0.0..=1.0)
-                            .text(time_label)
-                            .custom_formatter(|v, _| {
-                                let hours = ((v * 24.0) + 6.0) % 24.0; // 0.0 = 6am, 0.5 = 6pm
-                                let h = hours as u32;
-                                let m = ((hours - h as f64) * 60.0) as u32;
-                                format!("{:02}:{:02}", h, m)
-                            }),
-                    );
-                    ui.add(
-                        egui::Slider::new(&mut self.ambient_light, 0.0..=1.0).text("Ambient Light"),
-                    );
-                    ui.add(egui::Slider::new(&mut self.fog_density, 0.0..=0.1).text("Fog Density"));
-                    ui.add(egui::Slider::new(&mut self.fog_start, 0.0..=128.0).text("Fog Start"));
-                    ui.checkbox(&mut self.fog_affects_sky, "Fog Affects Sky");
-                    if ui
-                        .add(
-                            egui::Slider::new(&mut self.max_ray_steps, 128..=1024)
-                                .text("Ray Steps"),
-                        )
-                        .changed()
-                    {
-                        println!("[SETTING] Ray Steps: {}", self.max_ray_steps);
-                    }
-                    if ui
-                        .add(
-                            egui::Slider::new(&mut self.view_distance, 2..=10)
-                                .text("View Distance"),
-                        )
-                        .changed()
-                    {
-                        println!("[SETTING] View Distance: {} chunks", self.view_distance);
-                        // Ensure unload distance is at least view distance + 1
-                        if self.unload_distance <= self.view_distance {
-                            self.unload_distance = self.view_distance + 2;
-                        }
-                    }
-                    if ui
-                        .add(
-                            egui::Slider::new(&mut self.unload_distance, 3..=12)
-                                .text("Unload Distance"),
-                        )
-                        .changed()
-                    {
-                        println!("[SETTING] Unload Distance: {} chunks", self.unload_distance);
-                        // Ensure unload distance is greater than view distance
-                        if self.unload_distance <= self.view_distance {
-                            self.unload_distance = self.view_distance + 2;
-                        }
-                    }
-
-                    ui.separator();
-                    ui.label("Feature Toggles (for FPS profiling):");
-                    if ui
-                        .checkbox(&mut self.enable_ao, "Ambient Occlusion")
-                        .changed()
-                    {
-                        println!(
-                            "[TOGGLE] Ambient Occlusion: {}",
-                            if self.enable_ao { "ON" } else { "OFF" }
-                        );
-                    }
-                    if ui
-                        .checkbox(&mut self.enable_shadows, "Sun Shadows")
-                        .changed()
-                    {
-                        println!(
-                            "[TOGGLE] Sun Shadows: {}",
-                            if self.enable_shadows { "ON" } else { "OFF" }
-                        );
-                    }
-                    if ui
-                        .checkbox(&mut self.enable_point_lights, "Point Lights (torches)")
-                        .changed()
-                    {
-                        println!(
-                            "[TOGGLE] Point Lights: {}",
-                            if self.enable_point_lights {
-                                "ON"
-                            } else {
-                                "OFF"
+                            ui.label(format!("Chunks: {}", self.world.chunk_count()));
+                            if self.in_water {
+                                ui.colored_label(
+                                    egui::Color32::from_rgb(100, 150, 255),
+                                    "🌊 UNDERWATER",
+                                );
                             }
-                        );
-                    }
 
-                    ui.separator();
-                    ui.label("LOD Distances (lower = faster):");
-                    ui.horizontal(|ui| {
-                        ui.label("AO:");
-                        if ui
-                            .add(
-                                egui::Slider::new(&mut self.lod_ao_distance, 8.0..=64.0)
-                                    .suffix(" blocks"),
-                            )
-                            .changed()
-                        {
-                            println!("[LOD] AO distance: {:.0}", self.lod_ao_distance);
-                        }
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label("Shadows:");
-                        if ui
-                            .add(
-                                egui::Slider::new(&mut self.lod_shadow_distance, 16.0..=128.0)
-                                    .suffix(" blocks"),
-                            )
-                            .changed()
-                        {
-                            println!("[LOD] Shadow distance: {:.0}", self.lod_shadow_distance);
-                        }
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label("Lights:");
-                        if ui
-                            .add(
-                                egui::Slider::new(&mut self.lod_point_light_distance, 8.0..=48.0)
-                                    .suffix(" blocks"),
-                            )
-                            .changed()
-                        {
-                            println!(
-                                "[LOD] Point light distance: {:.0}",
-                                self.lod_point_light_distance
+                            ui.separator();
+
+                            // Block selection
+                            ui.label(format!("Selected: {:?}", selected_block));
+                            if let Some(hit) = &self.current_hit {
+                                let block_type = self.world.get_block(hit.block_pos);
+                                let block_name = block_type
+                                    .map(|b| format!("{:?}", b))
+                                    .unwrap_or_else(|| "Unknown".to_string());
+                                ui.label(format!(
+                                    "Looking at: {} ({}, {}, {})",
+                                    block_name, hit.block_pos.x, hit.block_pos.y, hit.block_pos.z
+                                ));
+                                ui.label(format!("Distance: {:.1}", hit.distance));
+                            } else {
+                                ui.label("Looking at: (nothing)");
+                            }
+
+                            ui.separator();
+
+                            // Debug render mode
+                            ui.label("Render Mode:");
+                            ui.horizontal(|ui| {
+                                for &mode in RenderMode::ALL {
+                                    ui.selectable_value(
+                                        &mut self.render_mode,
+                                        mode,
+                                        format!("{:?}", mode),
+                                    );
+                                }
+                            });
+
+                            ui.separator();
+
+                            ui.add(
+                                egui::Slider::new(&mut self.camera.fov, 20.0..=120.0).text("FOV"),
                             );
-                        }
-                    });
 
-                    ui.separator();
+                            if ui
+                                .add(
+                                    egui::Slider::new(&mut self.render_scale, 0.25..=2.0)
+                                        .text("Render Scale"),
+                                )
+                                .changed()
+                            {
+                                let window_extent: [u32; 2] = rcx.window.inner_size().into();
+                                let render_extent = [
+                                    (window_extent[0] as f32 * self.render_scale) as u32,
+                                    (window_extent[1] as f32 * self.render_scale) as u32,
+                                ];
+                                (
+                                    rcx.render_image,
+                                    rcx.render_set,
+                                    rcx.resample_image,
+                                    rcx.resample_set,
+                                ) = get_images_and_sets(
+                                    self.memory_allocator.clone(),
+                                    self.descriptor_set_allocator.clone(),
+                                    &self.render_pipeline,
+                                    &self.resample_pipeline,
+                                    render_extent,
+                                    window_extent,
+                                );
+                                // Recreate distance buffer for two-pass beam optimization
+                                (rcx.distance_image, rcx.distance_set) = get_distance_image_and_set(
+                                    self.memory_allocator.clone(),
+                                    self.descriptor_set_allocator.clone(),
+                                    &self.render_pipeline,
+                                    render_extent,
+                                );
+                            }
 
-                    // Gameplay options
-                    ui.checkbox(&mut self.instant_break, "Instant block break");
-                    if ui
-                        .checkbox(&mut self.player_light, "Player torch light")
-                        .changed()
-                    {
-                        println!(
-                            "[TOGGLE] Player Light: {}",
-                            if self.player_light { "ON" } else { "OFF" }
-                        );
-                    }
+                            ui.separator();
 
-                    ui.separator();
+                            // Day/night cycle controls
+                            ui.label("Day/Night Cycle:");
+                            ui.checkbox(&mut self.day_cycle_paused, "Pause cycle");
+                            let time_label = match (self.time_of_day * 4.0) as u32 {
+                                0 => "Night",
+                                1 => "Sunrise",
+                                2 => "Day",
+                                3 => "Sunset",
+                                _ => "Day",
+                            };
+                            ui.add(
+                                egui::Slider::new(&mut self.time_of_day, 0.0..=1.0)
+                                    .text(time_label)
+                                    .custom_formatter(|v, _| {
+                                        let hours = ((v * 24.0) + 6.0) % 24.0; // 0.0 = 6am, 0.5 = 6pm
+                                        let h = hours as u32;
+                                        let m = ((hours - h as f64) * 60.0) as u32;
+                                        format!("{:02}:{:02}", h, m)
+                                    }),
+                            );
+                            ui.add(
+                                egui::Slider::new(&mut self.ambient_light, 0.0..=1.0)
+                                    .text("Ambient Light"),
+                            );
+                            ui.add(
+                                egui::Slider::new(&mut self.fog_density, 0.0..=0.1)
+                                    .text("Fog Density"),
+                            );
+                            ui.add(
+                                egui::Slider::new(&mut self.fog_start, 0.0..=128.0)
+                                    .text("Fog Start"),
+                            );
+                            ui.checkbox(&mut self.fog_affects_sky, "Fog Affects Sky");
+                            if ui
+                                .add(
+                                    egui::Slider::new(&mut self.max_ray_steps, 128..=1024)
+                                        .text("Ray Steps"),
+                                )
+                                .changed()
+                            {
+                                println!("[SETTING] Ray Steps: {}", self.max_ray_steps);
+                            }
+                            if ui
+                                .add(
+                                    egui::Slider::new(&mut self.view_distance, 2..=10)
+                                        .text("View Distance"),
+                                )
+                                .changed()
+                            {
+                                println!("[SETTING] View Distance: {} chunks", self.view_distance);
+                                // Ensure unload distance is at least view distance + 1
+                                if self.unload_distance <= self.view_distance {
+                                    self.unload_distance = self.view_distance + 2;
+                                }
+                            }
+                            if ui
+                                .add(
+                                    egui::Slider::new(&mut self.unload_distance, 3..=12)
+                                        .text("Unload Distance"),
+                                )
+                                .changed()
+                            {
+                                println!(
+                                    "[SETTING] Unload Distance: {} chunks",
+                                    self.unload_distance
+                                );
+                                // Ensure unload distance is greater than view distance
+                                if self.unload_distance <= self.view_distance {
+                                    self.unload_distance = self.view_distance + 2;
+                                }
+                            }
 
-                    // Camera position debug
-                    ui.label(format!(
-                        "Position: ({:.1}, {:.1}, {:.1})",
-                        self.camera.position.x, self.camera.position.y, self.camera.position.z
-                    ));
+                            ui.separator();
+                            ui.label("Feature Toggles (for FPS profiling):");
+                            if ui
+                                .checkbox(&mut self.enable_ao, "Ambient Occlusion")
+                                .changed()
+                            {
+                                println!(
+                                    "[TOGGLE] Ambient Occlusion: {}",
+                                    if self.enable_ao { "ON" } else { "OFF" }
+                                );
+                            }
+                            if ui
+                                .checkbox(&mut self.enable_shadows, "Sun Shadows")
+                                .changed()
+                            {
+                                println!(
+                                    "[TOGGLE] Sun Shadows: {}",
+                                    if self.enable_shadows { "ON" } else { "OFF" }
+                                );
+                            }
+                            if ui
+                                .checkbox(&mut self.enable_point_lights, "Point Lights (torches)")
+                                .changed()
+                            {
+                                println!(
+                                    "[TOGGLE] Point Lights: {}",
+                                    if self.enable_point_lights {
+                                        "ON"
+                                    } else {
+                                        "OFF"
+                                    }
+                                );
+                            }
+
+                            ui.separator();
+                            ui.label("LOD Distances (lower = faster):");
+                            ui.horizontal(|ui| {
+                                ui.label("AO:");
+                                if ui
+                                    .add(
+                                        egui::Slider::new(&mut self.lod_ao_distance, 8.0..=64.0)
+                                            .suffix(" blocks"),
+                                    )
+                                    .changed()
+                                {
+                                    println!("[LOD] AO distance: {:.0}", self.lod_ao_distance);
+                                }
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label("Shadows:");
+                                if ui
+                                    .add(
+                                        egui::Slider::new(
+                                            &mut self.lod_shadow_distance,
+                                            16.0..=128.0,
+                                        )
+                                        .suffix(" blocks"),
+                                    )
+                                    .changed()
+                                {
+                                    println!(
+                                        "[LOD] Shadow distance: {:.0}",
+                                        self.lod_shadow_distance
+                                    );
+                                }
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label("Lights:");
+                                if ui
+                                    .add(
+                                        egui::Slider::new(
+                                            &mut self.lod_point_light_distance,
+                                            8.0..=48.0,
+                                        )
+                                        .suffix(" blocks"),
+                                    )
+                                    .changed()
+                                {
+                                    println!(
+                                        "[LOD] Point light distance: {:.0}",
+                                        self.lod_point_light_distance
+                                    );
+                                }
+                            });
+
+                            ui.separator();
+
+                            // Gameplay options
+                            ui.checkbox(&mut self.instant_break, "Instant block break");
+                            ui.checkbox(&mut self.show_block_preview, "Block placement preview");
+                            ui.checkbox(&mut self.show_target_outline, "Target block outline");
+                            if ui
+                                .checkbox(&mut self.player_light, "Player torch light")
+                                .changed()
+                            {
+                                println!(
+                                    "[TOGGLE] Player Light: {}",
+                                    if self.player_light { "ON" } else { "OFF" }
+                                );
+                            }
+
+                            ui.add(
+                                egui::Slider::new(&mut self.break_cooldown_duration, 0.05..=0.5)
+                                    .text("Break cooldown")
+                                    .suffix("s"),
+                            );
+                            ui.add(
+                                egui::Slider::new(&mut self.place_cooldown_duration, 0.05..=1.0)
+                                    .text("Place cooldown")
+                                    .suffix("s"),
+                            );
+
+                            // Block physics updates per frame (higher = faster cascades, more CPU)
+                            let mut max_updates = self.block_updates.max_per_frame as u32;
+                            if ui
+                                .add(
+                                    egui::Slider::new(&mut max_updates, 16..=128)
+                                        .text("Physics updates/frame")
+                                        .logarithmic(true),
+                                )
+                                .changed()
+                            {
+                                self.block_updates.max_per_frame = max_updates as usize;
+                            }
+
+                            ui.separator();
+
+                            // Movement settings
+                            ui.checkbox(&mut self.auto_jump, "Auto-jump");
+                            ui.checkbox(&mut self.show_compass, "Show compass");
+
+                            ui.separator();
+
+                            // Minimap settings
+                            ui.label("Minimap");
+                            if ui
+                                .checkbox(&mut self.show_minimap, "Show minimap (M)")
+                                .changed()
+                            {
+                                println!(
+                                    "Minimap: {}",
+                                    if self.show_minimap { "ON" } else { "OFF" }
+                                );
+                            }
+
+                            ui.horizontal(|ui| {
+                                ui.label("Size:");
+                                if ui
+                                    .selectable_label(self.minimap_size == 128, "Small")
+                                    .clicked()
+                                {
+                                    self.minimap_size = 128;
+                                    self.minimap_cached_image = None; // Force refresh
+                                }
+                                if ui
+                                    .selectable_label(self.minimap_size == 192, "Medium")
+                                    .clicked()
+                                {
+                                    self.minimap_size = 192;
+                                    self.minimap_cached_image = None; // Force refresh
+                                }
+                                if ui
+                                    .selectable_label(self.minimap_size == 256, "Large")
+                                    .clicked()
+                                {
+                                    self.minimap_size = 256;
+                                    self.minimap_cached_image = None; // Force refresh
+                                }
+                            });
+
+                            ui.horizontal(|ui| {
+                                ui.label("Colors:");
+                                if ui
+                                    .selectable_label(self.minimap_color_mode == 0, "Blocks")
+                                    .clicked()
+                                {
+                                    self.minimap_color_mode = 0;
+                                    self.minimap_cached_image = None; // Force refresh
+                                }
+                                if ui
+                                    .selectable_label(self.minimap_color_mode == 1, "Height")
+                                    .clicked()
+                                {
+                                    self.minimap_color_mode = 1;
+                                    self.minimap_cached_image = None; // Force refresh
+                                }
+                                if ui
+                                    .selectable_label(self.minimap_color_mode == 2, "Both")
+                                    .clicked()
+                                {
+                                    self.minimap_color_mode = 2;
+                                    self.minimap_cached_image = None; // Force refresh
+                                }
+                            });
+
+                            if ui
+                                .add(
+                                    egui::Slider::new(&mut self.minimap_zoom, 0.5..=3.0)
+                                        .text("Zoom")
+                                        .logarithmic(true),
+                                )
+                                .changed()
+                            {
+                                self.minimap_cached_image = None; // Force refresh
+                            }
+
+                            if ui
+                                .checkbox(&mut self.minimap_rotate, "Rotate with player")
+                                .changed()
+                            {
+                                // Force minimap refresh when rotation mode changes
+                                self.minimap_cached_image = None;
+                            }
+
+                            ui.separator();
+
+                            // Camera position debug
+                            ui.label(format!(
+                                "Position: ({:.1}, {:.1}, {:.1})",
+                                self.camera.position.x,
+                                self.camera.position.y,
+                                self.camera.position.z
+                            ));
+                        }); // end ScrollArea
                 });
 
             // Draw crosshair at screen center
@@ -3850,8 +6076,151 @@ impl App {
                 stroke,
             );
 
+            // Minimap HUD (top-left)
+            if show_minimap {
+                if let Some(image) = minimap_image {
+                    // Load the pre-generated image as texture
+                    let texture = ctx.load_texture("minimap", image, egui::TextureOptions::NEAREST);
+
+                    egui::Area::new(egui::Id::new("minimap_hud"))
+                        .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-10.0, -60.0))
+                        .show(&ctx, |ui| {
+                            egui::Frame::new()
+                                .fill(egui::Color32::from_rgba_unmultiplied(0, 0, 0, 200))
+                                .stroke(egui::Stroke::new(2.0, egui::Color32::from_rgb(60, 60, 60)))
+                                .corner_radius(egui::CornerRadius::same(4))
+                                .inner_margin(egui::Margin::same(4))
+                                .show(ui, |ui| {
+                                    let size = minimap_size as f32;
+                                    let image_response = ui.add(
+                                        egui::Image::new(egui::load::SizedTexture::new(
+                                            texture.id(),
+                                            egui::vec2(size, size),
+                                        ))
+                                        .fit_to_exact_size(egui::vec2(size, size)),
+                                    );
+
+                                    // Draw player indicator (triangle pointing in direction)
+                                    let center = image_response.rect.center();
+                                    let tri_size = 6.0;
+
+                                    // Calculate triangle rotation angle
+                                    let angle = if minimap_rotate {
+                                        0.0 // Always point up when map rotates
+                                    } else {
+                                        -camera_yaw // Point in player's direction
+                                    };
+
+                                    // Triangle vertices: tip at front, two corners at back
+                                    let (sin_a, cos_a) = (angle.sin(), angle.cos());
+                                    let tip = egui::pos2(
+                                        center.x - sin_a * tri_size,
+                                        center.y - cos_a * tri_size,
+                                    );
+                                    let left = egui::pos2(
+                                        center.x + cos_a * tri_size * 0.6 + sin_a * tri_size * 0.5,
+                                        center.y - sin_a * tri_size * 0.6 + cos_a * tri_size * 0.5,
+                                    );
+                                    let right = egui::pos2(
+                                        center.x - cos_a * tri_size * 0.6 + sin_a * tri_size * 0.5,
+                                        center.y + sin_a * tri_size * 0.6 + cos_a * tri_size * 0.5,
+                                    );
+
+                                    ui.painter().add(egui::Shape::convex_polygon(
+                                        vec![tip, left, right],
+                                        egui::Color32::RED,
+                                        egui::Stroke::new(1.0, egui::Color32::WHITE),
+                                    ));
+                                });
+                        });
+                }
+            }
+
+            // Compass HUD (bottom-left)
+            if show_compass {
+                egui::Area::new(egui::Id::new("compass_hud"))
+                    .anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(10.0, -60.0))
+                    .show(&ctx, |ui| {
+                        egui::Frame::new()
+                            .fill(egui::Color32::from_rgba_unmultiplied(0, 0, 0, 200))
+                            .stroke(egui::Stroke::new(2.0, egui::Color32::from_rgb(60, 60, 60)))
+                            .corner_radius(egui::CornerRadius::same(4))
+                            .inner_margin(egui::Margin::same(8))
+                            .show(ui, |ui| {
+                                let compass_size = 60.0;
+                                let (response, painter) = ui.allocate_painter(
+                                    egui::vec2(compass_size, compass_size),
+                                    egui::Sense::hover(),
+                                );
+                                let center = response.rect.center();
+                                let radius = compass_size / 2.0 - 4.0;
+
+                                // Draw compass circle
+                                painter.circle_stroke(
+                                    center,
+                                    radius,
+                                    egui::Stroke::new(1.5, egui::Color32::from_rgb(100, 100, 100)),
+                                );
+
+                                // Cardinal direction positions (N=-Z, S=+Z, E=+X, W=-X)
+                                // In our coordinate system: yaw=0 looks at -Z (North)
+                                let directions = [
+                                    ("N", 0.0_f32, egui::Color32::RED), // North at yaw=0
+                                    ("E", std::f32::consts::FRAC_PI_2, egui::Color32::WHITE), // East at yaw=90°
+                                    ("S", std::f32::consts::PI, egui::Color32::WHITE), // South at yaw=180°
+                                    ("W", -std::f32::consts::FRAC_PI_2, egui::Color32::WHITE), // West at yaw=-90°
+                                ];
+
+                                for (label, dir_angle, color) in directions {
+                                    // Calculate angle relative to player's view
+                                    // Player yaw: 0 = looking North (-Z)
+                                    let relative_angle = dir_angle - camera_yaw;
+                                    let (sin_a, cos_a) = relative_angle.sin_cos();
+
+                                    // Position on compass (up = forward direction in player's view)
+                                    let label_pos = egui::pos2(
+                                        center.x + sin_a * (radius - 8.0),
+                                        center.y - cos_a * (radius - 8.0),
+                                    );
+
+                                    painter.text(
+                                        label_pos,
+                                        egui::Align2::CENTER_CENTER,
+                                        label,
+                                        egui::FontId::proportional(12.0),
+                                        color,
+                                    );
+                                }
+
+                                // Draw direction indicator (line pointing up = forward)
+                                painter.line_segment(
+                                    [
+                                        egui::pos2(center.x, center.y),
+                                        egui::pos2(center.x, center.y - radius + 12.0),
+                                    ],
+                                    egui::Stroke::new(2.0, egui::Color32::YELLOW),
+                                );
+                                // Arrow head
+                                painter.line_segment(
+                                    [
+                                        egui::pos2(center.x - 4.0, center.y - radius + 18.0),
+                                        egui::pos2(center.x, center.y - radius + 12.0),
+                                    ],
+                                    egui::Stroke::new(2.0, egui::Color32::YELLOW),
+                                );
+                                painter.line_segment(
+                                    [
+                                        egui::pos2(center.x + 4.0, center.y - radius + 18.0),
+                                        egui::pos2(center.x, center.y - radius + 12.0),
+                                    ],
+                                    egui::Stroke::new(2.0, egui::Color32::YELLOW),
+                                );
+                            });
+                    });
+            }
+
             // Hotbar HUD at bottom center - 9 slots
-            const ATLAS_TILE_COUNT: f32 = 18.0;
+            const ATLAS_TILE_COUNT: f32 = 19.0;
             const SLOT_SIZE: f32 = 40.0;
 
             egui::Area::new(egui::Id::new("hotbar_hud"))
@@ -3866,11 +6235,22 @@ impl App {
                             ui.horizontal(|ui| {
                                 ui.spacing_mut().item_spacing = egui::vec2(4.0, 0.0);
 
-                                for (i, block) in HOTBAR_BLOCKS.iter().enumerate() {
+                                for (i, block) in hotbar_blocks.iter().enumerate() {
                                     let is_selected = i == hotbar_index;
 
                                     // Calculate UV for this block
-                                    let block_idx = *block as u8 as f32;
+                                    // For Model blocks, use texture based on model type
+                                    let block_idx = if *block == BlockType::Model {
+                                        match hotbar_model_ids[i] {
+                                            1 => 11.0,      // Torch
+                                            4..=19 => 4.0,  // Fence -> use planks texture
+                                            20..=27 => 4.0, // Gate -> use planks texture
+                                            29 => 4.0,      // Ladder -> use planks texture
+                                            _ => 11.0,      // Default to torch
+                                        }
+                                    } else {
+                                        *block as u8 as f32
+                                    };
                                     let uv_left = block_idx / ATLAS_TILE_COUNT;
                                     let uv_right = (block_idx + 1.0) / ATLAS_TILE_COUNT;
                                     let uv_rect = egui::Rect::from_min_max(
@@ -3934,8 +6314,21 @@ impl App {
                             // Selected block name below hotbar
                             ui.vertical_centered(|ui| {
                                 ui.add_space(4.0);
+                                // For Model blocks, show the model type name
+                                let block_name = if selected_block == BlockType::Model {
+                                    match hotbar_model_ids[hotbar_index] {
+                                        1 => "Torch".to_string(),
+                                        4..=19 => "Fence".to_string(),
+                                        20..=23 => "Gate (Closed)".to_string(),
+                                        24..=27 => "Gate (Open)".to_string(),
+                                        29 => "Ladder".to_string(),
+                                        _ => format!("{:?}", selected_block),
+                                    }
+                                } else {
+                                    format!("{:?}", selected_block)
+                                };
                                 ui.label(
-                                    egui::RichText::new(format!("{:?}", selected_block))
+                                    egui::RichText::new(block_name)
                                         .color(egui::Color32::WHITE)
                                         .strong(),
                                 );
@@ -4022,6 +6415,8 @@ impl App {
             lod_ao_distance: f32,
             lod_shadow_distance: f32,
             lod_point_light_distance: f32,
+            // Falling block count
+            falling_block_count: u32,
         }
         // Convert world coordinates to texture coordinates for shader
         // Shader works in texture space, so we subtract texture_origin
@@ -4042,39 +6437,67 @@ impl App {
         // Calculate preview block position (where block would be placed)
         let selected_block_id = selected_block as u32;
         // Use player_world_pos computed earlier (before rcx borrow)
-        let (preview_x, preview_y, preview_z, preview_type) = self
-            .current_hit
-            .as_ref()
-            .map(|hit| {
-                let place_pos = get_place_position(hit);
-                // Only show preview if position is in bounds and not inside player
-                let block_center = place_pos.cast::<f64>() + Vector3::new(0.5, 0.5, 0.5);
-                // Y bounds only (X/Z are infinite)
-                let in_bounds = place_pos.y >= 0 && place_pos.y < TEXTURE_SIZE_Y as i32;
-                let not_in_player = (player_world_pos - block_center).norm() > 1.5;
-                if in_bounds && not_in_player {
-                    let tex_pos = world_to_tex(place_pos);
-                    (tex_pos.0, tex_pos.1, tex_pos.2, selected_block_id)
-                } else {
-                    (-1, -1, -1, 0)
-                }
-            })
-            .unwrap_or((-1, -1, -1, 0));
+        let (preview_x, preview_y, preview_z, preview_type) = if self.show_block_preview {
+            self.current_hit
+                .as_ref()
+                .map(|hit| {
+                    let place_pos = get_place_position(hit);
+                    // Only show preview if position is in bounds and not inside player
+                    let block_center = place_pos.cast::<f64>() + Vector3::new(0.5, 0.5, 0.5);
+                    // Y bounds only (X/Z are infinite)
+                    let in_bounds = place_pos.y >= 0 && place_pos.y < TEXTURE_SIZE_Y as i32;
+                    let not_in_player = (player_world_pos - block_center).norm() > 1.5;
+                    if in_bounds && not_in_player {
+                        let tex_pos = world_to_tex(place_pos);
+                        (tex_pos.0, tex_pos.1, tex_pos.2, selected_block_id)
+                    } else {
+                        (-1, -1, -1, 0)
+                    }
+                })
+                .unwrap_or((-1, -1, -1, 0))
+        } else {
+            (-1, -1, -1, 0) // Preview disabled
+        };
 
         // Target block (block player is looking at) - convert to texture coords
-        let (target_x, target_y, target_z) = self
-            .current_hit
-            .as_ref()
-            .map(|hit| world_to_tex(hit.block_pos))
-            .unwrap_or((-1, -1, -1));
+        // Only send if outline is enabled
+        let (target_x, target_y, target_z) = if self.show_target_outline {
+            self.current_hit
+                .as_ref()
+                .map(|hit| world_to_tex(hit.block_pos))
+                .unwrap_or((-1, -1, -1))
+        } else {
+            (-1, -1, -1) // Outline disabled
+        };
 
-        // Update particle buffer
+        // Update particle buffer (convert world coords to texture coords)
         let gpu_particles = self.particles.gpu_data();
         let particle_count = gpu_particles.len() as u32;
         {
+            let tex_origin = self.texture_origin;
             let mut write = self.particle_buffer.write().unwrap();
             for (i, p) in gpu_particles.iter().enumerate() {
-                write[i] = *p;
+                let mut converted = *p;
+                // Convert world position to texture position
+                converted.pos_size[0] -= tex_origin.x as f32;
+                converted.pos_size[1] -= tex_origin.y as f32;
+                converted.pos_size[2] -= tex_origin.z as f32;
+                write[i] = converted;
+            }
+        }
+
+        // Update falling block buffer (convert world coords to texture coords)
+        let gpu_falling_blocks = self.falling_blocks.gpu_data();
+        {
+            let tex_origin = self.texture_origin;
+            let mut write = self.falling_block_buffer.write().unwrap();
+            for (i, fb) in gpu_falling_blocks.iter().enumerate() {
+                let mut converted = *fb;
+                // Convert world position to texture position
+                converted.pos_type[0] -= tex_origin.x as f32;
+                converted.pos_type[1] -= tex_origin.y as f32;
+                converted.pos_type[2] -= tex_origin.z as f32;
+                write[i] = converted;
             }
         }
 
@@ -4124,6 +6547,7 @@ impl App {
             lod_ao_distance: self.lod_ao_distance,
             lod_shadow_distance: self.lod_shadow_distance,
             lod_point_light_distance: self.lod_point_light_distance,
+            falling_block_count: self.falling_blocks.count() as u32,
         };
 
         let mut builder = AutoCommandBufferBuilder::primary(
@@ -4157,7 +6581,7 @@ impl App {
                     self.light_set.clone(),
                     self.chunk_metadata_set.clone(),
                     rcx.distance_set.clone(),
-                    self.brick_metadata_set.clone(),
+                    self.brick_and_model_set.clone(), // Combined set 7: brick + model resources
                 ],
             )
             .unwrap();

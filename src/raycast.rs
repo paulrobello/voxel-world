@@ -116,9 +116,9 @@ pub fn raycast(
 
     // DDA loop
     while distance < max_distance {
-        // Check if current voxel is solid (skip air, water, and other non-solid blocks)
+        // Check if current voxel is targetable (includes solid blocks and model blocks)
         if let Some(block) = world.get_block(pos) {
-            if block.is_solid() {
+            if block.is_targetable() {
                 return Some(RaycastHit {
                     block_pos: pos,
                     normal,

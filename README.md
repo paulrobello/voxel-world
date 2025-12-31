@@ -6,7 +6,17 @@ A GPU-accelerated voxel sandbox using Vulkan compute shaders for real-time ray m
 
 ### Rendering
 - **Vulkan Compute Shader Rendering** - Ray marching through voxel data entirely on GPU
-- **Texture Atlas** - AI-generated seamless tileable textures (18 textures, 64x64 each)
+- **Sub-Voxel Model System** - 8³ resolution models for detailed blocks (torches, fences, gates, ladders)
+  - Model registry pattern: reusable models stored once, referenced by blocks
+  - Per-model 16-color palettes with emission support
+  - 4³ collision masks for accurate player/model collision
+  - LOD: sub-voxel detail rendered within 24 blocks
+  - Cyan glow highlighting when targeting sub-voxel models
+  - **Fence System** - 16 fence variants that dynamically connect to neighbors
+  - **Fence Gates** - 8 gate variants (open/closed) that connect to adjacent fences
+  - **Ladder System** - Climbable ladders with auto-rotation toward player on placement
+  - **Ground Support** - Fences, gates, torches, and ladders break when block below is removed
+- **Texture Atlas** - AI-generated seamless tileable textures (19 textures, 64x64 each)
 - **Ambient Occlusion** - Classic voxel AO with smooth corner darkening
 - **Distance-Based LOD** - AO, shadows, and lighting optimized by distance for 90+ FPS
 - **Day/Night Cycle** - Dynamic sun position, sky colors, and lighting
@@ -14,6 +24,7 @@ A GPU-accelerated voxel sandbox using Vulkan compute shaders for real-time ray m
 - **Animated Clouds** - Procedural clouds that drift with wind
 - **Stars at Night** - Twinkling stars visible after sunset
 - **Animated Water** - Flowing waves, caustics, and refraction effects
+- **Translucent Glass** - See-through glass with visible frame borders and fresnel reflections
 - **Fog** - Distance-based atmospheric fog
 - **Shadow Rays** - Directional sunlight shadows
 - **Particle System** - Block break particles, water splashes, walking dust
@@ -34,7 +45,7 @@ A GPU-accelerated voxel sandbox using Vulkan compute shaders for real-time ray m
 - **Water Lakes** - Flat water surface at sea level (Y=28) fills valleys
 - **Sandy Beaches** - Sand at water's edge
 - **Trees** - Procedurally placed trees with rounded canopies
-- **16 Block Types** - Stone, dirt, grass, wood, glass, water, torch, and more
+- **17 Block Types** - Stone, dirt, grass, wood, glass, water, torch, bedrock, and more
 - **Chunk Stats HUD** - Live display of loaded chunks, dirty chunks, and player position
 
 ### Creative Mode
@@ -42,14 +53,43 @@ A GPU-accelerated voxel sandbox using Vulkan compute shaders for real-time ray m
 - **Player Physics** - Gravity, AABB collision detection, jump, sprint
 - **Fly Mode** - Toggle free flight for creative building (F key)
 - **Swimming** - Water detection, buoyancy, drag, swim controls
+- **Climbing** - Ladder detection, vertical movement with Space/Shift
 - **World Editing** - Place and break blocks in real-time
+- **Line-Locked Building** - Hold right-click to build straight lines; direction locks after first two blocks
+- **Player Collision** - Cannot place blocks inside your own hitbox
+- **Configurable Cooldowns** - Adjustable break/place cooldown timers in settings
 - **Variable Break Time** - Different blocks take different times to break
 - **Block Break Cracks** - Progressive crack overlay as blocks are broken
 - **Block Preview** - Ghost block with wireframe shows placement location
-- **Block Outline** - Wireframe highlight on targeted block
+- **Block Outline** - Cyan wireframe on targeted blocks; cyan glow for sub-voxel models
 - **Head Bob** - Subtle camera motion while walking
 - **Hotbar** - 9-slot block selection with textures
 - **Coordinates HUD** - Live X/Y/Z position display
+
+### Block Physics
+- **Falling Blocks** - Sand and gravel fall when unsupported
+- **Tree Chopping** - Break a tree trunk and the entire tree falls
+  - Trees detect ground support through connected logs
+  - Orphaned leaves (not connected to any log) also fall
+  - Satisfying physics as logs and leaves tumble down
+- **Block Stacking** - Falling blocks land and stack naturally
+- **Water Flow** - Dynamic water simulation using cellular automata
+  - Water flows down (gravity), then spreads horizontally, then rises under pressure
+  - Player-placed water becomes an infinite source block
+  - Breaking blocks near water triggers flow into empty space
+  - Water spreads ~7-10 blocks before becoming too thin and evaporating
+  - Simulation runs only within 64 blocks of player for performance
+- **Frame-Distributed Updates** - Physics checks spread across frames to prevent FPS spikes
+  - Priority queue processes nearby blocks first
+  - Configurable updates per frame (16-128) via settings
+
+### Minimap
+- **Toggle** - Press M to show/hide minimap (bottom-right corner)
+- **Rotate with Player** - Map rotates so "up" is always your facing direction
+- **Size Options** - Small (128px), Medium (192px), Large (256px)
+- **Color Modes** - Block colors, height shading, or both combined
+- **Triangle Indicator** - Shows player position and direction
+- **Throttled Updates** - Efficient caching with position/rotation-based refresh
 
 ## Getting Started
 
@@ -80,18 +120,30 @@ make run
 |-----|--------|
 | **Click** | Focus window (grab cursor) |
 | **WASD** | Move |
-| **Space** | Jump / Fly up / Swim up |
-| **Shift** | Fly down / Swim down |
+| **Space** | Jump / Fly up / Swim up / Climb up |
+| **Shift** | Fly down / Swim down / Climb down |
 | **Ctrl** | Toggle sprint (2x speed, 4x in fly mode) |
 | **Mouse** | Look around |
 | **Left Click** (hold) | Break block |
-| **Right Click** | Place block |
+| **Right Click** (hold) | Place block (line-locks after 2 blocks) |
+| **Middle Click** | Pick block type (switches to or replaces hotbar slot) |
 | **1-9** | Select hotbar slot |
 | **Scroll Wheel** | Cycle hotbar |
 | **F** | Toggle fly mode |
 | **B** | Toggle chunk boundaries |
-| **M** | Cycle render modes |
-| **Esc** | Release cursor |
+| **M** | Toggle minimap |
+| **Esc** | Release cursor / Open settings panel |
+
+### Settings Panel
+
+Press **Esc** to open the settings panel with:
+- Render mode selection (Textured, Normal, Coord, Steps, UV, Depth, BrickDebug)
+- FOV and render scale sliders
+- Day/night cycle controls
+- Break/place cooldown adjustments
+- Physics updates per frame (cascade speed)
+- Minimap options (size, colors, rotation)
+- Performance toggles (AO, shadows, fog, etc.)
 
 ### Hotbar Blocks
 
@@ -100,25 +152,29 @@ make run
 | 1 | Stone |
 | 2 | Dirt |
 | 3 | Grass |
-| 4 | Planks |
+| 4 | Sand |
 | 5 | Log |
-| 6 | Cobblestone |
-| 7 | Glass |
-| 8 | Torch |
-| 9 | Water |
+| 6 | Fence (8³ sub-voxel model, connects to neighbors) |
+| 7 | Gate (8³ sub-voxel model, connects to fences) |
+| 8 | Ladder (8³ sub-voxel model, climbable) |
+| 9 | Torch (8³ sub-voxel model with flame) |
 
 ## Architecture
 
 ```
 src/
 ├── main.rs          # Vulkan setup, render loop, input, physics, HUD
+├── block_update.rs  # Frame-distributed physics update queue
 ├── chunk.rs         # Chunk storage (32³), BlockType enum, bit-packing
 ├── chunk_loader.rs  # Async chunk generation with thread pool
 ├── world.rs         # Multi-chunk management, terrain generation
 ├── camera.rs        # Pixel-to-ray matrix for GPU ray casting
 ├── raycast.rs       # CPU-side DDA for block picking
+├── falling_block.rs # Falling block entities with physics
 ├── particles.rs     # Particle system (break effects, splashes)
+├── sub_voxel.rs     # Sub-voxel model system (8³ models, registry, palettes)
 ├── svt.rs           # SVT-64 sparse voxel tree for ray skipping
+├── water.rs         # Water flow simulation (cellular automata)
 └── hot_reload.rs    # Shader hot reloading
 
 shaders/
@@ -126,7 +182,7 @@ shaders/
 └── resample.comp    # Image resampling
 
 textures/
-└── texture_atlas.png  # Combined block textures (1152x64)
+└── texture_atlas.png  # Combined block textures (1216x64, 19 tiles)
 ```
 
 ## Block Types
@@ -144,11 +200,12 @@ textures/
 | 8 | Water | - | Blue water (swimmable) |
 | 9 | Glass | 0.5s | Transparent glass |
 | 10 | Log | 0.5s | Tree bark with rings on top |
-| 11 | Torch | 0.15s | Light source |
+| 11 | Torch | 0.15s | 8³ sub-voxel model with flame, emits light |
 | 12 | Brick | 0.8s | Red brick pattern |
 | 13 | Snow | 0.3s | White snow cover |
 | 14 | Cobblestone | 0.8s | Rough stone blocks |
 | 15 | Iron | 1.2s | Metallic iron block |
+| 16 | Bedrock | - | Indestructible foundation |
 
 ## Render Modes
 
@@ -177,6 +234,7 @@ The compute shader (`traverse.comp`) performs DDA ray marching through a 3D text
 - Distance-based LOD: AO (48 blocks), shadows (64), point lights (32), sky exposure (48)
 - Per-chunk GPU uploads: only modified 32KB chunks uploaded, not entire 32MB world
 - Async chunk generation: 4-thread pool for background terrain generation
+- Frame-distributed physics: block updates processed via priority queue (32/frame default)
 
 ### Ambient Occlusion
 
@@ -199,6 +257,25 @@ Uses the classic Minecraft-style vertex AO algorithm:
 - Water splash: Upward spray when entering water
 - Walking dust: Small puffs when moving on ground
 - Particles fade out after landing or timeout
+
+### Water Flow Simulation
+
+Uses a mass-based cellular automata system (W-Shadow algorithm):
+
+- **Storage**: Sparse HashMap for water cells (only positions with water are tracked)
+- **Cell properties**: Mass (0.0-1.0+), source flag, stability counter
+- **Flow priority**: Down (gravity) → Horizontal (equalization) → Up (pressure only)
+- **Spread distance**: Controlled by mass conservation and evaporation threshold
+  - `MIN_MASS = 0.001`: Water below this evaporates
+  - `FLOW_DAMPING = 0.5`: Each transfer is dampened to prevent oscillation
+  - Result: ~7-10 block spread from a source before water thins and evaporates
+
+**Boundary handling**:
+- World bounds (Y < 0): Water drains into void and is destroyed
+- Unloaded chunks: Water is blocked (preserved until chunk loads)
+- Simulation radius: Only processes water within 64 blocks of player
+
+**Performance**: Frame-distributed updates (64 cells/frame default), priority queue favors nearby water.
 
 ## License
 

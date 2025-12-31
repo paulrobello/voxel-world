@@ -1,7 +1,9 @@
 # Voxel Ray Traversal Makefile
 
 # Vulkan environment variables for macOS
-export DYLD_LIBRARY_PATH := /opt/homebrew/lib
+# Keep both the main Homebrew lib dir and the vulkan-loader keg to avoid search misses.
+export DYLD_LIBRARY_PATH := /opt/homebrew/lib:/opt/homebrew/opt/vulkan-loader/lib
+export DYLD_FALLBACK_LIBRARY_PATH := /opt/homebrew/lib:/opt/homebrew/opt/vulkan-loader/lib
 export VK_ICD_FILENAMES := /opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json
 
 .PHONY: build build-release build-debug run run-release run-debug clean test check fmt lint checkall
@@ -25,7 +27,10 @@ run-release: build-release
 	./target/release/voxel_ray_traversal
 
 run-debug: build-debug
-	RUST_BACKTRACE=1 ./target/debug/voxel_ray_traversal
+	@echo "DYLD_LIBRARY_PATH=$(DYLD_LIBRARY_PATH)"
+	@echo "DYLD_FALLBACK_LIBRARY_PATH=$(DYLD_FALLBACK_LIBRARY_PATH)"
+	@echo "VK_ICD_FILENAMES=$(VK_ICD_FILENAMES)"
+	DYLD_LIBRARY_PATH=$(DYLD_LIBRARY_PATH) DYLD_FALLBACK_LIBRARY_PATH=$(DYLD_FALLBACK_LIBRARY_PATH) VK_ICD_FILENAMES=$(VK_ICD_FILENAMES) RUST_BACKTRACE=1 ./target/debug/voxel_ray_traversal
 
 # Development targets
 clean:

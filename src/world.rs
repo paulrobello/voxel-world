@@ -5,7 +5,7 @@
 
 #![allow(dead_code)]
 
-use crate::chunk::{BlockType, CHUNK_SIZE, Chunk};
+use crate::chunk::{BlockModelData, BlockType, CHUNK_SIZE, Chunk};
 use nalgebra::{Vector3, vector};
 use std::collections::HashMap;
 
@@ -121,6 +121,37 @@ impl World {
         if is_new_chunk || (chunk.dirty && !was_dirty) {
             self.dirty_chunks.push(chunk_pos);
         }
+    }
+
+    /// Sets a model block at world coordinates with the given model_id and rotation.
+    ///
+    /// This sets the block type to Model and stores the model metadata.
+    /// If the chunk doesn't exist, it will be created.
+    pub fn set_model_block(&mut self, world_pos: WorldPos, model_id: u8, rotation: u8) {
+        let chunk_pos = Self::world_to_chunk(world_pos);
+        let (lx, ly, lz) = Self::world_to_local(world_pos);
+
+        let is_new_chunk = !self.chunks.contains_key(&chunk_pos);
+        let chunk = self.chunks.entry(chunk_pos).or_default();
+        let was_dirty = chunk.dirty;
+        chunk.set_model_block(lx, ly, lz, model_id, rotation);
+
+        // Add to dirty queue if this is a new chunk or the modification made it dirty
+        if is_new_chunk || (chunk.dirty && !was_dirty) {
+            self.dirty_chunks.push(chunk_pos);
+        }
+    }
+
+    /// Gets model data for a block at world coordinates.
+    ///
+    /// Returns None if the chunk doesn't exist or the block has no model data.
+    pub fn get_model_data(&self, world_pos: WorldPos) -> Option<BlockModelData> {
+        let chunk_pos = Self::world_to_chunk(world_pos);
+        let (lx, ly, lz) = Self::world_to_local(world_pos);
+
+        self.chunks
+            .get(&chunk_pos)
+            .and_then(|chunk| chunk.get_model_data(lx, ly, lz))
     }
 
     /// Checks if a block is solid at world coordinates.
