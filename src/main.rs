@@ -5636,19 +5636,20 @@ impl App {
                     egui::ScrollArea::vertical()
                         .max_height(500.0)
                         .show(ui, |ui| {
-                            ui.label("Controls:");
-                            ui.label("  WASD - Move");
-                            ui.label("  Space - Jump");
-                            ui.label("  Space/Shift - Up/Down (fly, swim & climb)");
-                            ui.label("  Mouse - Look around");
-                            ui.label("  Scroll - Select block");
-                            ui.label("  Ctrl - Toggle sprint");
-                            ui.label("  F - Toggle fly mode");
-                            ui.label("  B - Toggle chunk boundaries");
-                            ui.label("  Left Click - Break block");
-                            ui.label("  Right Click - Place block");
-                            ui.label("  1-9 - Select block type (8=Ladder, 9=Torch)");
-                            ui.label("  Escape - Release cursor");
+                            ui.collapsing("Controls", |ui| {
+                                ui.label("  WASD - Move");
+                                ui.label("  Space - Jump");
+                                ui.label("  Space/Shift - Up/Down (fly, swim & climb)");
+                                ui.label("  Mouse - Look around");
+                                ui.label("  Scroll - Select block");
+                                ui.label("  Ctrl - Toggle sprint");
+                                ui.label("  F - Toggle fly mode");
+                                ui.label("  B - Toggle chunk boundaries");
+                                ui.label("  Left Click - Break block");
+                                ui.label("  Right Click - Place block");
+                                ui.label("  1-9 - Select block type (8=Ladder, 9=Torch)");
+                                ui.label("  Escape - Release cursor");
+                            });
                             ui.separator();
 
                             ui.label(format!("Chunks: {}", self.world.chunk_count()));
@@ -5826,15 +5827,16 @@ impl App {
                                 );
                             }
                             if ui
-                                .checkbox(
-                                    &mut self.enable_model_shadows,
-                                    "Model Sun Shadows",
-                                )
+                                .checkbox(&mut self.enable_model_shadows, "Model Sun Shadows")
                                 .changed()
                             {
                                 println!(
                                     "[TOGGLE] Model Sun Shadows: {}",
-                                    if self.enable_model_shadows { "ON" } else { "OFF" }
+                                    if self.enable_model_shadows {
+                                        "ON"
+                                    } else {
+                                        "OFF"
+                                    }
                                 );
                             }
                             if ui
