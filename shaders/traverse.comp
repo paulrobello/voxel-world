@@ -1057,9 +1057,6 @@ float castShadowRayInternal(vec3 origin, out uint debugFlag) {
             pos.z += step.z;
         }
 
-        // Move tracked ray position to the entry point of the next voxel
-        tCurrent = dist;
-
         if (dist > MAX_SHADOW_DIST) {
             return 1.0;  // Too far = assume lit
         }
