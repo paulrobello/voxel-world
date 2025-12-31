@@ -225,6 +225,9 @@ vec3 inverseRotateNormal(vec3 n, uint rotation) {
     }
 }
 
+// Forward declaration for block ray intersection (used before definition in shadow/sky)
+float rayBlockIntersect(vec3 rayOrigin, vec3 rayDir, ivec3 blockPos, out vec3 hitNormal, out vec3 localHit);
+
 // March through sub-voxel model using DDA
 // Returns true if hit, false if ray passed through
 // origin: ray origin in block-local coordinates (0-1)
