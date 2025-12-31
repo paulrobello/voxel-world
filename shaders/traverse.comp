@@ -364,6 +364,16 @@ bool marchSubVoxelModel(
         return false;
     }
 
+    // Identify which axis we entered through (the one with the largest tMin value)
+    uint entryAxis;
+    if (t1.x >= t1.y && t1.x >= t1.z) {
+        entryAxis = 0u;
+    } else if (t1.y >= t1.z) {
+        entryAxis = 1u;
+    } else {
+        entryAxis = 2u;
+    }
+
     // Start from entry point if outside, else from origin
     float startT = max(tNear, 0.0);
     vec3 startPos = pos + dir * startT;
@@ -418,19 +428,17 @@ bool marchSubVoxelModel(
                 out_color += props.emission.rgb * props.emission.a * 0.5;
             }
 
-            // Surface normal: use stepped axis after the first move; first voxel picks nearest boundary
-            uint hitAxis = (i == 0)
-                ? ((tMaxAxis.x < tMaxAxis.y)
-                    ? ((tMaxAxis.x < tMaxAxis.z) ? 0u : 2u)
-                    : ((tMaxAxis.y < tMaxAxis.z) ? 1u : 2u))
-                : stepped_axis;
+            // Surface normal: use stepped axis after the first move; first voxel picks entry axis
+            uint hitAxis = (i == 0) ? entryAxis : stepped_axis;
             out_normal = vec3(0.0);
             out_normal[hitAxis] = -float(step[hitAxis]);
             // Rotate normal to match model orientation
             out_normal = inverseRotateNormal(out_normal, rotation);
 
             // Calculate t value (in block-local 0-1 space)
-            float t = startT + ((hitAxis == 0u) ? tMaxAxis.x : (hitAxis == 1u) ? tMaxAxis.y : tMaxAxis.z);
+            // Use entry distance to current voxel
+            float voxelDist = (i == 0) ? 0.0 : (tMaxAxis[stepped_axis] - tDelta[stepped_axis]);
+            float t = startT + voxelDist;
             out_t = t / float(SUB_VOXEL_SIZE);
 
             return true;
@@ -441,17 +449,21 @@ bool marchSubVoxelModel(
             if (tMaxAxis.x < tMaxAxis.z) {
                 voxel.x += step.x;
                 tMaxAxis.x += tDelta.x;
+                stepped_axis = 0u;
             } else {
                 voxel.z += step.z;
                 tMaxAxis.z += tDelta.z;
+                stepped_axis = 2u;
             }
         } else {
             if (tMaxAxis.y < tMaxAxis.z) {
                 voxel.y += step.y;
                 tMaxAxis.y += tDelta.y;
+                stepped_axis = 1u;
             } else {
                 voxel.z += step.z;
                 tMaxAxis.z += tDelta.z;
+                stepped_axis = 2u;
             }
         }
     }
@@ -1988,8 +2000,8 @@ bool findSubVoxelHit(
     vec3 invDir = 1.0 / dir;
 
     // Calculate entry t
-    vec3 tMin = (vec3(0.0) - pos) * invDir;
-    vec3 tMax = (vec3(float(SUB_VOXEL_SIZE)) - pos) * invDir;
+    vec3 tMin = (vec3(-SUB_VOXEL_EPS) - pos) * invDir;
+    vec3 tMax = (vec3(float(SUB_VOXEL_SIZE) + SUB_VOXEL_EPS) - pos) * invDir;
 
     vec3 t1 = min(tMin, tMax);
     vec3 t2 = max(tMin, tMax);
@@ -2001,8 +2013,28 @@ bool findSubVoxelHit(
         return false;
     }
 
+    // Identify which axis we entered through
+    uint entryAxis;
+    if (t1.x >= t1.y && t1.x >= t1.z) {
+        entryAxis = 0u;
+    } else if (t1.y >= t1.z) {
+        entryAxis = 1u;
+    } else {
+        entryAxis = 2u;
+    }
+
     float startT = max(tNear, 0.0);
     vec3 startPos = pos + dir * startT;
+    
+    // Nudge and clamp
+    const float DIR_EPS = 1e-4;
+    vec3 safeDir = dir;
+    safeDir.x = (abs(safeDir.x) < DIR_EPS) ? (safeDir.x >= 0.0 ? DIR_EPS : -DIR_EPS) : safeDir.x;
+    safeDir.y = (abs(safeDir.y) < DIR_EPS) ? (safeDir.y >= 0.0 ? DIR_EPS : -DIR_EPS) : safeDir.y;
+    safeDir.z = (abs(safeDir.z) < DIR_EPS) ? (safeDir.z >= 0.0 ? DIR_EPS : -DIR_EPS) : safeDir.z;
+
+    startPos += safeDir * SUB_VOXEL_EPS;
+    startPos = clamp(startPos, vec3(SUB_VOXEL_EPS), vec3(float(SUB_VOXEL_SIZE) - SUB_VOXEL_EPS));
 
     ivec3 voxel = ivec3(floor(startPos));
     voxel = clamp(voxel, ivec3(0), ivec3(int(SUB_VOXEL_SIZE) - 1));
@@ -2011,12 +2043,15 @@ bool findSubVoxelHit(
     vec3 tDelta = abs(invDir);
 
     vec3 tMaxAxis;
-    tMaxAxis.x = (dir.x > 0.0) ? (float(voxel.x + 1) - startPos.x) * invDir.x
-                                : (startPos.x - float(voxel.x)) * (-invDir.x);
-    tMaxAxis.y = (dir.y > 0.0) ? (float(voxel.y + 1) - startPos.y) * invDir.y
-                                : (startPos.y - float(voxel.y)) * (-invDir.y);
-    tMaxAxis.z = (dir.z > 0.0) ? (float(voxel.z + 1) - startPos.z) * invDir.z
-                                : (startPos.z - float(voxel.z)) * (-invDir.z);
+    tMaxAxis.x = (step.x > 0) ? (float(voxel.x + 1) - startPos.x) * invDir.x
+                              : (step.x < 0) ? (startPos.x - float(voxel.x)) * (-invDir.x)
+                                             : 1e30;
+    tMaxAxis.y = (step.y > 0) ? (float(voxel.y + 1) - startPos.y) * invDir.y
+                              : (step.y < 0) ? (startPos.y - float(voxel.y)) * (-invDir.y)
+                                             : 1e30;
+    tMaxAxis.z = (step.z > 0) ? (float(voxel.z + 1) - startPos.z) * invDir.z
+                              : (step.z < 0) ? (startPos.z - float(voxel.z)) * (-invDir.z)
+                                             : 1e30;
 
     uint stepped_axis = 0u;
 
@@ -2031,9 +2066,13 @@ bool findSubVoxelHit(
 
         if (palette_idx != 0u) {
             hitSubVoxel = voxel;
+            uint hitAxis = (i == 0) ? entryAxis : stepped_axis;
             hitNormal = vec3(0.0);
-            hitNormal[stepped_axis] = -float(step[stepped_axis]);
-            hitT = (startT + min(min(tMaxAxis.x, tMaxAxis.y), tMaxAxis.z)) / float(SUB_VOXEL_SIZE);
+            hitNormal[hitAxis] = -float(step[hitAxis]);
+            hitNormal = inverseRotateNormal(hitNormal, rotation);
+            
+            float voxelDist = (i == 0) ? 0.0 : (tMaxAxis[stepped_axis] - tDelta[stepped_axis]);
+            hitT = (startT + voxelDist) / float(SUB_VOXEL_SIZE);
             return true;
         }
 
