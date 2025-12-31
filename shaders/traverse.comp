@@ -995,12 +995,9 @@ float castShadowRay(vec3 origin) {
                                 return 0.0;  // fully blocked
                             }
                         }
-                        // Fallback: if geometry march misses, honor declared blocking to avoid missing shadows
+                        // Fallback ONLY for fully blocking models; partial models rely on geometry to size the shadow
                         if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u) {
                             return 0.0;
-                        }
-                        if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
-                            return MODEL_PARTIAL_SHADOW;
                         }
                     }
                     // Non-blocking models: let light pass
@@ -1119,12 +1116,9 @@ float getSkyExposure(vec3 origin) {
                                 return MODEL_PARTIAL_EXPOSURE;  // Partial exposure through model geometry
                             }
                         } else {
-                            // Fallback to declared blocking so we don't miss shadows/sky occlusion
+                            // Fallback only for fully blocking models; partial models rely on actual geometry
                             if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u) {
                                 return 0.0;
-                            }
-                            if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
-                                return MODEL_PARTIAL_EXPOSURE;
                             }
                         }
                     }
