@@ -1791,6 +1791,8 @@ struct App {
     enable_ao: bool,
     /// Enable sun shadow rays
     enable_shadows: bool,
+    /// Enable model participation in sun shadows
+    enable_model_shadows: bool,
     /// Enable point lights (torches)
     enable_point_lights: bool,
 
@@ -2248,6 +2250,7 @@ impl App {
             // Performance toggles - all enabled by default
             enable_ao: true,
             enable_shadows: true,
+            enable_model_shadows: true,
             enable_point_lights: true,
 
             // LOD distances - use more aggressive defaults for better performance
@@ -5823,6 +5826,18 @@ impl App {
                                 );
                             }
                             if ui
+                                .checkbox(
+                                    &mut self.enable_model_shadows,
+                                    "Model Sun Shadows",
+                                )
+                                .changed()
+                            {
+                                println!(
+                                    "[TOGGLE] Model Sun Shadows: {}",
+                                    if self.enable_model_shadows { "ON" } else { "OFF" }
+                                );
+                            }
+                            if ui
                                 .checkbox(&mut self.enable_point_lights, "Point Lights (torches)")
                                 .changed()
                             {
@@ -6408,6 +6423,7 @@ impl App {
             // Feature toggles for performance profiling
             enable_ao: u32,
             enable_shadows: u32,
+            enable_model_shadows: u32,
             enable_point_lights: u32,
             // Two-pass beam optimization: 0 = normal, 1 = distance only, 2 = use distance hints
             pass_mode: u32,
@@ -6542,6 +6558,7 @@ impl App {
             texture_origin_z: self.texture_origin.z,
             enable_ao: if self.enable_ao { 1 } else { 0 },
             enable_shadows: if self.enable_shadows { 1 } else { 0 },
+            enable_model_shadows: if self.enable_model_shadows { 1 } else { 0 },
             enable_point_lights: if self.enable_point_lights { 1 } else { 0 },
             pass_mode: 0, // Will be set per-pass
             lod_ao_distance: self.lod_ao_distance,
