@@ -987,12 +987,20 @@ float castShadowRay(vec3 origin) {
                     // Check actual sub-voxel geometry to decide shadowing
                     if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u ||
                         (props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
-                        if (modelBlocksRay(blockOrigin, dir, pos, model_id, rotation)) {
+                        bool hitGeo = modelBlocksRay(blockOrigin, dir, pos, model_id, rotation);
+                        if (hitGeo) {
                             if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
                                 return MODEL_PARTIAL_SHADOW;  // soft shadow through gaps
                             } else {
                                 return 0.0;  // fully blocked
                             }
+                        }
+                        // Fallback: if geometry march misses, honor declared blocking to avoid missing shadows
+                        if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u) {
+                            return 0.0;
+                        }
+                        if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
+                            return MODEL_PARTIAL_SHADOW;
                         }
                     }
                     // Non-blocking models: let light pass
@@ -1102,11 +1110,24 @@ float getSkyExposure(vec3 origin) {
                         blocksRay = modelBlocksRay(blockOrigin, dir, pos, model_id, rotation);
                     }
 
-                    if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u && blocksRay) {
-                        return 0.0;  // Fully blocked
-                    }
-                    if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u && blocksRay) {
-                        return MODEL_PARTIAL_EXPOSURE;  // Partial exposure through model geometry
+                    if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u ||
+                        (props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
+                        if (blocksRay) {
+                            if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u) {
+                                return 0.0;  // Fully blocked
+                            }
+                            if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
+                                return MODEL_PARTIAL_EXPOSURE;  // Partial exposure through model geometry
+                            }
+                        } else {
+                            // Fallback to declared blocking so we don't miss shadows/sky occlusion
+                            if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u) {
+                                return 0.0;
+                            }
+                            if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
+                                return MODEL_PARTIAL_EXPOSURE;
+                            }
+                        }
                     }
                     // Non-blocking models let sky through
                 }
