@@ -8,6 +8,7 @@ const uint NORMAL = 3;    // Surface normal visualization
 const uint UV = 4;
 const uint DEPTH = 5;
 const uint BRICK_DEBUG = 6;  // Visualize brick mask (green=solid, red=empty)
+const uint SHADOW_DEBUG = 7; // Visualize shadow reasons
 
 // Block types (must match BlockType enum in chunk.rs)
 const uint BLOCK_AIR = 0;
