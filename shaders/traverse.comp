@@ -927,7 +927,11 @@ bool modelBlocksRay(vec3 rayOrigin, vec3 dir, ivec3 blockPos, uint model_id, uin
 
 // Cast shadow ray from a point toward the sun
 // Returns shadow factor: 0 = fully in shadow, 1 = fully lit
-float castShadowRay(vec3 origin) {
+// If debugFlag is provided, it encodes the occlusion reason:
+// 0=lit, 1=solid block, 2=model full (geometry), 3=model partial (geometry),
+// 4=model full fallback, 5=model partial fallback, 6=leaves partial
+float castShadowRayInternal(vec3 origin, out uint debugFlag) {
+    debugFlag = 0u;
     vec3 sunDir = getCurrentSunDir();
 
     // No shadows when sun is below horizon
@@ -996,27 +1000,33 @@ float castShadowRay(vec3 origin) {
                         bool hitGeo = modelBlocksRay(blockOrigin, dir, pos, model_id, rotation);
                         if (hitGeo) {
                             if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
+                                debugFlag = 3u;
                                 return MODEL_PARTIAL_SHADOW;  // soft shadow through gaps
                             } else {
+                                debugFlag = 2u;
                                 return 0.0;  // fully blocked
                             }
                         }
                         // Fallback: fully blocking models always block; partial models cast soft shadow even if march missed
                         if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u) {
+                            debugFlag = 4u;
                             return 0.0;
                         }
                         if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
+                            debugFlag = 5u;
                             return MODEL_PARTIAL_SHADOW;
                         }
                     }
                     // Non-blocking models: let light pass
                 }
             } else if (blockType != BLOCK_AIR && blockType != BLOCK_LEAVES && blockType != BLOCK_GLASS && blockType != BLOCK_WATER) {
+                debugFlag = 1u;
                 return 0.0;  // Hit solid = in shadow
             }
 
             // Leaves cast partial shadow
             if (blockType == BLOCK_LEAVES) {
+                debugFlag = 6u;
                 return 0.5;  // Partial shadow through leaves
             }
         }
@@ -1054,6 +1064,11 @@ float castShadowRay(vec3 origin) {
     }
 
     return 1.0;  // No hit = lit
+}
+
+float castShadowRay(vec3 origin) {
+    uint dbg;
+    return castShadowRayInternal(origin, dbg);
 }
 
 // Check if a point has sky exposure (for ambient light)
@@ -2462,6 +2477,23 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
         // Combine all lighting with ambient occlusion
         // Point lights add on top of base lighting (not affected by AO as much)
         color = blockColor * lighting * ao + blockColor * pointLightContrib * (0.7 + 0.3 * ao);
+        }
+        break;
+        case SHADOW_DEBUG:
+        {
+        vec3 lightingHit = subVoxelHit ? subVoxelHitPos : hit;
+        uint dbgFlag;
+        float shadow = nearEnoughForShadow ? castShadowRayInternal(lightingHit + normal * 0.01, dbgFlag) : 1.0;
+        vec3 flagColor;
+        if (dbgFlag == 0u) flagColor = vec3(0.2, 0.8, 0.2); // lit
+        else if (dbgFlag == 1u) flagColor = vec3(0.0, 0.0, 1.0); // solid block
+        else if (dbgFlag == 2u) flagColor = vec3(1.0, 0.0, 0.0); // model full geom
+        else if (dbgFlag == 3u) flagColor = vec3(1.0, 0.5, 0.0); // model partial geom
+        else if (dbgFlag == 4u) flagColor = vec3(0.7, 0.0, 0.7); // model full fallback
+        else if (dbgFlag == 5u) flagColor = vec3(0.7, 0.7, 0.0); // model partial fallback
+        else if (dbgFlag == 6u) flagColor = vec3(0.0, 0.6, 0.6); // leaves
+        else flagColor = vec3(1.0,1.0,1.0);
+        color = mix(flagColor, vec3(shadow), 0.5);
         }
         break;
         case NORMAL:

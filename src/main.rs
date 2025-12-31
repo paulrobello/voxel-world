@@ -283,6 +283,7 @@ enum RenderMode {
     UV = 4,
     Depth = 5,
     BrickDebug = 6,
+    ShadowDebug = 7,
 }
 
 impl RenderMode {
@@ -294,6 +295,7 @@ impl RenderMode {
         RenderMode::UV,
         RenderMode::Depth,
         RenderMode::BrickDebug,
+        RenderMode::ShadowDebug,
     ];
 }
 
