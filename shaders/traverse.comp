@@ -943,14 +943,14 @@ float castShadowRay(vec3 origin) {
     inv_dir = clamp(inv_dir, vec3(-FLT_MAX), vec3(FLT_MAX));
 
     // Current voxel position
-    ivec3 pos = ivec3(floor(shadowOrigin));
+    ivec3 pos = ivec3(floor(rayPos));
     ivec3 startPos = pos;  // used to skip self-voxel on first iteration
 
     // Step direction
     ivec3 step = ivec3(sign(dir));
 
     // Distance to next voxel boundary
-    vec3 tMax = (vec3(pos) + 0.5 + 0.5 * vec3(step) - shadowOrigin) * inv_dir;
+    vec3 tMax = (vec3(pos) + 0.5 + 0.5 * vec3(step) - rayPos) * inv_dir;
     vec3 tDelta = abs(inv_dir);
 
     // Max shadow ray distance
