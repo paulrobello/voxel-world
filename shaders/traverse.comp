@@ -942,7 +942,7 @@ float castShadowRay(vec3 origin) {
     vec3 inv_dir = 1.0 / dir;
     inv_dir = clamp(inv_dir, vec3(-FLT_MAX), vec3(FLT_MAX));
 
-    // Current voxel position
+    // Current voxel position (world coordinates)
     ivec3 pos = ivec3(floor(rayPos));
     ivec3 startPos = pos;  // used to skip self-voxel on first iteration
 
@@ -959,14 +959,17 @@ float castShadowRay(vec3 origin) {
 
     // DDA shadow ray march (increased for larger world)
     for (int i = 0; i < 128; i++) {
-        // Check bounds
-        if (any(lessThan(pos, ivec3(0))) || any(greaterThanEqual(pos, ivec3(worldSizeU())))) {
-            return 1.0;  // Exited world bounds = lit
+        // Translate to texture coords for sampling
+        ivec3 texPos = worldToTexture(pos);
+
+        // Check bounds in loaded texture window
+        if (!isInTextureBounds(texPos)) {
+            return 1.0;  // Outside loaded area = lit
         }
 
         // Check for solid block (but ignore transparent blocks like leaves, glass)
         // pos is in texture coordinates
-        uint blockType = readBlockTypeAtTexCoord(pos);
+        uint blockType = readBlockTypeAtTexCoord(texPos);
 
         // Skip self-voxel to avoid self-shadow when origin is inside the hit block
         bool skipSelf = all(equal(pos, startPos));
@@ -979,7 +982,7 @@ float castShadowRay(vec3 origin) {
                     // Treat model as non-blocking when disabled
                 } else {
                     // Consult model properties
-                    uvec2 meta = readModelMetadata(pos);
+                    uvec2 meta = readModelMetadata(texPos);
                     uint model_id = meta.r;
                     uint rotation = meta.g & 3u;
                     const float MODEL_PARTIAL_SHADOW = 0.4;
@@ -1062,7 +1065,7 @@ float getSkyExposure(vec3 origin) {
     vec3 rayOrigin = origin;
     vec3 rayPos = rayOrigin;
 
-    // Current voxel position
+    // Current voxel position (world coordinates)
     ivec3 pos = ivec3(floor(rayOrigin));
     ivec3 startPos = pos;
 
@@ -1072,14 +1075,11 @@ float getSkyExposure(vec3 origin) {
 
     // March upward through voxels (increased for taller world: 128 blocks)
     for (int i = 0; i < 128; i++) {
-        // Check if we've exited the world (reached sky)
-        if (pos.y >= int(pc.texture_size_y)) {
-            return 1.0;  // Reached sky = full exposure
-        }
+        // Translate to texture coords for sampling
+        ivec3 texPos = worldToTexture(pos);
 
-        // For infinite world, check if position is within loaded texture bounds
-        // pos is already in texture coordinates
-        if (!isInTextureBounds(pos)) {
+        // Check if we've exited the loaded world (treated as sky)
+        if (!isInTextureBounds(texPos)) {
             return 1.0;  // Out of loaded area = assume sky
         }
 
@@ -1088,7 +1088,7 @@ float getSkyExposure(vec3 origin) {
 
         // Check for solid block (pos is in texture coordinates)
         // Skip the starting voxel to avoid self-occlusion when inside a model
-        uint blockType = readBlockTypeAtTexCoord(pos);
+        uint blockType = readBlockTypeAtTexCoord(texPos);
         bool skipSelf = all(equal(pos, startPos));
 
         if (!skipSelf) {
@@ -1097,7 +1097,7 @@ float getSkyExposure(vec3 origin) {
                 if (pc.enable_model_shadows == 0u) {
                     // Treat model as non-blocking for sky when disabled
                 } else {
-                    uvec2 meta = readModelMetadata(pos);
+                    uvec2 meta = readModelMetadata(texPos);
                     uint model_id = meta.r;
                     uint rotation = meta.g & 3u;
                     if (model_id == 0u) {
