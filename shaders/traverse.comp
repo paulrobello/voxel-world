@@ -941,24 +941,25 @@ float castShadowRayInternal(vec3 origin, out uint debugFlag) {
     }
 
     vec3 dir = sunDir;
-    vec3 inv_dir = 1.0 / dir;
-    inv_dir = clamp(inv_dir, vec3(-FLT_MAX), vec3(FLT_MAX));
+    vec3 inv_dir = clamp(1.0 / dir, vec3(-FLT_MAX), vec3(FLT_MAX));
+
+    // Track current ray position in world space
+    vec3 rayPos = origin;
 
     // Current voxel position (world coordinates)
-    ivec3 pos = ivec3(floor(origin));
+    ivec3 pos = ivec3(floor(rayPos));
     ivec3 startPos = pos;  // used to skip self-voxel on first iteration
 
     // Step direction
     ivec3 step = ivec3(sign(dir));
 
     // Distance to next voxel boundary
-    vec3 tMax = (vec3(pos) + 0.5 + 0.5 * vec3(step) - origin) * inv_dir;
+    vec3 tMax = (vec3(pos) + 0.5 + 0.5 * vec3(step) - rayPos) * inv_dir;
     vec3 tDelta = abs(inv_dir);
 
     // Max shadow ray distance
     const float MAX_SHADOW_DIST = 48.0;
     float dist = 0.0;
-    float tCurrent = 0.0;  // distance along ray to current voxel entry from origin
 
     // DDA shadow ray march (increased for larger world)
     for (int i = 0; i < 128; i++) {
@@ -979,7 +980,7 @@ float castShadowRayInternal(vec3 origin, out uint debugFlag) {
 
         if (!skipSelf) {
             // Compute a point slightly inside the current voxel along the ray for sub-voxel tests
-            vec3 blockOrigin = origin + dir * (tCurrent + 0.01);
+            vec3 blockOrigin = rayPos + dir * 0.01;
             if (blockType == BLOCK_MODEL) {
                 if (pc.enable_model_shadows == 0u) {
                     // Treat model as non-blocking when disabled
@@ -1034,10 +1035,10 @@ float castShadowRayInternal(vec3 origin, out uint debugFlag) {
         else {
             // Advance ray to exit the current voxel before testing for shadow
             float advanceT = min(tMax.x, min(tMax.y, tMax.z)) + 0.001;
-            tCurrent += advanceT;
-            pos = ivec3(floor(origin + dir * tCurrent));
+            rayPos += dir * advanceT;
+            pos = ivec3(floor(rayPos));
             // Recompute tMax from the new position
-            tMax = (vec3(pos) + 0.5 + 0.5 * vec3(step) - (origin + dir * tCurrent)) * inv_dir;
+            tMax = (vec3(pos) + 0.5 + 0.5 * vec3(step) - rayPos) * inv_dir;
             continue;
         }
 
