@@ -963,7 +963,7 @@ float castShadowRayInternal(vec3 origin, out uint debugFlag) {
 
     // DDA shadow ray march (increased for larger world)
     for (int i = 0; i < 128; i++) {
-        // Translate to texture coords for sampling
+        // Convert world voxel to texture coords for sampling
         ivec3 texPos = worldToTexture(pos);
 
         // Check bounds in loaded texture window
@@ -1010,14 +1010,14 @@ float castShadowRayInternal(vec3 origin, out uint debugFlag) {
                                 return 0.0;  // fully blocked
                             }
                         }
-                        // Fallback: fully blocking models always block; partial models cast soft shadow even if march missed
+                        // Fallback: fully blocking models always block; partial models *do not* shadow if march missed (avoid block-sized shadow)
                         if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u) {
                             debugFlag = 4u;
                             return 0.0;
                         }
                         if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
                             debugFlag = 5u;
-                            return MODEL_PARTIAL_SHADOW;
+                            return 1.0;
                         }
                     }
                     // Non-blocking models: let light pass
@@ -1098,7 +1098,7 @@ float getSkyExposure(vec3 origin) {
 
     // March upward through voxels (increased for taller world: 128 blocks)
     for (int i = 0; i < 128; i++) {
-        // Translate to texture coords for sampling
+        // Convert world voxel to texture coords for sampling
         ivec3 texPos = worldToTexture(pos);
 
         // Check if we've exited the loaded world (treated as sky)
@@ -1144,12 +1144,12 @@ float getSkyExposure(vec3 origin) {
                                 return MODEL_PARTIAL_EXPOSURE;  // Partial exposure through model geometry
                             }
                         } else {
-                            // Fallback: fully blocking models always block; partial models give soft reduction
+                            // Fallback: fully blocking models always block; partial models let sky through if miss
                             if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u) {
                                 return 0.0;
                             }
                             if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
-                                return MODEL_PARTIAL_EXPOSURE;
+                                return 1.0;
                             }
                         }
                     }
