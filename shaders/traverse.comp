@@ -936,10 +936,10 @@ float castShadowRayInternal(vec3 origin, out uint debugFlag) {
     vec3 dir = sunDir;
     vec3 inv_dir = clamp(1.0 / dir, vec3(-FLT_MAX), vec3(FLT_MAX));
 
-    // Work entirely in texture-space coordinates for shadow march
-    vec3 rayPos = origin - vec3(textureOrigin());
+    // March in world space; convert to texture coords for sampling
+    vec3 rayPos = origin;
 
-    // Current voxel position (texture-space)
+    // Current voxel position (world space)
     ivec3 pos = ivec3(floor(rayPos));
     ivec3 startPos = pos;  // used to skip self-voxel on first iteration
 
@@ -956,7 +956,7 @@ float castShadowRayInternal(vec3 origin, out uint debugFlag) {
 
     // DDA shadow ray march (increased for larger world)
     for (int i = 0; i < 128; i++) {
-        ivec3 texPos = pos;
+        ivec3 texPos = worldToTexture(pos);
 
         // Check bounds in loaded texture window
         if (!isInTextureBounds(texPos)) {
@@ -973,7 +973,7 @@ float castShadowRayInternal(vec3 origin, out uint debugFlag) {
 
         if (!skipSelf) {
             // Compute a point slightly inside the current voxel along the ray for sub-voxel tests
-            vec3 blockOrigin = rayPos + dir * 0.01;
+            vec3 blockOrigin = rayPos + dir * 0.01; // world space
             if (blockType == BLOCK_MODEL) {
                 if (pc.enable_model_shadows == 0u) {
                     // Treat model as non-blocking when disabled
@@ -992,7 +992,7 @@ float castShadowRayInternal(vec3 origin, out uint debugFlag) {
                     // Check actual sub-voxel geometry to decide shadowing
                     if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u ||
                         (props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
-                        bool hitGeo = modelBlocksRay(blockOrigin + vec3(textureOrigin()), dir, pos + textureOrigin(), model_id, rotation);
+                        bool hitGeo = modelBlocksRay(blockOrigin, dir, pos, model_id, rotation);
                         if (hitGeo) {
                             if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
                                 debugFlag = 3u;
@@ -1122,7 +1122,7 @@ float getSkyExposure(vec3 origin) {
                     bool blocksRay = false;
                     if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u ||
                         (props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
-                        blocksRay = modelBlocksRay(blockOrigin + vec3(textureOrigin()), dir, pos + textureOrigin(), model_id, rotation);
+                        blocksRay = modelBlocksRay(blockOrigin, dir, pos, model_id, rotation);
                     }
 
                     if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u ||
