@@ -1077,7 +1077,7 @@ float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFl
 
         if (!skipSelf) {
             // Compute a point slightly inside the current voxel along the ray for sub-voxel tests
-            vec3 blockOrigin = rayPos + dir * 0.01; // texture space
+            vec3 blockOrigin = rayPos + dir * 0.001; // texture space
             if (blockType == BLOCK_MODEL) {
                 if (pc.enable_model_shadows == 0u) {
                     // Treat model as non-blocking when disabled
@@ -2040,7 +2040,7 @@ bool findSubVoxelHit(
     ivec3 voxel = ivec3(floor(startPos));
     voxel = clamp(voxel, ivec3(0), ivec3(int(SUB_VOXEL_SIZE) - 1));
 
-    ivec3 step = ivec3(sign(dir));
+    ivec3 step = ivec3(sign(safeDir));
     vec3 tDelta = abs(invDir);
 
     vec3 tMaxAxis;
