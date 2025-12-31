@@ -935,27 +935,25 @@ float castShadowRay(vec3 origin) {
         return 0.3;  // Dim ambient at night
     }
 
-    // Caller already biases by surface normal; avoid extra shift that can miss thin geometry
-    vec3 rayPos = origin;
-
     vec3 dir = sunDir;
     vec3 inv_dir = 1.0 / dir;
     inv_dir = clamp(inv_dir, vec3(-FLT_MAX), vec3(FLT_MAX));
 
     // Current voxel position (world coordinates)
-    ivec3 pos = ivec3(floor(rayPos));
+    ivec3 pos = ivec3(floor(origin));
     ivec3 startPos = pos;  // used to skip self-voxel on first iteration
 
     // Step direction
     ivec3 step = ivec3(sign(dir));
 
     // Distance to next voxel boundary
-    vec3 tMax = (vec3(pos) + 0.5 + 0.5 * vec3(step) - rayPos) * inv_dir;
+    vec3 tMax = (vec3(pos) + 0.5 + 0.5 * vec3(step) - origin) * inv_dir;
     vec3 tDelta = abs(inv_dir);
 
     // Max shadow ray distance
     const float MAX_SHADOW_DIST = 48.0;
     float dist = 0.0;
+    float tCurrent = 0.0;  // distance along ray to current voxel entry from origin
 
     // DDA shadow ray march (increased for larger world)
     for (int i = 0; i < 128; i++) {
@@ -976,7 +974,7 @@ float castShadowRay(vec3 origin) {
 
         if (!skipSelf) {
             // Compute a point slightly inside the current voxel along the ray for sub-voxel tests
-            vec3 blockOrigin = rayPos + dir * 0.001;
+            vec3 blockOrigin = origin + dir * (tCurrent + 0.01);
             if (blockType == BLOCK_MODEL) {
                 if (pc.enable_model_shadows == 0u) {
                     // Treat model as non-blocking when disabled
@@ -1025,10 +1023,10 @@ float castShadowRay(vec3 origin) {
         else {
             // Advance ray to exit the current voxel before testing for shadow
             float advanceT = min(tMax.x, min(tMax.y, tMax.z)) + 0.001;
-            rayPos += sunDir * advanceT;
-            pos = ivec3(floor(rayPos));
+            tCurrent += advanceT;
+            pos = ivec3(floor(origin + dir * tCurrent));
             // Recompute tMax from the new position
-            tMax = (vec3(pos) + 0.5 + 0.5 * vec3(step) - rayPos) * inv_dir;
+            tMax = (vec3(pos) + 0.5 + 0.5 * vec3(step) - (origin + dir * tCurrent)) * inv_dir;
             continue;
         }
 
@@ -1048,7 +1046,7 @@ float castShadowRay(vec3 origin) {
         }
 
         // Move tracked ray position to the entry point of the next voxel
-        rayPos += dir * dist;
+        tCurrent = dist;
 
         if (dist > MAX_SHADOW_DIST) {
             return 1.0;  // Too far = assume lit
@@ -1087,7 +1085,7 @@ float getSkyExposure(vec3 origin) {
         }
 
         // Point slightly inside the current voxel (toward +Y) to avoid boundary misses
-        vec3 blockOrigin = rayPos + dir * 0.001;
+        vec3 blockOrigin = rayPos + dir * 0.01;
 
         // Check for solid block (pos is in texture coordinates)
         // Skip the starting voxel to avoid self-occlusion when inside a model
