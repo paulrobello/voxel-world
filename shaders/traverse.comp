@@ -1077,7 +1077,7 @@ float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFl
 
         if (!skipSelf) {
             // Compute a point slightly inside the current voxel along the ray for sub-voxel tests
-            vec3 blockOrigin = rayPos + dir * 0.002; // texture space
+            vec3 blockOrigin = rayPos + dir * 0.001; // texture space
             if (blockType == BLOCK_MODEL) {
                 if (pc.enable_model_shadows == 0u) {
                     // Treat model as non-blocking when disabled
@@ -2035,7 +2035,7 @@ bool findSubVoxelHit(
     
     // Nudge and clamp
     startPos += safeDir * SUB_VOXEL_EPS;
-    startPos = clamp(startPos, vec3(SUB_VOXEL_EPS), vec3(float(SUB_VOXEL_SIZE) - SUB_VOXEL_EPS));
+    startPos = clamp(startPos, vec3(1.5 * SUB_VOXEL_EPS), vec3(float(SUB_VOXEL_SIZE) - 1.5 * SUB_VOXEL_EPS));
 
     ivec3 voxel = ivec3(floor(startPos));
     voxel = clamp(voxel, ivec3(0), ivec3(int(SUB_VOXEL_SIZE) - 1));
@@ -2044,15 +2044,15 @@ bool findSubVoxelHit(
     vec3 tDelta = abs(invDir);
 
     vec3 tMaxAxis;
-    tMaxAxis.x = (step.x > 0) ? (float(voxel.x + 1) - startPos.x) * invDir.x
+    tMaxAxis.x = max(0.0, (step.x > 0) ? (float(voxel.x + 1) - startPos.x) * invDir.x
                               : (step.x < 0) ? (startPos.x - float(voxel.x)) * (-invDir.x)
-                                             : 1e30;
-    tMaxAxis.y = (step.y > 0) ? (float(voxel.y + 1) - startPos.y) * invDir.y
+                                             : 1e30);
+    tMaxAxis.y = max(0.0, (step.y > 0) ? (float(voxel.y + 1) - startPos.y) * invDir.y
                               : (step.y < 0) ? (startPos.y - float(voxel.y)) * (-invDir.y)
-                                             : 1e30;
-    tMaxAxis.z = (step.z > 0) ? (float(voxel.z + 1) - startPos.z) * invDir.z
+                                             : 1e30);
+    tMaxAxis.z = max(0.0, (step.z > 0) ? (float(voxel.z + 1) - startPos.z) * invDir.z
                               : (step.z < 0) ? (startPos.z - float(voxel.z)) * (-invDir.z)
-                                             : 1e30;
+                                             : 1e30);
 
     uint stepped_axis = 0u;
 
