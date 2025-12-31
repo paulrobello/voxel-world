@@ -905,18 +905,24 @@ bool isOccluderSafe(ivec3 texCoord) {
 
 const float FLT_MAX = 3.4028235e+38;
 
-// Helper: test whether a ray passing through a model block actually hits its sub-voxel geometry
-// rayOrigin should be inside the block being tested (or just beyond its entry face)
+// Helper: test whether a ray segment through a model block hits its sub-voxel geometry
+// rayOrigin: point on the ray near the current voxel (world/texture space)
 bool modelBlocksRay(vec3 rayOrigin, vec3 dir, ivec3 blockPos, uint model_id, uint rotation) {
-    // Convert to block-local space and keep slightly inside bounds to avoid precision misses
-    vec3 localOrigin = clamp(rayOrigin - vec3(blockPos),
-                             vec3(SUB_VOXEL_EPS),
-                             vec3(1.0 - SUB_VOXEL_EPS));
+    // Compute entry into the block AABB to start marching from the entry point
+    vec3 entryNormal;
+    vec3 entryLocal;
+    float entryT = rayBlockIntersect(rayOrigin, dir, blockPos, entryNormal, entryLocal);
+    if (entryT < 0.0) {
+        return false;
+    }
+
+    // Clamp to inside the block to avoid boundary misses
+    vec3 localEntry = clamp(entryLocal, vec3(SUB_VOXEL_EPS), vec3(1.0 - SUB_VOXEL_EPS));
 
     ivec3 subHit;
     vec3 n;
     float t;
-    return findSubVoxelHit(localOrigin, dir, model_id, rotation, subHit, n, t);
+    return findSubVoxelHit(localEntry, dir, model_id, rotation, subHit, n, t);
 }
 
 // Cast shadow ray from a point toward the sun
@@ -967,7 +973,7 @@ float castShadowRay(vec3 origin) {
         bool skipSelf = all(equal(pos, startPos));
 
         if (!skipSelf) {
-            // Compute a point inside the current voxel for sub-voxel tests
+            // Compute a point on the ray near/inside the current voxel for sub-voxel tests
             vec3 blockOrigin = rayPos + dir * 0.001;
             if (blockType == BLOCK_MODEL) {
                 if (pc.enable_model_shadows == 0u) {
