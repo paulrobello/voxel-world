@@ -958,15 +958,13 @@ float castShadowRayInternal(vec3 origin, out uint debugFlag) {
     for (int i = 0; i < 128; i++) {
         ivec3 texPos = worldToTexture(pos);
 
-        // Check bounds in loaded texture window
-        if (!isInTextureBounds(texPos)) {
-            debugFlag = 7u; // out of bounds -> treated as lit
-            return 1.0;  // Outside loaded area = lit
+        // Check bounds in loaded texture window; treat OOB as air (debug) instead of early exit
+        uint blockType = BLOCK_AIR;
+        if (isInTextureBounds(texPos)) {
+            blockType = readBlockTypeAtTexCoord(texPos);
+        } else {
+            debugFlag = 7u; // out of bounds
         }
-
-        // Check for solid block (but ignore transparent blocks like leaves, glass)
-        // pos is in texture coordinates
-        uint blockType = readBlockTypeAtTexCoord(texPos);
 
         // Skip self-voxel to avoid self-shadow when origin is inside the hit block
         bool skipSelf = all(equal(pos, startPos));
@@ -1100,9 +1098,11 @@ float getSkyExposure(vec3 origin) {
         // Point slightly inside the current voxel (toward +Y) to avoid boundary misses
         vec3 blockOrigin = rayPos + dir * 0.01;
 
-        // Check for solid block (pos is in texture coordinates)
-        // Skip the starting voxel to avoid self-occlusion when inside a model
-        uint blockType = readBlockTypeAtTexCoord(texPos);
+        // Check for solid block; treat OOB as air for debug
+        uint blockType = BLOCK_AIR;
+        if (isInTextureBounds(texPos)) {
+            blockType = readBlockTypeAtTexCoord(texPos);
+        }
         bool skipSelf = all(equal(pos, startPos));
 
         if (!skipSelf) {
