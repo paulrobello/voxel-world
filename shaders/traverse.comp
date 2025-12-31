@@ -2484,7 +2484,8 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
         {
         vec3 lightingHit = subVoxelHit ? subVoxelHitPos : hit;
         uint dbgFlag;
-        float shadow = nearEnoughForShadow ? castShadowRayInternal(lightingHit + normal * 0.01, dbgFlag) : 1.0;
+        // Always trace in debug mode regardless of distance/toggles
+        float shadow = castShadowRayInternal(lightingHit + normal * 0.01, dbgFlag);
         vec3 flagColor;
         if (dbgFlag == 0u) flagColor = vec3(0.2, 0.8, 0.2); // lit
         else if (dbgFlag == 1u) flagColor = vec3(0.0, 0.0, 1.0); // solid block
