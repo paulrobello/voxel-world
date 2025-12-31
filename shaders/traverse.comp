@@ -1049,7 +1049,6 @@ float getSkyExposure(vec3 origin) {
                 return 0.4;  // Partial exposure under leaves
             }
         }
-        }
 
         // Step up
         pos.y += 1;
