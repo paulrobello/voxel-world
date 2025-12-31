@@ -30,6 +30,28 @@ make run -- --verbose           # Debug output
 
 ## Development Workflow
 
+### ⚠️ PRIORITY ONE: Commit After Every Batch of Work
+
+**CRITICAL**: To enable rollback and prevent loss of working states:
+
+1. After completing a logical batch of changes, run `make checkall`
+2. Fix any errors or warnings found
+3. **Commit immediately** with a descriptive message
+4. Do NOT accumulate multiple unrelated changes before committing
+
+This ensures:
+- Easy rollback if changes introduce regressions
+- Clear history of what was changed and when
+- Ability to bisect issues to specific commits
+
+```bash
+make checkall                    # Must pass before committing
+git add -A
+git commit -m "type: description"
+```
+
+### Code Quality Check
+
 **IMPORTANT**: After making any code changes, always run:
 ```bash
 make checkall
@@ -66,7 +88,7 @@ cd textures
 magick air_64x64.png stone_64x64.png dirt_64x64.png grass_64x64.png planks_64x64.png \
   leaves_64x64.png sand_64x64.png gravel_64x64.png water_64x64.png glass_64x64.png \
   log_64x64.png torch_64x64.png brick_64x64.png snow_64x64.png cobblestone_64x64.png \
-  iron_64x64.png grass_side_64x64.png log_top_64x64.png +append texture_atlas.png
+  iron_64x64.png bedrock_64x64.png grass_side_64x64.png log_top_64x64.png +append texture_atlas.png
 ```
 
 ## Block Type Sync
@@ -74,14 +96,14 @@ magick air_64x64.png stone_64x64.png dirt_64x64.png grass_64x64.png planks_64x64
 BlockType enum in `chunk.rs` must match constants in `traverse.comp`:
 ```
 0=Air, 1=Stone, 2=Dirt, 3=Grass, 4=Planks, 5=Leaves, 6=Sand, 7=Gravel,
-8=Water, 9=Glass, 10=Log, 11=Torch, 12=Brick, 13=Snow, 14=Cobblestone, 15=Iron
+8=Water, 9=Glass, 10=Log, 11=Torch, 12=Brick, 13=Snow, 14=Cobblestone, 15=Iron, 16=Bedrock
 ```
-Extra texture slots: 16=grass_side, 17=log_top
+Extra texture slots: 17=grass_side, 18=log_top
 
 ## Key Constants
 
 - `CHUNK_SIZE = 32` (chunk.rs)
 - `BRICK_SIZE = 8` (svt.rs)
-- `ATLAS_TILE_COUNT = 18.0` (traverse.comp)
+- `ATLAS_TILE_COUNT = 19.0` (traverse.comp)
 - World: 16x4x16 chunks = 512x128x512 blocks
 - View distance: 6 chunks
