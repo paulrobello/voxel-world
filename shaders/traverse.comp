@@ -942,7 +942,7 @@ float castShadowRay(vec3 origin) {
         // pos is in texture coordinates
         uint blockType = readBlockTypeAtTexCoord(pos);
 
-        // Skip self-voxel to avoid self-shadow when origin is inside a model block
+        // Skip self-voxel to avoid self-shadow when origin is inside the hit block
         bool skipSelf = all(equal(pos, startPos));
 
         if (!skipSelf) {
@@ -979,6 +979,15 @@ float castShadowRay(vec3 origin) {
             if (blockType == BLOCK_LEAVES) {
                 return 0.5;  // Partial shadow through leaves
             }
+        }
+        else {
+            // Advance ray to exit the current voxel before testing for shadow
+            float advanceT = min(tMax.x, min(tMax.y, tMax.z)) + 0.001;
+            shadowOrigin += sunDir * advanceT;
+            pos = ivec3(floor(shadowOrigin));
+            // Recompute tMax from the new position
+            tMax = (vec3(pos) + 0.5 + 0.5 * vec3(step) - shadowOrigin) * inv_dir;
+            continue;
         }
 
         // Step to next voxel
@@ -1070,6 +1079,13 @@ float getSkyExposure(vec3 origin) {
             if (blockType == BLOCK_LEAVES) {
                 return 0.4;  // Partial exposure under leaves
             }
+        }
+        else {
+            // Advance one voxel up to get out of the starting cell
+            rayOrigin += dir * (tMax + 0.001);
+            pos = ivec3(floor(rayOrigin));
+            tMax = 1.0;
+            continue;
         }
 
         // Step up
