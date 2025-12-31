@@ -150,6 +150,10 @@ const uint SUB_VOXEL_SIZE = 8;
 const float SUB_VOXEL_SCALE = 1.0 / float(SUB_VOXEL_SIZE);
 // Small epsilon used to nudge ray starts inside the sub-voxel grid and avoid boundary misses.
 const float SUB_VOXEL_EPS = 1e-3;
+// Model flags (must match CPU packing in GpuModelProperties.flags)
+const uint MODEL_FLAG_ROTATABLE = 1u << 0;
+const uint MODEL_FLAG_LIGHT_BLOCK_FULL = 1u << 2;     // see pack_properties_for_gpu (Full => bit 2)
+const uint MODEL_FLAG_LIGHT_BLOCK_PARTIAL = 1u << 1;  // Partial => bit 1
 
 // Maximum LOD distance for sub-voxel rendering (beyond this, skip sub-voxel details)
 const float SUB_VOXEL_LOD_DISTANCE = 32.0;
@@ -913,6 +917,7 @@ float castShadowRay(vec3 origin) {
 
     // Current voxel position
     ivec3 pos = ivec3(floor(shadowOrigin));
+    ivec3 startPos = pos;  // used to skip self-voxel on first iteration
 
     // Step direction
     ivec3 step = ivec3(sign(dir));
@@ -936,18 +941,31 @@ float castShadowRay(vec3 origin) {
         // pos is in texture coordinates
         uint blockType = readBlockTypeAtTexCoord(pos);
 
-        // Handle Model blocks - skip shadow for now (most models don't fully block light)
-        // TODO: Add proper light-blocking check based on model properties
-        if (blockType == BLOCK_MODEL) {
-            // Model blocks don't cast shadow (torch, fence, etc.)
-            // Continue to next voxel without returning
-        } else if (blockType != BLOCK_AIR && blockType != BLOCK_LEAVES && blockType != BLOCK_GLASS && blockType != BLOCK_WATER) {
-            return 0.0;  // Hit solid = in shadow
-        }
+        // Skip self-voxel to avoid self-shadow when origin is inside a model block
+        bool skipSelf = all(equal(pos, startPos));
 
-        // Leaves cast partial shadow
-        if (blockType == BLOCK_LEAVES) {
-            return 0.5;  // Partial shadow through leaves
+        if (!skipSelf) {
+            if (blockType == BLOCK_MODEL) {
+                // Consult model properties for light blocking
+                uvec2 meta = readModelMetadata(pos);
+                uint model_id = meta.r;
+                ModelProperties props = model_properties[model_id];
+
+                if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u) {
+                    return 0.0;  // Fully blocks light
+                }
+                if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
+                    return 0.4;  // Partial shadow through model geometry
+                }
+                // Non-blocking model: continue
+            } else if (blockType != BLOCK_AIR && blockType != BLOCK_LEAVES && blockType != BLOCK_GLASS && blockType != BLOCK_WATER) {
+                return 0.0;  // Hit solid = in shadow
+            }
+
+            // Leaves cast partial shadow
+            if (blockType == BLOCK_LEAVES) {
+                return 0.5;  // Partial shadow through leaves
+            }
         }
 
         // Step to next voxel
@@ -984,6 +1002,7 @@ float getSkyExposure(vec3 origin) {
 
     // Current voxel position
     ivec3 pos = ivec3(floor(rayOrigin));
+    ivec3 startPos = pos;
 
     // Only step upward
     float tMax = (float(pos.y) + 1.0 - rayOrigin.y);
@@ -1003,17 +1022,33 @@ float getSkyExposure(vec3 origin) {
         }
 
         // Check for solid block (pos is in texture coordinates)
-        // Model blocks (torch, fence, etc.) don't block sky exposure
+        // Skip the starting voxel to avoid self-occlusion when inside a model
         uint blockType = readBlockTypeAtTexCoord(pos);
-        if (blockType != BLOCK_AIR && blockType != BLOCK_WATER &&
-            blockType != BLOCK_GLASS && blockType != BLOCK_LEAVES &&
-            blockType != BLOCK_MODEL) {
-            return 0.0;  // Blocked = underground
-        }
+        bool skipSelf = all(equal(pos, startPos));
 
-        // Leaves provide partial sky exposure
-        if (blockType == BLOCK_LEAVES) {
-            return 0.4;  // Partial exposure under leaves
+        if (!skipSelf) {
+            if (blockType == BLOCK_MODEL) {
+                uvec2 meta = readModelMetadata(pos);
+                uint model_id = meta.r;
+                ModelProperties props = model_properties[model_id];
+
+                if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u) {
+                    return 0.0;  // Fully blocked
+                }
+                if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
+                    return 0.4;  // Partial exposure through model
+                }
+                // Non-blocking model: continue
+            } else if (blockType != BLOCK_AIR && blockType != BLOCK_WATER &&
+                       blockType != BLOCK_GLASS && blockType != BLOCK_LEAVES) {
+                return 0.0;  // Blocked = underground
+            }
+
+            // Leaves provide partial sky exposure
+            if (blockType == BLOCK_LEAVES) {
+                return 0.4;  // Partial exposure under leaves
+            }
+        }
         }
 
         // Step up

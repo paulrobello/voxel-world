@@ -276,7 +276,8 @@ impl SubVoxelModel {
         }
 
         model.emission = Some(Color::rgb(255, 180, 80));
-        model.light_blocking = LightBlocking::None;
+        // Open fence lets some light through but should cast soft shadows
+        model.light_blocking = LightBlocking::Partial;
         model.rotatable = false;
         model.requires_ground_support = true;
 
@@ -410,7 +411,8 @@ impl SubVoxelModel {
         model.set_voxel(3, 4, 2, 3); // Latch left side
         model.set_voxel(4, 4, 2, 3); // Latch right side
 
-        model.light_blocking = LightBlocking::None;
+        // Gate posts/rails should cast soft shadows
+        model.light_blocking = LightBlocking::Partial;
         model.rotatable = true;
         model.requires_ground_support = true;
 
@@ -451,7 +453,7 @@ impl SubVoxelModel {
         model.set_voxel(6, 3, 2, 3); // Right post lower hinge
         model.set_voxel(6, 5, 2, 3); // Right post upper hinge
 
-        model.light_blocking = LightBlocking::None;
+        model.light_blocking = LightBlocking::Partial;
         model.rotatable = true;
         model.requires_ground_support = true;
 
@@ -507,7 +509,8 @@ impl SubVoxelModel {
             }
         }
 
-        model.light_blocking = LightBlocking::None;
+        // Let ladders participate in sunlight/shadow (but still allow light through gaps)
+        model.light_blocking = LightBlocking::Partial;
         model.rotatable = true;
         model.requires_ground_support = true;
 
