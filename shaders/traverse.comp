@@ -931,6 +931,7 @@ float castShadowRay(vec3 origin) {
 
     // Offset origin slightly to avoid self-intersection
     vec3 shadowOrigin = origin + sunDir * 0.01;
+    vec3 rayPos = shadowOrigin; // tracked position along the shadow ray
 
     vec3 dir = sunDir;
     vec3 inv_dir = 1.0 / dir;
@@ -950,7 +951,6 @@ float castShadowRay(vec3 origin) {
     // Max shadow ray distance
     const float MAX_SHADOW_DIST = 48.0;
     float dist = 0.0;
-    float tCurrent = 0.0;  // distance along ray to current voxel entry from shadowOrigin
 
     // DDA shadow ray march (increased for larger world)
     for (int i = 0; i < 128; i++) {
@@ -968,7 +968,7 @@ float castShadowRay(vec3 origin) {
 
         if (!skipSelf) {
             // Compute a point inside the current voxel for sub-voxel tests
-            vec3 blockOrigin = shadowOrigin + dir * (tCurrent + 0.001);
+            vec3 blockOrigin = rayPos + dir * 0.001;
             if (blockType == BLOCK_MODEL) {
                 if (pc.enable_model_shadows == 0u) {
                     // Treat model as non-blocking when disabled
@@ -1017,11 +1017,10 @@ float castShadowRay(vec3 origin) {
         else {
             // Advance ray to exit the current voxel before testing for shadow
             float advanceT = min(tMax.x, min(tMax.y, tMax.z)) + 0.001;
-            shadowOrigin += sunDir * advanceT;
-            pos = ivec3(floor(shadowOrigin));
+            rayPos += sunDir * advanceT;
+            pos = ivec3(floor(rayPos));
             // Recompute tMax from the new position
-            tMax = (vec3(pos) + 0.5 + 0.5 * vec3(step) - shadowOrigin) * inv_dir;
-            tCurrent = 0.0;
+            tMax = (vec3(pos) + 0.5 + 0.5 * vec3(step) - rayPos) * inv_dir;
             continue;
         }
 
@@ -1040,8 +1039,8 @@ float castShadowRay(vec3 origin) {
             pos.z += step.z;
         }
 
-        // Next voxel entry is at distance dist along the current origin
-        tCurrent = dist;
+        // Move tracked ray position to the entry point of the next voxel
+        rayPos += dir * dist;
 
         if (dist > MAX_SHADOW_DIST) {
             return 1.0;  // Too far = assume lit
@@ -1059,6 +1058,7 @@ float getSkyExposure(vec3 origin) {
 
     // Offset origin slightly to avoid self-intersection
     vec3 rayOrigin = origin + dir * 0.01;
+    vec3 rayPos = rayOrigin;
 
     // Current voxel position
     ivec3 pos = ivec3(floor(rayOrigin));
@@ -1067,7 +1067,6 @@ float getSkyExposure(vec3 origin) {
     // Only step upward
     float tMax = (float(pos.y) + 1.0 - rayOrigin.y);
     float tDelta = 1.0;
-    float tCurrent = 0.0;
 
     // March upward through voxels (increased for taller world: 128 blocks)
     for (int i = 0; i < 128; i++) {
@@ -1083,7 +1082,7 @@ float getSkyExposure(vec3 origin) {
         }
 
         // Point inside the current voxel (just past the entry face)
-        vec3 blockOrigin = rayOrigin + dir * (tCurrent + 0.001);
+        vec3 blockOrigin = rayPos + dir * 0.001;
 
         // Check for solid block (pos is in texture coordinates)
         // Skip the starting voxel to avoid self-occlusion when inside a model
@@ -1143,16 +1142,15 @@ float getSkyExposure(vec3 origin) {
         }
         else {
             // Advance one voxel up to get out of the starting cell
-            rayOrigin += dir * (tMax + 0.001);
-            pos = ivec3(floor(rayOrigin));
+            rayPos += dir * (tMax + 0.001);
+            pos = ivec3(floor(rayPos));
             tMax = 1.0;
-            tCurrent = 0.0;
             continue;
         }
 
         // Step up
         pos.y += 1;
-        tCurrent += 1.0;
+        rayPos += dir * tDelta;
     }
 
     return 1.0;  // No hit after max iterations = assume sky
