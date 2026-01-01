@@ -815,7 +815,51 @@ impl ModelRegistry {
             // Collision mask (8 bytes) at offset 0
             data[offset..offset + 8].copy_from_slice(&model.collision_mask.to_le_bytes());
 
-            // Padding (8 bytes) at offset 8 - already zeros
+            // Compute Fine AABB
+            let mut min = [8u8, 8, 8];
+            let mut max = [0u8, 0, 0];
+            // Iterate all voxels to find bounds
+            for (idx, &voxel) in model.voxels.iter().enumerate() {
+                if voxel != 0 {
+                    let x = (idx % 8) as u8;
+                    let y = ((idx / 8) % 8) as u8;
+                    let z = (idx / 64) as u8;
+
+                    if x < min[0] {
+                        min[0] = x;
+                    }
+                    if y < min[1] {
+                        min[1] = y;
+                    }
+                    if z < min[2] {
+                        min[2] = z;
+                    }
+
+                    if x + 1 > max[0] {
+                        max[0] = x + 1;
+                    }
+                    if y + 1 > max[1] {
+                        max[1] = y + 1;
+                    }
+                    if z + 1 > max[2] {
+                        max[2] = z + 1;
+                    }
+                }
+            }
+            // Handle empty model
+            if min[0] > max[0] {
+                min = [0, 0, 0];
+                max = [0, 0, 0];
+            }
+
+            let aabb_min_packed =
+                (min[0] as u32) | ((min[1] as u32) << 8) | ((min[2] as u32) << 16);
+            let aabb_max_packed =
+                (max[0] as u32) | ((max[1] as u32) << 8) | ((max[2] as u32) << 16);
+
+            // Store AABB in padding at offset 8
+            data[offset + 8..offset + 12].copy_from_slice(&aabb_min_packed.to_le_bytes());
+            data[offset + 12..offset + 16].copy_from_slice(&aabb_max_packed.to_le_bytes());
 
             // Emission (16 bytes as 4 floats) at offset 16
             if let Some(emission) = &model.emission {

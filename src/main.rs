@@ -1485,8 +1485,10 @@ fn get_brick_and_model_set(
 struct GpuModelProperties {
     /// 64-bit collision mask (4×4×4 grid) stored as two u32s.
     collision_mask: [u32; 2],
-    /// Padding to align emission to 16 bytes.
-    _pad1: [u32; 2],
+    /// Packed AABB min (x, y, z bytes).
+    aabb_min: u32,
+    /// Packed AABB max (x, y, z bytes).
+    aabb_max: u32,
     /// Light emission color (RGB) and intensity (A).
     emission: [f32; 4],
     /// Flags: bit 0 = rotatable, bit 1 = light_blocking_full, bit 2 = light_blocking_partial.
@@ -1557,7 +1559,10 @@ fn upload_model_registry(
                     u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
                 props.collision_mask[1] =
                     u32::from_le_bytes([chunk[4], chunk[5], chunk[6], chunk[7]]);
-                // padding (8 bytes) 8..16 skipped
+
+                // aabb (8 bytes)
+                props.aabb_min = u32::from_le_bytes([chunk[8], chunk[9], chunk[10], chunk[11]]);
+                props.aabb_max = u32::from_le_bytes([chunk[12], chunk[13], chunk[14], chunk[15]]);
 
                 // emission (16 bytes as 4 floats)
                 props.emission[0] =
@@ -1575,7 +1580,6 @@ fn upload_model_registry(
             props
         })
         .collect();
-
     // Write properties directly to mapped buffer
     {
         let mut write_guard = properties_buffer.write().unwrap();
