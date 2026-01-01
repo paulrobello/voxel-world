@@ -345,8 +345,6 @@ struct App {
     minimap_last_update: Instant,
     /// Last player yaw for rotation-based updates
     minimap_last_yaw: f32,
-    /// Height cache for minimap: (x, z) -> (block_type, height)
-    minimap_height_cache: std::collections::HashMap<(i32, i32), (BlockType, i32)>,
 
     // Compass settings
     /// Whether to show the compass
@@ -697,7 +695,6 @@ impl App {
             minimap_last_pos: Vector3::new(i32::MAX, 0, i32::MAX), // Force initial update
             minimap_last_update: Instant::now(),
             minimap_last_yaw: f32::MAX, // Force initial update
-            minimap_height_cache: std::collections::HashMap::new(),
 
             // Compass - enabled by default
             show_compass: true,
@@ -1166,7 +1163,7 @@ impl App {
                 }
 
                 self.world.set_block(target, BlockType::Air);
-                self.invalidate_minimap_cache(target.x, target.z);
+                self.world.invalidate_minimap_cache(target.x, target.z);
 
                 // Update neighboring fence/gate connections
                 self.world.update_fence_connections(target);
@@ -1541,7 +1538,8 @@ impl App {
                 self.world.update_fence_connections(place_pos);
             }
         }
-        self.invalidate_minimap_cache(place_pos.x, place_pos.z);
+        self.world
+            .invalidate_minimap_cache(place_pos.x, place_pos.z);
 
         // Update water grid based on what was placed
         if block_to_place == BlockType::Water {
@@ -1560,7 +1558,7 @@ impl App {
         for (pos, block_type) in tree_blocks {
             // Remove the block from the world
             self.world.set_block(pos, BlockType::Air);
-            self.invalidate_minimap_cache(pos.x, pos.z);
+            self.world.invalidate_minimap_cache(pos.x, pos.z);
 
             // Spawn a falling block entity
             self.falling_blocks.spawn(pos, block_type);
@@ -1593,7 +1591,8 @@ impl App {
                 if place_y < TEXTURE_SIZE_Y as i32 {
                     let final_pos = Vector3::new(lb.position.x, place_y, lb.position.z);
                     self.world.set_block(final_pos, lb.block_type);
-                    self.invalidate_minimap_cache(final_pos.x, final_pos.z);
+                    self.world
+                        .invalidate_minimap_cache(final_pos.x, final_pos.z);
 
                     // Queue gravity check for chain reaction (blocks above might now fall)
                     let player_pos = self
@@ -1654,7 +1653,7 @@ impl App {
             if block_type.is_affected_by_gravity() {
                 // Remove the block from the world
                 self.world.set_block(pos, BlockType::Air);
-                self.invalidate_minimap_cache(pos.x, pos.z);
+                self.world.invalidate_minimap_cache(pos.x, pos.z);
 
                 // Spawn a falling block entity
                 self.falling_blocks.spawn(pos, block_type);
@@ -1752,7 +1751,7 @@ impl App {
 
                         // Break the model
                         self.world.set_block(pos, BlockType::Air);
-                        self.invalidate_minimap_cache(pos.x, pos.z);
+                        self.world.invalidate_minimap_cache(pos.x, pos.z);
 
                         // Update neighboring fence/gate connections
                         self.world.update_fence_connections(pos);
@@ -1821,12 +1820,12 @@ impl App {
                 (Some(BlockType::Air), true) => {
                     // Air became water
                     self.world.set_block(pos, BlockType::Water);
-                    self.invalidate_minimap_cache(pos.x, pos.z);
+                    self.world.invalidate_minimap_cache(pos.x, pos.z);
                 }
                 (Some(BlockType::Water), false) => {
                     // Water evaporated/drained
                     self.world.set_block(pos, BlockType::Air);
-                    self.invalidate_minimap_cache(pos.x, pos.z);
+                    self.world.invalidate_minimap_cache(pos.x, pos.z);
                 }
                 _ => {
                     // No block type change needed, but may need GPU update for water level
@@ -1871,14 +1870,6 @@ impl App {
                 }
             }
         }
-    }
-
-    /// Finds the surface block at a given X, Z world coordinate.
-    /// Returns the block type and Y height of the topmost non-air block.
-    /// Uses cached values when available.
-    /// Invalidates the minimap height cache for a given (x, z) position.
-    fn invalidate_minimap_cache(&mut self, world_x: i32, world_z: i32) {
-        self.minimap_height_cache.remove(&(world_x, world_z));
     }
 
     /// Takes a screenshot and saves it to the specified path.
@@ -2701,12 +2692,9 @@ impl App {
                 self.minimap_last_pos = current_pos;
                 self.minimap_last_update = Instant::now();
                 self.minimap_last_yaw = camera_yaw;
-                let image = self.minimap.generate_image(
-                    &self.world,
-                    player_world_pos,
-                    camera_yaw,
-                    &mut self.minimap_height_cache,
-                );
+                let image =
+                    self.world
+                        .generate_minimap_image(player_world_pos, camera_yaw, &self.minimap);
                 self.minimap_cached_image = Some(image.clone());
                 Some(image)
             } else {
