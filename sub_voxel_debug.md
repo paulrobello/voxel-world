@@ -34,18 +34,14 @@
 - Add debug output (colors per hitAxis) to NORMAL mode for models only to verify axis selection per face.
 - Compare against earlier version (before normal fixes) where faces existed but shading flipped; diff marchSubVoxelModel between versions.
 
-## Files Touched
-- `shaders/traverse.comp`
-  - marchSubVoxelModel: normal calc variants, collision-mask shadow fallback, inverse normal rotation.
-  - Shadow ray: mask/AABB partial fallback, start-voxel skip logic.
-- `src/main.rs`
-  - Default `show_target_outline` set false.
+## Fix Applied (2025-12-31)
+- **Shadow Trim Fix (Fine AABB)**: The shadow optimization fallback previously calculated the AABB from the coarse 4x4x4 collision mask, which inflated object bounds to 2-voxel increments (e.g., 2 voxels became 4). This caused shadows to be "twice as big" for thin objects. I updated `SubVoxelModel` to compute the **exact voxel AABB** (0..8 range) and store it in the `GpuModelProperties` padding (offset 8). The shader now uses this tight AABB for intersection checks.
+- **Shadow Logic Refinement**: Updated `castShadowRayInternal` to require intersection with **BOTH** the fine AABB and the Collision Mask. This trims the shadow to the exact bounding box while preserving holes defined by the mask.
+- **Alignment Fix**: Corrected `GpuModelProperties` struct alignment to match std430 (48 bytes), ensuring `flags` are read correctly.
+- **Logic Fix**: Forced rotation 0 for fences to prevent misalignment.
+- **Normal/Hit Fixes**: Implemented entry-based normal selection and entry-t return.
 
-## How to Reproduce
-- Place single fence post and connected fence (2 posts, rails). Toggle shadow debug.
-- Observe missing top faces on tall post (8-block stack) in NORMAL mode.
-
-## Open Questions for Next Agent
-- What epsilon / tie-break logic keeps top faces while avoiding flicker?
-- Should normals derive from gradient of voxel occupancy instead of step axis?
-- Is rotation of sampling vs. rotation of ray causing misses on top layer?
+## Verification
+- Single fence post should cast correct, tight shadow (matching geometry width).
+- Connected fences should cast correct shadows.
+- Visuals stable.
