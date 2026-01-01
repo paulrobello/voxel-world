@@ -1168,7 +1168,7 @@ impl App {
                 self.invalidate_minimap_cache(target.x, target.z);
 
                 // Update neighboring fence/gate connections
-                self.update_fence_connections(target);
+                self.world.update_fence_connections(target);
 
                 // Notify water grid that a block was removed (may trigger flow)
                 self.water_grid.on_block_removed(target);
@@ -1435,17 +1435,25 @@ impl App {
                 || (4..20).contains(&base_model_id)
             {
                 // Fence: calculate connections and get correct variant
-                let connections = self.calculate_fence_connections(place_pos);
+                let connections = self.world.calculate_fence_connections(place_pos);
                 ModelRegistry::fence_model_id(connections)
             } else if ModelRegistry::is_gate_model(base_model_id)
                 || (20..28).contains(&base_model_id)
             {
                 // Gate: auto-detect orientation based on neighboring fences
                 // Check E/W neighbors vs N/S neighbors to determine orientation
-                let has_west = self.is_fence_connectable(place_pos + Vector3::new(-1, 0, 0));
-                let has_east = self.is_fence_connectable(place_pos + Vector3::new(1, 0, 0));
-                let has_north = self.is_fence_connectable(place_pos + Vector3::new(0, 0, -1));
-                let has_south = self.is_fence_connectable(place_pos + Vector3::new(0, 0, 1));
+                let has_west = self
+                    .world
+                    .is_fence_connectable(place_pos + Vector3::new(-1, 0, 0));
+                let has_east = self
+                    .world
+                    .is_fence_connectable(place_pos + Vector3::new(1, 0, 0));
+                let has_north = self
+                    .world
+                    .is_fence_connectable(place_pos + Vector3::new(0, 0, -1));
+                let has_south = self
+                    .world
+                    .is_fence_connectable(place_pos + Vector3::new(0, 0, 1));
 
                 // Calculate player position relative to gate for open direction
                 let player_pos = self.player.feet_pos(self.world_extent, self.texture_origin);
@@ -1473,7 +1481,7 @@ impl App {
                     // E/W fence line or no clear preference - gate spans X axis
                     // Player to the north (-Z): rotation=0 (doors swing -Z toward player)
                     // Player to the south (+Z): rotation=2 (doors swing +Z toward player)
-                    let connections = self.calculate_gate_connections(place_pos);
+                    let connections = self.world.calculate_gate_connections(place_pos);
                     let rot = if to_player.z < 0.0 { 0u8 } else { 2u8 };
                     (connections, rot)
                 };
@@ -1486,7 +1494,7 @@ impl App {
                 );
 
                 // Update neighboring fences/gates
-                self.update_fence_connections(place_pos);
+                self.world.update_fence_connections(place_pos);
                 // Skip the normal set_model_block below since we already did it
                 return true;
             } else if ModelRegistry::is_ladder_model(base_model_id) {
@@ -1522,14 +1530,14 @@ impl App {
 
             // Update neighboring fences/gates if we placed a fence-connectable block
             if ModelRegistry::is_fence_or_gate(model_id) {
-                self.update_fence_connections(place_pos);
+                self.world.update_fence_connections(place_pos);
             }
         } else {
             self.world.set_block(place_pos, block_to_place);
 
             // Solid blocks can also connect to fences
             if block_to_place.is_solid() {
-                self.update_fence_connections(place_pos);
+                self.world.update_fence_connections(place_pos);
             }
         }
         self.invalidate_minimap_cache(place_pos.x, place_pos.z);
@@ -1544,115 +1552,6 @@ impl App {
         }
 
         true
-    }
-
-    /// Calculates fence connection bitmask based on neighboring fences/gates.
-    /// Returns N=1, S=2, E=4, W=8 bitmask.
-    /// Note: North is -Z, South is +Z (matching model definition)
-    fn calculate_fence_connections(&self, pos: Vector3<i32>) -> u8 {
-        let mut connections = 0u8;
-
-        // Check north (-Z)
-        if self.is_fence_connectable(pos + Vector3::new(0, 0, -1)) {
-            connections |= 1;
-        }
-        // Check south (+Z)
-        if self.is_fence_connectable(pos + Vector3::new(0, 0, 1)) {
-            connections |= 2;
-        }
-        // Check east (+X)
-        if self.is_fence_connectable(pos + Vector3::new(1, 0, 0)) {
-            connections |= 4;
-        }
-        // Check west (-X)
-        if self.is_fence_connectable(pos + Vector3::new(-1, 0, 0)) {
-            connections |= 8;
-        }
-
-        connections
-    }
-
-    /// Calculates gate connection bitmask based on neighboring fences/gates.
-    /// Returns W=1, E=2 bitmask (gates only connect east-west).
-    fn calculate_gate_connections(&self, pos: Vector3<i32>) -> u8 {
-        let mut connections = 0u8;
-
-        // Check west (-X)
-        if self.is_fence_connectable(pos + Vector3::new(-1, 0, 0)) {
-            connections |= 1;
-        }
-        // Check east (+X)
-        if self.is_fence_connectable(pos + Vector3::new(1, 0, 0)) {
-            connections |= 2;
-        }
-
-        connections
-    }
-
-    /// Returns true if the block at pos can connect to fences/gates.
-    fn is_fence_connectable(&self, pos: Vector3<i32>) -> bool {
-        if let Some(block) = self.world.get_block(pos) {
-            match block {
-                BlockType::Model => {
-                    // Check if it's a fence or gate model
-                    if let Some(data) = self.world.get_model_data(pos) {
-                        ModelRegistry::is_fence_or_gate(data.model_id)
-                    } else {
-                        false
-                    }
-                }
-                // Solid blocks also connect to fences
-                b if b.is_solid() => true,
-                _ => false,
-            }
-        } else {
-            false
-        }
-    }
-
-    /// Updates fence/gate connections for a position and its neighbors.
-    fn update_fence_connections(&mut self, center_pos: Vector3<i32>) {
-        // Update neighbors in all 4 horizontal directions
-        let neighbors = [
-            Vector3::new(0, 0, 1),  // North
-            Vector3::new(0, 0, -1), // South
-            Vector3::new(1, 0, 0),  // East
-            Vector3::new(-1, 0, 0), // West
-        ];
-
-        for offset in &neighbors {
-            let neighbor_pos = center_pos + offset;
-            if let Some(BlockType::Model) = self.world.get_block(neighbor_pos) {
-                if let Some(data) = self.world.get_model_data(neighbor_pos) {
-                    if ModelRegistry::is_fence_model(data.model_id) {
-                        // Update fence connections
-                        let connections = self.calculate_fence_connections(neighbor_pos);
-                        let new_model_id = ModelRegistry::fence_model_id(connections);
-                        if new_model_id != data.model_id {
-                            println!(
-                                "[DEBUG] Updating fence at {:?} to ID {}",
-                                neighbor_pos, new_model_id
-                            );
-                            // Force rotation 0 for fences as their orientation is in the model_id
-                            self.world.set_model_block(neighbor_pos, new_model_id, 0);
-                        }
-                    } else if ModelRegistry::is_gate_model(data.model_id) {
-                        // Update gate connections
-                        let connections = self.calculate_gate_connections(neighbor_pos);
-                        let is_open = ModelRegistry::is_gate_open_model(data.model_id);
-                        let new_model_id = if is_open {
-                            ModelRegistry::gate_open_model_id(connections)
-                        } else {
-                            ModelRegistry::gate_closed_model_id(connections)
-                        };
-                        if new_model_id != data.model_id {
-                            self.world
-                                .set_model_block(neighbor_pos, new_model_id, data.rotation);
-                        }
-                    }
-                }
-            }
-        }
     }
 
     /// Converts all tree blocks to falling entities.
@@ -1855,7 +1754,7 @@ impl App {
                         self.invalidate_minimap_cache(pos.x, pos.z);
 
                         // Update neighboring fence/gate connections
-                        self.update_fence_connections(pos);
+                        self.world.update_fence_connections(pos);
                     }
                 }
             }
