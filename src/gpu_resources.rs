@@ -1,0 +1,941 @@
+use std::sync::Arc;
+use vulkano::{
+    buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer},
+    command_buffer::{
+        AutoCommandBufferBuilder, BufferImageCopy, ClearColorImageInfo, CommandBufferUsage,
+        CopyBufferToImageInfo, PrimaryCommandBufferAbstract,
+        allocator::StandardCommandBufferAllocator,
+    },
+    descriptor_set::{
+        DescriptorSet, WriteDescriptorSet, allocator::StandardDescriptorSetAllocator,
+    },
+    device::{Device, DeviceOwned, Queue},
+    format::Format,
+    image::{
+        Image, ImageCreateInfo, ImageType, ImageUsage,
+        sampler::{Filter, Sampler, SamplerAddressMode, SamplerCreateInfo},
+        view::{ImageView, ImageViewCreateInfo},
+    },
+    memory::allocator::{AllocationCreateInfo, MemoryTypeFilter, StandardMemoryAllocator},
+    pipeline::{ComputePipeline, Pipeline},
+    swapchain::{PresentMode, Surface, Swapchain, SwapchainCreateInfo},
+    sync::GpuFuture,
+};
+use winit::window::{Icon, Window};
+
+use crate::constants::{LOADED_CHUNKS_X, LOADED_CHUNKS_Z, WORLD_CHUNKS_Y};
+use crate::falling_block::{GpuFallingBlock, MAX_FALLING_BLOCKS};
+use crate::particles;
+use crate::sub_voxel::{MAX_MODELS, ModelRegistry, PALETTE_SIZE, SUB_VOXEL_SIZE};
+
+pub fn get_swapchain_images(
+    device: &Arc<Device>,
+    surface: &Arc<Surface>,
+    window: &Window,
+) -> (Arc<Swapchain>, Vec<Arc<Image>>) {
+    let caps = device
+        .physical_device()
+        .surface_capabilities(surface, Default::default())
+        .unwrap();
+
+    let image_format = device
+        .physical_device()
+        .surface_formats(surface, Default::default())
+        .unwrap()[0]
+        .0;
+
+    let composite_alpha = caps.supported_composite_alpha.into_iter().next().unwrap();
+
+    Swapchain::new(
+        device.clone(),
+        surface.clone(),
+        SwapchainCreateInfo {
+            min_image_count: caps.min_image_count.max(3),
+            image_format,
+            image_extent: window.inner_size().into(),
+            image_usage: ImageUsage::COLOR_ATTACHMENT | ImageUsage::TRANSFER_DST,
+            composite_alpha,
+            present_mode: PresentMode::Immediate,
+            ..Default::default()
+        },
+    )
+    .unwrap()
+}
+
+pub fn get_render_image(
+    memory_allocator: Arc<StandardMemoryAllocator>,
+    extent: [u32; 2],
+) -> (Arc<Image>, Arc<ImageView>) {
+    let image = Image::new(
+        memory_allocator,
+        ImageCreateInfo {
+            usage: ImageUsage::STORAGE | ImageUsage::TRANSFER_DST,
+            format: Format::R8G8B8A8_UNORM,
+            extent: [extent[0], extent[1], 1],
+            ..Default::default()
+        },
+        AllocationCreateInfo {
+            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    let image_view =
+        ImageView::new(image.clone(), ImageViewCreateInfo::from_image(&image)).unwrap();
+
+    (image, image_view)
+}
+
+pub fn get_resample_image(
+    memory_allocator: Arc<StandardMemoryAllocator>,
+    extent: [u32; 2],
+) -> (Arc<Image>, Arc<ImageView>) {
+    let image = Image::new(
+        memory_allocator.clone(),
+        ImageCreateInfo {
+            usage: ImageUsage::STORAGE | ImageUsage::TRANSFER_SRC,
+            format: Format::R8G8B8A8_UNORM,
+            extent: [extent[0], extent[1], 1],
+            ..Default::default()
+        },
+        AllocationCreateInfo {
+            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    let image_view =
+        ImageView::new(image.clone(), ImageViewCreateInfo::from_image(&image)).unwrap();
+
+    (image, image_view)
+}
+
+pub fn get_images_and_sets(
+    memory_allocator: Arc<StandardMemoryAllocator>,
+    descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
+    render_pipeline: &ComputePipeline,
+    resample_pipeline: &ComputePipeline,
+    render_extent: [u32; 2],
+    window_extent: [u32; 2],
+) -> (
+    Arc<Image>,
+    Arc<DescriptorSet>,
+    Arc<Image>,
+    Arc<DescriptorSet>,
+) {
+    let (render_image, render_image_view) =
+        get_render_image(memory_allocator.clone(), render_extent);
+
+    let layout = render_pipeline.layout().set_layouts()[0].clone();
+    let render_set = DescriptorSet::new(
+        descriptor_set_allocator.clone(),
+        layout,
+        [WriteDescriptorSet::image_view(0, render_image_view.clone())],
+        [],
+    )
+    .unwrap();
+
+    let (resample_image, resample_image_view) = get_resample_image(memory_allocator, window_extent);
+
+    let layout = resample_pipeline.layout().set_layouts()[0].clone();
+    let resample_set = DescriptorSet::new(
+        descriptor_set_allocator.clone(),
+        layout,
+        [
+            WriteDescriptorSet::image_view(0, render_image_view.clone()),
+            WriteDescriptorSet::image_view(1, resample_image_view.clone()),
+        ],
+        [],
+    )
+    .unwrap();
+
+    (render_image, render_set, resample_image, resample_set)
+}
+
+/// Creates a distance buffer for two-pass beam optimization.
+/// The distance buffer is at 1/4 of render resolution and stores hit distances.
+pub fn get_distance_image_and_set(
+    memory_allocator: Arc<StandardMemoryAllocator>,
+    descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
+    render_pipeline: &ComputePipeline,
+    render_extent: [u32; 2],
+) -> (Arc<Image>, Arc<DescriptorSet>) {
+    // Distance buffer at 1/4 resolution (1/16 the pixels)
+    let distance_extent = [(render_extent[0] / 4).max(1), (render_extent[1] / 4).max(1)];
+
+    let distance_image = Image::new(
+        memory_allocator,
+        ImageCreateInfo {
+            image_type: ImageType::Dim2d,
+            usage: ImageUsage::STORAGE,
+            format: Format::R32_SFLOAT,
+            extent: [distance_extent[0], distance_extent[1], 1],
+            ..Default::default()
+        },
+        AllocationCreateInfo {
+            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    let distance_image_view = ImageView::new(
+        distance_image.clone(),
+        ImageViewCreateInfo::from_image(&distance_image),
+    )
+    .unwrap();
+
+    let layout = render_pipeline
+        .layout()
+        .set_layouts()
+        .get(6)
+        .unwrap()
+        .clone();
+    let distance_set = DescriptorSet::new(
+        descriptor_set_allocator,
+        layout,
+        [WriteDescriptorSet::image_view(0, distance_image_view)],
+        [],
+    )
+    .unwrap();
+
+    (distance_image, distance_set)
+}
+
+pub fn create_empty_voxel_texture(
+    memory_allocator: Arc<StandardMemoryAllocator>,
+    command_buffer_allocator: Arc<StandardCommandBufferAllocator>,
+    descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
+    render_pipeline: &ComputePipeline,
+    queue: &Arc<Queue>,
+    world_extent: [u32; 3],
+) -> (Arc<DescriptorSet>, Arc<Image>) {
+    // Create 3D texture sized to fit entire world
+    let image = Image::new(
+        memory_allocator.clone(),
+        ImageCreateInfo {
+            image_type: ImageType::Dim3d,
+            format: Format::R8_UINT,
+            extent: world_extent,
+            usage: ImageUsage::STORAGE | ImageUsage::TRANSFER_DST,
+            ..Default::default()
+        },
+        AllocationCreateInfo::default(),
+    )
+    .unwrap();
+
+    // Clear the image to all zeros (air)
+    let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
+        command_buffer_allocator.clone(),
+        queue.queue_family_index(),
+        CommandBufferUsage::OneTimeSubmit,
+    )
+    .unwrap();
+
+    command_buffer_builder
+        .clear_color_image(ClearColorImageInfo::image(image.clone()))
+        .unwrap();
+
+    command_buffer_builder
+        .build()
+        .unwrap()
+        .execute(queue.clone())
+        .unwrap()
+        .then_signal_fence_and_flush()
+        .unwrap()
+        .wait(None)
+        .unwrap();
+
+    let image_view =
+        ImageView::new(image.clone(), ImageViewCreateInfo::from_image(&image)).unwrap();
+
+    let layout = render_pipeline
+        .layout()
+        .set_layouts()
+        .get(1)
+        .unwrap()
+        .clone();
+    let descriptor_set = DescriptorSet::new(
+        descriptor_set_allocator.clone(),
+        layout.clone(),
+        [WriteDescriptorSet::image_view(0, image_view)],
+        [],
+    )
+    .unwrap();
+
+    (descriptor_set, image)
+}
+
+pub fn load_icon(icon: &[u8]) -> Icon {
+    let (icon_rgba, icon_width, icon_height) = {
+        let image = image::load_from_memory(icon).unwrap().to_rgba8();
+        let (width, height) = image.dimensions();
+        let rgba = image.into_raw();
+        (rgba, width, height)
+    };
+    Icon::from_rgba(icon_rgba, icon_width, icon_height).unwrap()
+}
+
+/// Load a texture atlas from a file and create a GPU texture with sampler.
+/// Returns (descriptor_set, sampler, image_view) for binding to the shader and egui.
+pub fn load_texture_atlas(
+    memory_allocator: Arc<StandardMemoryAllocator>,
+    command_buffer_allocator: Arc<StandardCommandBufferAllocator>,
+    descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
+    render_pipeline: &ComputePipeline,
+    queue: &Arc<Queue>,
+    texture_path: &std::path::Path,
+) -> (Arc<DescriptorSet>, Arc<Sampler>, Arc<ImageView>) {
+    // Load the image file
+    let img = image::open(texture_path)
+        .expect("Failed to load texture")
+        .to_rgba8();
+    let (width, height) = img.dimensions();
+    let image_data: Vec<u8> = img.into_raw();
+
+    println!(
+        "Loaded texture: {}x{} from {:?}",
+        width, height, texture_path
+    );
+
+    // Create the GPU image
+    let image = Image::new(
+        memory_allocator.clone(),
+        ImageCreateInfo {
+            image_type: ImageType::Dim2d,
+            format: Format::R8G8B8A8_UNORM,
+            extent: [width, height, 1],
+            usage: ImageUsage::SAMPLED | ImageUsage::TRANSFER_DST,
+            ..Default::default()
+        },
+        AllocationCreateInfo::default(),
+    )
+    .unwrap();
+
+    // Upload image data
+    let src_buffer = Buffer::from_iter(
+        memory_allocator.clone(),
+        BufferCreateInfo {
+            usage: BufferUsage::TRANSFER_SRC,
+            ..Default::default()
+        },
+        AllocationCreateInfo {
+            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+            ..Default::default()
+        },
+        image_data,
+    )
+    .unwrap();
+
+    let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
+        command_buffer_allocator.clone(),
+        queue.queue_family_index(),
+        CommandBufferUsage::OneTimeSubmit,
+    )
+    .unwrap();
+
+    command_buffer_builder
+        .copy_buffer_to_image(CopyBufferToImageInfo::buffer_image(
+            src_buffer,
+            image.clone(),
+        ))
+        .unwrap();
+
+    command_buffer_builder
+        .build()
+        .unwrap()
+        .execute(queue.clone())
+        .unwrap()
+        .then_signal_fence_and_flush()
+        .unwrap()
+        .wait(None)
+        .unwrap();
+
+    let image_view =
+        ImageView::new(image.clone(), ImageViewCreateInfo::from_image(&image)).unwrap();
+
+    // Create sampler with nearest-neighbor filtering for pixel art
+    let sampler = Sampler::new(
+        memory_allocator.device().clone(),
+        SamplerCreateInfo {
+            mag_filter: Filter::Nearest,
+            min_filter: Filter::Nearest,
+            address_mode: [SamplerAddressMode::Repeat; 3],
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    // Create descriptor set at set index 2
+    let layout = render_pipeline
+        .layout()
+        .set_layouts()
+        .get(2)
+        .unwrap()
+        .clone();
+
+    let descriptor_set = DescriptorSet::new(
+        descriptor_set_allocator.clone(),
+        layout,
+        [WriteDescriptorSet::image_view_sampler(
+            0,
+            image_view.clone(),
+            sampler.clone(),
+        )],
+        [],
+    )
+    .unwrap();
+
+    (descriptor_set, sampler, image_view)
+}
+
+/// Creates storage buffers and descriptor set for particle and falling block data.
+/// Both share set index 3: particles at binding 0, falling blocks at binding 1.
+pub fn get_particle_and_falling_block_set(
+    memory_allocator: Arc<StandardMemoryAllocator>,
+    descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
+    render_pipeline: &ComputePipeline,
+) -> (
+    Subbuffer<[particles::GpuParticle]>,
+    Subbuffer<[GpuFallingBlock]>,
+    Arc<DescriptorSet>,
+) {
+    use particles::{GpuParticle, MAX_PARTICLES};
+
+    // Create a storage buffer for particles (initialized to zeros)
+    let particle_buffer = Buffer::new_slice::<GpuParticle>(
+        memory_allocator.clone(),
+        BufferCreateInfo {
+            usage: BufferUsage::STORAGE_BUFFER,
+            ..Default::default()
+        },
+        AllocationCreateInfo {
+            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+            ..Default::default()
+        },
+        MAX_PARTICLES as u64,
+    )
+    .unwrap();
+
+    // Create a storage buffer for falling blocks (initialized to zeros)
+    let falling_block_buffer = Buffer::new_slice::<GpuFallingBlock>(
+        memory_allocator,
+        BufferCreateInfo {
+            usage: BufferUsage::STORAGE_BUFFER,
+            ..Default::default()
+        },
+        AllocationCreateInfo {
+            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+            ..Default::default()
+        },
+        MAX_FALLING_BLOCKS as u64,
+    )
+    .unwrap();
+
+    // Create descriptor set at set index 3 with both buffers
+    let layout = render_pipeline
+        .layout()
+        .set_layouts()
+        .get(3)
+        .unwrap()
+        .clone();
+
+    let descriptor_set = DescriptorSet::new(
+        descriptor_set_allocator,
+        layout,
+        [
+            WriteDescriptorSet::buffer(0, particle_buffer.clone()),
+            WriteDescriptorSet::buffer(1, falling_block_buffer.clone()),
+        ],
+        [],
+    )
+    .unwrap();
+
+    (particle_buffer, falling_block_buffer, descriptor_set)
+}
+
+/// Maximum number of point lights (torches) that can be active at once.
+pub const MAX_LIGHTS: usize = 256;
+
+/// GPU-compatible point light data for shader.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct GpuLight {
+    /// Position XYZ + radius W
+    pub pos_radius: [f32; 4],
+    /// Color RGB + intensity A
+    pub color_intensity: [f32; 4],
+}
+
+/// Creates a storage buffer and descriptor set for point light data.
+pub fn get_light_set(
+    memory_allocator: Arc<StandardMemoryAllocator>,
+    descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
+    render_pipeline: &ComputePipeline,
+) -> (Subbuffer<[GpuLight]>, Arc<DescriptorSet>) {
+    // Create a storage buffer for lights (initialized to zeros)
+    let light_buffer = Buffer::new_slice::<GpuLight>(
+        memory_allocator,
+        BufferCreateInfo {
+            usage: BufferUsage::STORAGE_BUFFER,
+            ..Default::default()
+        },
+        AllocationCreateInfo {
+            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+            ..Default::default()
+        },
+        MAX_LIGHTS as u64,
+    )
+    .unwrap();
+
+    // Create descriptor set at set index 4
+    let layout = render_pipeline
+        .layout()
+        .set_layouts()
+        .get(4)
+        .unwrap()
+        .clone();
+
+    let descriptor_set = DescriptorSet::new(
+        descriptor_set_allocator,
+        layout,
+        [WriteDescriptorSet::buffer(0, light_buffer.clone())],
+        [],
+    )
+    .unwrap();
+
+    (light_buffer, descriptor_set)
+}
+
+/// Number of chunks in the metadata buffer (must match shader constants)
+pub const TOTAL_CHUNKS: usize =
+    LOADED_CHUNKS_X as usize * WORLD_CHUNKS_Y as usize * LOADED_CHUNKS_Z as usize;
+/// Number of u32 words needed to store 1 bit per chunk
+pub const CHUNK_METADATA_WORDS: usize = TOTAL_CHUNKS.div_ceil(32);
+
+/// Creates a storage buffer and descriptor set for chunk metadata (empty/solid flags).
+pub fn get_chunk_metadata_set(
+    memory_allocator: Arc<StandardMemoryAllocator>,
+    descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
+    render_pipeline: &ComputePipeline,
+) -> (Subbuffer<[u32]>, Arc<DescriptorSet>) {
+    // Create a storage buffer for chunk metadata (bit-packed flags)
+    let chunk_metadata_buffer = Buffer::new_slice::<u32>(
+        memory_allocator,
+        BufferCreateInfo {
+            usage: BufferUsage::STORAGE_BUFFER,
+            ..Default::default()
+        },
+        AllocationCreateInfo {
+            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+            ..Default::default()
+        },
+        CHUNK_METADATA_WORDS as u64,
+    )
+    .unwrap();
+
+    // Create descriptor set at set index 5
+    let layout = render_pipeline
+        .layout()
+        .set_layouts()
+        .get(5)
+        .unwrap()
+        .clone();
+
+    let descriptor_set = DescriptorSet::new(
+        descriptor_set_allocator,
+        layout,
+        [WriteDescriptorSet::buffer(0, chunk_metadata_buffer.clone())],
+        [],
+    )
+    .unwrap();
+
+    (chunk_metadata_buffer, descriptor_set)
+}
+
+/// Number of u32 words for brick masks (2 words = 64 bits per chunk).
+pub const BRICK_MASK_WORDS: usize = TOTAL_CHUNKS * 2;
+/// Number of u32 words for brick distances (16 words = 64 bytes per chunk).
+pub const BRICK_DIST_WORDS: usize = TOTAL_CHUNKS * 16;
+
+/// Creates combined descriptor set 7 containing brick metadata AND model resources.
+/// This merges brick metadata with model resources to stay within the 8 descriptor set limit.
+///
+/// Layout:
+/// - Binding 0: Brick masks - 64 bits per chunk (2 u32 words per chunk)
+/// - Binding 1: Brick distances - 64 bytes per chunk (distance to nearest solid brick)
+/// - Binding 2: Model atlas - 128×8×128 (256 models, each 8³ voxels), R8_UINT palette indices
+/// - Binding 3: Model palettes - 256×16 (256 models × 16 colors), RGBA8
+/// - Binding 4: Model metadata - model_id (R) + rotation (G) per block
+/// - Binding 5: Model properties - collision mask, emission, flags per model
+#[allow(clippy::type_complexity)]
+pub fn get_brick_and_model_set(
+    memory_allocator: Arc<StandardMemoryAllocator>,
+    command_buffer_allocator: Arc<StandardCommandBufferAllocator>,
+    descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
+    render_pipeline: &ComputePipeline,
+    queue: &Arc<Queue>,
+    world_extent: [u32; 3],
+    model_registry: &ModelRegistry,
+) -> (
+    Subbuffer<[u32]>,   // brick_mask_buffer
+    Subbuffer<[u32]>,   // brick_dist_buffer
+    Arc<Image>,         // model_atlas
+    Arc<Image>,         // model_metadata
+    Arc<DescriptorSet>, // combined set 7
+) {
+    // === Brick metadata resources (bindings 0-1) ===
+
+    // Create buffer for brick masks (64 bits per chunk)
+    let brick_mask_buffer = Buffer::new_slice::<u32>(
+        memory_allocator.clone(),
+        BufferCreateInfo {
+            usage: BufferUsage::STORAGE_BUFFER,
+            ..Default::default()
+        },
+        AllocationCreateInfo {
+            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+            ..Default::default()
+        },
+        BRICK_MASK_WORDS as u64,
+    )
+    .unwrap();
+
+    // Create buffer for brick distances (64 bytes per chunk)
+    let brick_dist_buffer = Buffer::new_slice::<u32>(
+        memory_allocator.clone(),
+        BufferCreateInfo {
+            usage: BufferUsage::STORAGE_BUFFER,
+            ..Default::default()
+        },
+        AllocationCreateInfo {
+            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+            ..Default::default()
+        },
+        BRICK_DIST_WORDS as u64,
+    )
+    .unwrap();
+
+    // === Model resources (bindings 2-5) ===
+
+    // Create model atlas 3D texture (R8_UINT, 128×8×128)
+    let model_atlas = Image::new(
+        memory_allocator.clone(),
+        ImageCreateInfo {
+            image_type: ImageType::Dim3d,
+            format: Format::R8_UINT,
+            extent: [MODEL_ATLAS_WIDTH, MODEL_ATLAS_HEIGHT, MODEL_ATLAS_DEPTH],
+            usage: ImageUsage::STORAGE | ImageUsage::TRANSFER_DST,
+            ..Default::default()
+        },
+        AllocationCreateInfo::default(),
+    )
+    .unwrap();
+
+    // Create model palette 2D texture (RGBA8, 256×16)
+    let model_palettes = Image::new(
+        memory_allocator.clone(),
+        ImageCreateInfo {
+            image_type: ImageType::Dim2d,
+            format: Format::R8G8B8A8_UNORM,
+            extent: [MAX_MODELS as u32, PALETTE_SIZE as u32, 1],
+            usage: ImageUsage::SAMPLED | ImageUsage::TRANSFER_DST,
+            ..Default::default()
+        },
+        AllocationCreateInfo::default(),
+    )
+    .unwrap();
+
+    // Create model metadata 3D texture (RG8_UINT, same extent as blocks)
+    let model_metadata = Image::new(
+        memory_allocator.clone(),
+        ImageCreateInfo {
+            image_type: ImageType::Dim3d,
+            format: Format::R8G8_UINT,
+            extent: world_extent,
+            usage: ImageUsage::STORAGE | ImageUsage::TRANSFER_DST,
+            ..Default::default()
+        },
+        AllocationCreateInfo::default(),
+    )
+    .unwrap();
+
+    // Create model properties buffer (SSBO)
+    let model_properties_buffer = Buffer::new_slice::<GpuModelProperties>(
+        memory_allocator.clone(),
+        BufferCreateInfo {
+            usage: BufferUsage::STORAGE_BUFFER | BufferUsage::TRANSFER_DST,
+            ..Default::default()
+        },
+        AllocationCreateInfo {
+            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+            ..Default::default()
+        },
+        MAX_MODELS as u64,
+    )
+    .unwrap();
+
+    // Upload model registry data to GPU
+    upload_model_registry(
+        memory_allocator.clone(),
+        command_buffer_allocator.clone(),
+        queue,
+        model_registry,
+        &model_atlas,
+        &model_palettes,
+        &model_properties_buffer,
+    );
+
+    // Clear metadata to all zeros (no models placed yet)
+    let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
+        command_buffer_allocator,
+        queue.queue_family_index(),
+        CommandBufferUsage::OneTimeSubmit,
+    )
+    .unwrap();
+
+    command_buffer_builder
+        .clear_color_image(ClearColorImageInfo::image(model_metadata.clone()))
+        .unwrap();
+
+    command_buffer_builder
+        .build()
+        .unwrap()
+        .execute(queue.clone())
+        .unwrap()
+        .then_signal_fence_and_flush()
+        .unwrap()
+        .wait(None)
+        .unwrap();
+
+    // Create image views
+    let atlas_view = ImageView::new(
+        model_atlas.clone(),
+        ImageViewCreateInfo::from_image(&model_atlas),
+    )
+    .unwrap();
+
+    let palette_view = ImageView::new(
+        model_palettes.clone(),
+        ImageViewCreateInfo::from_image(&model_palettes),
+    )
+    .unwrap();
+
+    let metadata_view = ImageView::new(
+        model_metadata.clone(),
+        ImageViewCreateInfo::from_image(&model_metadata),
+    )
+    .unwrap();
+
+    // Create sampler for palette texture
+    let palette_sampler = Sampler::new(
+        memory_allocator.device().clone(),
+        SamplerCreateInfo {
+            mag_filter: Filter::Nearest,
+            min_filter: Filter::Nearest,
+            address_mode: [SamplerAddressMode::ClampToEdge; 3],
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    // === Create combined descriptor set at set index 7 ===
+    let layout = render_pipeline
+        .layout()
+        .set_layouts()
+        .get(7)
+        .unwrap()
+        .clone();
+
+    let descriptor_set = DescriptorSet::new(
+        descriptor_set_allocator,
+        layout,
+        [
+            // Brick metadata (bindings 0-1)
+            WriteDescriptorSet::buffer(0, brick_mask_buffer.clone()),
+            WriteDescriptorSet::buffer(1, brick_dist_buffer.clone()),
+            // Model resources (bindings 2-5)
+            WriteDescriptorSet::image_view(2, atlas_view),
+            WriteDescriptorSet::image_view_sampler(3, palette_view, palette_sampler),
+            WriteDescriptorSet::image_view(4, metadata_view),
+            WriteDescriptorSet::buffer(5, model_properties_buffer),
+        ],
+        [],
+    )
+    .unwrap();
+
+    (
+        brick_mask_buffer,
+        brick_dist_buffer,
+        model_atlas,
+        model_metadata,
+        descriptor_set,
+    )
+}
+
+/// GPU-side model properties for sub-voxel rendering.
+/// Must match the shader struct layout.
+#[derive(Debug, Clone, Copy, Default, BufferContents)]
+#[repr(C)]
+pub struct GpuModelProperties {
+    /// 64-bit collision mask (4×4×4 grid) stored as two u32s.
+    pub collision_mask: [u32; 2],
+    /// Packed AABB min (x, y, z bytes).
+    pub aabb_min: u32,
+    /// Packed AABB max (x, y, z bytes).
+    pub aabb_max: u32,
+    /// Light emission color (RGB) and intensity (A).
+    pub emission: [f32; 4],
+    /// Flags: bit 0 = rotatable, bit 1 = light_blocking_full, bit 2 = light_blocking_partial.
+    pub flags: u32,
+    /// Padding to align to 16 bytes (total 48 bytes).
+    pub _pad2: [u32; 3],
+}
+
+/// Model atlas dimensions: 16 models per row, 16 rows = 256 models.
+pub const MODEL_ATLAS_WIDTH: u32 = 16 * SUB_VOXEL_SIZE as u32; // 128
+pub const MODEL_ATLAS_DEPTH: u32 = 16 * SUB_VOXEL_SIZE as u32; // 128
+pub const MODEL_ATLAS_HEIGHT: u32 = SUB_VOXEL_SIZE as u32; // 8
+
+/// Uploads model registry data (atlas, palettes, properties) to GPU.
+pub fn upload_model_registry(
+    memory_allocator: Arc<StandardMemoryAllocator>,
+    command_buffer_allocator: Arc<StandardCommandBufferAllocator>,
+    queue: &Arc<Queue>,
+    registry: &ModelRegistry,
+    atlas: &Arc<Image>,
+    palettes: &Arc<Image>,
+    properties_buffer: &Subbuffer<[GpuModelProperties]>,
+) {
+    // Pack model voxels into atlas layout
+    let atlas_data = registry.pack_voxels_for_gpu();
+    let palette_data = registry.pack_palettes_for_gpu();
+    let properties_data = registry.pack_properties_for_gpu();
+
+    // Create staging buffers
+    let atlas_staging = Buffer::from_iter(
+        memory_allocator.clone(),
+        BufferCreateInfo {
+            usage: BufferUsage::TRANSFER_SRC,
+            ..Default::default()
+        },
+        AllocationCreateInfo {
+            memory_type_filter: MemoryTypeFilter::PREFER_HOST
+                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+            ..Default::default()
+        },
+        atlas_data,
+    )
+    .unwrap();
+
+    let palette_staging = Buffer::from_iter(
+        memory_allocator.clone(),
+        BufferCreateInfo {
+            usage: BufferUsage::TRANSFER_SRC,
+            ..Default::default()
+        },
+        AllocationCreateInfo {
+            memory_type_filter: MemoryTypeFilter::PREFER_HOST
+                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+            ..Default::default()
+        },
+        palette_data,
+    )
+    .unwrap();
+
+    // Convert properties data to GpuModelProperties
+    let gpu_properties: Vec<GpuModelProperties> = properties_data
+        .chunks(48)
+        .map(|chunk| {
+            let mut props = GpuModelProperties::default();
+            if chunk.len() >= 48 {
+                // collision_mask (8 bytes)
+                props.collision_mask[0] =
+                    u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+                props.collision_mask[1] =
+                    u32::from_le_bytes([chunk[4], chunk[5], chunk[6], chunk[7]]);
+
+                // aabb (8 bytes)
+                props.aabb_min = u32::from_le_bytes([chunk[8], chunk[9], chunk[10], chunk[11]]);
+                props.aabb_max = u32::from_le_bytes([chunk[12], chunk[13], chunk[14], chunk[15]]);
+
+                // emission (16 bytes as 4 floats)
+                props.emission[0] =
+                    f32::from_le_bytes([chunk[16], chunk[17], chunk[18], chunk[19]]);
+                props.emission[1] =
+                    f32::from_le_bytes([chunk[20], chunk[21], chunk[22], chunk[23]]);
+                props.emission[2] =
+                    f32::from_le_bytes([chunk[24], chunk[25], chunk[26], chunk[27]]);
+                props.emission[3] =
+                    f32::from_le_bytes([chunk[28], chunk[29], chunk[30], chunk[31]]);
+
+                // flags (4 bytes)
+                props.flags = u32::from_le_bytes([chunk[32], chunk[33], chunk[34], chunk[35]]);
+            }
+            props
+        })
+        .collect();
+    // Write properties directly to mapped buffer
+    {
+        let mut write_guard = properties_buffer.write().unwrap();
+        for (i, prop) in gpu_properties.iter().enumerate() {
+            if i < write_guard.len() {
+                write_guard[i] = *prop;
+            }
+        }
+    }
+
+    // Build command buffer to copy staging data to images
+    let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
+        command_buffer_allocator,
+        queue.queue_family_index(),
+        CommandBufferUsage::OneTimeSubmit,
+    )
+    .unwrap();
+
+    // Copy atlas data
+    command_buffer_builder
+        .copy_buffer_to_image(CopyBufferToImageInfo {
+            regions: [BufferImageCopy {
+                image_subresource: atlas.subresource_layers(),
+                image_extent: atlas.extent(),
+                ..Default::default()
+            }]
+            .into(),
+            ..CopyBufferToImageInfo::buffer_image(atlas_staging, atlas.clone())
+        })
+        .unwrap();
+
+    // Copy palette data
+    command_buffer_builder
+        .copy_buffer_to_image(CopyBufferToImageInfo {
+            regions: [BufferImageCopy {
+                image_subresource: palettes.subresource_layers(),
+                image_extent: palettes.extent(),
+                ..Default::default()
+            }]
+            .into(),
+            ..CopyBufferToImageInfo::buffer_image(palette_staging, palettes.clone())
+        })
+        .unwrap();
+
+    command_buffer_builder
+        .build()
+        .unwrap()
+        .execute(queue.clone())
+        .unwrap()
+        .then_signal_fence_and_flush()
+        .unwrap()
+        .wait(None)
+        .unwrap();
+}

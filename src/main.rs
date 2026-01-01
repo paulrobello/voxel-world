@@ -38,7 +38,7 @@ mod macos_cursor {
 use clap::Parser;
 use egui_winit_vulkano::{Gui, GuiConfig, egui};
 use nalgebra::{Matrix4, Vector3, vector};
-use noise::{Fbm, MultiFractal, NoiseFn, Perlin, RidgedMulti};
+
 use std::path::PathBuf;
 use std::{
     f64::consts::{FRAC_PI_2, TAU},
@@ -53,35 +53,30 @@ use vulkano::{
         CommandBufferUsage, CopyBufferToImageInfo, PrimaryCommandBufferAbstract,
         allocator::StandardCommandBufferAllocator,
     },
-    descriptor_set::{
-        DescriptorSet, WriteDescriptorSet, allocator::StandardDescriptorSetAllocator,
-    },
+    descriptor_set::{DescriptorSet, allocator::StandardDescriptorSetAllocator},
     device::{
-        Device, DeviceCreateInfo, DeviceExtensions, DeviceFeatures, DeviceOwned, Queue,
-        QueueCreateInfo, QueueFlags, physical::PhysicalDeviceType,
+        Device, DeviceCreateInfo, DeviceExtensions, DeviceFeatures, Queue, QueueCreateInfo,
+        QueueFlags, physical::PhysicalDeviceType,
     },
-    format::Format,
     image::{
-        Image, ImageCreateInfo, ImageType, ImageUsage,
-        sampler::{Filter, Sampler, SamplerAddressMode, SamplerCreateInfo},
+        Image,
+        sampler::{Filter, SamplerAddressMode, SamplerCreateInfo},
         view::{ImageView, ImageViewCreateInfo},
     },
     instance::{Instance, InstanceCreateFlags, InstanceCreateInfo},
     memory::allocator::{AllocationCreateInfo, MemoryTypeFilter, StandardMemoryAllocator},
-    pipeline::{ComputePipeline, Pipeline, PipelineBindPoint},
+    pipeline::{Pipeline, PipelineBindPoint},
     swapchain::{
-        PresentMode, Surface, Swapchain, SwapchainCreateInfo, SwapchainPresentInfo,
-        acquire_next_image,
+        Surface, Swapchain, SwapchainCreateInfo, SwapchainPresentInfo, acquire_next_image,
     },
     sync::GpuFuture,
 };
 use winit::{
     application::ApplicationHandler,
-    dpi::PhysicalSize,
     event::{DeviceEvent, DeviceId, MouseButton, WindowEvent},
     event_loop::{ActiveEventLoop, EventLoop},
     keyboard::KeyCode,
-    window::{Icon, Window, WindowId},
+    window::{Window, WindowId},
 };
 use winit_input_helper::WinitInputHelper;
 
@@ -89,148 +84,56 @@ mod block_update;
 mod camera;
 mod chunk;
 mod chunk_loader;
+mod config;
+mod constants;
 mod falling_block;
+mod gpu_resources;
 mod hot_reload;
+mod hud;
 mod particles;
+mod player;
 mod raycast;
+mod render_mode;
 mod sub_voxel;
 mod svt;
+mod terrain_gen;
+mod utils;
 mod water;
 mod world;
 
 use crate::block_update::{BlockUpdateQueue, BlockUpdateType};
-use crate::camera::Camera;
-use crate::chunk::{BlockType, CHUNK_SIZE, Chunk};
+use crate::chunk::{BlockType, CHUNK_SIZE};
 use crate::chunk_loader::ChunkLoader;
-use crate::falling_block::{FallingBlockSystem, GpuFallingBlock, MAX_FALLING_BLOCKS};
+use crate::config::{Args, INITIAL_WINDOW_RESOLUTION};
+use crate::constants::{
+    CHUNKS_PER_FRAME, EMPTY_CHUNK_DATA, EMPTY_MODEL_METADATA, LOADED_CHUNKS_X, LOADED_CHUNKS_Z,
+    TEXTURE_SIZE_X, TEXTURE_SIZE_Y, TEXTURE_SIZE_Z, UNLOAD_DISTANCE, VIEW_DISTANCE, WORLD_CHUNKS_Y,
+};
+use crate::falling_block::{FallingBlockSystem, GpuFallingBlock};
+use crate::gpu_resources::{
+    BRICK_DIST_WORDS, BRICK_MASK_WORDS, CHUNK_METADATA_WORDS, GpuLight, MAX_LIGHTS,
+    create_empty_voxel_texture, get_brick_and_model_set, get_chunk_metadata_set,
+    get_distance_image_and_set, get_images_and_sets, get_light_set,
+    get_particle_and_falling_block_set, get_swapchain_images, load_icon, load_texture_atlas,
+};
 use crate::hot_reload::HotReloadComputePipeline;
+use crate::hud::Minimap;
 use crate::particles::ParticleSystem;
+use crate::player::{
+    HEAD_BOB_AMPLITUDE, PLAYER_EYE_HEIGHT, PLAYER_HALF_WIDTH, PLAYER_HEIGHT, Player,
+};
 use crate::raycast::{MAX_RAYCAST_DISTANCE, RaycastHit, get_place_position, raycast};
-use crate::sub_voxel::{MAX_MODELS, ModelRegistry, PALETTE_SIZE, SUB_VOXEL_SIZE};
+use crate::render_mode::RenderMode;
+use crate::sub_voxel::ModelRegistry;
 use crate::svt::ChunkSVT;
+use crate::terrain_gen::{TerrainGenerator, generate_chunk_terrain};
+use crate::utils::{ChunkStats, Profiler, get_allocators};
 use crate::water::WaterGrid;
 use crate::world::World;
 
-/// Voxel Game Engine - A Minecraft-like voxel game with GPU ray-marching rendering.
-#[derive(Parser, Debug, Clone)]
-#[command(name = "voxel_ray_traversal")]
-#[command(version, about, long_about = None)]
-struct Args {
-    /// Spawn X coordinate in world blocks (default: auto-find suitable location)
-    #[arg(long, short = 'x')]
-    spawn_x: Option<i32>,
+// Constants moved to constants.rs
 
-    /// Spawn Z coordinate in world blocks (default: auto-find suitable location)
-    #[arg(long, short = 'z')]
-    spawn_z: Option<i32>,
-
-    /// Take screenshot after N seconds and save to voxel_world_screen_shot.png
-    #[arg(long, short = 's')]
-    screenshot_delay: Option<f64>,
-
-    /// Print debug info every N frames (0 = off)
-    #[arg(long, short = 'd', default_value_t = 0)]
-    debug_interval: u32,
-
-    /// Start in fly mode
-    #[arg(long, short = 'f')]
-    fly_mode: bool,
-
-    /// Pause day/night cycle at specific time (0.0-1.0, where 0.5 = noon)
-    #[arg(long, short = 't')]
-    time_of_day: Option<f64>,
-
-    /// Enable chunk boundary visualization
-    #[arg(long, short = 'b')]
-    show_chunk_boundaries: bool,
-
-    /// Set view distance in chunks (default: 6)
-    #[arg(long, short = 'v')]
-    view_distance: Option<i32>,
-
-    /// Seed for terrain generation (default: 12345)
-    #[arg(long, short = 'S')]
-    seed: Option<u32>,
-
-    /// Start in render mode: textured, normal, coord, steps, uv, depth (default: textured)
-    #[arg(long, short = 'r')]
-    render_mode: Option<String>,
-
-    /// Verbose debug output to console
-    #[arg(long)]
-    verbose: bool,
-}
-
-const INITIAL_WINDOW_RESOLUTION: PhysicalSize<u32> = PhysicalSize::new(1200, 1080);
-
-// World height in chunks (fixed - Y dimension is bounded)
-const WORLD_CHUNKS_Y: i32 = 4;
-
-// Texture pool dimensions for loaded chunks (X and Z are centered on player)
-// This defines how many chunks can be loaded at once, not world bounds
-const LOADED_CHUNKS_X: i32 = 16; // Chunks loaded in X direction (8 each side of player)
-const LOADED_CHUNKS_Z: i32 = 16; // Chunks loaded in Z direction (8 each side of player)
-
-// GPU texture size in blocks (holds all currently loaded chunks)
-const TEXTURE_SIZE_X: usize = LOADED_CHUNKS_X as usize * CHUNK_SIZE;
-const TEXTURE_SIZE_Y: usize = WORLD_CHUNKS_Y as usize * CHUNK_SIZE;
-const TEXTURE_SIZE_Z: usize = LOADED_CHUNKS_Z as usize * CHUNK_SIZE;
-
-// Terrain generation constants
-/// Sea level for water filling (blocks below this in valleys become water)
-const SEA_LEVEL: i32 = 28;
-
-// Chunk streaming constants
-/// View distance in chunks (horizontal - all Y levels loaded within this range)
-const VIEW_DISTANCE: i32 = 6;
-/// Unload distance in chunks (horizontal - chunks beyond this are unloaded)
-const UNLOAD_DISTANCE: i32 = 7;
-/// Maximum chunks to load or unload per frame
-const CHUNKS_PER_FRAME: usize = 4;
-
-/// Cached empty chunk data for GPU clearing (avoids repeated allocations)
-static EMPTY_CHUNK_DATA: std::sync::LazyLock<Vec<u8>> =
-    std::sync::LazyLock::new(|| vec![0u8; CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE]);
-
-/// Cached empty model metadata for GPU clearing (2 bytes per block: model_id + rotation)
-static EMPTY_MODEL_METADATA: std::sync::LazyLock<Vec<u8>> =
-    std::sync::LazyLock::new(|| vec![0u8; CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE * 2]);
-
-// Player physics constants (in world/voxel units, where 1 unit = 1 block)
-/// Gravity acceleration in blocks per second squared
-const GRAVITY: f64 = 20.0;
-/// Jump velocity in blocks per second
-const JUMP_VELOCITY: f64 = 8.0;
-/// Player movement speed in blocks per second
-const MOVE_SPEED: f64 = 5.0;
-/// Player hitbox half-width (X and Z)
-const PLAYER_HALF_WIDTH: f64 = 0.3;
-/// Player height (from feet to camera)
-const PLAYER_HEIGHT: f64 = 1.6; // Reduced from 1.7 for better cave navigation
-/// Player eye height from feet
-const PLAYER_EYE_HEIGHT: f64 = 1.6;
-
-// Swimming physics constants
-/// Gravity when submerged in water (reduced buoyancy effect)
-const WATER_GRAVITY: f64 = 4.0;
-/// Buoyancy force when in water (pushes player up slightly)
-const WATER_BUOYANCY: f64 = 2.0;
-/// Movement speed in water (slower than on land)
-const SWIM_SPEED: f64 = 3.0;
-/// Vertical swim speed (when pressing Space to swim up)
-const SWIM_UP_SPEED: f64 = 4.0;
-/// Vertical sink speed (when pressing Shift to swim down)
-const SWIM_DOWN_SPEED: f64 = 3.0;
-/// Water drag (velocity multiplier per second, lower = more drag)
-const WATER_DRAG: f64 = 0.85;
-
-// Ladder/climbing constants
-/// Vertical climb speed (when pressing Space to climb up)
-const CLIMB_UP_SPEED: f64 = 4.0;
-/// Vertical climb speed (when pressing Shift to climb down)
-const CLIMB_DOWN_SPEED: f64 = 3.0;
-/// Horizontal movement speed while on ladder (slower than walking)
-const CLIMB_HORIZ_SPEED: f64 = 2.0;
+// Player physics constants moved to player.rs
 
 // Day/night cycle constants
 /// Duration of a full day cycle in seconds (real time)
@@ -238,11 +141,6 @@ const DAY_CYCLE_DURATION: f32 = 120.0;
 /// Default time of day (0.0 = 6am, 0.5 = 6pm, formula: hours = (v * 24 + 6) % 24)
 /// 0.583 = 20:00 (8pm)
 const DEFAULT_TIME_OF_DAY: f32 = 0.583;
-
-/// Head bob amplitude (in blocks)
-const HEAD_BOB_AMPLITUDE: f64 = 0.04;
-/// Head bob frequency (cycles per block walked)
-const HEAD_BOB_FREQUENCY: f64 = 0.8;
 
 /// Default blocks available in the hotbar (9 slots, keys 1-9)
 const DEFAULT_HOTBAR_BLOCKS: [BlockType; 9] = [
@@ -270,336 +168,6 @@ const DEFAULT_HOTBAR_MODEL_IDS: [u8; 9] = [
     29, // Ladder
     1,  // Torch
 ];
-
-/// Render modes for debugging.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-#[repr(u32)]
-enum RenderMode {
-    Coord = 0,
-    Steps = 1,
-    #[default]
-    Textured = 2,
-    Normal = 3,
-    UV = 4,
-    Depth = 5,
-    BrickDebug = 6,
-    ShadowDebug = 7,
-}
-
-impl RenderMode {
-    pub const ALL: &'static [RenderMode] = &[
-        RenderMode::Coord,
-        RenderMode::Steps,
-        RenderMode::Textured,
-        RenderMode::Normal,
-        RenderMode::UV,
-        RenderMode::Depth,
-        RenderMode::BrickDebug,
-        RenderMode::ShadowDebug,
-    ];
-}
-
-/// Terrain generator using multiple noise layers for varied landscapes
-#[derive(Clone)]
-struct TerrainGenerator {
-    height_noise: Fbm<Perlin>,
-    detail_noise: Perlin,
-    mountain_noise: RidgedMulti<Perlin>,
-    biome_noise: Perlin,
-    cave_noise: Perlin,
-    cave_mask_noise: Perlin,
-    entrance_noise: Perlin,
-}
-
-impl TerrainGenerator {
-    fn new(seed: u32) -> Self {
-        // Base continental noise for large-scale terrain features
-        let height_noise = Fbm::<Perlin>::new(seed)
-            .set_octaves(4)
-            .set_frequency(0.003) // Very low frequency for continent-scale features
-            .set_lacunarity(2.0)
-            .set_persistence(0.5);
-
-        let detail_noise = Perlin::new(seed.wrapping_add(1));
-
-        // Mountain ridges using RidgedMulti for sharp peaks
-        let mountain_noise = RidgedMulti::<Perlin>::new(seed.wrapping_add(2))
-            .set_octaves(5)
-            .set_frequency(0.008) // Mountain-scale features
-            .set_lacunarity(2.2)
-            .set_persistence(0.5);
-
-        // Biome noise - determines flat plains vs hilly vs mountainous regions
-        // Very low frequency for large biome regions
-        let biome_noise = Perlin::new(seed.wrapping_add(6));
-
-        // 3D noise for cave carving
-        let cave_noise = Perlin::new(seed.wrapping_add(3));
-
-        // Regional variation in cave density
-        let cave_mask_noise = Perlin::new(seed.wrapping_add(4));
-
-        // Noise for cave entrance locations (~25% of cave areas get entrances)
-        let entrance_noise = Perlin::new(seed.wrapping_add(5));
-
-        Self {
-            height_noise,
-            detail_noise,
-            mountain_noise,
-            biome_noise,
-            cave_noise,
-            cave_mask_noise,
-            entrance_noise,
-        }
-    }
-
-    /// Get terrain height at world coordinates
-    fn get_height(&self, world_x: i32, world_z: i32) -> i32 {
-        let x = world_x as f64;
-        let z = world_z as f64;
-
-        // Biome type: determines flat plains (-1) vs rolling hills (0) vs mountains (+1)
-        // Very low frequency for large coherent regions
-        let biome_raw = self.biome_noise.get([x * 0.004, z * 0.004]);
-
-        // Create distinct biome zones with sharper transitions
-        // Values < -0.3 = flat plains, > 0.3 = mountains, between = rolling hills
-        let biome_type = if biome_raw < -0.3 {
-            0.0 // Flat plains
-        } else if biome_raw > 0.3 {
-            1.0 // Mountains
-        } else {
-            // Smooth transition zone (rolling hills)
-            ((biome_raw + 0.3) / 0.6).clamp(0.0, 1.0)
-        };
-
-        // Base continental terrain (large smooth features)
-        let base = self.height_noise.get([x, z]);
-
-        // Mountain ridges (sharp peaks)
-        let ridges = self.mountain_noise.get([x, z]);
-
-        // Detail noise for subtle variation
-        let detail = self.detail_noise.get([x * 0.02, z * 0.02]);
-
-        // Calculate height based on biome type:
-        // - Flat plains: height 32-36 with minimal variation
-        // - Rolling hills: height 28-45 with moderate variation
-        // - Mountains: height 32-90 with dramatic peaks
-        let height = if biome_type < 0.1 {
-            // Flat plains - very little variation
-            32.0 + detail * 2.0
-        } else if biome_type > 0.9 {
-            // Mountain biome - dramatic peaks
-            let mountain_height = ridges * 55.0;
-            32.0 + base * 6.0 + mountain_height
-        } else {
-            // Transition zone - blend between plains and mountains
-            let plains_height = 32.0 + detail * 2.0;
-            let hills_height = 32.0 + base * 10.0 + detail * 3.0;
-            let mountain_height = 32.0 + base * 6.0 + ridges * 55.0;
-
-            // Smooth blend based on biome_type
-            if biome_type < 0.5 {
-                // Plains to hills transition
-                let t = biome_type / 0.5;
-                plains_height * (1.0 - t) + hills_height * t
-            } else {
-                // Hills to mountains transition
-                let t = (biome_type - 0.5) / 0.5;
-                hills_height * (1.0 - t) + mountain_height * t
-            }
-        };
-
-        height.round() as i32
-    }
-
-    /// Check if a location is a cave entrance point (~25% of cave areas)
-    fn is_entrance(&self, world_x: i32, world_z: i32) -> bool {
-        let x = world_x as f64;
-        let z = world_z as f64;
-
-        // Low frequency noise for sparse, grouped entrance locations
-        // Use multiple octaves for varied entrance sizes
-        let entrance_value = self.entrance_noise.get([x * 0.02, z * 0.02]);
-
-        // Threshold of 0.45 gives roughly 25-30% coverage
-        // Higher threshold = fewer entrances
-        entrance_value > 0.45
-    }
-
-    /// Check if a position should be carved out as a cave
-    fn is_cave(&self, world_x: i32, world_y: i32, world_z: i32, surface_height: i32) -> bool {
-        // Determine surface buffer based on whether this is an entrance location
-        // Entrances reduce the buffer to allow caves to breach the surface
-        let is_entrance = self.is_entrance(world_x, world_z);
-        let surface_buffer = if is_entrance { 0 } else { 5 };
-
-        // Don't carve near surface unless at entrance, and never below y=2
-        if world_y > surface_height - surface_buffer || world_y < 2 {
-            return false;
-        }
-
-        let x = world_x as f64;
-        let y = world_y as f64;
-        let z = world_z as f64;
-
-        // Regional cave density (some areas have more caves)
-        let cave_density = self.cave_mask_noise.get([x * 0.01, z * 0.01]) * 0.5 + 0.5;
-
-        // 3D cave noise - "spaghetti" style caves
-        // Stretched in Y for more horizontal tunnels
-        let cave_value = self.cave_noise.get([x * 0.05, y * 0.08, z * 0.05]);
-
-        // Threshold varies by depth (more caves deeper down)
-        let depth_factor = ((surface_height - world_y) as f64 / 30.0).clamp(0.0, 1.0);
-        let threshold = 0.55 - (depth_factor * 0.15) - (cave_density * 0.1);
-
-        cave_value.abs() > threshold
-    }
-
-    /// Simple hash for tree placement randomness
-    fn hash(&self, x: i32, z: i32) -> i32 {
-        let mut h = (x.wrapping_mul(374761393)) ^ (z.wrapping_mul(668265263));
-        h = (h ^ (h >> 13)).wrapping_mul(1274126177);
-        (h ^ (h >> 16)).abs()
-    }
-}
-
-/// Generates terrain for a single chunk at the given position.
-fn generate_chunk_terrain(terrain: &TerrainGenerator, chunk_pos: Vector3<i32>) -> Chunk {
-    let mut chunk = Chunk::new();
-    let chunk_world_x = chunk_pos.x * CHUNK_SIZE as i32;
-    let chunk_world_y = chunk_pos.y * CHUNK_SIZE as i32;
-    let chunk_world_z = chunk_pos.z * CHUNK_SIZE as i32;
-
-    // Generate terrain for this chunk
-    for lx in 0..CHUNK_SIZE {
-        for lz in 0..CHUNK_SIZE {
-            let world_x = chunk_world_x + lx as i32;
-            let world_z = chunk_world_z + lz as i32;
-            let height = terrain.get_height(world_x, world_z);
-
-            for ly in 0..CHUNK_SIZE {
-                let world_y = chunk_world_y + ly as i32;
-
-                let block_type = if world_y == 0 {
-                    // Bedrock floor - unbreakable, prevents falling out of world
-                    BlockType::Bedrock
-                } else if world_y > height && world_y > SEA_LEVEL {
-                    // Above terrain and above sea level = air
-                    BlockType::Air
-                } else if world_y > height && world_y <= SEA_LEVEL {
-                    // Above terrain but below sea level = water (flat lake surface)
-                    BlockType::Water
-                } else if terrain.is_cave(world_x, world_y, world_z, height) {
-                    // Carved out cave - fill with water if below sea level
-                    if world_y <= SEA_LEVEL {
-                        BlockType::Water
-                    } else {
-                        BlockType::Air
-                    }
-                } else if world_y == height {
-                    // Surface block - varies by elevation (biome)
-                    if height > 70 {
-                        BlockType::Snow // Snow-capped peaks
-                    } else if height > 55 {
-                        BlockType::Stone // Rocky mountain surface
-                    } else if height <= SEA_LEVEL + 2 {
-                        BlockType::Sand // Beach/shore near water level
-                    } else {
-                        BlockType::Grass // Normal grassland
-                    }
-                } else if world_y > height - 3 {
-                    // Subsurface layer
-                    if height > 55 {
-                        BlockType::Stone // Mountains: stone all the way
-                    } else if height <= SEA_LEVEL + 2 {
-                        BlockType::Sand // Sandy beach substrate
-                    } else {
-                        BlockType::Dirt // Normal: dirt layer
-                    }
-                } else {
-                    BlockType::Stone // Deep underground
-                };
-                chunk.set_block(lx, ly, lz, block_type);
-            }
-        }
-    }
-
-    // Add trees deterministically based on chunk position
-    // Trees are placed if hash of position within chunk meets threshold
-    for lx in (2..CHUNK_SIZE - 2).step_by(8) {
-        for lz in (2..CHUNK_SIZE - 2).step_by(8) {
-            let world_x = chunk_world_x + lx as i32;
-            let world_z = chunk_world_z + lz as i32;
-            let height = terrain.get_height(world_x, world_z);
-
-            // Only place trees in grassland areas (not on mountains)
-            if height > 55 {
-                continue;
-            }
-
-            // Deterministic tree placement
-            if terrain.hash(world_x, world_z) % 100 < 15 {
-                let local_base_y = height - chunk_world_y;
-
-                // Only place tree if the base is in this chunk
-                if local_base_y >= 0 && local_base_y < CHUNK_SIZE as i32 - 6 {
-                    let trunk_height = 5 + (terrain.hash(world_x, world_z).abs() % 3);
-
-                    // Tree trunk
-                    for dy in 1..=trunk_height {
-                        let ly = (local_base_y + dy) as usize;
-                        if ly < CHUNK_SIZE {
-                            chunk.set_block(lx, ly, lz, BlockType::Log);
-                        }
-                    }
-
-                    // Simple canopy
-                    let canopy_base = (local_base_y + trunk_height) as usize;
-                    for dx in -2i32..=2 {
-                        for dz in -2i32..=2 {
-                            for dy in 0..3 {
-                                let nlx = lx as i32 + dx;
-                                let nly = canopy_base as i32 + dy;
-                                let nlz = lz as i32 + dz;
-
-                                if nlx >= 0
-                                    && nlx < CHUNK_SIZE as i32
-                                    && nly >= 0
-                                    && nly < CHUNK_SIZE as i32
-                                    && nlz >= 0
-                                    && nlz < CHUNK_SIZE as i32
-                                {
-                                    let dist =
-                                        ((dx * dx + dz * dz) as f32).sqrt() + (dy as f32 * 0.5);
-                                    if dist <= 2.5 {
-                                        let block = chunk.get_block(
-                                            nlx as usize,
-                                            nly as usize,
-                                            nlz as usize,
-                                        );
-                                        if block == BlockType::Air {
-                                            chunk.set_block(
-                                                nlx as usize,
-                                                nly as usize,
-                                                nlz as usize,
-                                                BlockType::Leaves,
-                                            );
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    chunk
-}
 
 /// Finds the ground level (highest non-air block) at the given world coordinates.
 fn find_ground_level(world: &World, world_x: i32, world_z: i32) -> i32 {
@@ -698,999 +266,6 @@ fn create_game_world_full() -> World {
     world
 }
 
-fn get_allocators(
-    device: &Arc<Device>,
-) -> (
-    Arc<StandardMemoryAllocator>,
-    Arc<StandardDescriptorSetAllocator>,
-    Arc<StandardCommandBufferAllocator>,
-) {
-    let memory_allocator = Arc::new(StandardMemoryAllocator::new_default(device.clone()));
-    let descriptor_set_allocator = Arc::new(StandardDescriptorSetAllocator::new(
-        device.clone(),
-        Default::default(),
-    ));
-    let command_buffer_allocator = Arc::new(StandardCommandBufferAllocator::new(
-        device.clone(),
-        Default::default(),
-    ));
-    (
-        memory_allocator,
-        descriptor_set_allocator,
-        command_buffer_allocator,
-    )
-}
-
-fn get_swapchain_images(
-    device: &Arc<Device>,
-    surface: &Arc<Surface>,
-    window: &Window,
-) -> (Arc<Swapchain>, Vec<Arc<Image>>) {
-    let caps = device
-        .physical_device()
-        .surface_capabilities(surface, Default::default())
-        .unwrap();
-
-    let image_format = device
-        .physical_device()
-        .surface_formats(surface, Default::default())
-        .unwrap()[0]
-        .0;
-
-    let composite_alpha = caps.supported_composite_alpha.into_iter().next().unwrap();
-
-    Swapchain::new(
-        device.clone(),
-        surface.clone(),
-        SwapchainCreateInfo {
-            min_image_count: caps.min_image_count.max(3),
-            image_format,
-            image_extent: window.inner_size().into(),
-            image_usage: ImageUsage::COLOR_ATTACHMENT | ImageUsage::TRANSFER_DST,
-            composite_alpha,
-            present_mode: PresentMode::Immediate,
-            ..Default::default()
-        },
-    )
-    .unwrap()
-}
-
-fn get_render_image(
-    memory_allocator: Arc<StandardMemoryAllocator>,
-    extent: [u32; 2],
-) -> (Arc<Image>, Arc<ImageView>) {
-    let image = Image::new(
-        memory_allocator,
-        ImageCreateInfo {
-            usage: ImageUsage::STORAGE | ImageUsage::TRANSFER_DST,
-            format: Format::R8G8B8A8_UNORM,
-            extent: [extent[0], extent[1], 1],
-            ..Default::default()
-        },
-        AllocationCreateInfo {
-            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE,
-            ..Default::default()
-        },
-    )
-    .unwrap();
-
-    let image_view =
-        ImageView::new(image.clone(), ImageViewCreateInfo::from_image(&image)).unwrap();
-
-    (image, image_view)
-}
-
-fn get_resample_image(
-    memory_allocator: Arc<StandardMemoryAllocator>,
-    extent: [u32; 2],
-) -> (Arc<Image>, Arc<ImageView>) {
-    let image = Image::new(
-        memory_allocator.clone(),
-        ImageCreateInfo {
-            usage: ImageUsage::STORAGE | ImageUsage::TRANSFER_SRC,
-            format: Format::R8G8B8A8_UNORM,
-            extent: [extent[0], extent[1], 1],
-            ..Default::default()
-        },
-        AllocationCreateInfo {
-            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE,
-            ..Default::default()
-        },
-    )
-    .unwrap();
-
-    let image_view =
-        ImageView::new(image.clone(), ImageViewCreateInfo::from_image(&image)).unwrap();
-
-    (image, image_view)
-}
-
-fn get_images_and_sets(
-    memory_allocator: Arc<StandardMemoryAllocator>,
-    descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
-    render_pipeline: &ComputePipeline,
-    resample_pipeline: &ComputePipeline,
-    render_extent: [u32; 2],
-    window_extent: [u32; 2],
-) -> (
-    Arc<Image>,
-    Arc<DescriptorSet>,
-    Arc<Image>,
-    Arc<DescriptorSet>,
-) {
-    let (render_image, render_image_view) =
-        get_render_image(memory_allocator.clone(), render_extent);
-
-    let layout = render_pipeline.layout().set_layouts()[0].clone();
-    let render_set = DescriptorSet::new(
-        descriptor_set_allocator.clone(),
-        layout,
-        [WriteDescriptorSet::image_view(0, render_image_view.clone())],
-        [],
-    )
-    .unwrap();
-
-    let (resample_image, resample_image_view) = get_resample_image(memory_allocator, window_extent);
-
-    let layout = resample_pipeline.layout().set_layouts()[0].clone();
-    let resample_set = DescriptorSet::new(
-        descriptor_set_allocator.clone(),
-        layout,
-        [
-            WriteDescriptorSet::image_view(0, render_image_view.clone()),
-            WriteDescriptorSet::image_view(1, resample_image_view.clone()),
-        ],
-        [],
-    )
-    .unwrap();
-
-    (render_image, render_set, resample_image, resample_set)
-}
-
-/// Creates a distance buffer for two-pass beam optimization.
-/// The distance buffer is at 1/4 of render resolution and stores hit distances.
-fn get_distance_image_and_set(
-    memory_allocator: Arc<StandardMemoryAllocator>,
-    descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
-    render_pipeline: &ComputePipeline,
-    render_extent: [u32; 2],
-) -> (Arc<Image>, Arc<DescriptorSet>) {
-    // Distance buffer at 1/4 resolution (1/16 the pixels)
-    let distance_extent = [(render_extent[0] / 4).max(1), (render_extent[1] / 4).max(1)];
-
-    let distance_image = Image::new(
-        memory_allocator,
-        ImageCreateInfo {
-            image_type: ImageType::Dim2d,
-            usage: ImageUsage::STORAGE,
-            format: Format::R32_SFLOAT,
-            extent: [distance_extent[0], distance_extent[1], 1],
-            ..Default::default()
-        },
-        AllocationCreateInfo {
-            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE,
-            ..Default::default()
-        },
-    )
-    .unwrap();
-
-    let distance_image_view = ImageView::new(
-        distance_image.clone(),
-        ImageViewCreateInfo::from_image(&distance_image),
-    )
-    .unwrap();
-
-    let layout = render_pipeline
-        .layout()
-        .set_layouts()
-        .get(6)
-        .unwrap()
-        .clone();
-    let distance_set = DescriptorSet::new(
-        descriptor_set_allocator,
-        layout,
-        [WriteDescriptorSet::image_view(0, distance_image_view)],
-        [],
-    )
-    .unwrap();
-
-    (distance_image, distance_set)
-}
-
-/// Creates an empty voxel texture for the world.
-/// Returns (descriptor_set, image) where image is cleared to all zeros (air).
-fn create_empty_voxel_texture(
-    memory_allocator: Arc<StandardMemoryAllocator>,
-    command_buffer_allocator: Arc<StandardCommandBufferAllocator>,
-    descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
-    render_pipeline: &ComputePipeline,
-    queue: &Arc<Queue>,
-    world_extent: [u32; 3],
-) -> (Arc<DescriptorSet>, Arc<Image>) {
-    // Create 3D texture sized to fit entire world
-    let image = Image::new(
-        memory_allocator.clone(),
-        ImageCreateInfo {
-            image_type: ImageType::Dim3d,
-            format: Format::R8_UINT,
-            extent: world_extent,
-            usage: ImageUsage::STORAGE | ImageUsage::TRANSFER_DST,
-            ..Default::default()
-        },
-        AllocationCreateInfo::default(),
-    )
-    .unwrap();
-
-    // Clear the image to all zeros (air)
-    let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
-        command_buffer_allocator.clone(),
-        queue.queue_family_index(),
-        CommandBufferUsage::OneTimeSubmit,
-    )
-    .unwrap();
-
-    command_buffer_builder
-        .clear_color_image(ClearColorImageInfo::image(image.clone()))
-        .unwrap();
-
-    command_buffer_builder
-        .build()
-        .unwrap()
-        .execute(queue.clone())
-        .unwrap()
-        .then_signal_fence_and_flush()
-        .unwrap()
-        .wait(None)
-        .unwrap();
-
-    let image_view =
-        ImageView::new(image.clone(), ImageViewCreateInfo::from_image(&image)).unwrap();
-
-    let layout = render_pipeline
-        .layout()
-        .set_layouts()
-        .get(1)
-        .unwrap()
-        .clone();
-    let descriptor_set = DescriptorSet::new(
-        descriptor_set_allocator.clone(),
-        layout.clone(),
-        [WriteDescriptorSet::image_view(0, image_view)],
-        [],
-    )
-    .unwrap();
-
-    (descriptor_set, image)
-}
-
-fn load_icon(icon: &[u8]) -> Icon {
-    let (icon_rgba, icon_width, icon_height) = {
-        let image = image::load_from_memory(icon).unwrap().to_rgba8();
-        let (width, height) = image.dimensions();
-        let rgba = image.into_raw();
-        (rgba, width, height)
-    };
-    Icon::from_rgba(icon_rgba, icon_width, icon_height).unwrap()
-}
-
-/// Load a texture atlas from a file and create a GPU texture with sampler.
-/// Returns (descriptor_set, sampler, image_view) for binding to the shader and egui.
-fn load_texture_atlas(
-    memory_allocator: Arc<StandardMemoryAllocator>,
-    command_buffer_allocator: Arc<StandardCommandBufferAllocator>,
-    descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
-    render_pipeline: &ComputePipeline,
-    queue: &Arc<Queue>,
-    texture_path: &std::path::Path,
-) -> (Arc<DescriptorSet>, Arc<Sampler>, Arc<ImageView>) {
-    // Load the image file
-    let img = image::open(texture_path)
-        .expect("Failed to load texture")
-        .to_rgba8();
-    let (width, height) = img.dimensions();
-    let image_data: Vec<u8> = img.into_raw();
-
-    println!(
-        "Loaded texture: {}x{} from {:?}",
-        width, height, texture_path
-    );
-
-    // Create the GPU image
-    let image = Image::new(
-        memory_allocator.clone(),
-        ImageCreateInfo {
-            image_type: ImageType::Dim2d,
-            format: Format::R8G8B8A8_UNORM,
-            extent: [width, height, 1],
-            usage: ImageUsage::SAMPLED | ImageUsage::TRANSFER_DST,
-            ..Default::default()
-        },
-        AllocationCreateInfo::default(),
-    )
-    .unwrap();
-
-    // Upload image data
-    let src_buffer = Buffer::from_iter(
-        memory_allocator.clone(),
-        BufferCreateInfo {
-            usage: BufferUsage::TRANSFER_SRC,
-            ..Default::default()
-        },
-        AllocationCreateInfo {
-            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
-                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-            ..Default::default()
-        },
-        image_data,
-    )
-    .unwrap();
-
-    let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
-        command_buffer_allocator.clone(),
-        queue.queue_family_index(),
-        CommandBufferUsage::OneTimeSubmit,
-    )
-    .unwrap();
-
-    command_buffer_builder
-        .copy_buffer_to_image(CopyBufferToImageInfo::buffer_image(
-            src_buffer,
-            image.clone(),
-        ))
-        .unwrap();
-
-    command_buffer_builder
-        .build()
-        .unwrap()
-        .execute(queue.clone())
-        .unwrap()
-        .then_signal_fence_and_flush()
-        .unwrap()
-        .wait(None)
-        .unwrap();
-
-    let image_view =
-        ImageView::new(image.clone(), ImageViewCreateInfo::from_image(&image)).unwrap();
-
-    // Create sampler with nearest-neighbor filtering for pixel art
-    let sampler = Sampler::new(
-        memory_allocator.device().clone(),
-        SamplerCreateInfo {
-            mag_filter: Filter::Nearest,
-            min_filter: Filter::Nearest,
-            address_mode: [SamplerAddressMode::Repeat; 3],
-            ..Default::default()
-        },
-    )
-    .unwrap();
-
-    // Create descriptor set at set index 2
-    let layout = render_pipeline
-        .layout()
-        .set_layouts()
-        .get(2)
-        .unwrap()
-        .clone();
-
-    let descriptor_set = DescriptorSet::new(
-        descriptor_set_allocator.clone(),
-        layout,
-        [WriteDescriptorSet::image_view_sampler(
-            0,
-            image_view.clone(),
-            sampler.clone(),
-        )],
-        [],
-    )
-    .unwrap();
-
-    (descriptor_set, sampler, image_view)
-}
-
-/// Creates storage buffers and descriptor set for particle and falling block data.
-/// Both share set index 3: particles at binding 0, falling blocks at binding 1.
-fn get_particle_and_falling_block_set(
-    memory_allocator: Arc<StandardMemoryAllocator>,
-    descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
-    render_pipeline: &ComputePipeline,
-) -> (
-    Subbuffer<[particles::GpuParticle]>,
-    Subbuffer<[GpuFallingBlock]>,
-    Arc<DescriptorSet>,
-) {
-    use particles::{GpuParticle, MAX_PARTICLES};
-
-    // Create a storage buffer for particles (initialized to zeros)
-    let particle_buffer = Buffer::new_slice::<GpuParticle>(
-        memory_allocator.clone(),
-        BufferCreateInfo {
-            usage: BufferUsage::STORAGE_BUFFER,
-            ..Default::default()
-        },
-        AllocationCreateInfo {
-            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
-                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-            ..Default::default()
-        },
-        MAX_PARTICLES as u64,
-    )
-    .unwrap();
-
-    // Create a storage buffer for falling blocks (initialized to zeros)
-    let falling_block_buffer = Buffer::new_slice::<GpuFallingBlock>(
-        memory_allocator,
-        BufferCreateInfo {
-            usage: BufferUsage::STORAGE_BUFFER,
-            ..Default::default()
-        },
-        AllocationCreateInfo {
-            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
-                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-            ..Default::default()
-        },
-        MAX_FALLING_BLOCKS as u64,
-    )
-    .unwrap();
-
-    // Create descriptor set at set index 3 with both buffers
-    let layout = render_pipeline
-        .layout()
-        .set_layouts()
-        .get(3)
-        .unwrap()
-        .clone();
-
-    let descriptor_set = DescriptorSet::new(
-        descriptor_set_allocator,
-        layout,
-        [
-            WriteDescriptorSet::buffer(0, particle_buffer.clone()),
-            WriteDescriptorSet::buffer(1, falling_block_buffer.clone()),
-        ],
-        [],
-    )
-    .unwrap();
-
-    (particle_buffer, falling_block_buffer, descriptor_set)
-}
-
-/// Maximum number of point lights (torches) that can be active at once.
-const MAX_LIGHTS: usize = 256;
-
-/// GPU-compatible point light data for shader.
-#[repr(C)]
-#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-struct GpuLight {
-    /// Position XYZ + radius W
-    pos_radius: [f32; 4],
-    /// Color RGB + intensity A
-    color_intensity: [f32; 4],
-}
-
-/// Creates a storage buffer and descriptor set for point light data.
-fn get_light_set(
-    memory_allocator: Arc<StandardMemoryAllocator>,
-    descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
-    render_pipeline: &ComputePipeline,
-) -> (Subbuffer<[GpuLight]>, Arc<DescriptorSet>) {
-    // Create a storage buffer for lights (initialized to zeros)
-    let light_buffer = Buffer::new_slice::<GpuLight>(
-        memory_allocator,
-        BufferCreateInfo {
-            usage: BufferUsage::STORAGE_BUFFER,
-            ..Default::default()
-        },
-        AllocationCreateInfo {
-            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
-                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-            ..Default::default()
-        },
-        MAX_LIGHTS as u64,
-    )
-    .unwrap();
-
-    // Create descriptor set at set index 4
-    let layout = render_pipeline
-        .layout()
-        .set_layouts()
-        .get(4)
-        .unwrap()
-        .clone();
-
-    let descriptor_set = DescriptorSet::new(
-        descriptor_set_allocator,
-        layout,
-        [WriteDescriptorSet::buffer(0, light_buffer.clone())],
-        [],
-    )
-    .unwrap();
-
-    (light_buffer, descriptor_set)
-}
-
-/// Number of chunks in the metadata buffer (must match shader constants)
-const TOTAL_CHUNKS: usize =
-    LOADED_CHUNKS_X as usize * WORLD_CHUNKS_Y as usize * LOADED_CHUNKS_Z as usize;
-/// Number of u32 words needed to store 1 bit per chunk
-const CHUNK_METADATA_WORDS: usize = TOTAL_CHUNKS.div_ceil(32);
-
-/// Creates a storage buffer and descriptor set for chunk metadata (empty/solid flags).
-fn get_chunk_metadata_set(
-    memory_allocator: Arc<StandardMemoryAllocator>,
-    descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
-    render_pipeline: &ComputePipeline,
-) -> (Subbuffer<[u32]>, Arc<DescriptorSet>) {
-    // Create a storage buffer for chunk metadata (bit-packed flags)
-    let chunk_metadata_buffer = Buffer::new_slice::<u32>(
-        memory_allocator,
-        BufferCreateInfo {
-            usage: BufferUsage::STORAGE_BUFFER,
-            ..Default::default()
-        },
-        AllocationCreateInfo {
-            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
-                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-            ..Default::default()
-        },
-        CHUNK_METADATA_WORDS as u64,
-    )
-    .unwrap();
-
-    // Create descriptor set at set index 5
-    let layout = render_pipeline
-        .layout()
-        .set_layouts()
-        .get(5)
-        .unwrap()
-        .clone();
-
-    let descriptor_set = DescriptorSet::new(
-        descriptor_set_allocator,
-        layout,
-        [WriteDescriptorSet::buffer(0, chunk_metadata_buffer.clone())],
-        [],
-    )
-    .unwrap();
-
-    (chunk_metadata_buffer, descriptor_set)
-}
-
-/// Number of u32 words for brick masks (2 words = 64 bits per chunk).
-const BRICK_MASK_WORDS: usize = TOTAL_CHUNKS * 2;
-/// Number of u32 words for brick distances (16 words = 64 bytes per chunk).
-const BRICK_DIST_WORDS: usize = TOTAL_CHUNKS * 16;
-
-/// Creates combined descriptor set 7 containing brick metadata AND model resources.
-/// This merges brick metadata with model resources to stay within the 8 descriptor set limit.
-///
-/// Layout:
-/// - Binding 0: Brick masks - 64 bits per chunk (2 u32 words per chunk)
-/// - Binding 1: Brick distances - 64 bytes per chunk (distance to nearest solid brick)
-/// - Binding 2: Model atlas - 128×8×128 (256 models, each 8³ voxels), R8_UINT palette indices
-/// - Binding 3: Model palettes - 256×16 (256 models × 16 colors), RGBA8
-/// - Binding 4: Model metadata - model_id (R) + rotation (G) per block
-/// - Binding 5: Model properties - collision mask, emission, flags per model
-#[allow(clippy::type_complexity)]
-fn get_brick_and_model_set(
-    memory_allocator: Arc<StandardMemoryAllocator>,
-    command_buffer_allocator: Arc<StandardCommandBufferAllocator>,
-    descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
-    render_pipeline: &ComputePipeline,
-    queue: &Arc<Queue>,
-    world_extent: [u32; 3],
-    model_registry: &ModelRegistry,
-) -> (
-    Subbuffer<[u32]>,   // brick_mask_buffer
-    Subbuffer<[u32]>,   // brick_dist_buffer
-    Arc<Image>,         // model_atlas
-    Arc<Image>,         // model_metadata
-    Arc<DescriptorSet>, // combined set 7
-) {
-    // === Brick metadata resources (bindings 0-1) ===
-
-    // Create buffer for brick masks (64 bits per chunk)
-    let brick_mask_buffer = Buffer::new_slice::<u32>(
-        memory_allocator.clone(),
-        BufferCreateInfo {
-            usage: BufferUsage::STORAGE_BUFFER,
-            ..Default::default()
-        },
-        AllocationCreateInfo {
-            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
-                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-            ..Default::default()
-        },
-        BRICK_MASK_WORDS as u64,
-    )
-    .unwrap();
-
-    // Create buffer for brick distances (64 bytes per chunk)
-    let brick_dist_buffer = Buffer::new_slice::<u32>(
-        memory_allocator.clone(),
-        BufferCreateInfo {
-            usage: BufferUsage::STORAGE_BUFFER,
-            ..Default::default()
-        },
-        AllocationCreateInfo {
-            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
-                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-            ..Default::default()
-        },
-        BRICK_DIST_WORDS as u64,
-    )
-    .unwrap();
-
-    // === Model resources (bindings 2-5) ===
-
-    // Create model atlas 3D texture (R8_UINT, 128×8×128)
-    let model_atlas = Image::new(
-        memory_allocator.clone(),
-        ImageCreateInfo {
-            image_type: ImageType::Dim3d,
-            format: Format::R8_UINT,
-            extent: [MODEL_ATLAS_WIDTH, MODEL_ATLAS_HEIGHT, MODEL_ATLAS_DEPTH],
-            usage: ImageUsage::STORAGE | ImageUsage::TRANSFER_DST,
-            ..Default::default()
-        },
-        AllocationCreateInfo::default(),
-    )
-    .unwrap();
-
-    // Create model palette 2D texture (RGBA8, 256×16)
-    let model_palettes = Image::new(
-        memory_allocator.clone(),
-        ImageCreateInfo {
-            image_type: ImageType::Dim2d,
-            format: Format::R8G8B8A8_UNORM,
-            extent: [MAX_MODELS as u32, PALETTE_SIZE as u32, 1],
-            usage: ImageUsage::SAMPLED | ImageUsage::TRANSFER_DST,
-            ..Default::default()
-        },
-        AllocationCreateInfo::default(),
-    )
-    .unwrap();
-
-    // Create model metadata 3D texture (RG8_UINT, same extent as blocks)
-    let model_metadata = Image::new(
-        memory_allocator.clone(),
-        ImageCreateInfo {
-            image_type: ImageType::Dim3d,
-            format: Format::R8G8_UINT,
-            extent: world_extent,
-            usage: ImageUsage::STORAGE | ImageUsage::TRANSFER_DST,
-            ..Default::default()
-        },
-        AllocationCreateInfo::default(),
-    )
-    .unwrap();
-
-    // Create model properties buffer (SSBO)
-    let model_properties_buffer = Buffer::new_slice::<GpuModelProperties>(
-        memory_allocator.clone(),
-        BufferCreateInfo {
-            usage: BufferUsage::STORAGE_BUFFER | BufferUsage::TRANSFER_DST,
-            ..Default::default()
-        },
-        AllocationCreateInfo {
-            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
-                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-            ..Default::default()
-        },
-        MAX_MODELS as u64,
-    )
-    .unwrap();
-
-    // Upload model registry data to GPU
-    upload_model_registry(
-        memory_allocator.clone(),
-        command_buffer_allocator.clone(),
-        queue,
-        model_registry,
-        &model_atlas,
-        &model_palettes,
-        &model_properties_buffer,
-    );
-
-    // Clear metadata to all zeros (no models placed yet)
-    let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
-        command_buffer_allocator,
-        queue.queue_family_index(),
-        CommandBufferUsage::OneTimeSubmit,
-    )
-    .unwrap();
-
-    command_buffer_builder
-        .clear_color_image(ClearColorImageInfo::image(model_metadata.clone()))
-        .unwrap();
-
-    command_buffer_builder
-        .build()
-        .unwrap()
-        .execute(queue.clone())
-        .unwrap()
-        .then_signal_fence_and_flush()
-        .unwrap()
-        .wait(None)
-        .unwrap();
-
-    // Create image views
-    let atlas_view = ImageView::new(
-        model_atlas.clone(),
-        ImageViewCreateInfo::from_image(&model_atlas),
-    )
-    .unwrap();
-
-    let palette_view = ImageView::new(
-        model_palettes.clone(),
-        ImageViewCreateInfo::from_image(&model_palettes),
-    )
-    .unwrap();
-
-    let metadata_view = ImageView::new(
-        model_metadata.clone(),
-        ImageViewCreateInfo::from_image(&model_metadata),
-    )
-    .unwrap();
-
-    // Create sampler for palette texture
-    let palette_sampler = Sampler::new(
-        memory_allocator.device().clone(),
-        SamplerCreateInfo {
-            mag_filter: Filter::Nearest,
-            min_filter: Filter::Nearest,
-            address_mode: [SamplerAddressMode::ClampToEdge; 3],
-            ..Default::default()
-        },
-    )
-    .unwrap();
-
-    // === Create combined descriptor set at set index 7 ===
-    let layout = render_pipeline
-        .layout()
-        .set_layouts()
-        .get(7)
-        .unwrap()
-        .clone();
-
-    let descriptor_set = DescriptorSet::new(
-        descriptor_set_allocator,
-        layout,
-        [
-            // Brick metadata (bindings 0-1)
-            WriteDescriptorSet::buffer(0, brick_mask_buffer.clone()),
-            WriteDescriptorSet::buffer(1, brick_dist_buffer.clone()),
-            // Model resources (bindings 2-5)
-            WriteDescriptorSet::image_view(2, atlas_view),
-            WriteDescriptorSet::image_view_sampler(3, palette_view, palette_sampler),
-            WriteDescriptorSet::image_view(4, metadata_view),
-            WriteDescriptorSet::buffer(5, model_properties_buffer),
-        ],
-        [],
-    )
-    .unwrap();
-
-    (
-        brick_mask_buffer,
-        brick_dist_buffer,
-        model_atlas,
-        model_metadata,
-        descriptor_set,
-    )
-}
-
-/// GPU-side model properties for sub-voxel rendering.
-/// Must match the shader struct layout.
-#[derive(Debug, Clone, Copy, Default, BufferContents)]
-#[repr(C)]
-struct GpuModelProperties {
-    /// 64-bit collision mask (4×4×4 grid) stored as two u32s.
-    collision_mask: [u32; 2],
-    /// Packed AABB min (x, y, z bytes).
-    aabb_min: u32,
-    /// Packed AABB max (x, y, z bytes).
-    aabb_max: u32,
-    /// Light emission color (RGB) and intensity (A).
-    emission: [f32; 4],
-    /// Flags: bit 0 = rotatable, bit 1 = light_blocking_full, bit 2 = light_blocking_partial.
-    flags: u32,
-    /// Padding to align to 16 bytes (total 48 bytes).
-    _pad2: [u32; 3],
-}
-
-/// Model atlas dimensions: 16 models per row, 16 rows = 256 models.
-const MODEL_ATLAS_WIDTH: u32 = 16 * SUB_VOXEL_SIZE as u32; // 128
-const MODEL_ATLAS_DEPTH: u32 = 16 * SUB_VOXEL_SIZE as u32; // 128
-const MODEL_ATLAS_HEIGHT: u32 = SUB_VOXEL_SIZE as u32; // 8
-
-/// Uploads model registry data (atlas, palettes, properties) to GPU.
-fn upload_model_registry(
-    memory_allocator: Arc<StandardMemoryAllocator>,
-    command_buffer_allocator: Arc<StandardCommandBufferAllocator>,
-    queue: &Arc<Queue>,
-    registry: &ModelRegistry,
-    atlas: &Arc<Image>,
-    palettes: &Arc<Image>,
-    properties_buffer: &Subbuffer<[GpuModelProperties]>,
-) {
-    // Pack model voxels into atlas layout
-    let atlas_data = registry.pack_voxels_for_gpu();
-    let palette_data = registry.pack_palettes_for_gpu();
-    let properties_data = registry.pack_properties_for_gpu();
-
-    // Create staging buffers
-    let atlas_staging = Buffer::from_iter(
-        memory_allocator.clone(),
-        BufferCreateInfo {
-            usage: BufferUsage::TRANSFER_SRC,
-            ..Default::default()
-        },
-        AllocationCreateInfo {
-            memory_type_filter: MemoryTypeFilter::PREFER_HOST
-                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-            ..Default::default()
-        },
-        atlas_data,
-    )
-    .unwrap();
-
-    let palette_staging = Buffer::from_iter(
-        memory_allocator.clone(),
-        BufferCreateInfo {
-            usage: BufferUsage::TRANSFER_SRC,
-            ..Default::default()
-        },
-        AllocationCreateInfo {
-            memory_type_filter: MemoryTypeFilter::PREFER_HOST
-                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-            ..Default::default()
-        },
-        palette_data,
-    )
-    .unwrap();
-
-    // Convert properties data to GpuModelProperties
-    let gpu_properties: Vec<GpuModelProperties> = properties_data
-        .chunks(48)
-        .map(|chunk| {
-            let mut props = GpuModelProperties::default();
-            if chunk.len() >= 48 {
-                // collision_mask (8 bytes)
-                props.collision_mask[0] =
-                    u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
-                props.collision_mask[1] =
-                    u32::from_le_bytes([chunk[4], chunk[5], chunk[6], chunk[7]]);
-
-                // aabb (8 bytes)
-                props.aabb_min = u32::from_le_bytes([chunk[8], chunk[9], chunk[10], chunk[11]]);
-                props.aabb_max = u32::from_le_bytes([chunk[12], chunk[13], chunk[14], chunk[15]]);
-
-                // emission (16 bytes as 4 floats)
-                props.emission[0] =
-                    f32::from_le_bytes([chunk[16], chunk[17], chunk[18], chunk[19]]);
-                props.emission[1] =
-                    f32::from_le_bytes([chunk[20], chunk[21], chunk[22], chunk[23]]);
-                props.emission[2] =
-                    f32::from_le_bytes([chunk[24], chunk[25], chunk[26], chunk[27]]);
-                props.emission[3] =
-                    f32::from_le_bytes([chunk[28], chunk[29], chunk[30], chunk[31]]);
-
-                // flags (4 bytes)
-                props.flags = u32::from_le_bytes([chunk[32], chunk[33], chunk[34], chunk[35]]);
-            }
-            props
-        })
-        .collect();
-    // Write properties directly to mapped buffer
-    {
-        let mut write_guard = properties_buffer.write().unwrap();
-        for (i, prop) in gpu_properties.iter().enumerate() {
-            if i < write_guard.len() {
-                write_guard[i] = *prop;
-            }
-        }
-    }
-
-    // Build command buffer to copy staging data to images
-    let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
-        command_buffer_allocator,
-        queue.queue_family_index(),
-        CommandBufferUsage::OneTimeSubmit,
-    )
-    .unwrap();
-
-    // Copy atlas data
-    command_buffer_builder
-        .copy_buffer_to_image(CopyBufferToImageInfo {
-            regions: [BufferImageCopy {
-                image_subresource: atlas.subresource_layers(),
-                image_extent: atlas.extent(),
-                ..Default::default()
-            }]
-            .into(),
-            ..CopyBufferToImageInfo::buffer_image(atlas_staging, atlas.clone())
-        })
-        .unwrap();
-
-    // Copy palette data
-    command_buffer_builder
-        .copy_buffer_to_image(CopyBufferToImageInfo {
-            regions: [BufferImageCopy {
-                image_subresource: palettes.subresource_layers(),
-                image_extent: palettes.extent(),
-                ..Default::default()
-            }]
-            .into(),
-            ..CopyBufferToImageInfo::buffer_image(palette_staging, palettes.clone())
-        })
-        .unwrap();
-
-    command_buffer_builder
-        .build()
-        .unwrap()
-        .execute(queue.clone())
-        .unwrap()
-        .then_signal_fence_and_flush()
-        .unwrap()
-        .wait(None)
-        .unwrap();
-}
-
-/// Statistics about loaded chunks for HUD display.
-#[derive(Debug, Clone, Copy, Default)]
-struct ChunkStats {
-    /// Number of chunks currently loaded in memory.
-    loaded_count: usize,
-    /// Number of chunks with pending GPU uploads.
-    dirty_count: usize,
-    /// Number of chunks being generated in background.
-    in_flight_count: usize,
-    /// Estimated GPU memory usage in megabytes.
-    memory_mb: f32,
-}
-
-/// Performance profiler for tracking operation timings.
-#[derive(Debug, Default)]
-struct Profiler {
-    /// Accumulated time for chunk loading/streaming (microseconds).
-    chunk_loading_us: u64,
-    /// Accumulated time for GPU uploads (microseconds).
-    gpu_upload_us: u64,
-    /// Accumulated time for metadata updates (microseconds).
-    metadata_update_us: u64,
-    /// Accumulated time for rendering (microseconds).
-    render_us: u64,
-    /// Number of samples accumulated.
-    sample_count: u32,
-    /// Number of chunks uploaded this period.
-    chunks_uploaded: u32,
-}
-
-impl Profiler {
-    fn reset(&mut self) {
-        self.chunk_loading_us = 0;
-        self.gpu_upload_us = 0;
-        self.metadata_update_us = 0;
-        self.render_us = 0;
-        self.sample_count = 0;
-        self.chunks_uploaded = 0;
-    }
-
-    fn print_stats(&self) {
-        if self.sample_count == 0 {
-            return;
-        }
-        let n = self.sample_count as f64;
-        println!(
-            "[PROFILE] ChunkLoad: {:.2}ms | Upload: {:.2}ms ({} chunks) | Metadata: {:.2}ms | Render: {:.2}ms",
-            self.chunk_loading_us as f64 / 1000.0 / n,
-            self.gpu_upload_us as f64 / 1000.0 / n,
-            self.chunks_uploaded,
-            self.metadata_update_us as f64 / 1000.0 / n,
-            self.render_us as f64 / 1000.0 / n,
-        );
-    }
-}
-
 struct App {
     instance: Arc<Instance>,
     device: Arc<Device>,
@@ -1742,29 +317,12 @@ struct App {
     /// GPU 3D texture for model metadata (model_id + rotation per block).
     model_metadata: Arc<Image>,
 
-    camera: Camera,
+    player: Player,
     render_mode: RenderMode,
     render_scale: f32,
     /// Current window size for debug output
     window_size: [u32; 2],
 
-    /// Player physics state
-    player_velocity: Vector3<f64>,
-    on_ground: bool,
-    /// Head bob phase (continuously accumulates while walking)
-    head_bob_timer: f64,
-    /// Head bob intensity (0-1, smoothly fades in/out)
-    head_bob_intensity: f64,
-    /// True when player's head is submerged in water
-    in_water: bool,
-    /// Flying mode (no gravity, vertical movement with Space/Shift)
-    fly_mode: bool,
-    /// Sprint mode (toggle with Caps Lock for faster movement)
-    sprint_mode: bool,
-    /// Auto-jump when walking into 1-block obstacles
-    auto_jump: bool,
-    /// Player carries a torch-like light
-    player_light: bool,
     /// Show debug chunk boundary wireframes
     show_chunk_boundaries: bool,
     /// Show block placement preview
@@ -1775,14 +333,8 @@ struct App {
     // Minimap settings
     /// Whether to show the minimap
     show_minimap: bool,
-    /// Minimap size in pixels (128, 192, or 256)
-    minimap_size: u32,
-    /// Minimap color mode: 0=block colors, 1=height, 2=both
-    minimap_color_mode: u8,
-    /// Whether to rotate minimap to match player direction
-    minimap_rotate: bool,
-    /// Minimap zoom level (0.5 = zoomed in 2x, 1.0 = normal, 2.0 = zoomed out 2x)
-    minimap_zoom: f32,
+    /// Minimap component
+    minimap: Minimap,
     /// Cached minimap image for reuse between frames
     minimap_cached_image: Option<egui::ColorImage>,
     /// Last player position for minimap update throttling
@@ -1916,11 +468,6 @@ struct App {
     view_distance: i32,
     /// Unload distance in chunks (adjustable via slider)
     unload_distance: i32,
-
-    /// Timer for throttled debug logging (sub-voxel collision debug)
-    debug_log_timer: f64,
-    /// Last logged sub-voxel debug state
-    debug_last_ladder_state: bool,
 
     rcx: Option<RenderContext>,
 }
@@ -2166,22 +713,8 @@ impl App {
         let spawn_y = find_ground_level(&world, spawn_x, spawn_z);
         let spawn_pos = Vector3::new(spawn_x as f64, spawn_y as f64 + 1.0, spawn_z as f64);
 
-        // Convert spawn position to texture-relative normalized camera coordinates
-        // Camera position is relative to texture_origin, then normalized by texture size
-        let texture_relative_pos = spawn_pos - texture_origin.cast::<f64>();
-        let camera_pos = Vector3::new(
-            texture_relative_pos.x / world_extent[0] as f64,
-            (texture_relative_pos.y + PLAYER_EYE_HEIGHT) / world_extent[1] as f64,
-            texture_relative_pos.z / world_extent[2] as f64,
-        );
-
-        let mut camera = Camera::new(
-            camera_pos,
-            Vector3::zeros(),
-            INITIAL_WINDOW_RESOLUTION.into(),
-            70.0,
-        );
-        camera.look_at(Vector3::new(0.5, 0.25, 0.75)); // Look forward
+        let mut player = Player::new(spawn_pos, texture_origin, world_extent, args.fly_mode);
+        player.auto_jump = true;
 
         println!(
             "Voxel Game started! Click to focus, then use WASD to move, mouse to look, left/right click to edit blocks."
@@ -2219,7 +752,7 @@ impl App {
             model_atlas,
             model_metadata,
 
-            camera,
+            player,
             render_mode: match args.render_mode.as_deref() {
                 Some("normal") => RenderMode::Normal,
                 Some("coord") => RenderMode::Coord,
@@ -2231,25 +764,13 @@ impl App {
             render_scale: 0.75, // Balance between quality and FPS, upscaled to window
             window_size: INITIAL_WINDOW_RESOLUTION.into(),
 
-            player_velocity: Vector3::zeros(),
-            on_ground: false,
-            head_bob_timer: 0.0,
-            head_bob_intensity: 0.0,
-            in_water: false,
-            fly_mode: args.fly_mode,
-            sprint_mode: false,
-            auto_jump: true, // Enabled by default
-            player_light: false,
             show_chunk_boundaries: args.show_chunk_boundaries,
             show_block_preview: false,  // Off by default
             show_target_outline: false, // Off by default (toggle in UI)
 
             // Minimap - disabled by default, toggle with M
             show_minimap: false,
-            minimap_size: 256,     // Large
-            minimap_color_mode: 2, // Both (block colors + height)
-            minimap_rotate: true,  // Rotate with player by default
-            minimap_zoom: 0.5,     // Zoomed in 2x
+            minimap: Minimap::new(),
             minimap_cached_image: None,
             minimap_last_pos: Vector3::new(i32::MAX, 0, i32::MAX), // Force initial update
             minimap_last_update: Instant::now(),
@@ -2333,51 +854,16 @@ impl App {
             view_distance,
             unload_distance,
 
-            debug_log_timer: 0.0,
-            debug_last_ladder_state: false,
-
             rcx: None,
         }
-    }
-
-    /// Gets the camera's forward direction vector.
-    fn camera_direction(&self) -> Vector3<f64> {
-        // Y-up coordinate system: forward is -Z (negative of column 2)
-        -self.camera.rotation_matrix().column(2).xyz()
-    }
-
-    /// Gets the player's feet position in world coordinates.
-    fn player_feet_pos(&self) -> Vector3<f64> {
-        let scale = Vector3::new(
-            self.world_extent[0] as f64,
-            self.world_extent[1] as f64,
-            self.world_extent[2] as f64,
-        );
-        // Camera position is in texture-relative normalized coords
-        // Convert to texture coords, then to world coords by adding texture_origin
-        let texture_pos = self.camera.position.component_mul(&scale);
-        Vector3::new(
-            texture_pos.x + self.texture_origin.x as f64,
-            texture_pos.y - PLAYER_EYE_HEIGHT + self.texture_origin.y as f64,
-            texture_pos.z + self.texture_origin.z as f64,
-        )
-    }
-
-    /// Gets the chunk position the player is currently in (world chunk coordinates).
-    fn get_player_chunk(&self) -> Vector3<i32> {
-        let feet = self.player_feet_pos();
-        // Use div_euclid for correct floor division with negative coordinates
-        vector![
-            (feet.x.floor() as i32).div_euclid(CHUNK_SIZE as i32),
-            (feet.y.floor() as i32).div_euclid(CHUNK_SIZE as i32),
-            (feet.z.floor() as i32).div_euclid(CHUNK_SIZE as i32)
-        ]
     }
 
     /// Checks if texture origin needs to shift and handles re-upload if necessary.
     /// Returns true if a shift occurred.
     fn check_and_shift_texture_origin(&mut self) -> bool {
-        let player_chunk = self.get_player_chunk();
+        let player_chunk = self
+            .player
+            .get_chunk_pos(self.world_extent, self.texture_origin);
 
         // Calculate texture center in chunk coordinates
         let texture_center_chunk = Vector3::new(
@@ -2430,9 +916,9 @@ impl App {
             self.world_extent[1] as f64,
             self.world_extent[2] as f64,
         );
-        self.camera.position.x += origin_delta.x as f64 / scale.x;
-        self.camera.position.y += origin_delta.y as f64 / scale.y;
-        self.camera.position.z += origin_delta.z as f64 / scale.z;
+        self.player.camera.position.x += origin_delta.x as f64 / scale.x;
+        self.player.camera.position.y += origin_delta.y as f64 / scale.y;
+        self.player.camera.position.z += origin_delta.z as f64 / scale.z;
 
         // Re-upload all loaded chunks to their new texture positions
         let chunks_to_upload: Vec<(Vector3<i32>, Vec<u8>, Vec<u8>)> = self
@@ -2529,7 +1015,9 @@ impl App {
             );
         }
 
-        let player_chunk = self.get_player_chunk();
+        let player_chunk = self
+            .player
+            .get_chunk_pos(self.world_extent, self.texture_origin);
 
         // Infinite world in X/Z, bounded in Y (0 to WORLD_CHUNKS_Y-1)
         let min_chunk = vector![i32::MIN, 0, i32::MIN];
@@ -2641,682 +1129,6 @@ impl App {
         (loaded, unloaded)
     }
 
-    /// Sets the player position from feet position (world coordinates).
-    fn set_player_feet_pos(&mut self, feet_pos: Vector3<f64>) {
-        let scale = Vector3::new(
-            self.world_extent[0] as f64,
-            self.world_extent[1] as f64,
-            self.world_extent[2] as f64,
-        );
-        // Convert world coords to texture coords, then to normalized camera coords
-        let texture_pos = Vector3::new(
-            feet_pos.x - self.texture_origin.x as f64,
-            feet_pos.y - self.texture_origin.y as f64,
-            feet_pos.z - self.texture_origin.z as f64,
-        );
-        self.camera.position = Vector3::new(
-            texture_pos.x / scale.x,
-            (texture_pos.y + PLAYER_EYE_HEIGHT) / scale.y,
-            texture_pos.z / scale.z,
-        );
-    }
-
-    /// Checks if a block position is solid (not air, water, or other non-solid blocks).
-    /// Note: For Model blocks, this returns false - use check_model_collision for sub-voxel collision.
-    #[allow(dead_code)]
-    fn is_solid(&self, x: i32, y: i32, z: i32) -> bool {
-        // Y is bounded, X and Z are infinite (handled by World returning None for unloaded chunks)
-        if y < 0 || y >= TEXTURE_SIZE_Y as i32 {
-            return false; // Out of Y bounds = not solid (can fall out of world)
-        }
-        self.world
-            .get_block(Vector3::new(x, y, z))
-            .is_some_and(|b| b.is_solid())
-    }
-
-    /// Checks if the block at given position is water.
-    fn is_water(&self, x: i32, y: i32, z: i32) -> bool {
-        // Y is bounded, X and Z are infinite
-        if y < 0 || y >= TEXTURE_SIZE_Y as i32 {
-            return false;
-        }
-        self.world.get_block(Vector3::new(x, y, z)) == Some(BlockType::Water)
-    }
-
-    /// Checks if player's head is submerged in water.
-    fn check_player_in_water(&self, feet_pos: Vector3<f64>) -> bool {
-        // Check block at eye level (head position)
-        let head_y = feet_pos.y + PLAYER_EYE_HEIGHT;
-        let head_x = feet_pos.x.floor() as i32;
-        let head_y_block = head_y.floor() as i32;
-        let head_z = feet_pos.z.floor() as i32;
-        self.is_water(head_x, head_y_block, head_z)
-    }
-
-    /// Checks if any part of the player's body is in water.
-    fn check_player_touching_water(&self, feet_pos: Vector3<f64>) -> bool {
-        // Check all blocks the player's body might occupy
-        let min_x = (feet_pos.x - PLAYER_HALF_WIDTH).floor() as i32;
-        let max_x = (feet_pos.x + PLAYER_HALF_WIDTH).floor() as i32;
-        let min_y = (feet_pos.y - 0.1).floor() as i32; // Slightly below feet
-        let max_y = (feet_pos.y + PLAYER_HEIGHT).floor() as i32;
-        let min_z = (feet_pos.z - PLAYER_HALF_WIDTH).floor() as i32;
-        let max_z = (feet_pos.z + PLAYER_HALF_WIDTH).floor() as i32;
-
-        for bx in min_x..=max_x {
-            for by in min_y..=max_y {
-                for bz in min_z..=max_z {
-                    if self.is_water(bx, by, bz) {
-                        return true;
-                    }
-                }
-            }
-        }
-        false
-    }
-
-    /// Checks if the block at given position is a ladder.
-    fn is_ladder(&self, x: i32, y: i32, z: i32) -> bool {
-        // Y is bounded, X and Z are infinite
-        if y < 0 || y >= TEXTURE_SIZE_Y as i32 {
-            return false;
-        }
-        let pos = Vector3::new(x, y, z);
-        if let Some(BlockType::Model) = self.world.get_block(pos) {
-            if let Some(model_data) = self.world.get_model_data(pos) {
-                return ModelRegistry::is_ladder_model(model_data.model_id);
-            }
-        }
-        false
-    }
-
-    /// Checks if any part of the player's body is touching a ladder.
-    fn check_player_touching_ladder(&self, feet_pos: Vector3<f64>) -> bool {
-        // Check all blocks the player's body might occupy
-        let min_x = (feet_pos.x - PLAYER_HALF_WIDTH).floor() as i32;
-        let max_x = (feet_pos.x + PLAYER_HALF_WIDTH).floor() as i32;
-        let min_y = (feet_pos.y - 0.1).floor() as i32; // Slightly below feet
-        let max_y = (feet_pos.y + PLAYER_HEIGHT).floor() as i32;
-        let min_z = (feet_pos.z - PLAYER_HALF_WIDTH).floor() as i32;
-        let max_z = (feet_pos.z + PLAYER_HALF_WIDTH).floor() as i32;
-
-        for bx in min_x..=max_x {
-            for by in min_y..=max_y {
-                for bz in min_z..=max_z {
-                    if self.is_ladder(bx, by, bz) {
-                        if self.args.verbose {
-                            println!(
-                                "[LADDER] Touching ladder at ({}, {}, {}), player feet: ({:.2}, {:.2}, {:.2})",
-                                bx, by, bz, feet_pos.x, feet_pos.y, feet_pos.z
-                            );
-                        }
-                        return true;
-                    }
-                }
-            }
-        }
-        false
-    }
-
-    /// Checks if player AABB collides with any solid blocks at given feet position.
-    /// For Model blocks, uses sub-voxel collision from the 4³ collision mask.
-    /// If `skip_ladders` is true, ladder models are ignored (for climbing).
-    fn check_collision_ex(&self, feet_pos: Vector3<f64>, skip_ladders: bool) -> bool {
-        // Player AABB: centered on X/Z, extends from feet to feet+height on Y
-        let min_x = (feet_pos.x - PLAYER_HALF_WIDTH).floor() as i32;
-        let max_x = (feet_pos.x + PLAYER_HALF_WIDTH).floor() as i32;
-        let min_y = feet_pos.y.floor() as i32;
-        let max_y = (feet_pos.y + PLAYER_HEIGHT).floor() as i32;
-        let min_z = (feet_pos.z - PLAYER_HALF_WIDTH).floor() as i32;
-        let max_z = (feet_pos.z + PLAYER_HALF_WIDTH).floor() as i32;
-
-        let player_min = Vector3::new(
-            feet_pos.x - PLAYER_HALF_WIDTH,
-            feet_pos.y,
-            feet_pos.z - PLAYER_HALF_WIDTH,
-        );
-        let player_max = Vector3::new(
-            feet_pos.x + PLAYER_HALF_WIDTH,
-            feet_pos.y + PLAYER_HEIGHT,
-            feet_pos.z + PLAYER_HALF_WIDTH,
-        );
-
-        for bx in min_x..=max_x {
-            for by in min_y..=max_y {
-                for bz in min_z..=max_z {
-                    let world_pos = Vector3::new(bx, by, bz);
-                    let block = self.world.get_block(world_pos);
-
-                    if let Some(block_type) = block {
-                        if block_type.is_solid() {
-                            // Full block collision check
-                            let block_min = Vector3::new(bx as f64, by as f64, bz as f64);
-                            let block_max = block_min + Vector3::new(1.0, 1.0, 1.0);
-
-                            // AABB overlap test
-                            if player_min.x < block_max.x
-                                && player_max.x > block_min.x
-                                && player_min.y < block_max.y
-                                && player_max.y > block_min.y
-                                && player_min.z < block_max.z
-                                && player_max.z > block_min.z
-                            {
-                                return true;
-                            }
-                        } else if block_type == BlockType::Model {
-                            // Skip ladder collision when climbing
-                            if skip_ladders {
-                                if let Some(model_data) = self.world.get_model_data(world_pos) {
-                                    if ModelRegistry::is_ladder_model(model_data.model_id) {
-                                        if self.args.verbose {
-                                            println!(
-                                                "[LADDER SKIP] Skipping collision for ladder at ({}, {}, {})",
-                                                world_pos.x, world_pos.y, world_pos.z
-                                            );
-                                        }
-                                        continue;
-                                    }
-                                }
-                            }
-
-                            // Sub-voxel collision check for Model blocks
-                            let collides =
-                                self.check_model_collision(world_pos, &player_min, &player_max);
-                            if self.args.verbose {
-                                // Get model info for debug output
-                                if let Some(model_data) = self.world.get_model_data(world_pos) {
-                                    let model_name = self
-                                        .model_registry
-                                        .get(model_data.model_id)
-                                        .map(|m| m.name.as_str())
-                                        .unwrap_or("unknown");
-                                    println!(
-                                        "[MODEL COLLISION] Block ({}, {}, {}): {} (id={}, rot={}), collides={}",
-                                        world_pos.x,
-                                        world_pos.y,
-                                        world_pos.z,
-                                        model_name,
-                                        model_data.model_id,
-                                        model_data.rotation,
-                                        collides
-                                    );
-                                }
-                            }
-                            if collides {
-                                return true;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        false
-    }
-
-    /// Checks if player AABB collides with any solid blocks at given feet position.
-    /// For Model blocks, uses sub-voxel collision from the 4³ collision mask.
-    fn check_collision(&self, feet_pos: Vector3<f64>) -> bool {
-        self.check_collision_ex(feet_pos, false)
-    }
-
-    /// Checks if player AABB collides with a Model block's sub-voxel collision mask.
-    fn check_model_collision(
-        &self,
-        block_pos: Vector3<i32>,
-        player_min: &Vector3<f64>,
-        player_max: &Vector3<f64>,
-    ) -> bool {
-        // Get the chunk and model data
-        let chunk_pos = World::world_to_chunk(block_pos);
-        let (lx, ly, lz) = World::world_to_local(block_pos);
-
-        let chunk = match self.world.get_chunk(chunk_pos) {
-            Some(c) => c,
-            None => return false,
-        };
-
-        let model_data = match chunk.get_model_data(lx, ly, lz) {
-            Some(d) => d,
-            None => return false,
-        };
-
-        let model = match self.model_registry.get(model_data.model_id) {
-            Some(m) => m,
-            None => return false,
-        };
-
-        // Calculate player AABB overlap with this block
-        let block_min = Vector3::new(block_pos.x as f64, block_pos.y as f64, block_pos.z as f64);
-        let block_max = block_min + Vector3::new(1.0, 1.0, 1.0);
-
-        // Check if player AABB overlaps with block at all
-        if player_min.x >= block_max.x
-            || player_max.x <= block_min.x
-            || player_min.y >= block_max.y
-            || player_max.y <= block_min.y
-            || player_min.z >= block_max.z
-            || player_max.z <= block_min.z
-        {
-            return false;
-        }
-
-        // Calculate the overlap region in local block coordinates (0-1)
-        let overlap_min_x = (player_min.x - block_min.x).max(0.0);
-        let overlap_max_x = (player_max.x - block_min.x).min(1.0);
-        let overlap_min_y = (player_min.y - block_min.y).max(0.0);
-        let overlap_max_y = (player_max.y - block_min.y).min(1.0);
-        let overlap_min_z = (player_min.z - block_min.z).max(0.0);
-        let overlap_max_z = (player_max.z - block_min.z).min(1.0);
-
-        if self.args.verbose {
-            println!(
-                "[MODEL DETAIL] {} at ({},{},{}): mask=0x{:016X}, overlap=({:.2}-{:.2}, {:.2}-{:.2}, {:.2}-{:.2})",
-                model.name,
-                block_pos.x,
-                block_pos.y,
-                block_pos.z,
-                model.collision_mask,
-                overlap_min_x,
-                overlap_max_x,
-                overlap_min_y,
-                overlap_max_y,
-                overlap_min_z,
-                overlap_max_z
-            );
-        }
-
-        // Get rotation for coordinate transformation
-        let rotation = model_data.rotation;
-
-        // Helper to rotate local coordinates based on model rotation
-        // Rotation is around Y axis: 0=none, 1=90°CW, 2=180°, 3=270°CW
-        let rotate_point = |x: f64, z: f64| -> (f64, f64) {
-            match rotation {
-                0 => (x, z),
-                1 => (1.0 - z, x),
-                2 => (1.0 - x, 1.0 - z),
-                3 => (z, 1.0 - x),
-                _ => (x, z),
-            }
-        };
-
-        // Sample multiple points in the overlap region to check against collision mask
-        // The collision mask is 4³, so sample at collision cell resolution
-        let step = 0.25; // 1/4 block = one collision cell
-        let mut local_y = overlap_min_y;
-        while local_y < overlap_max_y {
-            let mut local_z = overlap_min_z;
-            while local_z < overlap_max_z {
-                let mut local_x = overlap_min_x;
-                while local_x < overlap_max_x {
-                    // Rotate the test point to model space
-                    let (rot_x, rot_z) = rotate_point(local_x, local_z);
-                    if model.point_collides(rot_x as f32, local_y as f32, rot_z as f32) {
-                        return true;
-                    }
-                    local_x += step;
-                }
-                local_z += step;
-            }
-            local_y += step;
-        }
-
-        // Also check the max corners (rotated)
-        let (rot_max_x, rot_max_z) = rotate_point(overlap_max_x - 0.001, overlap_max_z - 0.001);
-        if model.point_collides(
-            rot_max_x as f32,
-            (overlap_max_y - 0.001) as f32,
-            rot_max_z as f32,
-        ) {
-            return true;
-        }
-
-        false
-    }
-
-    /// Updates player physics: applies gravity, handles movement, checks collisions.
-    fn update_physics(&mut self, delta_time: f64) {
-        let mut feet = self.player_feet_pos();
-
-        // Check if player is in water or on ladder
-        let head_in_water = self.check_player_in_water(feet);
-        let touching_water = self.check_player_touching_water(feet);
-        let touching_ladder = self.check_player_touching_ladder(feet);
-        self.in_water = head_in_water;
-
-        // Debug logging for ladder state changes (throttled)
-        if self.args.verbose {
-            self.debug_log_timer += delta_time;
-            if touching_ladder != self.debug_last_ladder_state {
-                let camera_pos = self.camera.position;
-                let block_x = feet.x.floor() as i32;
-                let block_y = feet.y.floor() as i32;
-                let block_z = feet.z.floor() as i32;
-                println!(
-                    "[LADDER STATE] {} -> {}, feet=({:.3}, {:.3}, {:.3}), camera=({:.3}, {:.3}, {:.3}), block=({}, {}, {})",
-                    if self.debug_last_ladder_state {
-                        "ON"
-                    } else {
-                        "OFF"
-                    },
-                    if touching_ladder { "ON" } else { "OFF" },
-                    feet.x,
-                    feet.y,
-                    feet.z,
-                    camera_pos.x,
-                    camera_pos.y,
-                    camera_pos.z,
-                    block_x,
-                    block_y,
-                    block_z
-                );
-                self.debug_last_ladder_state = touching_ladder;
-            }
-            // Periodic position logging while on ladder (every 0.5 seconds)
-            if touching_ladder && self.debug_log_timer >= 0.5 {
-                let camera_pos = self.camera.position;
-                // Calculate local position within the block
-                let local_x = feet.x - feet.x.floor();
-                let local_y = feet.y - feet.y.floor();
-                let local_z = feet.z - feet.z.floor();
-                println!(
-                    "[LADDER POS] feet=({:.3}, {:.3}, {:.3}), local=({:.3}, {:.3}, {:.3}), camera=({:.3}, {:.3}, {:.3})",
-                    feet.x,
-                    feet.y,
-                    feet.z,
-                    local_x,
-                    local_y,
-                    local_z,
-                    camera_pos.x,
-                    camera_pos.y,
-                    camera_pos.z
-                );
-                self.debug_log_timer = 0.0;
-            }
-        }
-
-        // Get movement input
-        let t = |k: KeyCode| self.input.key_held(k) as u8 as f64;
-        let forward = t(KeyCode::KeyW) - t(KeyCode::KeyS);
-        let right = t(KeyCode::KeyD) - t(KeyCode::KeyA);
-
-        // Calculate horizontal movement direction (ignore pitch, only yaw)
-        let yaw = self.camera.rotation.y;
-        let move_dir = Vector3::new(
-            -forward * yaw.sin() + right * yaw.cos(),
-            0.0,
-            -forward * yaw.cos() - right * yaw.sin(),
-        );
-
-        // Determine movement speed based on environment, fly mode, and sprint
-        // Fly mode doubles speed, sprint doubles that again
-        let base_speed = if touching_water {
-            SWIM_SPEED
-        } else if touching_ladder {
-            CLIMB_HORIZ_SPEED // Slower horizontal movement on ladder
-        } else if self.fly_mode {
-            MOVE_SPEED * 2.0 // Fly mode: 2x speed
-        } else {
-            MOVE_SPEED
-        };
-        let current_speed = if self.sprint_mode {
-            base_speed * 2.0 // Sprint: 2x current speed
-        } else {
-            base_speed
-        };
-
-        // Normalize and apply speed
-        let move_len = move_dir.magnitude();
-        if move_len > 0.001 {
-            let normalized = move_dir / move_len;
-            self.player_velocity.x = normalized.x * current_speed;
-            self.player_velocity.z = normalized.z * current_speed;
-        } else {
-            self.player_velocity.x = 0.0;
-            self.player_velocity.z = 0.0;
-        }
-
-        if self.fly_mode {
-            // Fly mode: no gravity, Space=up, Shift=down for vertical movement
-            // Use same speed as horizontal (already accounts for fly mode and sprint)
-            let shift_held = (self.input.key_held(KeyCode::ShiftLeft)
-                || self.input.key_held(KeyCode::ShiftRight)) as i32
-                as f64;
-            let up = t(KeyCode::Space) - shift_held;
-            self.player_velocity.y = up * current_speed;
-
-            // Move without collision checks in fly mode
-            feet.x += self.player_velocity.x * delta_time;
-            feet.y += self.player_velocity.y * delta_time;
-            feet.z += self.player_velocity.z * delta_time;
-
-            // Clamp to Y bounds only (X/Z are infinite)
-            feet.y = feet.y.clamp(0.5, TEXTURE_SIZE_Y as f64 - 0.5);
-        } else if touching_water {
-            // Swimming mode: reduced gravity, buoyancy, vertical swim controls
-
-            // Apply water physics: reduced gravity + buoyancy
-            self.player_velocity.y -= WATER_GRAVITY * delta_time;
-            self.player_velocity.y += WATER_BUOYANCY * delta_time;
-
-            // Apply water drag to slow down
-            let drag = WATER_DRAG.powf(delta_time);
-            self.player_velocity.y *= drag;
-
-            // Swim up with Space, swim down with Shift (same as fly mode)
-            if self.input.key_held(KeyCode::Space) {
-                self.player_velocity.y = SWIM_UP_SPEED;
-            } else if self.input.key_held(KeyCode::ShiftLeft)
-                || self.input.key_held(KeyCode::ShiftRight)
-            {
-                self.player_velocity.y = -SWIM_DOWN_SPEED;
-            }
-
-            // Move on each axis separately and check collisions
-            // Use a small Y offset for horizontal checks to avoid floor collision due to floating point
-            let horiz_check_y = feet.y + 0.01;
-
-            // X axis
-            let new_x = feet.x + self.player_velocity.x * delta_time;
-            let test_pos = Vector3::new(new_x, horiz_check_y, feet.z);
-            if !self.check_collision(test_pos) {
-                feet.x = new_x;
-            } else {
-                self.player_velocity.x = 0.0;
-            }
-
-            // Z axis
-            let new_z = feet.z + self.player_velocity.z * delta_time;
-            let test_pos = Vector3::new(feet.x, horiz_check_y, new_z);
-            if !self.check_collision(test_pos) {
-                feet.z = new_z;
-            } else {
-                self.player_velocity.z = 0.0;
-            }
-
-            // Y axis
-            let new_y = feet.y + self.player_velocity.y * delta_time;
-            let test_pos = Vector3::new(feet.x, new_y, feet.z);
-            if !self.check_collision(test_pos) {
-                feet.y = new_y;
-            } else {
-                self.player_velocity.y = 0.0;
-            }
-
-            // Not on ground while swimming
-            self.on_ground = false;
-        } else if touching_ladder
-            && (self.input.key_held(KeyCode::Space)
-                || self.input.key_held(KeyCode::ShiftLeft)
-                || self.input.key_held(KeyCode::ShiftRight))
-        {
-            // Climbing mode: only when pressing climb keys (Space/Shift)
-            // No gravity while actively climbing
-
-            // Climb up with Space, climb down with Shift
-            if self.input.key_held(KeyCode::Space) {
-                self.player_velocity.y = CLIMB_UP_SPEED;
-            } else {
-                self.player_velocity.y = -CLIMB_DOWN_SPEED;
-            }
-
-            // Move on each axis separately and check collisions
-            // Skip ladder collision while climbing (allows moving through ladder blocks)
-            let horiz_check_y = feet.y + 0.01;
-
-            // X axis
-            let new_x = feet.x + self.player_velocity.x * delta_time;
-            let test_pos = Vector3::new(new_x, horiz_check_y, feet.z);
-            if !self.check_collision_ex(test_pos, true) {
-                feet.x = new_x;
-            } else {
-                self.player_velocity.x = 0.0;
-            }
-
-            // Z axis
-            let new_z = feet.z + self.player_velocity.z * delta_time;
-            let test_pos = Vector3::new(feet.x, horiz_check_y, new_z);
-            if !self.check_collision_ex(test_pos, true) {
-                feet.z = new_z;
-            } else {
-                self.player_velocity.z = 0.0;
-            }
-
-            // Y axis
-            let new_y = feet.y + self.player_velocity.y * delta_time;
-            let test_pos = Vector3::new(feet.x, new_y, feet.z);
-            if !self.check_collision_ex(test_pos, true) {
-                feet.y = new_y;
-            } else {
-                self.player_velocity.y = 0.0;
-            }
-
-            // Not on ground while climbing
-            self.on_ground = false;
-        } else {
-            // Normal ground mode: apply gravity
-            self.player_velocity.y -= GRAVITY * delta_time;
-
-            // Jump
-            if self.on_ground && self.input.key_pressed(KeyCode::Space) {
-                self.player_velocity.y = JUMP_VELOCITY;
-                self.on_ground = false;
-            }
-
-            // Move on each axis separately and check collisions
-            // Use a small Y offset for horizontal checks to avoid floor collision due to floating point
-            let horiz_check_y = feet.y + 0.01;
-
-            // Track if we should auto-jump due to 1-block obstacle
-            let mut should_auto_jump = false;
-
-            // X axis
-            let new_x = feet.x + self.player_velocity.x * delta_time;
-            let test_pos = Vector3::new(new_x, horiz_check_y, feet.z);
-            if !self.check_collision(test_pos) {
-                feet.x = new_x;
-            } else {
-                // Check for auto-jump: is this a 1-block-high obstacle?
-                if self.auto_jump && self.on_ground && self.player_velocity.x.abs() > 0.1 {
-                    let step_up_pos = Vector3::new(new_x, feet.y + 1.01, feet.z);
-                    if !self.check_collision(step_up_pos) {
-                        should_auto_jump = true;
-                    }
-                }
-                self.player_velocity.x = 0.0;
-            }
-
-            // Z axis
-            let new_z = feet.z + self.player_velocity.z * delta_time;
-            let test_pos = Vector3::new(feet.x, horiz_check_y, new_z);
-            if !self.check_collision(test_pos) {
-                feet.z = new_z;
-            } else {
-                // Check for auto-jump: is this a 1-block-high obstacle?
-                if self.auto_jump && self.on_ground && self.player_velocity.z.abs() > 0.1 {
-                    let step_up_pos = Vector3::new(feet.x, feet.y + 1.01, new_z);
-                    if !self.check_collision(step_up_pos) {
-                        should_auto_jump = true;
-                    }
-                }
-                self.player_velocity.z = 0.0;
-            }
-
-            // Execute auto-jump if needed
-            if should_auto_jump {
-                self.player_velocity.y = JUMP_VELOCITY;
-                self.on_ground = false;
-            }
-
-            // Y axis
-            let new_y = feet.y + self.player_velocity.y * delta_time;
-            let test_pos = Vector3::new(feet.x, new_y, feet.z);
-            if !self.check_collision(test_pos) {
-                feet.y = new_y;
-                self.on_ground = false;
-            } else {
-                // Hit something
-                if self.player_velocity.y < 0.0 {
-                    // Hit ground - snap to top of block
-                    let ground_y = (feet.y + self.player_velocity.y * delta_time).floor() + 1.0;
-                    feet.y = ground_y;
-                    self.on_ground = true;
-                }
-                self.player_velocity.y = 0.0;
-            }
-        }
-
-        // Respawn if fallen out of world
-        if feet.y < -10.0 {
-            println!("Player fell out of world, respawning...");
-            feet = self.get_spawn_position();
-            self.player_velocity = Vector3::zeros();
-            self.on_ground = false;
-        }
-
-        // Safety: if player is stuck inside a block, push them up
-        if self.check_collision(feet) && !self.fly_mode {
-            // Try to find a free position above
-            for offset in 1..10 {
-                let test_pos = Vector3::new(feet.x, feet.y + offset as f64, feet.z);
-                if !self.check_collision(test_pos) {
-                    feet = test_pos;
-                    self.player_velocity.y = 0.0;
-                    println!("Player was stuck, pushed up {} blocks", offset);
-                    break;
-                }
-            }
-        }
-
-        // Update head bob based on horizontal movement
-        let horizontal_speed =
-            (self.player_velocity.x.powi(2) + self.player_velocity.z.powi(2)).sqrt();
-        let is_walking = self.on_ground && horizontal_speed > 0.5 && !self.fly_mode;
-
-        if is_walking {
-            // Accumulate timer based on distance traveled (continuous phase)
-            self.head_bob_timer += horizontal_speed * delta_time * HEAD_BOB_FREQUENCY;
-            // Smoothly ramp up intensity
-            self.head_bob_intensity += (1.0 - self.head_bob_intensity) * delta_time * 8.0;
-        } else {
-            // Smoothly fade out intensity (but keep timer for smooth resume)
-            self.head_bob_intensity *= 0.9_f64.powf(delta_time * 60.0);
-        }
-        self.head_bob_intensity = self.head_bob_intensity.clamp(0.0, 1.0);
-
-        // Update camera position
-        self.set_player_feet_pos(feet);
-    }
-
-    /// Gets a safe spawn position on land.
-    fn get_spawn_position(&self) -> Vector3<f64> {
-        // Spawn at world origin (0, 0) for infinite world
-        let spawn_x = 0;
-        let spawn_z = 0;
-        let spawn_y = find_ground_level(&self.world, spawn_x, spawn_z);
-        Vector3::new(spawn_x as f64, spawn_y as f64 + 1.0, spawn_z as f64)
-    }
-
     /// Performs a raycast from the camera and updates the current hit.
     fn update_raycast(&mut self) {
         // Camera uses normalized texture-relative coords (0-1), raycast needs world coords
@@ -3326,14 +1138,19 @@ impl App {
             self.world_extent[2] as f32,
         );
         // Convert camera position from normalized texture coords to texture coords
-        let texture_pos = self.camera.position.cast::<f32>().component_mul(&scale);
+        let texture_pos = self
+            .player
+            .camera
+            .position
+            .cast::<f32>()
+            .component_mul(&scale);
         // Convert texture coords to world coords by adding texture_origin
         let origin = Vector3::new(
             texture_pos.x + self.texture_origin.x as f32,
             texture_pos.y + self.texture_origin.y as f32,
             texture_pos.z + self.texture_origin.z as f32,
         );
-        let direction = self.camera_direction().cast::<f32>();
+        let direction = self.player.camera_direction().cast::<f32>();
 
         self.current_hit = raycast(&self.world, origin, direction, MAX_RAYCAST_DISTANCE);
     }
@@ -3415,7 +1232,10 @@ impl App {
                 self.activate_adjacent_terrain_water(target);
 
                 // Queue physics checks (frame-distributed to prevent FPS spikes)
-                let player_pos = self.player_feet_pos().cast::<f32>();
+                let player_pos = self
+                    .player
+                    .feet_pos(self.world_extent, self.texture_origin)
+                    .cast::<f32>();
 
                 // Queue gravity check for block above
                 self.block_updates.enqueue(
@@ -3624,7 +1444,7 @@ impl App {
         }
 
         // Check if block would overlap with player hitbox (AABB collision)
-        let feet = self.player_feet_pos();
+        let feet = self.player.feet_pos(self.world_extent, self.texture_origin);
         let player_min = Vector3::new(
             feet.x - PLAYER_HALF_WIDTH,
             feet.y,
@@ -3683,7 +1503,7 @@ impl App {
                 let has_south = self.is_fence_connectable(place_pos + Vector3::new(0, 0, 1));
 
                 // Calculate player position relative to gate for open direction
-                let player_pos = self.player_feet_pos();
+                let player_pos = self.player.feet_pos(self.world_extent, self.texture_origin);
                 let gate_center = place_pos.cast::<f64>() + Vector3::new(0.5, 0.0, 0.5);
                 let to_player = player_pos - gate_center;
 
@@ -3731,7 +1551,7 @@ impl App {
                 // rotation=1: against +X wall (facing -X)
                 // rotation=2: against -Z wall (facing +Z)
                 // rotation=3: against -X wall (facing +X)
-                let player_pos = self.player_feet_pos();
+                let player_pos = self.player.feet_pos(self.world_extent, self.texture_origin);
                 let ladder_center = place_pos.cast::<f64>() + Vector3::new(0.5, 0.0, 0.5);
                 let to_player = player_pos - ladder_center;
 
@@ -3864,6 +1684,10 @@ impl App {
                         let connections = self.calculate_fence_connections(neighbor_pos);
                         let new_model_id = ModelRegistry::fence_model_id(connections);
                         if new_model_id != data.model_id {
+                            println!(
+                                "[DEBUG] Updating fence at {:?} to ID {}",
+                                neighbor_pos, new_model_id
+                            );
                             // Force rotation 0 for fences as their orientation is in the model_id
                             self.world.set_model_block(neighbor_pos, new_model_id, 0);
                         }
@@ -4097,7 +1921,10 @@ impl App {
                     self.invalidate_minimap_cache(final_pos.x, final_pos.z);
 
                     // Queue gravity check for chain reaction (blocks above might now fall)
-                    let player_pos = self.player_feet_pos().cast::<f32>();
+                    let player_pos = self
+                        .player
+                        .feet_pos(self.world_extent, self.texture_origin)
+                        .cast::<f32>();
                     self.block_updates.enqueue(
                         final_pos + Vector3::new(0, 1, 0),
                         BlockUpdateType::Gravity,
@@ -4116,7 +1943,10 @@ impl App {
     /// - CheckTreeSupport: Check if log lost ground support
     /// - CheckOrphanedLeaves: Check if leaf cluster is disconnected from logs
     fn process_block_updates(&mut self) {
-        let player_pos = self.player_feet_pos().cast::<f32>();
+        let player_pos = self
+            .player
+            .feet_pos(self.world_extent, self.texture_origin)
+            .cast::<f32>();
         let batch = self.block_updates.take_batch();
 
         for update in batch {
@@ -4273,7 +2103,10 @@ impl App {
             return;
         }
 
-        let player_pos = self.player_feet_pos().cast::<f32>();
+        let player_pos = self
+            .player
+            .feet_pos(self.world_extent, self.texture_origin)
+            .cast::<f32>();
         let texture_height = TEXTURE_SIZE_Y as i32;
 
         // Create a closure that checks if a block is solid
@@ -4368,124 +2201,9 @@ impl App {
     /// Finds the surface block at a given X, Z world coordinate.
     /// Returns the block type and Y height of the topmost non-air block.
     /// Uses cached values when available.
-    fn find_surface_block(&mut self, world_x: i32, world_z: i32) -> (BlockType, i32) {
-        // Check cache first
-        if let Some(&cached) = self.minimap_height_cache.get(&(world_x, world_z)) {
-            return cached;
-        }
-
-        // Calculate and cache
-        let result = self.calculate_surface_block(world_x, world_z);
-        self.minimap_height_cache.insert((world_x, world_z), result);
-        result
-    }
-
     /// Invalidates the minimap height cache for a given (x, z) position.
     fn invalidate_minimap_cache(&mut self, world_x: i32, world_z: i32) {
         self.minimap_height_cache.remove(&(world_x, world_z));
-    }
-
-    /// Calculates the surface block without caching (for internal use).
-    fn calculate_surface_block(&self, world_x: i32, world_z: i32) -> (BlockType, i32) {
-        for y in (0..TEXTURE_SIZE_Y as i32).rev() {
-            if let Some(block) = self.world.get_block(Vector3::new(world_x, y, world_z)) {
-                if block != BlockType::Air {
-                    return (block, y);
-                }
-            }
-        }
-        (BlockType::Air, 0)
-    }
-
-    /// Gets the color for a minimap pixel based on block type and height.
-    fn get_minimap_color(&self, block: BlockType, height: i32) -> egui::Color32 {
-        let base_color = block.color();
-        let (r, g, b) = (base_color[0], base_color[1], base_color[2]);
-
-        match self.minimap_color_mode {
-            0 => {
-                // Block colors only
-                egui::Color32::from_rgb((r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8)
-            }
-            1 => {
-                // Height shading only (grayscale)
-                let brightness = ((height as f32 / 128.0) * 200.0 + 55.0).min(255.0) as u8;
-                egui::Color32::from_rgb(brightness, brightness, brightness)
-            }
-            _ => {
-                // Both: block colors with height brightness
-                let height_factor = 0.5 + (height as f32 / 128.0) * 0.5;
-                egui::Color32::from_rgb(
-                    (r * 255.0 * height_factor).min(255.0) as u8,
-                    (g * 255.0 * height_factor).min(255.0) as u8,
-                    (b * 255.0 * height_factor).min(255.0) as u8,
-                )
-            }
-        }
-    }
-
-    /// Generates a minimap image centered on the player's position.
-    /// When rotate is enabled, samples from a larger area to fill corners after rotation.
-    /// Returns a ColorImage that can be loaded as a texture.
-    fn generate_minimap_image(&mut self, player_pos: Vector3<f64>, yaw: f32) -> egui::ColorImage {
-        let display_size = self.minimap_size as usize;
-        let center_x = player_pos.x as f32;
-        let center_z = player_pos.z as f32;
-
-        // Base sample radius adjusted by zoom (higher zoom = larger area = zoomed out)
-        // When rotating, multiply by sqrt(2) ≈ 1.42 to fill corners
-        let base_radius = (display_size as f32 / 2.0) * self.minimap_zoom;
-        let sample_radius = if self.minimap_rotate {
-            base_radius * 1.42
-        } else {
-            base_radius
-        };
-
-        let mut pixels = vec![egui::Color32::BLACK; display_size * display_size];
-
-        // Precompute rotation (rotate world coords to align with player facing direction)
-        let (sin_yaw, cos_yaw) = if self.minimap_rotate {
-            (yaw.sin(), yaw.cos())
-        } else {
-            (0.0, 1.0) // No rotation
-        };
-
-        let half = display_size as f32 / 2.0;
-
-        for dz in 0..display_size {
-            for dx in 0..display_size {
-                // Screen-space offset from center (-half to +half)
-                let sx = dx as f32 - half;
-                let sz = dz as f32 - half;
-
-                // Scale to sample radius
-                let scale = sample_radius / half;
-                let scaled_x = sx * scale;
-                let scaled_z = sz * scale;
-
-                // Apply rotation to get world-space offset
-                // Screen right (+sx) maps to player's right direction
-                // Screen down (+sz) maps to player's backward direction
-                let world_offset_x = scaled_x * cos_yaw + scaled_z * sin_yaw;
-                let world_offset_z = -scaled_x * sin_yaw + scaled_z * cos_yaw;
-
-                let world_x = (center_x + world_offset_x).floor() as i32;
-                let world_z = (center_z + world_offset_z).floor() as i32;
-
-                // Find surface block (top-down)
-                let (block_type, height) = self.find_surface_block(world_x, world_z);
-
-                // Calculate color based on mode
-                let color = self.get_minimap_color(block_type, height);
-
-                pixels[dz * display_size + dx] = color;
-            }
-        }
-
-        egui::ColorImage {
-            size: [display_size, display_size],
-            pixels,
-        }
     }
 
     /// Takes a screenshot and saves it to the specified path.
@@ -5015,8 +2733,8 @@ impl App {
         let mut lights = Vec::new();
 
         // Add player light if enabled (like holding a torch)
-        if self.player_light {
-            let player_pos = self.player_feet_pos();
+        if self.player.light_enabled {
+            let player_pos = self.player.feet_pos(self.world_extent, self.texture_origin);
             // Light is at player's hand/chest level, convert to texture coordinates for shader
             let tex_x = (player_pos.x - self.texture_origin.x as f64) as f32;
             let tex_y =
@@ -5121,8 +2839,10 @@ impl App {
             self.last_second = now;
 
             // Debug stats output (always show if verbose, otherwise once per second)
-            let player_pos = self.player_feet_pos();
-            let player_chunk = self.get_player_chunk();
+            let player_pos = self.player.feet_pos(self.world_extent, self.texture_origin);
+            let player_chunk = self
+                .player
+                .get_chunk_pos(self.world_extent, self.texture_origin);
             let frame_time_ms = if self.fps > 0 {
                 1000.0 / self.fps as f32
             } else {
@@ -5180,8 +2900,10 @@ impl App {
         // Debug interval output
         if self.args.debug_interval > 0 && self.total_frames % self.args.debug_interval as u64 == 0
         {
-            let player_pos = self.player_feet_pos();
-            let player_chunk = self.get_player_chunk();
+            let player_pos = self.player.feet_pos(self.world_extent, self.texture_origin);
+            let player_chunk = self
+                .player
+                .get_chunk_pos(self.world_extent, self.texture_origin);
             println!(
                 "[DEBUG Frame {}] Pos: ({:.2}, {:.2}, {:.2}) Chunk: ({}, {}, {}) TexOrigin: ({}, {}, {}) Velocity: ({:.2}, {:.2}, {:.2})",
                 self.total_frames,
@@ -5194,9 +2916,9 @@ impl App {
                 self.texture_origin.x,
                 self.texture_origin.y,
                 self.texture_origin.z,
-                self.player_velocity.x,
-                self.player_velocity.y,
-                self.player_velocity.z
+                self.player.velocity.x,
+                self.player.velocity.y,
+                self.player.velocity.z
             );
         }
 
@@ -5286,17 +3008,26 @@ impl App {
 
         if self.focused {
             // Update player physics (movement, gravity, collisions)
-            self.update_physics(delta_time);
+            self.player.update_physics(
+                delta_time,
+                &self.world,
+                self.world_extent,
+                self.texture_origin,
+                &self.input,
+                &self.model_registry,
+                self.args.verbose,
+            );
 
             // Mouse look
-            let sens = 0.002 * (self.camera.fov.to_radians() * 0.5).tan();
+            let sens = 0.002 * (self.player.camera.fov.to_radians() * 0.5).tan();
 
             let (dx, dy) = self.input.mouse_diff();
             // rotation.y = yaw (horizontal), rotation.x = pitch (vertical)
-            self.camera.rotation.y -= dx as f64 * sens;
-            self.camera.rotation.x -= dy as f64 * sens;
-            self.camera.rotation.x = self.camera.rotation.x.clamp(-FRAC_PI_2, FRAC_PI_2);
-            self.camera.rotation.y = self.camera.rotation.y.rem_euclid(TAU);
+            self.player.camera.rotation.y -= dx as f64 * sens;
+            self.player.camera.rotation.x -= dy as f64 * sens;
+            self.player.camera.rotation.x =
+                self.player.camera.rotation.x.clamp(-FRAC_PI_2, FRAC_PI_2);
+            self.player.camera.rotation.y = self.player.camera.rotation.y.rem_euclid(TAU);
 
             // Scroll wheel to cycle through hotbar slots
             let ds = self.input.scroll_diff();
@@ -5339,8 +3070,8 @@ impl App {
 
             // Toggle fly mode (F key)
             if self.input.key_pressed(KeyCode::KeyF) {
-                self.fly_mode = !self.fly_mode;
-                if self.fly_mode {
+                self.player.fly_mode = !self.player.fly_mode;
+                if self.player.fly_mode {
                     println!("Fly mode: ON");
                 } else {
                     println!("Fly mode: OFF");
@@ -5349,8 +3080,8 @@ impl App {
 
             // Toggle sprint mode (Left Control)
             if self.input.key_pressed(KeyCode::ControlLeft) {
-                self.sprint_mode = !self.sprint_mode;
-                if self.sprint_mode {
+                self.player.sprint_mode = !self.player.sprint_mode;
+                if self.player.sprint_mode {
                     println!("Sprint mode: ON");
                 } else {
                     println!("Sprint mode: OFF");
@@ -5433,7 +3164,7 @@ impl App {
         // Collect data before borrowing rcx (avoids borrow checker issues)
         let gpu_lights = self.collect_torch_lights();
         let light_count = gpu_lights.len() as u32;
-        let player_world_pos = self.player_feet_pos();
+        let player_world_pos = self.player.feet_pos(self.world_extent, self.texture_origin);
         let selected_block = self.selected_block();
         let hotbar_index = self.hotbar_index;
         let hotbar_blocks = self.hotbar_blocks;
@@ -5441,7 +3172,7 @@ impl App {
 
         // Pre-generate minimap image if showing (before entering gui closure)
         // Throttle updates based on position change and rotation change
-        let camera_yaw = self.camera.rotation.y as f32;
+        let camera_yaw = self.player.camera.rotation.y as f32;
         let minimap_image: Option<egui::ColorImage> = if self.show_minimap {
             let current_pos = Vector3::new(
                 player_world_pos.x.floor() as i32,
@@ -5453,10 +3184,10 @@ impl App {
                 || (current_pos.z - self.minimap_last_pos.z).abs() >= 1;
             // Check if player rotated significantly (5 degrees) - only matters when rotate mode is on
             let yaw_changed =
-                self.minimap_rotate && (camera_yaw - self.minimap_last_yaw).abs() > 0.087; // ~5 degrees
+                self.minimap.rotate && (camera_yaw - self.minimap_last_yaw).abs() > 0.087; // ~5 degrees
             // Check if enough time has passed (0.1 seconds for rotation, 0.5 for position)
             let time_elapsed = self.minimap_last_update.elapsed().as_secs_f32();
-            let time_ok = if self.minimap_rotate {
+            let time_ok = if self.minimap.rotate {
                 time_elapsed >= 0.1 // Faster updates for rotation
             } else {
                 time_elapsed >= 0.5
@@ -5467,7 +3198,12 @@ impl App {
                 self.minimap_last_pos = current_pos;
                 self.minimap_last_update = Instant::now();
                 self.minimap_last_yaw = camera_yaw;
-                let image = self.generate_minimap_image(player_world_pos, camera_yaw);
+                let image = self.minimap.generate_image(
+                    &self.world,
+                    player_world_pos,
+                    camera_yaw,
+                    &mut self.minimap_height_cache,
+                );
                 self.minimap_cached_image = Some(image.clone());
                 Some(image)
             } else {
@@ -5479,8 +3215,8 @@ impl App {
         };
         // Get minimap settings for HUD
         let show_minimap = self.show_minimap;
-        let minimap_size = self.minimap_size;
-        let minimap_rotate = self.minimap_rotate;
+        let minimap_size = self.minimap.size;
+        let minimap_rotate = self.minimap.rotate;
         let show_compass = self.show_compass;
 
         let rcx = self.rcx.as_mut().unwrap();
@@ -5665,7 +3401,7 @@ impl App {
                             ui.separator();
 
                             ui.label(format!("Chunks: {}", self.world.chunk_count()));
-                            if self.in_water {
+                            if self.player.in_water {
                                 ui.colored_label(
                                     egui::Color32::from_rgb(100, 150, 255),
                                     "🌊 UNDERWATER",
@@ -5707,7 +3443,8 @@ impl App {
                             ui.separator();
 
                             ui.add(
-                                egui::Slider::new(&mut self.camera.fov, 20.0..=120.0).text("FOV"),
+                                egui::Slider::new(&mut self.player.camera.fov, 20.0..=120.0)
+                                    .text("FOV"),
                             );
 
                             if ui
@@ -5923,12 +3660,16 @@ impl App {
                             ui.checkbox(&mut self.show_block_preview, "Block placement preview");
                             ui.checkbox(&mut self.show_target_outline, "Target block outline");
                             if ui
-                                .checkbox(&mut self.player_light, "Player torch light")
+                                .checkbox(&mut self.player.light_enabled, "Player torch light")
                                 .changed()
                             {
                                 println!(
                                     "[TOGGLE] Player Light: {}",
-                                    if self.player_light { "ON" } else { "OFF" }
+                                    if self.player.light_enabled {
+                                        "ON"
+                                    } else {
+                                        "OFF"
+                                    }
                                 );
                             }
 
@@ -5959,7 +3700,7 @@ impl App {
                             ui.separator();
 
                             // Movement settings
-                            ui.checkbox(&mut self.auto_jump, "Auto-jump");
+                            ui.checkbox(&mut self.player.auto_jump, "Auto-jump");
                             ui.checkbox(&mut self.show_compass, "Show compass");
 
                             ui.separator();
@@ -5979,24 +3720,24 @@ impl App {
                             ui.horizontal(|ui| {
                                 ui.label("Size:");
                                 if ui
-                                    .selectable_label(self.minimap_size == 128, "Small")
+                                    .selectable_label(self.minimap.size == 128, "Small")
                                     .clicked()
                                 {
-                                    self.minimap_size = 128;
+                                    self.minimap.size = 128;
                                     self.minimap_cached_image = None; // Force refresh
                                 }
                                 if ui
-                                    .selectable_label(self.minimap_size == 192, "Medium")
+                                    .selectable_label(self.minimap.size == 192, "Medium")
                                     .clicked()
                                 {
-                                    self.minimap_size = 192;
+                                    self.minimap.size = 192;
                                     self.minimap_cached_image = None; // Force refresh
                                 }
                                 if ui
-                                    .selectable_label(self.minimap_size == 256, "Large")
+                                    .selectable_label(self.minimap.size == 256, "Large")
                                     .clicked()
                                 {
-                                    self.minimap_size = 256;
+                                    self.minimap.size = 256;
                                     self.minimap_cached_image = None; // Force refresh
                                 }
                             });
@@ -6004,31 +3745,31 @@ impl App {
                             ui.horizontal(|ui| {
                                 ui.label("Colors:");
                                 if ui
-                                    .selectable_label(self.minimap_color_mode == 0, "Blocks")
+                                    .selectable_label(self.minimap.color_mode == 0, "Blocks")
                                     .clicked()
                                 {
-                                    self.minimap_color_mode = 0;
+                                    self.minimap.color_mode = 0;
                                     self.minimap_cached_image = None; // Force refresh
                                 }
                                 if ui
-                                    .selectable_label(self.minimap_color_mode == 1, "Height")
+                                    .selectable_label(self.minimap.color_mode == 1, "Height")
                                     .clicked()
                                 {
-                                    self.minimap_color_mode = 1;
+                                    self.minimap.color_mode = 1;
                                     self.minimap_cached_image = None; // Force refresh
                                 }
                                 if ui
-                                    .selectable_label(self.minimap_color_mode == 2, "Both")
+                                    .selectable_label(self.minimap.color_mode == 2, "Both")
                                     .clicked()
                                 {
-                                    self.minimap_color_mode = 2;
+                                    self.minimap.color_mode = 2;
                                     self.minimap_cached_image = None; // Force refresh
                                 }
                             });
 
                             if ui
                                 .add(
-                                    egui::Slider::new(&mut self.minimap_zoom, 0.5..=3.0)
+                                    egui::Slider::new(&mut self.minimap.zoom, 0.5..=3.0)
                                         .text("Zoom")
                                         .logarithmic(true),
                                 )
@@ -6038,7 +3779,7 @@ impl App {
                             }
 
                             if ui
-                                .checkbox(&mut self.minimap_rotate, "Rotate with player")
+                                .checkbox(&mut self.minimap.rotate, "Rotate with player")
                                 .changed()
                             {
                                 // Force minimap refresh when rotation mode changes
@@ -6050,9 +3791,9 @@ impl App {
                             // Camera position debug
                             ui.label(format!(
                                 "Position: ({:.1}, {:.1}, {:.1})",
-                                self.camera.position.x,
-                                self.camera.position.y,
-                                self.camera.position.z
+                                self.player.camera.position.x,
+                                self.player.camera.position.y,
+                                self.player.camera.position.z
                             ));
                         }); // end ScrollArea
                 });
@@ -6368,9 +4109,9 @@ impl App {
 
         let render_extent = rcx.render_image.extent();
         let resample_extent = rcx.resample_image.extent();
-        self.camera.extent = [render_extent[0] as f64, render_extent[1] as f64];
+        self.player.camera.extent = [render_extent[0] as f64, render_extent[1] as f64];
 
-        let pixel_to_ray = self.camera.pixel_to_ray_matrix();
+        let pixel_to_ray = self.player.camera.pixel_to_ray_matrix();
 
         // Scale only the position (column 4), not the direction (3x3 rotation part)
         // This prevents ray distortion from non-uniform world dimensions
@@ -6382,9 +4123,9 @@ impl App {
         pixel_to_ray_scaled.m34 *= self.world_extent[2] as f64;
 
         // Apply head bob offset to camera Y position for rendering
-        let head_bob_offset = (self.head_bob_timer * std::f64::consts::TAU).sin()
+        let head_bob_offset = (self.player.head_bob_timer * std::f64::consts::TAU).sin()
             * HEAD_BOB_AMPLITUDE
-            * self.head_bob_intensity;
+            * self.player.head_bob_intensity;
         pixel_to_ray_scaled.m24 += head_bob_offset;
 
         let pixel_to_ray = pixel_to_ray_scaled;
@@ -6546,7 +4287,7 @@ impl App {
             texture_size_z: self.world_extent[2],
             render_mode: self.render_mode as u32,
             show_chunk_boundaries: self.show_chunk_boundaries as u32,
-            player_in_water: self.in_water as u32,
+            player_in_water: self.player.in_water as u32,
             time_of_day: self.time_of_day,
             animation_time: self.animation_time,
             break_block_x: break_x,
