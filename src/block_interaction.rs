@@ -1,10 +1,9 @@
 use crate::App;
 use crate::block_update::BlockUpdateType;
 use crate::chunk::BlockType;
-use crate::constants::{
-    MAX_RAYCAST_DISTANCE, PLAYER_HALF_WIDTH, PLAYER_HEIGHT, TEXTURE_SIZE_Y,
-};
-use crate::raycast::{raycast, get_place_position};
+use crate::constants::TEXTURE_SIZE_Y;
+use crate::player::{PLAYER_HALF_WIDTH, PLAYER_HEIGHT};
+use crate::raycast::{MAX_RAYCAST_DISTANCE, get_place_position, raycast};
 use crate::sub_voxel::ModelRegistry;
 use nalgebra::Vector3;
 use winit::event::MouseButton;
@@ -221,7 +220,7 @@ impl App {
             return;
         }
 
-        if let Some(hit) = &self.current_hit {
+        if let Some(hit) = self.current_hit {
             // Priority 1: Toggle existing gate
             if !self.gate_needs_reclick && self.toggle_gate_at(hit.block_pos) {
                 self.gate_needs_reclick = true;
@@ -229,7 +228,7 @@ impl App {
             }
 
             // Priority 2: Place new block
-            let place_pos = get_place_position(hit);
+            let place_pos = get_place_position(&hit);
 
             // Handle model blocks - require re-click to place multiple
             if self.selected_block() == BlockType::Model && self.model_needs_reclick {
@@ -279,12 +278,12 @@ impl App {
             }
 
             // Continuous placing logic
-            if self.last_place_pos != Some(constrained_pos) && self.place_cooldown <= 0.0 {
-                if self.place_block_at(constrained_pos) {
-                    if self.selected_block() == BlockType::Model {
-                        self.model_needs_reclick = true;
-                    }
-                }
+            if self.last_place_pos != Some(constrained_pos)
+                && self.place_cooldown <= 0.0
+                && self.place_block_at(constrained_pos)
+                && self.selected_block() == BlockType::Model
+            {
+                self.model_needs_reclick = true;
             }
 
             self.last_place_pos = Some(constrained_pos);
@@ -398,9 +397,12 @@ impl App {
                 let to_player = player_pos - ladder_center;
 
                 let rotation = if to_player.x.abs() > to_player.z.abs() {
-                    if to_player.x > 0.0 { 3 } else { 1 }
+                    // Player is more to E/W
+                    if to_player.x > 0.0 { 3 } else { 1 } // Face +X or -X
+                } else if to_player.z > 0.0 {
+                    2
                 } else {
-                    if to_player.z > 0.0 { 2 } else { 0 }
+                    0
                 };
 
                 self.world

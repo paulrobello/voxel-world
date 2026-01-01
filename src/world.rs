@@ -46,7 +46,7 @@ impl World {
         player_pos: Vector3<f64>,
         texture_origin: Vector3<i32>,
         model_registry: &ModelRegistry,
-        world_extent: [u32; 3],
+        _world_extent: [u32; 3],
     ) -> Vec<GpuLight> {
         let mut lights = Vec::new();
 

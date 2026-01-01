@@ -47,10 +47,9 @@ use std::{
 };
 use vulkano::{
     Validated, VulkanError,
-    buffer::{Buffer, BufferCreateInfo, BufferUsage, Subbuffer},
+    buffer::Subbuffer,
     command_buffer::{
-        AutoCommandBufferBuilder, BlitImageInfo, BufferImageCopy, ClearColorImageInfo,
-        CommandBufferUsage, CopyBufferToImageInfo, PrimaryCommandBufferAbstract,
+        AutoCommandBufferBuilder, BlitImageInfo, ClearColorImageInfo, CommandBufferUsage,
     },
     descriptor_set::DescriptorSet,
     device::{Device, Queue},
@@ -60,11 +59,9 @@ use vulkano::{
         view::{ImageView, ImageViewCreateInfo},
     },
     instance::Instance,
-    memory::allocator::{AllocationCreateInfo, MemoryTypeFilter, StandardMemoryAllocator},
+    memory::allocator::StandardMemoryAllocator,
     pipeline::{Pipeline, PipelineBindPoint},
-    swapchain::{
-        Surface, Swapchain, SwapchainCreateInfo, SwapchainPresentInfo, acquire_next_image,
-    },
+    swapchain::{Surface, SwapchainCreateInfo, SwapchainPresentInfo, acquire_next_image},
     sync::GpuFuture,
 };
 use winit::{
@@ -76,6 +73,7 @@ use winit::{
 };
 use winit_input_helper::WinitInputHelper;
 
+mod block_interaction;
 mod block_update;
 mod camera;
 mod chunk;
@@ -97,31 +95,29 @@ mod terrain_gen;
 mod utils;
 mod vulkan_context;
 mod water;
-mod world_streaming;
 mod world;
+mod world_streaming;
 
-use crate::block_update::{BlockUpdateQueue, BlockUpdateType};
+use crate::block_update::BlockUpdateQueue;
 use crate::chunk::{BlockType, CHUNK_SIZE};
 use crate::chunk_loader::ChunkLoader;
 use crate::config::{Args, INITIAL_WINDOW_RESOLUTION, Settings};
 use crate::constants::{
-    CHUNKS_PER_FRAME, EMPTY_CHUNK_DATA, EMPTY_MODEL_METADATA, LOADED_CHUNKS_X, LOADED_CHUNKS_Z,
-    TEXTURE_SIZE_X, TEXTURE_SIZE_Y, TEXTURE_SIZE_Z, UNLOAD_DISTANCE, VIEW_DISTANCE, WORLD_CHUNKS_Y,
+    LOADED_CHUNKS_X, LOADED_CHUNKS_Z, TEXTURE_SIZE_X, TEXTURE_SIZE_Y, TEXTURE_SIZE_Z,
+    UNLOAD_DISTANCE, VIEW_DISTANCE, WORLD_CHUNKS_Y,
 };
 use crate::falling_block::{FallingBlockSystem, GpuFallingBlock};
 use crate::gpu_resources::{
-    GpuLight, MAX_LIGHTS, PushConstants, create_empty_voxel_texture, get_brick_and_model_set,
+    GpuLight, PushConstants, create_empty_voxel_texture, get_brick_and_model_set,
     get_chunk_metadata_set, get_distance_image_and_set, get_images_and_sets, get_light_set,
     get_particle_and_falling_block_set, get_swapchain_images, load_icon, load_texture_atlas,
-    save_screenshot, update_brick_metadata, update_chunk_metadata, upload_chunks_batched,
+    save_screenshot,
 };
 use crate::hot_reload::HotReloadComputePipeline;
 use crate::hud::Minimap;
 use crate::particles::ParticleSystem;
-use crate::player::{
-    HEAD_BOB_AMPLITUDE, PLAYER_EYE_HEIGHT, PLAYER_HALF_WIDTH, PLAYER_HEIGHT, Player,
-};
-use crate::raycast::{MAX_RAYCAST_DISTANCE, RaycastHit, get_place_position, raycast};
+use crate::player::{HEAD_BOB_AMPLITUDE, Player};
+use crate::raycast::{RaycastHit, get_place_position};
 use crate::render_mode::RenderMode;
 use crate::sub_voxel::ModelRegistry;
 use crate::terrain_gen::{TerrainGenerator, generate_chunk_terrain};

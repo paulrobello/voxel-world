@@ -1,12 +1,10 @@
 use crate::App;
-use crate::chunk::{CHUNK_SIZE, EMPTY_CHUNK_DATA, EMPTY_MODEL_METADATA};
+use crate::chunk::CHUNK_SIZE;
 use crate::constants::{
-    CHUNKS_PER_FRAME, LOADED_CHUNKS_X, LOADED_CHUNKS_Z, TEXTURE_SIZE_X, TEXTURE_SIZE_Y,
-    TEXTURE_SIZE_Z, WORLD_CHUNKS_Y,
+    CHUNKS_PER_FRAME, EMPTY_CHUNK_DATA, EMPTY_MODEL_METADATA, LOADED_CHUNKS_X, LOADED_CHUNKS_Z,
+    TEXTURE_SIZE_X, TEXTURE_SIZE_Y, TEXTURE_SIZE_Z, WORLD_CHUNKS_Y,
 };
-use crate::gpu_resources::{
-    upload_chunks_batched, update_brick_metadata, update_chunk_metadata,
-};
+use crate::gpu_resources::{update_brick_metadata, update_chunk_metadata, upload_chunks_batched};
 use crate::utils::ChunkStats;
 use nalgebra::{Vector3, vector};
 use std::time::Instant;
