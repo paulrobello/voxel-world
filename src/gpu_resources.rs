@@ -797,6 +797,7 @@ pub fn upload_model_registry(
         static ATLAS_POOL: std::cell::RefCell<Vec<Subbuffer<[u8]>>> = const { std::cell::RefCell::new(Vec::new()) };
         static PALETTE_POOL: std::cell::RefCell<Vec<Subbuffer<[u8]>>> = const { std::cell::RefCell::new(Vec::new()) };
     }
+    const HOST_POOL_MAX_BUFFERS: usize = 4;
 
     fn take_or_alloc_host(
         pool: &std::cell::RefCell<Vec<Subbuffer<[u8]>>>,
@@ -927,6 +928,20 @@ pub fn upload_model_registry(
         .unwrap()
         .wait(None)
         .unwrap();
+
+    // Return staging buffers to pools with cap
+    ATLAS_POOL.with(|pool| {
+        let mut p = pool.borrow_mut();
+        if p.len() < HOST_POOL_MAX_BUFFERS {
+            p.push(atlas_staging);
+        }
+    });
+    PALETTE_POOL.with(|pool| {
+        let mut p = pool.borrow_mut();
+        if p.len() < HOST_POOL_MAX_BUFFERS {
+            p.push(palette_staging);
+        }
+    });
 }
 
 pub fn upload_chunks_batched(
@@ -993,6 +1008,8 @@ pub fn upload_chunks_batched(
         static BLOCK_POOL: std::cell::RefCell<Vec<Subbuffer<[u8]>>> = const { std::cell::RefCell::new(Vec::new()) };
         static META_POOL: std::cell::RefCell<Vec<Subbuffer<[u8]>>> = const { std::cell::RefCell::new(Vec::new()) };
     }
+
+    const POOL_MAX_BUFFERS: usize = 8;
 
     fn take_or_alloc(
         pool: &std::cell::RefCell<Vec<Subbuffer<[u8]>>>,
@@ -1111,8 +1128,18 @@ pub fn upload_chunks_batched(
         .unwrap();
 
     // Return buffers to pools for reuse
-    BLOCK_POOL.with(|pool| pool.borrow_mut().push(block_staging));
-    META_POOL.with(|pool| pool.borrow_mut().push(meta_staging));
+    BLOCK_POOL.with(|pool| {
+        let mut p = pool.borrow_mut();
+        if p.len() < POOL_MAX_BUFFERS {
+            p.push(block_staging);
+        }
+    });
+    META_POOL.with(|pool| {
+        let mut p = pool.borrow_mut();
+        if p.len() < POOL_MAX_BUFFERS {
+            p.push(meta_staging);
+        }
+    });
 }
 
 pub fn update_chunk_metadata(
