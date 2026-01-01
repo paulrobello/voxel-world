@@ -1027,11 +1027,6 @@ vec3 inverseRotatePoint(vec3 p, uint rotation) {
     return inverseRotateNormal(c, rotation) + 0.5;
 }
 
-vec3 inverseRotatePoint(vec3 p, uint rotation) {
-    vec3 c = p - 0.5;
-    return inverseRotateNormal(c, rotation) + 0.5;
-}
-
 // Cast shadow ray from a point toward the sun
 // Returns shadow factor: 0 = fully in shadow, 1 = fully lit
 // If debugFlag is provided, it encodes the occlusion reason:
