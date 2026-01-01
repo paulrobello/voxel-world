@@ -218,8 +218,8 @@ void modelCollisionBounds(uint model_id, out vec3 minB, out vec3 maxB) {
     ModelProperties props = model_properties[model_id];
     uvec3 minU = uvec3(props.aabb_min & 0xFF, (props.aabb_min >> 8) & 0xFF, (props.aabb_min >> 16) & 0xFF);
     uvec3 maxU = uvec3(props.aabb_max & 0xFF, (props.aabb_max >> 8) & 0xFF, (props.aabb_max >> 16) & 0xFF);
-    minB = vec3(minU) / 8.0 - 0.001;
-    maxB = vec3(maxU) / 8.0 + 0.001;
+    minB = vec3(minU) / 8.0 - 0.01;
+    maxB = vec3(maxU) / 8.0 + 0.01;
 }
 
 // Quick coarse 4x4x4 mask ray test (block-local 0-1 space). Returns true on hit.
@@ -1091,7 +1091,41 @@ float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFl
                             return 0.0;
                         }
                         if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
-                            return 0.0; // Force shadow
+                            vec3 localO = blockOrigin - vec3(pos); // 0-1
+                            vec3 testO = localO;
+                            vec3 testDir = dir;
+
+                            // Clamp testO to be safe
+                            testO = clamp(testO, vec3(0.001), vec3(0.999));
+
+                            // Check AABB first (filters out padding)
+                            vec3 bbMin, bbMax;
+                            modelCollisionBounds(model_id, bbMin, bbMax);
+
+                            // Use safe direction for AABB check
+                            vec3 safeTestDir = testDir;
+                            const float DIR_EPS = 1e-4;
+                            safeTestDir.x = (abs(safeTestDir.x) < DIR_EPS) ? (safeTestDir.x >= 0.0 ? DIR_EPS : -DIR_EPS) : safeTestDir.x;
+                            safeTestDir.y = (abs(safeTestDir.y) < DIR_EPS) ? (safeTestDir.y >= 0.0 ? DIR_EPS : -DIR_EPS) : safeTestDir.y;
+                            safeTestDir.z = (abs(safeTestDir.z) < DIR_EPS) ? (safeTestDir.z >= 0.0 ? DIR_EPS : -DIR_EPS) : safeTestDir.z;
+
+                            vec3 invd = 1.0 / safeTestDir;
+                            vec3 t1b = (bbMin - testO) * invd;
+                            vec3 t2b = (bbMax - testO) * invd;
+                            vec3 tminb = min(t1b, t2b);
+                            vec3 tmaxb = max(t1b, t2b);
+                            float tNear = max(max(tminb.x, tminb.y), tminb.z);
+                            float tFar = min(min(tmaxb.x, tmaxb.y), tmaxb.z);
+                            
+                            // If AABB hit, check Mask
+                            if (tNear <= tFar && tFar > 0.0) {
+                                if (modelMaskBlocksRay(testO, testDir, model_id)) {
+                                    debugFlag = 5u;
+                                    return MODEL_PARTIAL_SHADOW;
+                                }
+                            }
+                            debugFlag = 0u;
+                            return 1.0;
                         }
                     }
                     // Non-blocking models: let light pass
