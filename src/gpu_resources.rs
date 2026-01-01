@@ -1,4 +1,4 @@
-use nalgebra::Vector3;
+use nalgebra::{Matrix4, Vector3};
 use std::sync::Arc;
 use vulkano::{
     buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer},
@@ -29,6 +29,50 @@ use crate::constants::{LOADED_CHUNKS_X, LOADED_CHUNKS_Z, WORLD_CHUNKS_Y};
 use crate::falling_block::{GpuFallingBlock, MAX_FALLING_BLOCKS};
 use crate::particles;
 use crate::sub_voxel::{MAX_MODELS, ModelRegistry, PALETTE_SIZE, SUB_VOXEL_SIZE};
+
+#[derive(BufferContents, Clone, Copy)]
+#[repr(C)]
+pub struct PushConstants {
+    pub pixel_to_ray: Matrix4<f32>,
+    pub texture_size_x: u32,
+    pub texture_size_y: u32,
+    pub texture_size_z: u32,
+    pub render_mode: u32,
+    pub show_chunk_boundaries: u32,
+    pub player_in_water: u32,
+    pub time_of_day: f32,
+    pub animation_time: f32,
+    pub break_block_x: i32,
+    pub break_block_y: i32,
+    pub break_block_z: i32,
+    pub break_progress: f32,
+    pub particle_count: u32,
+    pub preview_block_x: i32,
+    pub preview_block_y: i32,
+    pub preview_block_z: i32,
+    pub preview_block_type: u32,
+    pub light_count: u32,
+    pub ambient_light: f32,
+    pub fog_density: f32,
+    pub fog_start: f32,
+    pub fog_affects_sky: u32,
+    pub target_block_x: i32,
+    pub target_block_y: i32,
+    pub target_block_z: i32,
+    pub max_ray_steps: u32,
+    pub texture_origin_x: i32,
+    pub texture_origin_y: i32,
+    pub texture_origin_z: i32,
+    pub enable_ao: u32,
+    pub enable_shadows: u32,
+    pub enable_model_shadows: u32,
+    pub enable_point_lights: u32,
+    pub pass_mode: u32,
+    pub lod_ao_distance: f32,
+    pub lod_shadow_distance: f32,
+    pub lod_point_light_distance: f32,
+    pub falling_block_count: u32,
+}
 
 pub fn get_swapchain_images(
     device: &Arc<Device>,

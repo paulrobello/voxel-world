@@ -37,7 +37,7 @@ mod macos_cursor {
 
 use clap::Parser;
 use egui_winit_vulkano::{Gui, GuiConfig, egui};
-use nalgebra::{Matrix4, Vector3, vector};
+use nalgebra::{Vector3, vector};
 
 use std::path::PathBuf;
 use std::{
@@ -47,7 +47,7 @@ use std::{
 };
 use vulkano::{
     Validated, VulkanError,
-    buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer},
+    buffer::{Buffer, BufferCreateInfo, BufferUsage, Subbuffer},
     command_buffer::{
         AutoCommandBufferBuilder, BlitImageInfo, BufferImageCopy, ClearColorImageInfo,
         CommandBufferUsage, CopyBufferToImageInfo, PrimaryCommandBufferAbstract,
@@ -109,7 +109,7 @@ use crate::constants::{
 };
 use crate::falling_block::{FallingBlockSystem, GpuFallingBlock};
 use crate::gpu_resources::{
-    GpuLight, MAX_LIGHTS, create_empty_voxel_texture, get_brick_and_model_set,
+    GpuLight, MAX_LIGHTS, PushConstants, create_empty_voxel_texture, get_brick_and_model_set,
     get_chunk_metadata_set, get_distance_image_and_set, get_images_and_sets, get_light_set,
     get_particle_and_falling_block_set, get_swapchain_images, load_icon, load_texture_atlas,
     save_screenshot, update_brick_metadata, update_chunk_metadata, upload_chunks_batched,
@@ -3245,65 +3245,6 @@ impl App {
 
         let pixel_to_ray = pixel_to_ray_scaled;
 
-        #[derive(BufferContents, Clone, Copy)]
-        #[repr(C)]
-        struct PushConstants {
-            pixel_to_ray: Matrix4<f32>,
-            // Texture dimensions (not world bounds - world is infinite)
-            texture_size_x: u32,
-            texture_size_y: u32,
-            texture_size_z: u32,
-            render_mode: u32,
-            show_chunk_boundaries: u32,
-            player_in_water: u32,
-            time_of_day: f32,
-            animation_time: f32,
-            // Block breaking info (-1 = no block being broken)
-            break_block_x: i32,
-            break_block_y: i32,
-            break_block_z: i32,
-            break_progress: f32,
-            // Particle count
-            particle_count: u32,
-            // Block placement preview (-1 = no preview)
-            preview_block_x: i32,
-            preview_block_y: i32,
-            preview_block_z: i32,
-            preview_block_type: u32,
-            // Point light count
-            light_count: u32,
-            // Ambient light level
-            ambient_light: f32,
-            // Fog density
-            fog_density: f32,
-            // Fog start distance
-            fog_start: f32,
-            // Whether fog affects sky (0 = false, 1 = true)
-            fog_affects_sky: u32,
-            // Target block (block player is looking at, -1 = none)
-            target_block_x: i32,
-            target_block_y: i32,
-            target_block_z: i32,
-            // Maximum ray marching steps
-            max_ray_steps: u32,
-            // Texture origin in world coordinates (world pos that maps to texture 0,0,0)
-            texture_origin_x: i32,
-            texture_origin_y: i32,
-            texture_origin_z: i32,
-            // Feature toggles for performance profiling
-            enable_ao: u32,
-            enable_shadows: u32,
-            enable_model_shadows: u32,
-            enable_point_lights: u32,
-            // Two-pass beam optimization: 0 = normal, 1 = distance only, 2 = use distance hints
-            pass_mode: u32,
-            // LOD distance thresholds (0 = use defaults)
-            lod_ao_distance: f32,
-            lod_shadow_distance: f32,
-            lod_point_light_distance: f32,
-            // Falling block count
-            falling_block_count: u32,
-        }
         // Convert world coordinates to texture coordinates for shader
         // Shader works in texture space, so we subtract texture_origin
         let tex_origin = self.texture_origin;
