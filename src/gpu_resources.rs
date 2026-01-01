@@ -803,11 +803,11 @@ pub fn upload_model_registry(
         needed: usize,
         memory_allocator: &Arc<StandardMemoryAllocator>,
     ) -> Subbuffer<[u8]> {
-        if let Some(idx) = pool
-            .borrow()
-            .iter()
-            .position(|b| b.size() as usize >= needed)
-        {
+        let idx_opt = {
+            let borrow = pool.borrow();
+            borrow.iter().position(|b| b.size() as usize >= needed)
+        };
+        if let Some(idx) = idx_opt {
             return pool.borrow_mut().swap_remove(idx);
         }
 
@@ -1000,11 +1000,11 @@ pub fn upload_chunks_batched(
         memory_allocator: &Arc<StandardMemoryAllocator>,
     ) -> Subbuffer<[u8]> {
         // pop the first buffer big enough; keep simple LIFO
-        if let Some(idx) = pool
-            .borrow()
-            .iter()
-            .position(|b| b.size() as usize >= needed)
-        {
+        let idx_opt = {
+            let borrow = pool.borrow();
+            borrow.iter().position(|b| b.size() as usize >= needed)
+        };
+        if let Some(idx) = idx_opt {
             return pool.borrow_mut().swap_remove(idx);
         }
 
