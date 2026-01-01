@@ -9,125 +9,151 @@ use crate::utils::ChunkStats;
 use egui_winit_vulkano::{Gui, egui};
 use nalgebra::Vector3;
 
+/// Bundles HUD inputs to avoid an oversized render signature.
+pub struct HudInputs<'a> {
+    pub fps: u32,
+    pub chunk_stats: &'a ChunkStats,
+    pub player: &'a mut Player,
+    pub world: &'a mut crate::world::World,
+    pub settings: &'a mut Settings,
+    pub render_mode: &'a mut RenderMode,
+    pub current_hit: &'a Option<RaycastHit>,
+    pub selected_block: BlockType,
+    pub hotbar_index: usize,
+    pub hotbar_blocks: &'a [BlockType; 9],
+    pub hotbar_model_ids: &'a [u8; 9],
+    pub minimap_image: Option<egui::ColorImage>,
+    pub atlas_texture_id: egui::TextureId,
+    pub camera_yaw: f32,
+    pub player_world_pos: Vector3<f64>,
+    pub time_of_day: &'a mut f32,
+    pub day_cycle_paused: &'a mut bool,
+    pub ambient_light: &'a mut f32,
+    pub fog_density: &'a mut f32,
+    pub fog_start: &'a mut f32,
+    pub fog_affects_sky: &'a mut bool,
+    pub fog_overlay_scale: &'a mut f32,
+    pub view_distance: &'a mut i32,
+    pub unload_distance: &'a mut i32,
+    pub block_updates: &'a mut BlockUpdateQueue,
+    pub show_minimap: &'a mut bool,
+    pub minimap: &'a mut Minimap,
+    pub minimap_cached_image: &'a mut Option<egui::ColorImage>,
+}
+
 pub struct HUDRenderer;
 
 impl HUDRenderer {
-    #[allow(clippy::too_many_arguments)]
-    pub fn render(
-        &self,
-        gui: &mut Gui,
-        fps: u32,
-        chunk_stats: &ChunkStats,
-        player: &mut Player,
-        world: &mut crate::world::World,
-        settings: &mut Settings,
-        render_mode: &mut RenderMode,
-        current_hit: &Option<RaycastHit>,
-        selected_block: BlockType,
-        hotbar_index: usize,
-        hotbar_blocks: &[BlockType; 9],
-        hotbar_model_ids: &[u8; 9],
-        minimap_image: Option<egui::ColorImage>,
-        atlas_texture_id: egui::TextureId,
-        camera_yaw: f32,
-        player_world_pos: Vector3<f64>,
-        time_of_day: &mut f32,
-        day_cycle_paused: &mut bool,
-        ambient_light: &mut f32,
-        fog_density: &mut f32,
-        fog_start: &mut f32,
-        fog_affects_sky: &mut bool,
-        fog_overlay_scale: &mut f32,
-        view_distance: &mut i32,
-        unload_distance: &mut i32,
-        block_updates: &mut BlockUpdateQueue,
-        show_minimap: &mut bool,
-        minimap: &mut Minimap,
-        minimap_cached_image: &mut Option<egui::ColorImage>,
-    ) -> bool {
+    fn overlay_frame() -> egui::Frame {
+        egui::Frame::new()
+            .fill(egui::Color32::from_rgba_unmultiplied(0, 0, 0, 180))
+            .corner_radius(egui::CornerRadius::same(4))
+            .inner_margin(egui::Margin::symmetric(8, 4))
+    }
+
+    fn draw_stats_overlay(ctx: &egui::Context, fps: u32, chunk_stats: &ChunkStats) {
+        egui::Area::new(egui::Id::new("fps_overlay"))
+            .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-10.0, 10.0))
+            .show(ctx, |ui| {
+                Self::overlay_frame().show(ui, |ui| {
+                    ui.set_min_width(100.0);
+                    ui.label(
+                        egui::RichText::new(format!("FPS: {}", fps))
+                            .color(egui::Color32::WHITE)
+                            .strong(),
+                    );
+                    ui.label(
+                        egui::RichText::new(format!("Chunks: {}", chunk_stats.loaded_count))
+                            .color(egui::Color32::LIGHT_GRAY)
+                            .small(),
+                    );
+                    if chunk_stats.dirty_count > 0 {
+                        ui.label(
+                            egui::RichText::new(format!("Dirty: {}", chunk_stats.dirty_count))
+                                .color(egui::Color32::YELLOW)
+                                .small(),
+                        );
+                    }
+                    if chunk_stats.in_flight_count > 0 {
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "Generating: {}",
+                                chunk_stats.in_flight_count
+                            ))
+                            .color(egui::Color32::LIGHT_GREEN)
+                            .small(),
+                        );
+                    }
+                    ui.label(
+                        egui::RichText::new(format!("GPU: {:.1} MB", chunk_stats.memory_mb))
+                            .color(egui::Color32::LIGHT_GRAY)
+                            .small(),
+                    );
+                });
+            });
+    }
+
+    fn draw_position_overlay(ctx: &egui::Context, player_world_pos: Vector3<f64>) {
+        egui::Area::new(egui::Id::new("position_overlay"))
+            .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 10.0))
+            .show(ctx, |ui| {
+                Self::overlay_frame()
+                    .inner_margin(egui::Margin::symmetric(12, 6))
+                    .show(ui, |ui| {
+                        let pos_text = format!(
+                            "Pos: {:.1}, {:.1}, {:.1}",
+                            player_world_pos.x, player_world_pos.y, player_world_pos.z
+                        );
+                        ui.add(
+                            egui::Label::new(
+                                egui::RichText::new(pos_text)
+                                    .color(egui::Color32::WHITE)
+                                    .strong()
+                                    .monospace(),
+                            )
+                            .wrap_mode(egui::TextWrapMode::Extend),
+                        );
+                    });
+            });
+    }
+
+    pub fn render(&self, gui: &mut Gui, input: HudInputs<'_>) -> bool {
+        let HudInputs {
+            fps,
+            chunk_stats,
+            player,
+            world,
+            settings,
+            render_mode,
+            current_hit,
+            selected_block,
+            hotbar_index,
+            hotbar_blocks,
+            hotbar_model_ids,
+            minimap_image,
+            atlas_texture_id,
+            camera_yaw,
+            player_world_pos,
+            time_of_day,
+            day_cycle_paused,
+            ambient_light,
+            fog_density,
+            fog_start,
+            fog_affects_sky,
+            fog_overlay_scale,
+            view_distance,
+            unload_distance,
+            block_updates,
+            show_minimap,
+            minimap,
+            minimap_cached_image,
+        } = input;
         let mut scale_changed = false;
         gui.immediate_ui(|gui| {
             let ctx = gui.context();
 
-            // FPS counter and chunk stats in top right corner
-            egui::Area::new(egui::Id::new("fps_overlay"))
-                .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-10.0, 10.0))
-                .show(&ctx, |ui| {
-                    egui::Frame::new()
-                        .fill(egui::Color32::from_rgba_unmultiplied(0, 0, 0, 180))
-                        .corner_radius(egui::CornerRadius::same(4))
-                        .inner_margin(egui::Margin::symmetric(8, 4))
-                        .show(ui, |ui| {
-                            ui.set_min_width(100.0);
-                            ui.label(
-                                egui::RichText::new(format!("FPS: {}", fps))
-                                    .color(egui::Color32::WHITE)
-                                    .strong(),
-                            );
-                            ui.label(
-                                egui::RichText::new(format!(
-                                    "Chunks: {}",
-                                    chunk_stats.loaded_count
-                                ))
-                                .color(egui::Color32::LIGHT_GRAY)
-                                .small(),
-                            );
-                            if chunk_stats.dirty_count > 0 {
-                                ui.label(
-                                    egui::RichText::new(format!(
-                                        "Dirty: {}",
-                                        chunk_stats.dirty_count
-                                    ))
-                                    .color(egui::Color32::YELLOW)
-                                    .small(),
-                                );
-                            }
-                            if chunk_stats.in_flight_count > 0 {
-                                ui.label(
-                                    egui::RichText::new(format!(
-                                        "Generating: {}",
-                                        chunk_stats.in_flight_count
-                                    ))
-                                    .color(egui::Color32::LIGHT_GREEN)
-                                    .small(),
-                                );
-                            }
-                            ui.label(
-                                egui::RichText::new(format!(
-                                    "GPU: {:.1} MB",
-                                    chunk_stats.memory_mb
-                                ))
-                                .color(egui::Color32::LIGHT_GRAY)
-                                .small(),
-                            );
-                        });
-                });
-
-            // World position at top center
-            egui::Area::new(egui::Id::new("position_overlay"))
-                .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 10.0))
-                .show(&ctx, |ui| {
-                    egui::Frame::new()
-                        .fill(egui::Color32::from_rgba_unmultiplied(0, 0, 0, 180))
-                        .corner_radius(egui::CornerRadius::same(4))
-                        .inner_margin(egui::Margin::symmetric(12, 6))
-                        .show(ui, |ui| {
-                            // Format position with enough width to prevent wrapping
-                            let pos_text = format!(
-                                "Pos: {:.1}, {:.1}, {:.1}",
-                                player_world_pos.x, player_world_pos.y, player_world_pos.z
-                            );
-                            ui.add(
-                                egui::Label::new(
-                                    egui::RichText::new(pos_text)
-                                        .color(egui::Color32::WHITE)
-                                        .strong()
-                                        .monospace(),
-                                )
-                                .wrap_mode(egui::TextWrapMode::Extend),
-                            );
-                        });
-                });
+            Self::draw_stats_overlay(&ctx, fps, chunk_stats);
+            Self::draw_position_overlay(&ctx, player_world_pos);
 
             egui::Window::new("Voxel Game")
                 .default_open(false)

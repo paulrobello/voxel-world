@@ -21,7 +21,7 @@ Last batch: `make checkall` (2026-01-01) — pass.
    - Location: `HUDRenderer::render` signature (`src/hud_render.rs:15-47`) takes ~30 params; overlay panels duplicate `Area` + `Frame` styling (`52-104`, `106-119`).
    - Impact: Hard to evolve HUD; every new control extends an already unwieldy call site; repeated style code invites divergence.
    - Direction: Wrap inputs in a `HudInputs` struct and split overlays into helpers (e.g., `draw_stats_overlay`, `draw_position_overlay`) sharing style constants.
-   - Status: open.
+   - Status: addressed — added `HudInputs` struct plus overlay helpers; render call site updated to pass the struct.
 
 4. Repeated neighbor lists and Y-bounds checks (medium)
    - Locations: identical Y guards in `block_update.rs` at 242, 272, 299, 327; orthogonal neighbor sets duplicated in `block_update::enqueue_neighbors` and `water::activate_neighbors` (`water.rs:273-281`).
