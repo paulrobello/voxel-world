@@ -33,7 +33,7 @@ Last batch: `make checkall` (2026-01-01) — pass.
    - Location: `src/main.rs` `App` struct (~160 fields, lines 268-433) and `App::new` (441+).
    - Impact: Hard to navigate and extend; responsibilities for CLI, GPU, world gen, HUD, physics all interleaved; inhibits testing and reset/restart flows.
    - Direction: Split into nested structs (`Graphics`, `WorldSim`, `UiState`, `InputState`) and module-specific `init_*` builders; move constants to modules where used.
-   - Status: partially addressed — introduced `atmosphere::AtmosphereSettings` and grouped fog/ambient fields; further decomposition of `App` still pending.
+   - Status: addressed — `App` now owns `Graphics`, `WorldSim`, `UiState`, and `InputState` containers (GPU resources, simulation state, HUD/input state separated); `App::new`, `update`, `render`, `world_streaming.rs`, and `block_interaction.rs` rewired to the nested structs. Follow-up: consider moving InputState deref helpers into a dedicated module or trimming `UiState` coupling to rendering.
 
 6. Camera/world conversion duplication (low)
    - Locations: `block_interaction::update_raycast` (`block_interaction.rs:12-35`) and `Player::feet_pos` (`player.rs:97-108`) both scale camera coords by `world_extent` and add `texture_origin`.

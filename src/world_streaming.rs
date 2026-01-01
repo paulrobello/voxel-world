@@ -19,14 +19,15 @@ use vulkano::sync::GpuFuture;
 impl App {
     pub fn check_and_shift_texture_origin(&mut self) -> bool {
         let player_chunk = self
+            .sim
             .player
-            .get_chunk_pos(self.world_extent, self.texture_origin);
+            .get_chunk_pos(self.sim.world_extent, self.sim.texture_origin);
 
         // Calculate texture center in chunk coordinates
         let texture_center_chunk = Vector3::new(
-            self.texture_origin.x / CHUNK_SIZE as i32 + LOADED_CHUNKS_X / 2,
+            self.sim.texture_origin.x / CHUNK_SIZE as i32 + LOADED_CHUNKS_X / 2,
             0, // Y doesn't shift
-            self.texture_origin.z / CHUNK_SIZE as i32 + LOADED_CHUNKS_Z / 2,
+            self.sim.texture_origin.z / CHUNK_SIZE as i32 + LOADED_CHUNKS_Z / 2,
         );
 
         // Distance from player to texture center (in chunks)
@@ -50,8 +51,8 @@ impl App {
 
         println!(
             "Shifting texture origin from ({}, {}) to ({}, {}) - player at chunk ({}, {})",
-            self.texture_origin.x,
-            self.texture_origin.z,
+            self.sim.texture_origin.x,
+            self.sim.texture_origin.z,
             new_origin.x,
             new_origin.z,
             player_chunk.x,
@@ -59,22 +60,23 @@ impl App {
         );
 
         // Save old origin to adjust camera position
-        let old_origin = self.texture_origin;
-        self.texture_origin = new_origin;
+        let old_origin = self.sim.texture_origin;
+        self.sim.texture_origin = new_origin;
 
         // Adjust camera position to maintain the same world position
         let origin_delta = old_origin - new_origin;
         let scale = Vector3::new(
-            self.world_extent[0] as f64,
-            self.world_extent[1] as f64,
-            self.world_extent[2] as f64,
+            self.sim.world_extent[0] as f64,
+            self.sim.world_extent[1] as f64,
+            self.sim.world_extent[2] as f64,
         );
-        self.player.camera.position.x += origin_delta.x as f64 / scale.x;
-        self.player.camera.position.y += origin_delta.y as f64 / scale.y;
-        self.player.camera.position.z += origin_delta.z as f64 / scale.z;
+        self.sim.player.camera.position.x += origin_delta.x as f64 / scale.x;
+        self.sim.player.camera.position.y += origin_delta.y as f64 / scale.y;
+        self.sim.player.camera.position.z += origin_delta.z as f64 / scale.z;
 
         // Re-upload all loaded chunks to their new texture positions
         let chunks_to_upload: Vec<(Vector3<i32>, Vec<u8>, Vec<u8>)> = self
+            .sim
             .world
             .chunks()
             .map(|(pos, chunk)| (*pos, chunk.to_block_data(), chunk.to_model_metadata()))
@@ -95,7 +97,7 @@ impl App {
         let empty_data = vec![0u8; total_size];
 
         let src_buffer = Buffer::from_iter(
-            self.memory_allocator.clone(),
+            self.graphics.memory_allocator.clone(),
             BufferCreateInfo {
                 usage: BufferUsage::TRANSFER_SRC,
                 ..Default::default()
@@ -110,8 +112,8 @@ impl App {
         .unwrap();
 
         let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
-            self.command_buffer_allocator.clone(),
-            self.queue.queue_family_index(),
+            self.graphics.command_buffer_allocator.clone(),
+            self.graphics.queue.queue_family_index(),
             CommandBufferUsage::OneTimeSubmit,
         )
         .unwrap();
@@ -122,7 +124,7 @@ impl App {
                     buffer_offset: 0,
                     buffer_row_length: TEXTURE_SIZE_X as u32,
                     buffer_image_height: TEXTURE_SIZE_Y as u32,
-                    image_subresource: self.voxel_image.subresource_layers(),
+                    image_subresource: self.graphics.voxel_image.subresource_layers(),
                     image_offset: [0, 0, 0],
                     image_extent: [
                         TEXTURE_SIZE_X as u32,
@@ -132,14 +134,14 @@ impl App {
                     ..Default::default()
                 }]
                 .into(),
-                ..CopyBufferToImageInfo::buffer_image(src_buffer, self.voxel_image.clone())
+                ..CopyBufferToImageInfo::buffer_image(src_buffer, self.graphics.voxel_image.clone())
             })
             .unwrap();
 
         command_buffer_builder
             .build()
             .unwrap()
-            .execute(self.queue.clone())
+            .execute(self.graphics.queue.clone())
             .unwrap()
             .then_signal_fence_and_flush()
             .unwrap()
@@ -153,20 +155,21 @@ impl App {
         if shifted {
             println!(
                 "Texture origin shifted to ({}, {})",
-                self.texture_origin.x, self.texture_origin.z
+                self.sim.texture_origin.x, self.sim.texture_origin.z
             );
         }
 
         let player_chunk = self
+            .sim
             .player
-            .get_chunk_pos(self.world_extent, self.texture_origin);
+            .get_chunk_pos(self.sim.world_extent, self.sim.texture_origin);
 
         // Infinite world in X/Z, bounded in Y (0 to WORLD_CHUNKS_Y-1)
         let min_chunk = vector![i32::MIN, 0, i32::MIN];
         let max_chunk = vector![i32::MAX, WORLD_CHUNKS_Y - 1, i32::MAX];
 
         // === STEP 1: Receive completed chunks from background threads ===
-        let completed = self.chunk_loader.receive_chunks();
+        let completed = self.sim.chunk_loader.receive_chunks();
         let mut chunks_to_upload: Vec<(Vector3<i32>, Vec<u8>, Vec<u8>)> = Vec::new();
         let mut loaded = 0;
 
@@ -174,7 +177,7 @@ impl App {
             // Get model metadata before inserting chunk
             let model_metadata = result.chunk.to_model_metadata();
             // Insert chunk into world
-            self.world.insert_chunk(result.position, result.chunk);
+            self.sim.world.insert_chunk(result.position, result.chunk);
             chunks_to_upload.push((result.position, result.block_data, model_metadata));
             loaded += 1;
         }
@@ -187,13 +190,16 @@ impl App {
         }
 
         // === STEP 2: Queue new chunks for generation ===
-        let to_load =
-            self.world
-                .get_chunks_to_load(player_chunk, self.view_distance, (min_chunk, max_chunk));
+        let to_load = self.sim.world.get_chunks_to_load(
+            player_chunk,
+            self.sim.view_distance,
+            (min_chunk, max_chunk),
+        );
 
         // Queue chunks for async generation (ChunkLoader handles deduplication)
         let max_to_queue = CHUNKS_PER_FRAME * 4;
         let queued = self
+            .sim
             .chunk_loader
             .request_chunks(&to_load.into_iter().take(max_to_queue).collect::<Vec<_>>());
 
@@ -206,8 +212,9 @@ impl App {
 
         // === STEP 3: Unload distant chunks ===
         let to_unload = self
+            .sim
             .world
-            .get_chunks_to_unload(player_chunk, self.unload_distance);
+            .get_chunks_to_unload(player_chunk, self.sim.unload_distance);
 
         let mut unloaded = 0;
         let positions_to_clear: Vec<_> = to_unload
@@ -215,8 +222,8 @@ impl App {
             .take(CHUNKS_PER_FRAME)
             .map(|pos| {
                 // Cancel pending generation for this chunk if queued
-                self.chunk_loader.cancel_chunk(*pos);
-                self.world.remove_chunk(*pos);
+                self.sim.chunk_loader.cancel_chunk(*pos);
+                self.sim.world.remove_chunk(*pos);
                 unloaded += 1;
                 *pos
             })
@@ -243,23 +250,23 @@ impl App {
         }
 
         // Update chunk stats
-        self.chunk_stats = ChunkStats {
-            loaded_count: self.world.chunk_count(),
-            dirty_count: self.world.dirty_chunk_count(),
-            in_flight_count: self.chunk_loader.in_flight_count(),
+        self.sim.chunk_stats = ChunkStats {
+            loaded_count: self.sim.world.chunk_count(),
+            dirty_count: self.sim.world.dirty_chunk_count(),
+            in_flight_count: self.sim.chunk_loader.in_flight_count(),
             memory_mb: (TEXTURE_SIZE_X * TEXTURE_SIZE_Y * TEXTURE_SIZE_Z) as f32
                 / (1024.0 * 1024.0),
         };
 
         // Update last player chunk
-        self.last_player_chunk = player_chunk;
+        self.sim.last_player_chunk = player_chunk;
 
         (loaded, unloaded)
     }
 
     pub fn upload_world_to_gpu(&mut self) {
         // Drain dirty chunk positions from world
-        let dirty_positions = self.world.drain_dirty_chunks();
+        let dirty_positions = self.sim.world.drain_dirty_chunks();
         if dirty_positions.is_empty() {
             return;
         }
@@ -268,7 +275,7 @@ impl App {
         let chunks_to_upload: Vec<(Vector3<i32>, Vec<u8>, Vec<u8>)> = dirty_positions
             .iter()
             .filter_map(|&pos| {
-                self.world.get_chunk_mut(pos).map(|chunk| {
+                self.sim.world.get_chunk_mut(pos).map(|chunk| {
                     let block_data = chunk.to_block_data();
                     let model_metadata = chunk.to_model_metadata();
                     chunk.mark_clean();
@@ -278,7 +285,7 @@ impl App {
             .collect();
 
         if !chunks_to_upload.is_empty() {
-            self.profiler.chunks_uploaded += chunks_to_upload.len() as u32;
+            self.sim.profiler.chunks_uploaded += chunks_to_upload.len() as u32;
             // Convert to slice references for upload
             self.upload_owned_chunks(&chunks_to_upload);
             // Update metadata so shader doesn't skip newly non-empty bricks
@@ -288,6 +295,7 @@ impl App {
 
     pub fn upload_all_dirty_chunks(&mut self) {
         let chunks_to_upload: Vec<(Vector3<i32>, Vec<u8>, Vec<u8>)> = self
+            .sim
             .world
             .chunks()
             .filter(|(_, chunk)| chunk.dirty)
@@ -298,11 +306,11 @@ impl App {
             return;
         }
 
-        self.profiler.chunks_uploaded += chunks_to_upload.len() as u32;
+        self.sim.profiler.chunks_uploaded += chunks_to_upload.len() as u32;
         self.upload_owned_chunks(&chunks_to_upload);
 
         for (pos, _, _) in &chunks_to_upload {
-            if let Some(chunk) = self.world.get_chunk_mut(*pos) {
+            if let Some(chunk) = self.sim.world.get_chunk_mut(*pos) {
                 chunk.mark_clean();
             }
         }
@@ -327,12 +335,12 @@ impl App {
             return;
         }
         upload_chunks_batched(
-            &self.memory_allocator,
-            &self.command_buffer_allocator,
-            &self.queue,
-            &self.voxel_image,
-            &self.model_metadata,
-            self.texture_origin,
+            &self.graphics.memory_allocator,
+            &self.graphics.command_buffer_allocator,
+            &self.graphics.queue,
+            &self.graphics.voxel_image,
+            &self.graphics.model_metadata,
+            self.sim.texture_origin,
             uploads,
         );
     }
@@ -340,7 +348,7 @@ impl App {
     /// Marks chunks referenced in the upload list as clean if they exist in the world.
     fn mark_chunks_clean(&mut self, uploads: &[(Vector3<i32>, Vec<u8>, Vec<u8>)]) {
         for (pos, _, _) in uploads {
-            if let Some(chunk) = self.world.get_chunk_mut(*pos) {
+            if let Some(chunk) = self.sim.world.get_chunk_mut(*pos) {
                 chunk.mark_clean();
             }
         }
@@ -350,16 +358,16 @@ impl App {
     fn update_metadata_buffers(&mut self) {
         let t_meta = Instant::now();
         update_chunk_metadata(
-            &mut self.world,
-            &self.chunk_metadata_buffer,
-            self.texture_origin,
+            &mut self.sim.world,
+            &self.graphics.chunk_metadata_buffer,
+            self.sim.texture_origin,
         );
         update_brick_metadata(
-            &self.world,
-            &self.brick_mask_buffer,
-            &self.brick_dist_buffer,
-            self.texture_origin,
+            &self.sim.world,
+            &self.graphics.brick_mask_buffer,
+            &self.graphics.brick_dist_buffer,
+            self.sim.texture_origin,
         );
-        self.profiler.metadata_update_us += t_meta.elapsed().as_micros() as u64;
+        self.sim.profiler.metadata_update_us += t_meta.elapsed().as_micros() as u64;
     }
 }

@@ -1,0 +1,58 @@
+use crate::{UiState, WorldSim};
+
+pub fn print_stats(ui: &mut UiState, sim: &mut WorldSim, verbose: bool) {
+    let player_pos = sim.player.feet_pos(sim.world_extent, sim.texture_origin);
+    let player_chunk = sim
+        .player
+        .get_chunk_pos(sim.world_extent, sim.texture_origin);
+    let frame_time_ms = if ui.fps > 0 {
+        1000.0 / ui.fps as f32
+    } else {
+        0.0
+    };
+
+    let render_res = [
+        (ui.window_size[0] as f32 * ui.settings.render_scale) as u32,
+        (ui.window_size[1] as f32 * ui.settings.render_scale) as u32,
+    ];
+    if verbose {
+        println!(
+            "[STATS] FPS: {} ({:.1}ms) | Win: {}x{} Render: {}x{} | Chunks: {} | Dirty: {} | Gen: {} | Pos: ({:.1}, {:.1}, {:.1}) | Chunk: ({}, {}, {}) | TexOrigin: ({}, {})",
+            ui.fps,
+            frame_time_ms,
+            ui.window_size[0],
+            ui.window_size[1],
+            render_res[0],
+            render_res[1],
+            sim.chunk_stats.loaded_count,
+            sim.chunk_stats.dirty_count,
+            sim.chunk_loader.in_flight_count(),
+            player_pos.x,
+            player_pos.y,
+            player_pos.z,
+            player_chunk.x,
+            player_chunk.y,
+            player_chunk.z,
+            sim.texture_origin.x,
+            sim.texture_origin.z,
+        );
+    } else {
+        println!(
+            "[STATS] FPS: {} ({:.1}ms) | Win: {}x{} Render: {}x{} | Chunks: {} | Gen: {} | Pos: ({:.1}, {:.1}, {:.1})",
+            ui.fps,
+            frame_time_ms,
+            ui.window_size[0],
+            ui.window_size[1],
+            render_res[0],
+            render_res[1],
+            sim.chunk_stats.loaded_count,
+            sim.chunk_loader.in_flight_count(),
+            player_pos.x,
+            player_pos.y,
+            player_pos.z,
+        );
+    }
+
+    sim.profiler.print_stats();
+    sim.profiler.reset();
+}
