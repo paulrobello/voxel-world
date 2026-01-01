@@ -91,6 +91,7 @@ mod player;
 mod raycast;
 mod render_mode;
 mod sub_voxel;
+mod sub_voxel_builtins;
 mod svt;
 mod terrain_gen;
 mod utils;

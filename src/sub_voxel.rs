@@ -231,301 +231,6 @@ impl SubVoxelModel {
         (self.collision_mask & (1u64 << bit)) != 0
     }
 
-    /// Creates an empty model (placeholder, id 0).
-    pub fn empty() -> Self {
-        Self::new("empty")
-    }
-
-    /// Creates a torch model with stick and flame.
-    pub fn torch() -> Self {
-        let mut model = Self::new("torch");
-
-        // Palette
-        model.palette[1] = Color::rgb(101, 67, 33); // Dark wood brown
-        model.palette[2] = Color::rgb(139, 90, 43); // Wood brown
-        model.palette[3] = Color::rgb(255, 200, 50); // Flame yellow
-        model.palette[4] = Color::rgb(255, 100, 20); // Flame orange
-
-        // Stick (center, bottom 5 voxels) - 2×2 cross-section
-        for y in 0..5 {
-            model.set_voxel(3, y, 3, 1);
-            model.set_voxel(4, y, 3, 2);
-            model.set_voxel(3, y, 4, 2);
-            model.set_voxel(4, y, 4, 1);
-        }
-
-        // Flame core (voxels 5-7)
-        for y in 5..8 {
-            for dx in 3..5 {
-                for dz in 3..5 {
-                    model.set_voxel(dx, y, dz, 3);
-                }
-            }
-        }
-
-        // Flame outer (y=5,6 expanded)
-        for y in 5..7 {
-            model.set_voxel(2, y, 3, 4);
-            model.set_voxel(5, y, 3, 4);
-            model.set_voxel(3, y, 2, 4);
-            model.set_voxel(3, y, 5, 4);
-            model.set_voxel(4, y, 2, 4);
-            model.set_voxel(4, y, 5, 4);
-            model.set_voxel(2, y, 4, 4);
-            model.set_voxel(5, y, 4, 4);
-        }
-
-        model.emission = Some(Color::rgb(255, 180, 80));
-        // Open fence lets some light through but should cast soft shadows
-        model.light_blocking = LightBlocking::Partial;
-        model.rotatable = false;
-        model.requires_ground_support = true;
-
-        model.compute_collision_mask();
-        model
-    }
-
-    /// Creates a bottom slab (half-block on bottom).
-    pub fn slab_bottom() -> Self {
-        let mut model = Self::new("slab_bottom");
-
-        model.palette[1] = Color::rgb(128, 128, 128); // Stone gray
-
-        // Fill bottom half (Y 0-3)
-        model.fill_box(0, 0, 0, 7, 3, 7, 1);
-
-        model.light_blocking = LightBlocking::Full;
-        model.rotatable = false;
-
-        model.compute_collision_mask();
-        model
-    }
-
-    /// Creates a top slab (half-block on top).
-    pub fn slab_top() -> Self {
-        let mut model = Self::new("slab_top");
-
-        model.palette[1] = Color::rgb(128, 128, 128); // Stone gray
-
-        // Fill top half (Y 4-7)
-        model.fill_box(0, 4, 0, 7, 7, 7, 1);
-
-        model.light_blocking = LightBlocking::Full;
-        model.rotatable = false;
-
-        model.compute_collision_mask();
-        model
-    }
-
-    /// Creates a fence with the specified connection mask.
-    ///
-    /// Connection bitmask:
-    /// - Bit 0 (1): North (-Z)
-    /// - Bit 1 (2): South (+Z)
-    /// - Bit 2 (4): East (+X)
-    /// - Bit 3 (8): West (-X)
-    pub fn fence(connections: u8) -> Self {
-        let name = format!("fence_{}", connections);
-        let mut model = Self::new(&name);
-
-        model.palette[1] = Color::rgb(139, 90, 43); // Wood brown (post)
-        model.palette[2] = Color::rgb(160, 110, 60); // Lighter brown (rails)
-
-        // Center post (2×8×2 at center)
-        model.fill_box(3, 0, 3, 4, 7, 4, 1);
-
-        // Add rails based on connections
-        // Rails are at Y=2-3 (lower) and Y=5-6 (upper)
-        let rail_y_ranges = [(2, 3), (5, 6)];
-
-        for &(y0, y1) in &rail_y_ranges {
-            // North rail (-Z direction)
-            if connections & 1 != 0 {
-                model.fill_box(3, y0, 0, 4, y1, 2, 2);
-            }
-            // South rail (+Z direction)
-            if connections & 2 != 0 {
-                model.fill_box(3, y0, 5, 4, y1, 7, 2);
-            }
-            // East rail (+X direction)
-            if connections & 4 != 0 {
-                model.fill_box(5, y0, 3, 7, y1, 4, 2);
-            }
-            // West rail (-X direction)
-            if connections & 8 != 0 {
-                model.fill_box(0, y0, 3, 2, y1, 4, 2);
-            }
-        }
-
-        // Fences should cast soft shadows while still letting light through gaps
-        model.light_blocking = LightBlocking::Partial;
-        model.rotatable = false;
-        model.requires_ground_support = true;
-
-        model.compute_collision_mask();
-        model
-    }
-
-    /// Creates a fence post with no connections (convenience alias).
-    pub fn fence_post() -> Self {
-        Self::fence(0)
-    }
-
-    /// Creates a fence gate with connection mask.
-    ///
-    /// Connection bitmask (for gate spanning X axis, facing north):
-    /// - Bit 0 (1): West side (-X)
-    /// - Bit 1 (2): East side (+X)
-    pub fn gate_closed_with_connections(_connections: u8) -> Self {
-        // Note: connections parameter kept for API compatibility but gates no longer
-        // have connection rails - adjacent fences connect to the gate posts directly
-        let name = format!("gate_closed_{}", _connections);
-        let mut model = Self::new(&name);
-
-        model.palette[1] = Color::rgb(139, 90, 43); // Wood brown (posts)
-        model.palette[2] = Color::rgb(160, 110, 60); // Lighter brown (door)
-        model.palette[3] = Color::rgb(60, 60, 65); // Iron gray (hardware)
-
-        // Fixed gate posts on sides (at X=0-1 and X=6-7, centered at Z=3-4)
-        // These posts NEVER move - they are the hinge points
-        model.fill_box(0, 0, 3, 1, 7, 4, 1);
-        model.fill_box(6, 0, 3, 7, 7, 4, 1);
-
-        // Door panels (closed position - spanning between posts)
-        // Left door panel attached to left post
-        model.fill_box(2, 2, 3, 3, 3, 4, 2); // Lower rail
-        model.fill_box(2, 5, 3, 3, 6, 4, 2); // Upper rail
-        model.fill_box(3, 4, 3, 3, 4, 4, 2); // Middle bar
-
-        // Right door panel attached to right post
-        model.fill_box(4, 2, 3, 5, 3, 4, 2); // Lower rail
-        model.fill_box(4, 5, 3, 5, 6, 4, 2); // Upper rail
-        model.fill_box(4, 4, 3, 4, 4, 4, 2); // Middle bar
-
-        // Iron hinges on posts
-        model.set_voxel(1, 3, 2, 3); // Left post lower hinge
-        model.set_voxel(1, 5, 2, 3); // Left post upper hinge
-        model.set_voxel(6, 3, 2, 3); // Right post lower hinge
-        model.set_voxel(6, 5, 2, 3); // Right post upper hinge
-
-        // Iron latch where doors meet in middle
-        model.set_voxel(3, 4, 2, 3); // Latch left side
-        model.set_voxel(4, 4, 2, 3); // Latch right side
-
-        // Gate posts/rails should cast soft shadows
-        model.light_blocking = LightBlocking::Partial;
-        model.rotatable = true;
-        model.requires_ground_support = true;
-
-        model.compute_collision_mask();
-        model
-    }
-
-    /// Creates an open fence gate with connection mask.
-    pub fn gate_open_with_connections(_connections: u8) -> Self {
-        // Note: connections parameter kept for API compatibility but gates no longer
-        // have connection rails - adjacent fences connect to the gate posts directly
-        let name = format!("gate_open_{}", _connections);
-        let mut model = Self::new(&name);
-
-        model.palette[1] = Color::rgb(139, 90, 43); // Wood brown (posts)
-        model.palette[2] = Color::rgb(160, 110, 60); // Lighter brown (door)
-        model.palette[3] = Color::rgb(60, 60, 65); // Iron gray (hardware)
-
-        // Fixed gate posts on sides (SAME position as closed gate!)
-        // These posts NEVER move - they are the hinge points
-        model.fill_box(0, 0, 3, 1, 7, 4, 1);
-        model.fill_box(6, 0, 3, 7, 7, 4, 1);
-
-        // Door panels (open position - swung toward -Z/front)
-        // Left door swings from left post toward front
-        model.fill_box(0, 2, 0, 1, 3, 2, 2); // Lower rail
-        model.fill_box(0, 5, 0, 1, 6, 2, 2); // Upper rail
-        model.fill_box(0, 4, 0, 1, 4, 0, 2); // End bar
-
-        // Right door swings from right post toward front
-        model.fill_box(6, 2, 0, 7, 3, 2, 2); // Lower rail
-        model.fill_box(6, 5, 0, 7, 6, 2, 2); // Upper rail
-        model.fill_box(6, 4, 0, 7, 4, 0, 2); // End bar
-
-        // Iron hinges on posts (same position as closed)
-        model.set_voxel(1, 3, 2, 3); // Left post lower hinge
-        model.set_voxel(1, 5, 2, 3); // Left post upper hinge
-        model.set_voxel(6, 3, 2, 3); // Right post lower hinge
-        model.set_voxel(6, 5, 2, 3); // Right post upper hinge
-
-        model.light_blocking = LightBlocking::Partial;
-        model.rotatable = true;
-        model.requires_ground_support = true;
-
-        model.compute_collision_mask();
-        model
-    }
-
-    /// Creates a closed fence gate (no connections).
-    pub fn gate_closed() -> Self {
-        Self::gate_closed_with_connections(0)
-    }
-
-    /// Creates an open fence gate (no connections).
-    pub fn gate_open() -> Self {
-        Self::gate_open_with_connections(0)
-    }
-
-    /// Creates stairs facing north (step in back/+Z).
-    pub fn stairs_north() -> Self {
-        let mut model = Self::new("stairs_north");
-
-        model.palette[1] = Color::rgb(128, 128, 128); // Stone gray
-
-        // Bottom slab (full width, Y 0-3)
-        model.fill_box(0, 0, 0, 7, 3, 7, 1);
-
-        // Top step (back half, Y 4-7, Z 4-7)
-        model.fill_box(0, 4, 4, 7, 7, 7, 1);
-
-        model.light_blocking = LightBlocking::Partial;
-        model.rotatable = true;
-
-        model.compute_collision_mask();
-        model
-    }
-
-    /// Creates a ladder (thin vertical rungs against wall).
-    pub fn ladder() -> Self {
-        let mut model = Self::new("ladder");
-
-        model.palette[1] = Color::rgb(139, 90, 43); // Wood brown
-
-        // Vertical rails on sides (at Z=7, against wall)
-        for y in 0..8 {
-            model.set_voxel(1, y, 7, 1);
-            model.set_voxel(6, y, 7, 1);
-        }
-
-        // Horizontal rungs (thin, only at Z=7)
-        for y in [1, 3, 5, 7] {
-            for x in 2..6 {
-                model.set_voxel(x, y, 7, 1);
-            }
-        }
-
-        // Let ladders participate in sunlight/shadow (but still allow light through gaps)
-        model.light_blocking = LightBlocking::Partial;
-        model.rotatable = true;
-        model.requires_ground_support = true;
-
-        // Compute collision from voxels - only the back half (where rails/rungs are) blocks
-        // The front half is empty and walkable
-        model.compute_collision_mask();
-        model
-    }
-
-    /// Packs voxel data for GPU upload (512 bytes).
-    pub fn pack_voxels(&self) -> Vec<u8> {
-        self.voxels.to_vec()
-    }
-
     /// Packs palette for GPU upload (64 bytes = 16 × RGBA).
     pub fn pack_palette(&self) -> Vec<u8> {
         let mut data = Vec::with_capacity(PALETTE_SIZE * 4);
@@ -573,38 +278,40 @@ impl ModelRegistry {
 
     /// Registers built-in models.
     fn register_builtins(&mut self) {
+        use crate::sub_voxel_builtins::*;
+
         // ID 0: Empty/placeholder (no model)
-        self.register(SubVoxelModel::empty());
+        self.register(create_empty());
 
         // ID 1: Torch
-        self.register(SubVoxelModel::torch());
+        self.register(create_torch());
 
         // ID 2-3: Slabs
-        self.register(SubVoxelModel::slab_bottom());
-        self.register(SubVoxelModel::slab_top());
+        self.register(create_slab_bottom());
+        self.register(create_slab_top());
 
         // ID 4-19: Fence variants (16 connection combinations)
         // Connection bitmask: N=1, S=2, E=4, W=8
         for connections in 0..16u8 {
-            self.register(SubVoxelModel::fence(connections));
+            self.register(create_fence(connections));
         }
 
         // ID 20-23: Closed gate variants (4 connection combinations)
         // Connection bitmask: W=1, E=2
         for connections in 0..4u8 {
-            self.register(SubVoxelModel::gate_closed_with_connections(connections));
+            self.register(create_gate_closed(connections));
         }
 
         // ID 24-27: Open gate variants (4 connection combinations)
         for connections in 0..4u8 {
-            self.register(SubVoxelModel::gate_open_with_connections(connections));
+            self.register(create_gate_open(connections));
         }
 
         // ID 28: Stairs
-        self.register(SubVoxelModel::stairs_north());
+        self.register(create_stairs_north());
 
         // ID 29: Ladder
-        self.register(SubVoxelModel::ladder());
+        self.register(create_ladder());
     }
 
     /// Gets the model ID for a fence with the given connections.
@@ -971,7 +678,8 @@ mod tests {
 
     #[test]
     fn test_torch_model() {
-        let torch = SubVoxelModel::torch();
+        use crate::sub_voxel_builtins::create_torch;
+        let torch = create_torch();
 
         assert_eq!(torch.name, "torch");
         assert!(torch.emission.is_some());
@@ -986,8 +694,9 @@ mod tests {
 
     #[test]
     fn test_slab_models() {
-        let bottom = SubVoxelModel::slab_bottom();
-        let top = SubVoxelModel::slab_top();
+        use crate::sub_voxel_builtins::{create_slab_bottom, create_slab_top};
+        let bottom = create_slab_bottom();
+        let top = create_slab_top();
 
         // Bottom slab: filled 0-3, empty 4-7
         assert_ne!(bottom.get_voxel(0, 0, 0), 0);
