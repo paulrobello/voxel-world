@@ -792,36 +792,55 @@ pub fn upload_model_registry(
     let palette_data = registry.pack_palettes_for_gpu();
     let properties_data = registry.pack_properties_for_gpu();
 
-    // Create staging buffers
-    let atlas_staging = Buffer::from_iter(
-        memory_allocator.clone(),
-        BufferCreateInfo {
-            usage: BufferUsage::TRANSFER_SRC,
-            ..Default::default()
-        },
-        AllocationCreateInfo {
-            memory_type_filter: MemoryTypeFilter::PREFER_HOST
-                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-            ..Default::default()
-        },
-        atlas_data,
-    )
-    .unwrap();
+    // Reuse host-visible staging buffers for atlas and palettes
+    thread_local! {
+        static ATLAS_POOL: std::cell::RefCell<Vec<Subbuffer<[u8]>>> = const { std::cell::RefCell::new(Vec::new()) };
+        static PALETTE_POOL: std::cell::RefCell<Vec<Subbuffer<[u8]>>> = const { std::cell::RefCell::new(Vec::new()) };
+    }
 
-    let palette_staging = Buffer::from_iter(
-        memory_allocator.clone(),
-        BufferCreateInfo {
-            usage: BufferUsage::TRANSFER_SRC,
-            ..Default::default()
-        },
-        AllocationCreateInfo {
-            memory_type_filter: MemoryTypeFilter::PREFER_HOST
-                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-            ..Default::default()
-        },
-        palette_data,
-    )
-    .unwrap();
+    fn take_or_alloc_host(
+        pool: &std::cell::RefCell<Vec<Subbuffer<[u8]>>>,
+        needed: usize,
+        memory_allocator: &Arc<StandardMemoryAllocator>,
+    ) -> Subbuffer<[u8]> {
+        if let Some(idx) = pool
+            .borrow()
+            .iter()
+            .position(|b| b.size() as usize >= needed)
+        {
+            return pool.borrow_mut().swap_remove(idx);
+        }
+
+        Buffer::new_slice::<u8>(
+            memory_allocator.clone(),
+            BufferCreateInfo {
+                usage: BufferUsage::TRANSFER_SRC,
+                ..Default::default()
+            },
+            AllocationCreateInfo {
+                memory_type_filter: MemoryTypeFilter::PREFER_HOST
+                    | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                ..Default::default()
+            },
+            needed as u64,
+        )
+        .unwrap()
+    }
+
+    let atlas_staging =
+        ATLAS_POOL.with(|pool| take_or_alloc_host(pool, atlas_data.len(), &memory_allocator));
+    let palette_staging =
+        PALETTE_POOL.with(|pool| take_or_alloc_host(pool, palette_data.len(), &memory_allocator));
+
+    {
+        let mut write = atlas_staging.write().unwrap();
+        write[..atlas_data.len()].copy_from_slice(&atlas_data);
+    }
+
+    {
+        let mut write = palette_staging.write().unwrap();
+        write[..palette_data.len()].copy_from_slice(&palette_data);
+    }
 
     // Convert properties data to GpuModelProperties
     let gpu_properties: Vec<GpuModelProperties> = properties_data
@@ -882,7 +901,7 @@ pub fn upload_model_registry(
                 ..Default::default()
             }]
             .into(),
-            ..CopyBufferToImageInfo::buffer_image(atlas_staging, atlas.clone())
+            ..CopyBufferToImageInfo::buffer_image(atlas_staging.clone(), atlas.clone())
         })
         .unwrap();
 
@@ -895,7 +914,7 @@ pub fn upload_model_registry(
                 ..Default::default()
             }]
             .into(),
-            ..CopyBufferToImageInfo::buffer_image(palette_staging, palettes.clone())
+            ..CopyBufferToImageInfo::buffer_image(palette_staging.clone(), palettes.clone())
         })
         .unwrap();
 
