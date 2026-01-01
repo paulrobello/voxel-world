@@ -1070,6 +1070,106 @@ pub fn upload_chunks_batched(
         .unwrap();
 }
 
+pub fn update_chunk_metadata(
+    world: &mut crate::world::World,
+    chunk_metadata_buffer: &Subbuffer<[u32]>,
+    texture_origin: Vector3<i32>,
+) {
+    let mut metadata = vec![0u32; CHUNK_METADATA_WORDS];
+
+    // Iterate over texture-relative chunk positions
+    for cy in 0..WORLD_CHUNKS_Y {
+        for cz in 0..LOADED_CHUNKS_Z {
+            for cx in 0..LOADED_CHUNKS_X {
+                // Convert texture-relative chunk position to world chunk position
+                let world_chunk_x = texture_origin.x / CHUNK_SIZE as i32 + cx;
+                let world_chunk_y = cy;
+                let world_chunk_z = texture_origin.z / CHUNK_SIZE as i32 + cz;
+                let world_chunk_pos = Vector3::new(world_chunk_x, world_chunk_y, world_chunk_z);
+
+                // Calculate flat chunk index
+                let chunk_idx = cx as usize
+                    + cz as usize * LOADED_CHUNKS_X as usize
+                    + cy as usize * LOADED_CHUNKS_X as usize * LOADED_CHUNKS_Z as usize;
+
+                if let Some(chunk) = world.get_chunk_mut(world_chunk_pos) {
+                    chunk.update_metadata();
+                    if chunk.is_empty() {
+                        let word_idx = chunk_idx / 32;
+                        let bit_idx = chunk_idx % 32;
+                        metadata[word_idx] |= 1u32 << bit_idx;
+                    }
+                } else {
+                    let word_idx = chunk_idx / 32;
+                    let bit_idx = chunk_idx % 32;
+                    metadata[word_idx] |= 1u32 << bit_idx;
+                }
+            }
+        }
+    }
+
+    let mut buffer_write = chunk_metadata_buffer.write().unwrap();
+    buffer_write.copy_from_slice(&metadata);
+}
+
+pub fn update_brick_metadata(
+    world: &crate::world::World,
+    brick_mask_buffer: &Subbuffer<[u32]>,
+    brick_dist_buffer: &Subbuffer<[u32]>,
+    texture_origin: Vector3<i32>,
+) {
+    use crate::svt::ChunkSVT;
+
+    let mut brick_masks = vec![0u32; BRICK_MASK_WORDS];
+    let mut brick_distances = vec![0u32; BRICK_DIST_WORDS];
+
+    for cy in 0..WORLD_CHUNKS_Y {
+        for cz in 0..LOADED_CHUNKS_Z {
+            for cx in 0..LOADED_CHUNKS_X {
+                let world_chunk_x = texture_origin.x / CHUNK_SIZE as i32 + cx;
+                let world_chunk_y = cy;
+                let world_chunk_z = texture_origin.z / CHUNK_SIZE as i32 + cz;
+                let world_chunk_pos = Vector3::new(world_chunk_x, world_chunk_y, world_chunk_z);
+
+                let chunk_idx = cx as usize
+                    + cz as usize * LOADED_CHUNKS_X as usize
+                    + cy as usize * LOADED_CHUNKS_X as usize * LOADED_CHUNKS_Z as usize;
+
+                if let Some(chunk) = world.get_chunk(world_chunk_pos) {
+                    let svt = ChunkSVT::from_chunk(chunk);
+
+                    let mask_offset = chunk_idx * 2;
+                    brick_masks[mask_offset] = svt.brick_mask as u32;
+                    brick_masks[mask_offset + 1] = (svt.brick_mask >> 32) as u32;
+
+                    let dist_offset = chunk_idx * 16;
+                    for (i, chunk_distances) in svt.brick_distances.chunks(4).enumerate() {
+                        let word = (chunk_distances[0] as u32)
+                            | ((chunk_distances[1] as u32) << 8)
+                            | ((chunk_distances[2] as u32) << 16)
+                            | ((chunk_distances[3] as u32) << 24);
+                        brick_distances[dist_offset + i] = word;
+                    }
+                } else {
+                    let dist_offset = chunk_idx * 16;
+                    for i in 0..16 {
+                        brick_distances[dist_offset + i] = 0xFFFFFFFF;
+                    }
+                }
+            }
+        }
+    }
+
+    {
+        let mut mask_write = brick_mask_buffer.write().unwrap();
+        mask_write.copy_from_slice(&brick_masks);
+    }
+    {
+        let mut dist_write = brick_dist_buffer.write().unwrap();
+        dist_write.copy_from_slice(&brick_distances);
+    }
+}
+
 pub fn save_screenshot(
     device: &Arc<Device>,
 

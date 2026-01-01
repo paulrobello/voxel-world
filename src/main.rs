@@ -109,11 +109,10 @@ use crate::constants::{
 };
 use crate::falling_block::{FallingBlockSystem, GpuFallingBlock};
 use crate::gpu_resources::{
-    BRICK_DIST_WORDS, BRICK_MASK_WORDS, CHUNK_METADATA_WORDS, GpuLight, MAX_LIGHTS,
-    create_empty_voxel_texture, get_brick_and_model_set, get_chunk_metadata_set,
-    get_distance_image_and_set, get_images_and_sets, get_light_set,
+    GpuLight, MAX_LIGHTS, create_empty_voxel_texture, get_brick_and_model_set,
+    get_chunk_metadata_set, get_distance_image_and_set, get_images_and_sets, get_light_set,
     get_particle_and_falling_block_set, get_swapchain_images, load_icon, load_texture_atlas,
-    save_screenshot, upload_chunks_batched,
+    save_screenshot, update_brick_metadata, update_chunk_metadata, upload_chunks_batched,
 };
 use crate::hot_reload::HotReloadComputePipeline;
 use crate::hud::Minimap;
@@ -124,7 +123,6 @@ use crate::player::{
 use crate::raycast::{MAX_RAYCAST_DISTANCE, RaycastHit, get_place_position, raycast};
 use crate::render_mode::RenderMode;
 use crate::sub_voxel::ModelRegistry;
-use crate::svt::ChunkSVT;
 use crate::terrain_gen::{TerrainGenerator, generate_chunk_terrain};
 use crate::utils::{ChunkStats, Profiler};
 use crate::vulkan_context::VulkanContext;
@@ -1053,8 +1051,19 @@ impl App {
 
         // Update chunk metadata if any chunks were loaded or unloaded
         if !chunks_to_upload.is_empty() || !positions_to_clear.is_empty() {
-            self.update_chunk_metadata();
-            self.update_brick_metadata();
+            let t_meta = Instant::now();
+            update_chunk_metadata(
+                &mut self.world,
+                &self.chunk_metadata_buffer,
+                self.texture_origin,
+            );
+            update_brick_metadata(
+                &self.world,
+                &self.brick_mask_buffer,
+                &self.brick_dist_buffer,
+                self.texture_origin,
+            );
+            self.profiler.metadata_update_us += t_meta.elapsed().as_micros() as u64;
         }
 
         // Update chunk stats
@@ -1640,8 +1649,19 @@ impl App {
             );
 
             // Update metadata so shader doesn't skip newly non-empty bricks
-            self.update_chunk_metadata();
-            self.update_brick_metadata();
+            let t_meta = Instant::now();
+            update_chunk_metadata(
+                &mut self.world,
+                &self.chunk_metadata_buffer,
+                self.texture_origin,
+            );
+            update_brick_metadata(
+                &self.world,
+                &self.brick_mask_buffer,
+                &self.brick_dist_buffer,
+                self.texture_origin,
+            );
+            self.profiler.metadata_update_us += t_meta.elapsed().as_micros() as u64;
         }
     }
 
@@ -1693,134 +1713,17 @@ impl App {
         println!("Initial chunk upload complete.");
 
         // Update chunk and brick metadata after initial upload
-        self.update_chunk_metadata();
-        self.update_brick_metadata();
-    }
-
-    /// Updates the chunk metadata buffer on the GPU.
-    ///
-    /// This creates a bit-packed buffer where each bit indicates if a chunk is empty.
-    /// The shader uses this to skip empty chunks during ray traversal for better performance.
-    fn update_chunk_metadata(&mut self) {
-        let t_start = Instant::now();
-        let mut metadata = vec![0u32; CHUNK_METADATA_WORDS];
-
-        // Iterate over texture-relative chunk positions
-        for cy in 0..WORLD_CHUNKS_Y {
-            for cz in 0..LOADED_CHUNKS_Z {
-                for cx in 0..LOADED_CHUNKS_X {
-                    // Convert texture-relative chunk position to world chunk position
-                    let world_chunk_x = self.texture_origin.x / CHUNK_SIZE as i32 + cx;
-                    let world_chunk_y = cy;
-                    let world_chunk_z = self.texture_origin.z / CHUNK_SIZE as i32 + cz;
-                    let world_chunk_pos = Vector3::new(world_chunk_x, world_chunk_y, world_chunk_z);
-
-                    // Calculate flat chunk index
-                    // Index matches shader layout: x + z * CHUNKS_X + y * CHUNKS_X * CHUNKS_Z
-                    let chunk_idx = cx as usize
-                        + cz as usize * LOADED_CHUNKS_X as usize
-                        + cy as usize * LOADED_CHUNKS_X as usize * LOADED_CHUNKS_Z as usize;
-
-                    // Check if chunk exists and get its data
-                    if let Some(chunk) = self.world.get_chunk_mut(world_chunk_pos) {
-                        // Ensure metadata is up-to-date before reading
-                        chunk.update_metadata();
-
-                        // Update empty flag
-                        if chunk.is_empty() {
-                            let word_idx = chunk_idx / 32;
-                            let bit_idx = chunk_idx % 32;
-                            metadata[word_idx] |= 1u32 << bit_idx;
-                        }
-                    } else {
-                        // Missing chunks are treated as empty
-                        let word_idx = chunk_idx / 32;
-                        let bit_idx = chunk_idx % 32;
-                        metadata[word_idx] |= 1u32 << bit_idx;
-                    }
-                }
-            }
-        }
-
-        // Upload metadata to GPU buffer
-        {
-            let mut buffer_write = self.chunk_metadata_buffer.write().unwrap();
-            buffer_write.copy_from_slice(&metadata);
-        }
-
-        self.profiler.metadata_update_us += t_start.elapsed().as_micros() as u64;
-    }
-
-    /// Updates the brick metadata buffers on the GPU.
-    ///
-    /// This creates:
-    /// - Brick masks: 64-bit mask per chunk indicating which bricks have solid blocks
-    /// - Brick distances: Per-brick distance to nearest solid brick
-    ///
-    /// The shader uses these for hierarchical brick-level ray skipping.
-    fn update_brick_metadata(&mut self) {
-        let t_start = Instant::now();
-
-        // Brick mask buffer: 2 u32 per chunk (64 bits)
-        let mut brick_masks = vec![0u32; BRICK_MASK_WORDS];
-        // Brick distance buffer: 16 u32 per chunk (64 bytes)
-        let mut brick_distances = vec![0u32; BRICK_DIST_WORDS];
-
-        // Iterate over texture-relative chunk positions
-        for cy in 0..WORLD_CHUNKS_Y {
-            for cz in 0..LOADED_CHUNKS_Z {
-                for cx in 0..LOADED_CHUNKS_X {
-                    // Convert texture-relative chunk position to world chunk position
-                    let world_chunk_x = self.texture_origin.x / CHUNK_SIZE as i32 + cx;
-                    let world_chunk_y = cy;
-                    let world_chunk_z = self.texture_origin.z / CHUNK_SIZE as i32 + cz;
-                    let world_chunk_pos = Vector3::new(world_chunk_x, world_chunk_y, world_chunk_z);
-
-                    // Calculate flat chunk index (matches shader layout)
-                    let chunk_idx = cx as usize
-                        + cz as usize * LOADED_CHUNKS_X as usize
-                        + cy as usize * LOADED_CHUNKS_X as usize * LOADED_CHUNKS_Z as usize;
-
-                    if let Some(chunk) = self.world.get_chunk(world_chunk_pos) {
-                        // Build SVT for this chunk
-                        let svt = ChunkSVT::from_chunk(chunk);
-
-                        // Store brick mask (64 bits = 2 u32)
-                        let mask_offset = chunk_idx * 2;
-                        brick_masks[mask_offset] = svt.brick_mask as u32;
-                        brick_masks[mask_offset + 1] = (svt.brick_mask >> 32) as u32;
-
-                        // Store brick distances (64 bytes = 16 u32)
-                        let dist_offset = chunk_idx * 16;
-                        for (i, chunk_distances) in svt.brick_distances.chunks(4).enumerate() {
-                            let word = (chunk_distances[0] as u32)
-                                | ((chunk_distances[1] as u32) << 8)
-                                | ((chunk_distances[2] as u32) << 16)
-                                | ((chunk_distances[3] as u32) << 24);
-                            brick_distances[dist_offset + i] = word;
-                        }
-                    } else {
-                        // Missing chunk: mask = 0 (all empty), distances = 255
-                        let dist_offset = chunk_idx * 16;
-                        for i in 0..16 {
-                            brick_distances[dist_offset + i] = 0xFFFFFFFF;
-                        }
-                    }
-                }
-            }
-        }
-
-        // Upload to GPU buffers
-        {
-            let mut mask_write = self.brick_mask_buffer.write().unwrap();
-            mask_write.copy_from_slice(&brick_masks);
-        }
-        {
-            let mut dist_write = self.brick_dist_buffer.write().unwrap();
-            dist_write.copy_from_slice(&brick_distances);
-        }
-
-        self.profiler.metadata_update_us += t_start.elapsed().as_micros() as u64;
+        update_chunk_metadata(
+            &mut self.world,
+            &self.chunk_metadata_buffer,
+            self.texture_origin,
+        );
+        update_brick_metadata(
+            &self.world,
+            &self.brick_mask_buffer,
+            &self.brick_dist_buffer,
+            self.texture_origin,
+        );
     }
 
     /// Clears a chunk region in the GPU 3D texture (fills with air).
@@ -1940,8 +1843,17 @@ impl App {
             }
 
             // Update chunk and brick metadata since chunks may have changed empty status
-            self.update_chunk_metadata();
-            self.update_brick_metadata();
+            update_chunk_metadata(
+                &mut self.world,
+                &self.chunk_metadata_buffer,
+                self.texture_origin,
+            );
+            update_brick_metadata(
+                &self.world,
+                &self.brick_mask_buffer,
+                &self.brick_dist_buffer,
+                self.texture_origin,
+            );
         }
 
         uploaded
