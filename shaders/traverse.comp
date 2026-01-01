@@ -1116,12 +1116,6 @@ float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFl
                             vec3 testO = localO;
                             vec3 testDir = dir;
 
-                            // Rotate ray into model space if needed
-                            if (rotation != 0u) {
-                                testO = inverseRotatePoint(localO, rotation);
-                                testDir = inverseRotateNormal(dir, rotation);
-                            }
-                            
                             // Clamp testO to be safe
                             testO = clamp(testO, vec3(0.001), vec3(0.999));
 
