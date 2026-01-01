@@ -1172,7 +1172,8 @@ impl App {
                 self.water_grid.on_block_removed(target);
 
                 // Check if any adjacent terrain water should start flowing
-                self.activate_adjacent_terrain_water(target);
+                self.water_grid
+                    .activate_adjacent_terrain_water(&self.world, target);
 
                 // Queue physics checks (frame-distributed to prevent FPS spikes)
                 let player_pos = self
@@ -1592,117 +1593,6 @@ impl App {
                         BlockUpdateType::Gravity,
                         player_pos,
                     );
-                }
-            }
-        }
-    }
-
-    /// Processes water flow simulation.
-    ///
-    /// This is called each frame and processes water cell updates.
-    /// Water flows using the W-Shadow cellular automata algorithm:
-    /// - Down (gravity) has highest priority
-    /// - Horizontal flow equalizes water levels
-    /// - Upward flow only occurs under pressure
-    ///
-    /// Boundary handling:
-    /// - World bounds (y < 0): Water drains into void and is destroyed
-    /// - Unloaded chunks: Water is blocked (treated as solid wall)
-    fn process_water_simulation(&mut self) {
-        if !self.water_simulation_enabled {
-            return;
-        }
-
-        let player_pos = self
-            .player
-            .feet_pos(self.world_extent, self.texture_origin)
-            .cast::<f32>();
-        let texture_height = TEXTURE_SIZE_Y as i32;
-
-        // Create a closure that checks if a block is solid
-        // Also returns true for unloaded chunks (blocks water flow until chunk loads)
-        let world = &self.world;
-        let is_solid = |pos: Vector3<i32>| -> bool {
-            // Check Y bounds first
-            if pos.y < 0 || pos.y >= texture_height {
-                return true; // Out of bounds = solid (blocks flow)
-            }
-            // For loaded chunks, check if block is solid
-            // For unloaded chunks, get_block returns None, treat as solid (block flow)
-            world.get_block(pos).map(|b| b.is_solid()).unwrap_or(true) // Unloaded chunk = treat as solid wall
-        };
-
-        // Check if position is truly out of world bounds (water should drain here)
-        // Only Y < 0 is considered "out of bounds" for draining
-        // Water at unloaded chunk boundaries should NOT drain, just be blocked
-        let is_out_of_bounds = |pos: Vector3<i32>| -> bool {
-            pos.y < 0 // Only drain water that falls below the world
-        };
-
-        // Run water simulation tick
-        let changed_positions = self.water_grid.tick(is_solid, is_out_of_bounds, player_pos);
-
-        // Update world blocks and GPU for changed water cells
-        for pos in changed_positions {
-            // Skip out-of-bounds positions
-            if pos.y < 0 || pos.y >= texture_height {
-                continue;
-            }
-
-            let has_water = self.water_grid.has_water(pos);
-            let current_block = self.world.get_block(pos);
-
-            match (current_block, has_water) {
-                (Some(BlockType::Air), true) => {
-                    // Air became water
-                    self.world.set_block(pos, BlockType::Water);
-                    self.world.invalidate_minimap_cache(pos.x, pos.z);
-                }
-                (Some(BlockType::Water), false) => {
-                    // Water evaporated/drained
-                    self.world.set_block(pos, BlockType::Air);
-                    self.world.invalidate_minimap_cache(pos.x, pos.z);
-                }
-                _ => {
-                    // No block type change needed, but may need GPU update for water level
-                    // (This will be used when shader supports variable water heights)
-                }
-            }
-        }
-    }
-
-    /// Checks adjacent blocks for terrain water (BlockType::Water that exists in the world
-    /// but not yet in the water grid) and adds them to the water grid.
-    ///
-    /// This is called when a block is broken to allow nearby static terrain water
-    /// to start flowing into the newly empty space.
-    fn activate_adjacent_terrain_water(&mut self, pos: Vector3<i32>) {
-        let directions = [
-            Vector3::new(1, 0, 0),
-            Vector3::new(-1, 0, 0),
-            Vector3::new(0, 1, 0),
-            Vector3::new(0, -1, 0),
-            Vector3::new(0, 0, 1),
-            Vector3::new(0, 0, -1),
-        ];
-
-        for dir in directions {
-            let neighbor = pos + dir;
-
-            // Skip if out of Y bounds
-            if neighbor.y < 0 || neighbor.y >= TEXTURE_SIZE_Y as i32 {
-                continue;
-            }
-
-            // Check if this neighbor is terrain water
-            if let Some(BlockType::Water) = self.world.get_block(neighbor) {
-                // If it's not already in the water grid, add it as a source
-                // (terrain water is treated as infinite source until we convert all water)
-                if !self.water_grid.has_water(neighbor) {
-                    self.water_grid.place_source(neighbor);
-                } else {
-                    // Already in grid, just activate it for flow
-                    self.water_grid.activate_neighbors(neighbor);
                 }
             }
         }
@@ -2344,7 +2234,14 @@ impl App {
         );
 
         // Process water flow simulation (frame-distributed)
-        self.process_water_simulation();
+        if self.water_simulation_enabled {
+            let player_pos_f32 = self
+                .player
+                .feet_pos(self.world_extent, self.texture_origin)
+                .cast::<f32>();
+            self.water_grid
+                .process_simulation(&mut self.world, player_pos_f32);
+        }
 
         if self.focused {
             // Update player physics (movement, gravity, collisions)

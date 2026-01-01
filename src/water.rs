@@ -593,6 +593,88 @@ impl WaterGrid {
         self.pending_changes.clear();
         self.dirty_positions.clear();
     }
+
+    /// Processes water flow simulation.
+    pub fn process_simulation(
+        &mut self,
+        world: &mut crate::world::World,
+        player_pos: Vector3<f32>,
+    ) {
+        use crate::chunk::BlockType;
+        use crate::constants::TEXTURE_SIZE_Y;
+
+        let texture_height = TEXTURE_SIZE_Y as i32;
+
+        // Create a closure that checks if a block is solid
+        // Also returns true for unloaded chunks (blocks water flow until chunk loads)
+        let is_solid = |pos: Vector3<i32>| -> bool {
+            if pos.y < 0 || pos.y >= texture_height {
+                return true;
+            }
+            world.get_block(pos).map(|b| b.is_solid()).unwrap_or(true)
+        };
+
+        let is_out_of_bounds = |pos: Vector3<i32>| -> bool { pos.y < 0 };
+
+        // Run water simulation tick
+        let changed_positions = self.tick(is_solid, is_out_of_bounds, player_pos);
+
+        // Update world blocks and GPU for changed water cells
+        for pos in changed_positions {
+            if pos.y < 0 || pos.y >= texture_height {
+                continue;
+            }
+
+            let has_water = self.has_water(pos);
+            let current_block = world.get_block(pos);
+
+            match (current_block, has_water) {
+                (Some(BlockType::Air), true) => {
+                    world.set_block(pos, BlockType::Water);
+                    world.invalidate_minimap_cache(pos.x, pos.z);
+                }
+                (Some(BlockType::Water), false) => {
+                    world.set_block(pos, BlockType::Air);
+                    world.invalidate_minimap_cache(pos.x, pos.z);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Checks adjacent blocks for terrain water and adds them to the water grid.
+    pub fn activate_adjacent_terrain_water(
+        &mut self,
+        world: &crate::world::World,
+        pos: Vector3<i32>,
+    ) {
+        use crate::chunk::BlockType;
+        use crate::constants::TEXTURE_SIZE_Y;
+
+        let directions = [
+            Vector3::new(1, 0, 0),
+            Vector3::new(-1, 0, 0),
+            Vector3::new(0, 1, 0),
+            Vector3::new(0, -1, 0),
+            Vector3::new(0, 0, 1),
+            Vector3::new(0, 0, -1),
+        ];
+
+        for dir in directions {
+            let neighbor = pos + dir;
+            if neighbor.y < 0 || neighbor.y >= TEXTURE_SIZE_Y as i32 {
+                continue;
+            }
+
+            if let Some(BlockType::Water) = world.get_block(neighbor) {
+                if !self.has_water(neighbor) {
+                    self.place_source(neighbor);
+                } else {
+                    self.activate_neighbors(neighbor);
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
