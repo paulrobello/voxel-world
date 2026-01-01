@@ -1,2 +1,4 @@
 /target
-.gemini-clipboard
+
+# Ignore clipboard dumps
+.gemini-clipboard/
