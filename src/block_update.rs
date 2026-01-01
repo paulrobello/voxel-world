@@ -195,6 +195,165 @@ impl BlockUpdateQueue {
         self.pending.clear();
         self.queued_set.clear();
     }
+
+    /// Processes queued block physics updates.
+    pub fn process_updates(
+        &mut self,
+        world: &mut crate::world::World,
+        falling_blocks: &mut crate::falling_block::FallingBlockSystem,
+        particles: &mut crate::particles::ParticleSystem,
+        model_registry: &crate::sub_voxel::ModelRegistry,
+        _player_pos: Vector3<f32>,
+    ) {
+        let batch = self.take_batch();
+
+        for update in batch {
+            match update.update_type {
+                BlockUpdateType::Gravity => {
+                    self.process_gravity_update(update.position, world, falling_blocks);
+                }
+                BlockUpdateType::TreeSupport => {
+                    self.process_tree_support_update(update.position, world, falling_blocks);
+                }
+                BlockUpdateType::OrphanedLeaves => {
+                    self.process_orphaned_leaves_update(update.position, world, falling_blocks);
+                }
+                BlockUpdateType::ModelGroundSupport => {
+                    self.process_model_ground_support_update(
+                        update.position,
+                        world,
+                        particles,
+                        model_registry,
+                    );
+                }
+            }
+        }
+    }
+
+    fn process_gravity_update(
+        &mut self,
+        pos: Vector3<i32>,
+        world: &mut crate::world::World,
+        falling_blocks: &mut crate::falling_block::FallingBlockSystem,
+    ) {
+        use crate::chunk::BlockType;
+        use crate::constants::TEXTURE_SIZE_Y;
+
+        if pos.y < 0 || pos.y >= TEXTURE_SIZE_Y as i32 {
+            return;
+        }
+
+        if let Some(block_type) = world.get_block(pos) {
+            if block_type.is_affected_by_gravity() {
+                world.set_block(pos, BlockType::Air);
+                world.invalidate_minimap_cache(pos.x, pos.z);
+                falling_blocks.spawn(pos, block_type);
+
+                // Queue the next block up for cascade
+                // Using a dummy player_pos since priority doesn't matter much for cascades
+                self.enqueue(
+                    pos + Vector3::new(0, 1, 0),
+                    BlockUpdateType::Gravity,
+                    Vector3::zeros(),
+                );
+            }
+        }
+    }
+
+    fn process_tree_support_update(
+        &mut self,
+        pos: Vector3<i32>,
+        world: &mut crate::world::World,
+        falling_blocks: &mut crate::falling_block::FallingBlockSystem,
+    ) {
+        use crate::chunk::BlockType;
+        use crate::constants::TEXTURE_SIZE_Y;
+
+        if pos.y < 0 || pos.y >= TEXTURE_SIZE_Y as i32 {
+            return;
+        }
+
+        if let Some(block) = world.get_block(pos) {
+            if block.is_log() {
+                let tree_blocks = world.find_connected_tree(pos);
+                if !tree_blocks.is_empty() && !world.tree_has_ground_support(&tree_blocks) {
+                    for (p, bt) in tree_blocks {
+                        world.set_block(p, BlockType::Air);
+                        world.invalidate_minimap_cache(p.x, p.z);
+                        falling_blocks.spawn(p, bt);
+                    }
+                }
+            }
+        }
+    }
+
+    fn process_orphaned_leaves_update(
+        &mut self,
+        pos: Vector3<i32>,
+        world: &mut crate::world::World,
+        falling_blocks: &mut crate::falling_block::FallingBlockSystem,
+    ) {
+        use crate::chunk::BlockType;
+        use crate::constants::TEXTURE_SIZE_Y;
+
+        if pos.y < 0 || pos.y >= TEXTURE_SIZE_Y as i32 {
+            return;
+        }
+
+        if let Some(block) = world.get_block(pos) {
+            if block == BlockType::Leaves {
+                let (leaves, has_log) = world.find_leaf_cluster_and_check_log(pos);
+                if !has_log && !leaves.is_empty() {
+                    for (p, bt) in leaves {
+                        world.set_block(p, BlockType::Air);
+                        world.invalidate_minimap_cache(p.x, p.z);
+                        falling_blocks.spawn(p, bt);
+                    }
+                }
+            }
+        }
+    }
+
+    fn process_model_ground_support_update(
+        &mut self,
+        pos: Vector3<i32>,
+        world: &mut crate::world::World,
+        particles: &mut crate::particles::ParticleSystem,
+        model_registry: &crate::sub_voxel::ModelRegistry,
+    ) {
+        use crate::chunk::BlockType;
+        use crate::constants::TEXTURE_SIZE_Y;
+
+        if pos.y < 1 || pos.y >= TEXTURE_SIZE_Y as i32 {
+            return;
+        }
+
+        if let Some(BlockType::Model) = world.get_block(pos) {
+            if let Some(data) = world.get_model_data(pos) {
+                if model_registry.requires_ground_support(data.model_id) {
+                    let below = pos - Vector3::new(0, 1, 0);
+                    let has_support = if let Some(block_below) = world.get_block(below) {
+                        block_below.is_solid()
+                            || (block_below == BlockType::Model
+                                && world
+                                    .get_model_data(below)
+                                    .map(|d| !model_registry.requires_ground_support(d.model_id))
+                                    .unwrap_or(false))
+                    } else {
+                        false
+                    };
+
+                    if !has_support {
+                        particles
+                            .spawn_block_break(pos.cast::<f32>(), Vector3::new(0.5, 0.35, 0.2));
+                        world.set_block(pos, BlockType::Air);
+                        world.invalidate_minimap_cache(pos.x, pos.z);
+                        world.update_fence_connections(pos);
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]

@@ -1553,18 +1553,6 @@ impl App {
         true
     }
 
-    /// Converts all tree blocks to falling entities.
-    fn fell_tree(&mut self, tree_blocks: Vec<(Vector3<i32>, BlockType)>) {
-        for (pos, block_type) in tree_blocks {
-            // Remove the block from the world
-            self.world.set_block(pos, BlockType::Air);
-            self.world.invalidate_minimap_cache(pos.x, pos.z);
-
-            // Spawn a falling block entity
-            self.falling_blocks.spawn(pos, block_type);
-        }
-    }
-
     /// Processes blocks that have landed and places them in the world.
     /// Handles multiple blocks landing at the same X,Z by stacking them.
     fn process_landed_blocks(&mut self, mut landed: Vec<crate::falling_block::LandedBlock>) {
@@ -1604,158 +1592,6 @@ impl App {
                         BlockUpdateType::Gravity,
                         player_pos,
                     );
-                }
-            }
-        }
-    }
-
-    /// Processes queued block physics updates.
-    ///
-    /// This is called each frame and processes up to `max_per_frame` updates
-    /// from the queue. Each update type triggers specific physics checks:
-    /// - CheckGravity: Check if block at position should fall
-    /// - CheckTreeSupport: Check if log lost ground support
-    /// - CheckOrphanedLeaves: Check if leaf cluster is disconnected from logs
-    fn process_block_updates(&mut self) {
-        let player_pos = self
-            .player
-            .feet_pos(self.world_extent, self.texture_origin)
-            .cast::<f32>();
-        let batch = self.block_updates.take_batch();
-
-        for update in batch {
-            match update.update_type {
-                BlockUpdateType::Gravity => {
-                    self.process_gravity_update(update.position, player_pos);
-                }
-                BlockUpdateType::TreeSupport => {
-                    self.process_tree_support_update(update.position, player_pos);
-                }
-                BlockUpdateType::OrphanedLeaves => {
-                    self.process_orphaned_leaves_update(update.position, player_pos);
-                }
-                BlockUpdateType::ModelGroundSupport => {
-                    self.process_model_ground_support_update(update.position, player_pos);
-                }
-            }
-        }
-    }
-
-    /// Processes a gravity check for a single position.
-    /// If the block is gravity-affected, converts it to falling and queues the block above.
-    fn process_gravity_update(&mut self, pos: Vector3<i32>, player_pos: Vector3<f32>) {
-        // Bounds check
-        if pos.y < 0 || pos.y >= TEXTURE_SIZE_Y as i32 {
-            return;
-        }
-
-        if let Some(block_type) = self.world.get_block(pos) {
-            if block_type.is_affected_by_gravity() {
-                // Remove the block from the world
-                self.world.set_block(pos, BlockType::Air);
-                self.world.invalidate_minimap_cache(pos.x, pos.z);
-
-                // Spawn a falling block entity
-                self.falling_blocks.spawn(pos, block_type);
-
-                // Queue the next block up for cascade
-                self.block_updates.enqueue(
-                    pos + Vector3::new(0, 1, 0),
-                    BlockUpdateType::Gravity,
-                    player_pos,
-                );
-            }
-        }
-    }
-
-    /// Processes a tree support check for a log position.
-    /// If the log is part of an unsupported tree, the entire tree falls.
-    fn process_tree_support_update(&mut self, pos: Vector3<i32>, _player_pos: Vector3<f32>) {
-        // Bounds check
-        if pos.y < 0 || pos.y >= TEXTURE_SIZE_Y as i32 {
-            return;
-        }
-
-        if let Some(block) = self.world.get_block(pos) {
-            if block.is_log() {
-                // Find all connected tree blocks
-                let tree_blocks = self.world.find_connected_tree(pos);
-
-                if !tree_blocks.is_empty() && !self.world.tree_has_ground_support(&tree_blocks) {
-                    // Tree has no ground support, fell it
-                    self.fell_tree(tree_blocks);
-                }
-            }
-        }
-    }
-
-    /// Processes an orphaned leaves check for a leaf position.
-    /// If the leaf cluster is disconnected from all logs, the cluster falls.
-    fn process_orphaned_leaves_update(&mut self, pos: Vector3<i32>, _player_pos: Vector3<f32>) {
-        // Bounds check
-        if pos.y < 0 || pos.y >= TEXTURE_SIZE_Y as i32 {
-            return;
-        }
-
-        if let Some(block) = self.world.get_block(pos) {
-            if block == BlockType::Leaves {
-                // Check if this leaf cluster is connected to any log
-                let (leaves, has_log) = self.world.find_leaf_cluster_and_check_log(pos);
-
-                if !has_log && !leaves.is_empty() {
-                    // Orphaned leaf cluster, fell it
-                    self.fell_tree(leaves);
-                }
-            }
-        }
-    }
-
-    /// Processes a model ground support check for a position.
-    /// If the model requires ground support and the block below is air, the model breaks.
-    fn process_model_ground_support_update(
-        &mut self,
-        pos: Vector3<i32>,
-        _player_pos: Vector3<f32>,
-    ) {
-        // Bounds check
-        if pos.y < 1 || pos.y >= TEXTURE_SIZE_Y as i32 {
-            return;
-        }
-
-        // Check if there's a model block at this position
-        if let Some(BlockType::Model) = self.world.get_block(pos) {
-            if let Some(data) = self.world.get_model_data(pos) {
-                // Check if this model requires ground support
-                if self.model_registry.requires_ground_support(data.model_id) {
-                    // Check if ground below is gone
-                    let below = pos - Vector3::new(0, 1, 0);
-                    let has_support = if let Some(block_below) = self.world.get_block(below) {
-                        block_below.is_solid()
-                            || (block_below == BlockType::Model
-                                && self
-                                    .world
-                                    .get_model_data(below)
-                                    .map(|d| {
-                                        !self.model_registry.requires_ground_support(d.model_id)
-                                    })
-                                    .unwrap_or(false))
-                    } else {
-                        false
-                    };
-
-                    if !has_support {
-                        // Get particle color before breaking
-                        let particle_color = nalgebra::Vector3::new(0.5, 0.35, 0.2); // Wood brown
-                        self.particles
-                            .spawn_block_break(pos.cast::<f32>(), particle_color);
-
-                        // Break the model
-                        self.world.set_block(pos, BlockType::Air);
-                        self.world.invalidate_minimap_cache(pos.x, pos.z);
-
-                        // Update neighboring fence/gate connections
-                        self.world.update_fence_connections(pos);
-                    }
                 }
             }
         }
@@ -2495,7 +2331,17 @@ impl App {
         }
 
         // Process queued block physics updates (frame-distributed to prevent FPS spikes)
-        self.process_block_updates();
+        let player_pos_f32 = self
+            .player
+            .feet_pos(self.world_extent, self.texture_origin)
+            .cast::<f32>();
+        self.block_updates.process_updates(
+            &mut self.world,
+            &mut self.falling_blocks,
+            &mut self.particles,
+            &self.model_registry,
+            player_pos_f32,
+        );
 
         // Process water flow simulation (frame-distributed)
         self.process_water_simulation();
