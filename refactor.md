@@ -8,17 +8,9 @@
 - Commit all work before moving to the next item.
 
 ## Open Findings
-1) **Texture-origin shift leaves stale metadata**  
-   - Location: `src/world_streaming.rs` shift path (lines ~20-93) and metadata refresh (lines ~247-249).  
-   - Issue: When the texture origin shifts, voxel/model images are reuploaded but chunk/brick metadata buffers are not rebuilt unless chunks are loaded/unloaded the same frame. Rays can skip or mis-classify chunks/bricks until a later refresh.  
-   - Direction: After a shift/reupload, force `update_metadata_buffers()` (or gate on `shifted` flag) to keep skip data aligned.
+_(None right now)_ – keep adding here as new issues are found.
 
-2) **Duplicate uploads for freshly generated chunks**  
-   - Location: `src/world.rs` `insert_chunk` always pushes to `dirty_chunks`; `src/world_streaming.rs` `update_chunk_loading` uploads those chunks immediately and marks them clean. `upload_world_to_gpu` then drains `dirty_chunks` and reuploads the same chunks.  
-   - Impact: Wasted GPU bandwidth and inflated profiler counters each time a chunk generation completes.  
-   - Direction: Clear or skip these positions after the immediate upload (e.g., drain from dirty queue or track “already uploaded this frame”).
-
-3) **Outdated comment about sub-voxel integration**  
-   - Location: Top of `src/sub_voxel.rs`.  
-   - Issue: Comment says the module is “under construction” though it’s already used by rendering/interactions.  
-   - Direction: Update wording to reflect current integration to avoid future confusion.
+## Resolved (2026-01-01)
+- **Texture-origin shift metadata gap** — `check_and_shift_texture_origin` now forces `update_metadata_buffers()` after reuploading chunks so skip buffers align immediately.  
+- **Duplicate uploads after generation** — Newly uploaded chunks are removed from `dirty_chunks` to avoid a second upload in `upload_world_to_gpu`; added `World::remove_dirty_positions` plus regression test.  
+- **Sub-voxel comment accuracy** — Updated module docs to reflect current integration.

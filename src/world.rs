@@ -853,4 +853,50 @@ mod tests {
         assert_eq!(dirty.len(), 2);
         assert!(world.dirty_chunks().is_empty());
     }
+
+    #[test]
+    fn test_remove_dirty_positions() {
+        let mut world = World::new();
+        let pos_a = vector![0, 0, 0];
+        let pos_b = vector![32, 0, 0];
+        let chunk_b = World::world_to_chunk(pos_b);
+
+        world.set_block(pos_a, BlockType::Stone);
+        world.set_block(pos_b, BlockType::Dirt);
+        assert_eq!(world.dirty_chunks().len(), 2);
+
+        // Remove one entry
+        let chunk_a = World::world_to_chunk(pos_a);
+        world.remove_dirty_positions(&[chunk_a]);
+        let mut remaining: Vec<_> = world
+            .dirty_chunks()
+            .iter()
+            .map(|v| (v.x, v.y, v.z))
+            .collect();
+        remaining.sort();
+        assert_eq!(remaining, vec![(chunk_b.x, chunk_b.y, chunk_b.z)]);
+
+        // Removing again is a no-op
+        world.remove_dirty_positions(&[chunk_a]);
+        let mut remaining: Vec<_> = world
+            .dirty_chunks()
+            .iter()
+            .map(|v| (v.x, v.y, v.z))
+            .collect();
+        remaining.sort();
+        assert_eq!(remaining, vec![(chunk_b.x, chunk_b.y, chunk_b.z)]);
+
+        // Remove remaining
+        world.remove_dirty_positions(&[chunk_b]);
+        let remaining: Vec<_> = world
+            .dirty_chunks()
+            .iter()
+            .map(|v| (v.x, v.y, v.z))
+            .collect();
+        assert!(
+            remaining.is_empty(),
+            "dirty_chunks should be empty, found: {:?}",
+            remaining
+        );
+    }
 }
