@@ -7,7 +7,7 @@
 
 use crate::chunk::{BlockModelData, BlockType, CHUNK_SIZE, Chunk};
 use nalgebra::{Vector3, vector};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// A position in chunk coordinates (each unit = one chunk).
 pub type ChunkPos = Vector3<i32>;
@@ -22,6 +22,8 @@ pub struct World {
 
     /// Queue of chunk positions that need GPU re-upload.
     dirty_chunks: Vec<ChunkPos>,
+    /// Membership set to keep dirty_chunks unique.
+    dirty_set: HashSet<ChunkPos>,
 
     /// Height cache for minimap: (x, z) -> (block_type, height)
     minimap_height_cache: HashMap<(i32, i32), (BlockType, i32)>,
@@ -135,6 +137,7 @@ impl World {
         Self {
             chunks: HashMap::new(),
             dirty_chunks: Vec::new(),
+            dirty_set: HashSet::new(),
             minimap_height_cache: HashMap::new(),
         }
     }
@@ -202,7 +205,7 @@ impl World {
     /// Inserts a chunk at the given position.
     pub fn insert_chunk(&mut self, chunk_pos: ChunkPos, chunk: Chunk) {
         self.chunks.insert(chunk_pos, chunk);
-        self.dirty_chunks.push(chunk_pos);
+        self.push_dirty(chunk_pos);
     }
 
     /// Removes and returns a chunk at the given position.
@@ -232,9 +235,8 @@ impl World {
         let was_dirty = chunk.dirty;
         chunk.set_block(lx, ly, lz, block);
 
-        // Add to dirty queue if this is a new chunk or the modification made it dirty
         if is_new_chunk || (chunk.dirty && !was_dirty) {
-            self.dirty_chunks.push(chunk_pos);
+            self.push_dirty(chunk_pos);
         }
     }
 
@@ -251,9 +253,8 @@ impl World {
         let was_dirty = chunk.dirty;
         chunk.set_model_block(lx, ly, lz, model_id, rotation);
 
-        // Add to dirty queue if this is a new chunk or the modification made it dirty
         if is_new_chunk || (chunk.dirty && !was_dirty) {
-            self.dirty_chunks.push(chunk_pos);
+            self.push_dirty(chunk_pos);
         }
     }
 
@@ -295,6 +296,7 @@ impl World {
     ///
     /// Returns all chunk positions that need GPU re-upload.
     pub fn drain_dirty_chunks(&mut self) -> Vec<ChunkPos> {
+        self.dirty_set.clear();
         std::mem::take(&mut self.dirty_chunks)
     }
 
@@ -304,9 +306,18 @@ impl World {
             return;
         }
 
-        use std::collections::HashSet;
         let remove: HashSet<_> = positions.iter().copied().collect();
         self.dirty_chunks.retain(|pos| !remove.contains(pos));
+        for pos in &remove {
+            self.dirty_set.remove(pos);
+        }
+    }
+
+    /// Pushes a chunk position onto the dirty queue if not already present.
+    fn push_dirty(&mut self, pos: ChunkPos) {
+        if self.dirty_set.insert(pos) {
+            self.dirty_chunks.push(pos);
+        }
     }
 
     /// Returns all dirty chunk positions without draining.
@@ -848,6 +859,8 @@ mod tests {
 
         world.set_block(vector![0, 0, 0], BlockType::Stone);
         world.set_block(vector![32, 0, 0], BlockType::Dirt);
+        // Setting the same block again should not duplicate entries
+        world.set_block(vector![0, 0, 0], BlockType::Stone);
 
         let dirty = world.drain_dirty_chunks();
         assert_eq!(dirty.len(), 2);

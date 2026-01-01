@@ -14,3 +14,4 @@ _(None right now)_ – keep adding here as new issues are found.
 - **Texture-origin shift metadata gap** — `check_and_shift_texture_origin` now forces `update_metadata_buffers()` after reuploading chunks so skip buffers align immediately.  
 - **Duplicate uploads after generation** — Newly uploaded chunks are removed from `dirty_chunks` to avoid a second upload in `upload_world_to_gpu`; added `World::remove_dirty_positions` plus regression test.  
 - **Sub-voxel comment accuracy** — Updated module docs to reflect current integration.
+- **Dirty chunk queue dedupe** — `World` now keeps a set-backed dirty queue to prevent repeated entries; tests guard against duplicate enqueues.
