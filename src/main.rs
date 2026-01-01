@@ -428,28 +428,7 @@ struct App {
     /// Unload distance in chunks (adjustable via slider)
     unload_distance: i32,
 
-    rcx: Option<RenderContext>,
-}
-
-struct RenderContext {
-    window: Arc<Window>,
-    swapchain: Arc<Swapchain>,
-    image_views: Vec<Arc<ImageView>>,
-
-    render_image: Arc<Image>,
-    render_set: Arc<DescriptorSet>,
-    resample_image: Arc<Image>,
-    resample_set: Arc<DescriptorSet>,
-
-    /// Distance buffer for two-pass beam optimization (1/4 resolution)
-    distance_image: Arc<Image>,
-    distance_set: Arc<DescriptorSet>,
-
-    gui: Gui,
-    /// Texture ID for the atlas in egui.
-    atlas_texture_id: egui::TextureId,
-
-    recreate_swapchain: bool,
+    rcx: Option<gpu_resources::RenderContext>,
 }
 
 impl App {
@@ -3580,7 +3559,7 @@ impl ApplicationHandler for App {
 
         let recreate_swapchain = false;
 
-        self.rcx = Some(RenderContext {
+        self.rcx = Some(gpu_resources::RenderContext {
             window,
             swapchain,
             image_views,

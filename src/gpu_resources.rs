@@ -1,3 +1,4 @@
+use egui_winit_vulkano::{Gui, egui};
 use nalgebra::{Matrix4, Vector3};
 use std::sync::Arc;
 use vulkano::{
@@ -29,6 +30,27 @@ use crate::constants::{LOADED_CHUNKS_X, LOADED_CHUNKS_Z, WORLD_CHUNKS_Y};
 use crate::falling_block::{GpuFallingBlock, MAX_FALLING_BLOCKS};
 use crate::particles;
 use crate::sub_voxel::{MAX_MODELS, ModelRegistry, PALETTE_SIZE, SUB_VOXEL_SIZE};
+
+pub struct RenderContext {
+    pub window: Arc<Window>,
+    pub swapchain: Arc<Swapchain>,
+    pub image_views: Vec<Arc<ImageView>>,
+
+    pub render_image: Arc<Image>,
+    pub render_set: Arc<DescriptorSet>,
+    pub resample_image: Arc<Image>,
+    pub resample_set: Arc<DescriptorSet>,
+
+    /// Distance buffer for two-pass beam optimization (1/4 resolution)
+    pub distance_image: Arc<Image>,
+    pub distance_set: Arc<DescriptorSet>,
+
+    pub gui: Gui,
+    /// Texture ID for the atlas in egui.
+    pub atlas_texture_id: egui::TextureId,
+
+    pub recreate_swapchain: bool,
+}
 
 #[derive(BufferContents, Clone, Copy)]
 #[repr(C)]
