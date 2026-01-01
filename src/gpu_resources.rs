@@ -969,36 +969,46 @@ pub fn upload_chunks_batched(
         return;
     }
 
-    // Single staging buffers for all blocks and metadata to cut per-chunk allocations.
-    let block_staging = Buffer::new_slice::<u8>(
-        memory_allocator.clone(),
-        BufferCreateInfo {
-            usage: BufferUsage::TRANSFER_SRC,
-            ..Default::default()
-        },
-        AllocationCreateInfo {
-            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
-                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-            ..Default::default()
-        },
-        total_block_bytes as u64,
-    )
-    .unwrap();
+    // Reuse (or grow) pooled staging buffers to reduce allocations.
+    thread_local! {
+        static BLOCK_POOL: std::cell::RefCell<Vec<Subbuffer<[u8]>>> = const { std::cell::RefCell::new(Vec::new()) };
+        static META_POOL: std::cell::RefCell<Vec<Subbuffer<[u8]>>> = const { std::cell::RefCell::new(Vec::new()) };
+    }
 
-    let meta_staging = Buffer::new_slice::<u8>(
-        memory_allocator.clone(),
-        BufferCreateInfo {
-            usage: BufferUsage::TRANSFER_SRC,
-            ..Default::default()
-        },
-        AllocationCreateInfo {
-            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
-                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-            ..Default::default()
-        },
-        total_meta_bytes as u64,
-    )
-    .unwrap();
+    fn take_or_alloc(
+        pool: &std::cell::RefCell<Vec<Subbuffer<[u8]>>>,
+        needed: usize,
+        memory_allocator: &Arc<StandardMemoryAllocator>,
+    ) -> Subbuffer<[u8]> {
+        // pop the first buffer big enough; keep simple LIFO
+        if let Some(idx) = pool
+            .borrow()
+            .iter()
+            .position(|b| b.size() as usize >= needed)
+        {
+            return pool.borrow_mut().swap_remove(idx);
+        }
+
+        Buffer::new_slice::<u8>(
+            memory_allocator.clone(),
+            BufferCreateInfo {
+                usage: BufferUsage::TRANSFER_SRC,
+                ..Default::default()
+            },
+            AllocationCreateInfo {
+                memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+                    | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                ..Default::default()
+            },
+            needed as u64,
+        )
+        .unwrap()
+    }
+
+    let block_staging =
+        BLOCK_POOL.with(|pool| take_or_alloc(pool, total_block_bytes, memory_allocator));
+    let meta_staging =
+        META_POOL.with(|pool| take_or_alloc(pool, total_meta_bytes, memory_allocator));
 
     {
         let mut block_write = block_staging.write().unwrap();
@@ -1058,26 +1068,32 @@ pub fn upload_chunks_batched(
     command_buffer_builder
         .copy_buffer_to_image(CopyBufferToImageInfo {
             regions: block_regions.into(),
-            ..CopyBufferToImageInfo::buffer_image(block_staging, voxel_image.clone())
+            ..CopyBufferToImageInfo::buffer_image(block_staging.clone(), voxel_image.clone())
         })
         .unwrap();
 
     command_buffer_builder
         .copy_buffer_to_image(CopyBufferToImageInfo {
             regions: metadata_regions.into(),
-            ..CopyBufferToImageInfo::buffer_image(meta_staging, model_metadata_image.clone())
+            ..CopyBufferToImageInfo::buffer_image(
+                meta_staging.clone(),
+                model_metadata_image.clone(),
+            )
         })
         .unwrap();
 
-    command_buffer_builder
-        .build()
-        .unwrap()
-        .execute(queue.clone())
+    let cb = command_buffer_builder.build().unwrap();
+
+    cb.execute(queue.clone())
         .unwrap()
         .then_signal_fence_and_flush()
         .unwrap()
         .wait(None)
         .unwrap();
+
+    // Return buffers to pools for reuse
+    BLOCK_POOL.with(|pool| pool.borrow_mut().push(block_staging));
+    META_POOL.with(|pool| pool.borrow_mut().push(meta_staging));
 }
 
 pub fn update_chunk_metadata(
