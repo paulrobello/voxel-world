@@ -18,6 +18,8 @@ const WORKER_THREADS: usize = 4;
 /// Maximum chunks to queue for generation.
 /// Prevents memory buildup if generation is slower than requests.
 const MAX_QUEUE_SIZE: usize = 128;
+/// Soft cap for batches (defensive: avoids accidental huge fan-out).
+const MAX_BATCH_REQUEST: usize = 256;
 
 /// Request to generate a chunk at a specific position.
 #[derive(Debug, Clone)]
@@ -166,7 +168,13 @@ impl ChunkLoader {
     /// Returns the number of chunks successfully queued.
     pub fn request_chunks(&mut self, positions: &[Vector3<i32>]) -> usize {
         let mut queued = 0;
-        for &pos in positions {
+        // Deduplicate within the batch to avoid spamming the channel with repeats.
+        use std::collections::HashSet;
+        let mut batch_seen = HashSet::with_capacity(positions.len().min(MAX_BATCH_REQUEST));
+        for &pos in positions.iter().take(MAX_BATCH_REQUEST) {
+            if !batch_seen.insert(pos) {
+                continue;
+            }
             if self.request_chunk(pos) {
                 queued += 1;
             }
@@ -178,7 +186,7 @@ impl ChunkLoader {
     ///
     /// Returns a vector of all currently available completed chunks.
     pub fn receive_chunks(&mut self) -> Vec<ChunkResult> {
-        let mut results = Vec::new();
+        let mut results = Vec::with_capacity(self.in_flight.len().min(32));
 
         loop {
             match self.result_rx.try_recv() {
@@ -197,6 +205,12 @@ impl ChunkLoader {
     /// Returns the number of chunks currently being generated.
     pub fn in_flight_count(&self) -> usize {
         self.in_flight.len()
+    }
+
+    /// Returns true if a position is already queued or in-flight.
+    #[allow(dead_code)]
+    pub fn is_in_flight(&self, position: Vector3<i32>) -> bool {
+        self.in_flight.contains(&position)
     }
 
     /// Cancels a pending chunk request if it hasn't started yet.
@@ -284,5 +298,27 @@ mod tests {
 
         let results = loader.receive_chunks();
         assert_eq!(results.len(), 8);
+    }
+
+    #[test]
+    fn test_chunk_loader_batch_dedupe_and_cap() {
+        let mut loader = ChunkLoader::new(test_generator);
+
+        // Create a batch with duplicates and over the soft cap
+        let mut positions: Vec<_> = (0..300).map(|i| Vector3::new(i / 2, 0, 0)).collect();
+        // Add some explicit duplicates
+        positions.push(Vector3::new(0, 0, 0));
+        positions.push(Vector3::new(1, 0, 0));
+
+        let queued = loader.request_chunks(&positions);
+
+        // Expect at most MAX_BATCH_REQUEST unique positions to be queued
+        assert!(queued <= MAX_BATCH_REQUEST);
+
+        // Duplicates of the first few positions should be ignored
+        assert!(loader.is_in_flight(Vector3::new(0, 0, 0)));
+        assert!(loader.is_in_flight(Vector3::new(1, 0, 0)));
+        // And the count should match the in-flight tracking
+        assert_eq!(loader.in_flight_count(), queued);
     }
 }

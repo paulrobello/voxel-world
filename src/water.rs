@@ -271,11 +271,13 @@ impl WaterGrid {
         }
     }
 
-    /// Marks a position and its neighbors as needing update.
+    /// Marks a position and its neighbors as needing update (deduped via set).
     pub fn activate_neighbors(&mut self, pos: Vector3<i32>) {
-        self.dirty_positions.insert(pos);
-        for (dx, dy, dz) in ORTHO_DIRS {
-            self.dirty_positions.insert(pos + Vector3::new(dx, dy, dz));
+        if self.dirty_positions.insert(pos) {
+            // only iterate neighbors when pos was newly inserted
+            for (dx, dy, dz) in ORTHO_DIRS {
+                self.dirty_positions.insert(pos + Vector3::new(dx, dy, dz));
+            }
         }
     }
 
@@ -455,6 +457,9 @@ impl WaterGrid {
             }
         }
 
+        // Prune far-away tracked cells to keep sets bounded
+        self.prune_far_sets(player_pos);
+
         // Filter and sort active cells by distance to player
         // Only simulate water within simulation_radius (ensures chunks are loaded)
         let radius_sq = self.simulation_radius * self.simulation_radius;
@@ -577,6 +582,23 @@ impl WaterGrid {
     /// Returns the number of active (potentially flowing) cells.
     pub fn active_count(&self) -> usize {
         self.active.len()
+    }
+
+    /// Prunes active and dirty sets to a maximum radius from player to avoid unbounded growth.
+    fn prune_far_sets(&mut self, player_pos: Vector3<f32>) {
+        let radius_sq = self.simulation_radius * self.simulation_radius;
+        self.active.retain(|p| {
+            let dx = p.x as f32 - player_pos.x;
+            let dy = p.y as f32 - player_pos.y;
+            let dz = p.z as f32 - player_pos.z;
+            dx * dx + dy * dy + dz * dz <= radius_sq
+        });
+        self.dirty_positions.retain(|p| {
+            let dx = p.x as f32 - player_pos.x;
+            let dy = p.y as f32 - player_pos.y;
+            let dz = p.z as f32 - player_pos.z;
+            dx * dx + dy * dy + dz * dz <= radius_sq
+        });
     }
 
     /// Returns an iterator over all water cells.
@@ -726,6 +748,43 @@ mod tests {
 
         grid.set_water(pos, 0.0, false);
         assert!(!grid.has_water(pos));
+    }
+
+    #[test]
+    fn test_prune_far_sets() {
+        let mut grid = WaterGrid::new();
+        grid.simulation_radius = 4.0;
+
+        // Far entry
+        grid.cells.insert(
+            Vector3::new(10, 0, 0),
+            WaterCell {
+                mass: 1.0,
+                is_source: false,
+                stable_ticks: 0,
+            },
+        );
+        grid.active.insert(Vector3::new(10, 0, 0));
+        grid.dirty_positions.insert(Vector3::new(10, 0, 0));
+
+        // Near entry
+        grid.cells.insert(
+            Vector3::new(1, 0, 0),
+            WaterCell {
+                mass: 1.0,
+                is_source: false,
+                stable_ticks: 0,
+            },
+        );
+        grid.active.insert(Vector3::new(1, 0, 0));
+        grid.dirty_positions.insert(Vector3::new(1, 0, 0));
+
+        grid.prune_far_sets(Vector3::new(0.0, 0.0, 0.0));
+
+        assert!(grid.active.contains(&Vector3::new(1, 0, 0)));
+        assert!(grid.dirty_positions.contains(&Vector3::new(1, 0, 0)));
+        assert!(!grid.active.contains(&Vector3::new(10, 0, 0)));
+        assert!(!grid.dirty_positions.contains(&Vector3::new(10, 0, 0)));
     }
 
     #[test]
