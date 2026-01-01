@@ -174,12 +174,13 @@ impl Player {
             -forward * yaw.cos() - right * yaw.sin(),
         );
 
-        let base_speed = if touching_water {
+        // Fly mode should ignore medium (water/ladder) speed modifiers
+        let base_speed = if self.fly_mode {
+            MOVE_SPEED * 2.0
+        } else if touching_water {
             SWIM_SPEED
         } else if touching_ladder {
             CLIMB_HORIZ_SPEED
-        } else if self.fly_mode {
-            MOVE_SPEED * 2.0
         } else {
             MOVE_SPEED
         };
