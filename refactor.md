@@ -15,7 +15,7 @@ Last batch: `make checkall` (2026-01-01) — pass.
    - Locations: `src/gpu_resources.rs` helpers `get_images_and_sets`, `get_distance_image_and_set`, `get_particle_and_falling_block_set`, `get_light_set`, `get_chunk_metadata_set`, `get_brick_and_model_set`.
    - Impact: Repeated `DescriptorSet::new` and buffer-construction patterns make set-index/layout changes error-prone and keep the file at 1.3k LOC.
    - Direction: Introduce small helpers (e.g., `make_set(pipeline, set_idx, writes)`, `make_storage_buffer<T>(alloc, len)`) to centralize layout lookup and buffer creation, trimming duplication and aligning future descriptor changes.
-   - Status: open.
+   - Status: addressed — added `make_set` and `make_storage_buffer` helpers and rewired the noted call sites to use them.
 
 3. HUD render parameter bloat (medium)
    - Location: `HUDRenderer::render` signature (`src/hud_render.rs:15-47`) takes ~30 params; overlay panels duplicate `Area` + `Frame` styling (`52-104`, `106-119`).

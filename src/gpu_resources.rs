@@ -31,6 +31,43 @@ use crate::falling_block::{GpuFallingBlock, MAX_FALLING_BLOCKS};
 use crate::particles;
 use crate::sub_voxel::{MAX_MODELS, ModelRegistry, PALETTE_SIZE, SUB_VOXEL_SIZE};
 
+/// Helper to allocate a storage buffer with the common flags used across GPU resources.
+fn make_storage_buffer<T: BufferContents>(
+    memory_allocator: &Arc<StandardMemoryAllocator>,
+    len: u64,
+) -> Subbuffer<[T]> {
+    Buffer::new_slice::<T>(
+        memory_allocator.clone(),
+        BufferCreateInfo {
+            usage: BufferUsage::STORAGE_BUFFER,
+            ..Default::default()
+        },
+        AllocationCreateInfo {
+            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+            ..Default::default()
+        },
+        len,
+    )
+    .unwrap()
+}
+
+/// Helper to create a descriptor set for a given pipeline set index.
+fn make_set(
+    descriptor_set_allocator: &Arc<StandardDescriptorSetAllocator>,
+    pipeline: &ComputePipeline,
+    set_idx: usize,
+    writes: impl IntoIterator<Item = WriteDescriptorSet>,
+) -> Arc<DescriptorSet> {
+    let layout = pipeline
+        .layout()
+        .set_layouts()
+        .get(set_idx)
+        .unwrap()
+        .clone();
+    DescriptorSet::new(descriptor_set_allocator.clone(), layout, writes, []).unwrap()
+}
+
 pub struct RenderContext {
     pub window: Arc<Window>,
     pub swapchain: Arc<Swapchain>,
@@ -197,28 +234,24 @@ pub fn get_images_and_sets(
     let (render_image, render_image_view) =
         get_render_image(memory_allocator.clone(), render_extent);
 
-    let layout = render_pipeline.layout().set_layouts()[0].clone();
-    let render_set = DescriptorSet::new(
-        descriptor_set_allocator.clone(),
-        layout,
+    let render_set = make_set(
+        &descriptor_set_allocator,
+        render_pipeline,
+        0,
         [WriteDescriptorSet::image_view(0, render_image_view.clone())],
-        [],
-    )
-    .unwrap();
+    );
 
     let (resample_image, resample_image_view) = get_resample_image(memory_allocator, window_extent);
 
-    let layout = resample_pipeline.layout().set_layouts()[0].clone();
-    let resample_set = DescriptorSet::new(
-        descriptor_set_allocator.clone(),
-        layout,
+    let resample_set = make_set(
+        &descriptor_set_allocator,
+        resample_pipeline,
+        0,
         [
             WriteDescriptorSet::image_view(0, render_image_view.clone()),
             WriteDescriptorSet::image_view(1, resample_image_view.clone()),
         ],
-        [],
-    )
-    .unwrap();
+    );
 
     (render_image, render_set, resample_image, resample_set)
 }
@@ -256,19 +289,12 @@ pub fn get_distance_image_and_set(
     )
     .unwrap();
 
-    let layout = render_pipeline
-        .layout()
-        .set_layouts()
-        .get(6)
-        .unwrap()
-        .clone();
-    let distance_set = DescriptorSet::new(
-        descriptor_set_allocator,
-        layout,
+    let distance_set = make_set(
+        &descriptor_set_allocator,
+        render_pipeline,
+        6,
         [WriteDescriptorSet::image_view(0, distance_image_view)],
-        [],
-    )
-    .unwrap();
+    );
 
     (distance_image, distance_set)
 }
@@ -320,19 +346,12 @@ pub fn create_empty_voxel_texture(
     let image_view =
         ImageView::new(image.clone(), ImageViewCreateInfo::from_image(&image)).unwrap();
 
-    let layout = render_pipeline
-        .layout()
-        .set_layouts()
-        .get(1)
-        .unwrap()
-        .clone();
-    let descriptor_set = DescriptorSet::new(
-        descriptor_set_allocator.clone(),
-        layout.clone(),
+    let descriptor_set = make_set(
+        &descriptor_set_allocator,
+        render_pipeline,
+        1,
         [WriteDescriptorSet::image_view(0, image_view)],
-        [],
-    )
-    .unwrap();
+    );
 
     (descriptor_set, image)
 }
@@ -438,25 +457,16 @@ pub fn load_texture_atlas(
     )
     .unwrap();
 
-    // Create descriptor set at set index 2
-    let layout = render_pipeline
-        .layout()
-        .set_layouts()
-        .get(2)
-        .unwrap()
-        .clone();
-
-    let descriptor_set = DescriptorSet::new(
-        descriptor_set_allocator.clone(),
-        layout,
+    let descriptor_set = make_set(
+        &descriptor_set_allocator,
+        render_pipeline,
+        2,
         [WriteDescriptorSet::image_view_sampler(
             0,
             image_view.clone(),
             sampler.clone(),
         )],
-        [],
-    )
-    .unwrap();
+    );
 
     (descriptor_set, sampler, image_view)
 }
@@ -474,56 +484,22 @@ pub fn get_particle_and_falling_block_set(
 ) {
     use particles::{GpuParticle, MAX_PARTICLES};
 
-    // Create a storage buffer for particles (initialized to zeros)
-    let particle_buffer = Buffer::new_slice::<GpuParticle>(
-        memory_allocator.clone(),
-        BufferCreateInfo {
-            usage: BufferUsage::STORAGE_BUFFER,
-            ..Default::default()
-        },
-        AllocationCreateInfo {
-            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
-                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-            ..Default::default()
-        },
-        MAX_PARTICLES as u64,
-    )
-    .unwrap();
-
-    // Create a storage buffer for falling blocks (initialized to zeros)
-    let falling_block_buffer = Buffer::new_slice::<GpuFallingBlock>(
-        memory_allocator,
-        BufferCreateInfo {
-            usage: BufferUsage::STORAGE_BUFFER,
-            ..Default::default()
-        },
-        AllocationCreateInfo {
-            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
-                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-            ..Default::default()
-        },
-        MAX_FALLING_BLOCKS as u64,
-    )
-    .unwrap();
+    // Create storage buffers
+    let particle_buffer =
+        make_storage_buffer::<GpuParticle>(&memory_allocator, MAX_PARTICLES as u64);
+    let falling_block_buffer =
+        make_storage_buffer::<GpuFallingBlock>(&memory_allocator, MAX_FALLING_BLOCKS as u64);
 
     // Create descriptor set at set index 3 with both buffers
-    let layout = render_pipeline
-        .layout()
-        .set_layouts()
-        .get(3)
-        .unwrap()
-        .clone();
-
-    let descriptor_set = DescriptorSet::new(
-        descriptor_set_allocator,
-        layout,
+    let descriptor_set = make_set(
+        &descriptor_set_allocator,
+        render_pipeline,
+        3,
         [
             WriteDescriptorSet::buffer(0, particle_buffer.clone()),
             WriteDescriptorSet::buffer(1, falling_block_buffer.clone()),
         ],
-        [],
-    )
-    .unwrap();
+    );
 
     (particle_buffer, falling_block_buffer, descriptor_set)
 }
@@ -548,36 +524,15 @@ pub fn get_light_set(
     render_pipeline: &ComputePipeline,
 ) -> (Subbuffer<[GpuLight]>, Arc<DescriptorSet>) {
     // Create a storage buffer for lights (initialized to zeros)
-    let light_buffer = Buffer::new_slice::<GpuLight>(
-        memory_allocator,
-        BufferCreateInfo {
-            usage: BufferUsage::STORAGE_BUFFER,
-            ..Default::default()
-        },
-        AllocationCreateInfo {
-            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
-                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-            ..Default::default()
-        },
-        MAX_LIGHTS as u64,
-    )
-    .unwrap();
+    let light_buffer = make_storage_buffer::<GpuLight>(&memory_allocator, MAX_LIGHTS as u64);
 
     // Create descriptor set at set index 4
-    let layout = render_pipeline
-        .layout()
-        .set_layouts()
-        .get(4)
-        .unwrap()
-        .clone();
-
-    let descriptor_set = DescriptorSet::new(
-        descriptor_set_allocator,
-        layout,
+    let descriptor_set = make_set(
+        &descriptor_set_allocator,
+        render_pipeline,
+        4,
         [WriteDescriptorSet::buffer(0, light_buffer.clone())],
-        [],
-    )
-    .unwrap();
+    );
 
     (light_buffer, descriptor_set)
 }
@@ -595,36 +550,16 @@ pub fn get_chunk_metadata_set(
     render_pipeline: &ComputePipeline,
 ) -> (Subbuffer<[u32]>, Arc<DescriptorSet>) {
     // Create a storage buffer for chunk metadata (bit-packed flags)
-    let chunk_metadata_buffer = Buffer::new_slice::<u32>(
-        memory_allocator,
-        BufferCreateInfo {
-            usage: BufferUsage::STORAGE_BUFFER,
-            ..Default::default()
-        },
-        AllocationCreateInfo {
-            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
-                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-            ..Default::default()
-        },
-        CHUNK_METADATA_WORDS as u64,
-    )
-    .unwrap();
+    let chunk_metadata_buffer =
+        make_storage_buffer::<u32>(&memory_allocator, CHUNK_METADATA_WORDS as u64);
 
     // Create descriptor set at set index 5
-    let layout = render_pipeline
-        .layout()
-        .set_layouts()
-        .get(5)
-        .unwrap()
-        .clone();
-
-    let descriptor_set = DescriptorSet::new(
-        descriptor_set_allocator,
-        layout,
+    let descriptor_set = make_set(
+        &descriptor_set_allocator,
+        render_pipeline,
+        5,
         [WriteDescriptorSet::buffer(0, chunk_metadata_buffer.clone())],
-        [],
-    )
-    .unwrap();
+    );
 
     (chunk_metadata_buffer, descriptor_set)
 }
@@ -662,37 +597,11 @@ pub fn get_brick_and_model_set(
 ) {
     // === Brick metadata resources (bindings 0-1) ===
 
-    // Create buffer for brick masks (64 bits per chunk)
-    let brick_mask_buffer = Buffer::new_slice::<u32>(
-        memory_allocator.clone(),
-        BufferCreateInfo {
-            usage: BufferUsage::STORAGE_BUFFER,
-            ..Default::default()
-        },
-        AllocationCreateInfo {
-            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
-                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-            ..Default::default()
-        },
-        BRICK_MASK_WORDS as u64,
-    )
-    .unwrap();
+    // Create buffers for brick metadata
+    let brick_mask_buffer = make_storage_buffer::<u32>(&memory_allocator, BRICK_MASK_WORDS as u64);
 
     // Create buffer for brick distances (64 bytes per chunk)
-    let brick_dist_buffer = Buffer::new_slice::<u32>(
-        memory_allocator.clone(),
-        BufferCreateInfo {
-            usage: BufferUsage::STORAGE_BUFFER,
-            ..Default::default()
-        },
-        AllocationCreateInfo {
-            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
-                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-            ..Default::default()
-        },
-        BRICK_DIST_WORDS as u64,
-    )
-    .unwrap();
+    let brick_dist_buffer = make_storage_buffer::<u32>(&memory_allocator, BRICK_DIST_WORDS as u64);
 
     // === Model resources (bindings 2-5) ===
 
@@ -819,16 +728,10 @@ pub fn get_brick_and_model_set(
     .unwrap();
 
     // === Create combined descriptor set at set index 7 ===
-    let layout = render_pipeline
-        .layout()
-        .set_layouts()
-        .get(7)
-        .unwrap()
-        .clone();
-
-    let descriptor_set = DescriptorSet::new(
-        descriptor_set_allocator,
-        layout,
+    let descriptor_set = make_set(
+        &descriptor_set_allocator,
+        render_pipeline,
+        7,
         [
             // Brick metadata (bindings 0-1)
             WriteDescriptorSet::buffer(0, brick_mask_buffer.clone()),
@@ -839,9 +742,7 @@ pub fn get_brick_and_model_set(
             WriteDescriptorSet::image_view(4, metadata_view),
             WriteDescriptorSet::buffer(5, model_properties_buffer),
         ],
-        [],
-    )
-    .unwrap();
+    );
 
     (
         brick_mask_buffer,
