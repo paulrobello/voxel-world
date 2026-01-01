@@ -1,0 +1,472 @@
+use crate::App;
+use crate::block_update::BlockUpdateType;
+use crate::chunk::BlockType;
+use crate::constants::{
+    MAX_RAYCAST_DISTANCE, PLAYER_HALF_WIDTH, PLAYER_HEIGHT, TEXTURE_SIZE_Y,
+};
+use crate::raycast::{raycast, get_place_position};
+use crate::sub_voxel::ModelRegistry;
+use nalgebra::Vector3;
+use winit::event::MouseButton;
+
+impl App {
+    pub fn update_raycast(&mut self) {
+        // Camera uses normalized texture-relative coords (0-1), raycast needs world coords
+        let scale = Vector3::new(
+            self.world_extent[0] as f32,
+            self.world_extent[1] as f32,
+            self.world_extent[2] as f32,
+        );
+        // Convert camera position from normalized texture coords to texture coords
+        let texture_pos = self
+            .player
+            .camera
+            .position
+            .cast::<f32>()
+            .component_mul(&scale);
+        // Convert texture coords to world coords by adding texture_origin
+        let origin = Vector3::new(
+            texture_pos.x + self.texture_origin.x as f32,
+            texture_pos.y + self.texture_origin.y as f32,
+            texture_pos.z + self.texture_origin.z as f32,
+        );
+        let direction = self.player.camera_direction().cast::<f32>();
+
+        self.current_hit = raycast(&self.world, origin, direction, MAX_RAYCAST_DISTANCE);
+    }
+
+    pub fn update_block_breaking(&mut self, delta_time: f32, holding_break: bool) -> bool {
+        // Decrement cooldown timer
+        if self.break_cooldown > 0.0 {
+            self.break_cooldown -= delta_time;
+            if self.break_cooldown < 0.0 {
+                self.break_cooldown = 0.0;
+            }
+        }
+
+        // Get the block we're looking at
+        let target_block = self.current_hit.as_ref().map(|hit| hit.block_pos);
+
+        // If not holding break button or not looking at anything, reset
+        if !holding_break || target_block.is_none() {
+            self.breaking_block = None;
+            self.break_progress = 0.0;
+            return false;
+        }
+
+        // Don't start breaking if on cooldown (instant break mode)
+        if self.settings.instant_break && self.break_cooldown > 0.0 {
+            return false;
+        }
+
+        let target = target_block.unwrap();
+
+        // Get the block type to determine break time
+        let block_type = self.world.get_block(target).unwrap_or(BlockType::Air);
+        let break_time = block_type.break_time();
+
+        // Can't break air or water
+        if break_time <= 0.0 {
+            self.breaking_block = None;
+            self.break_progress = 0.0;
+            return false;
+        }
+
+        // If we're looking at a different block, reset progress
+        if self.breaking_block != Some(target) {
+            self.breaking_block = Some(target);
+            self.break_progress = 0.0;
+        }
+
+        // Increment break progress (instant if enabled)
+        if self.settings.instant_break {
+            self.break_progress = 1.0;
+        } else {
+            self.break_progress += delta_time / break_time;
+        }
+
+        // Check if block is fully broken
+        if self.break_progress >= 1.0 {
+            // Bounds check (Y only - X/Z are infinite)
+            if target.y >= 0 && target.y < TEXTURE_SIZE_Y as i32 {
+                // Get block color for particles before breaking
+                if let Some(block_type) = self.world.get_block(target) {
+                    let color = block_type.color();
+                    let particle_color = nalgebra::Vector3::new(color[0], color[1], color[2]);
+                    self.particles
+                        .spawn_block_break(target.cast::<f32>(), particle_color);
+                }
+
+                self.world.set_block(target, BlockType::Air);
+                self.world.invalidate_minimap_cache(target.x, target.z);
+
+                // Update neighboring fence/gate connections
+                self.world.update_fence_connections(target);
+
+                // Notify water grid that a block was removed (may trigger flow)
+                self.water_grid.on_block_removed(target);
+
+                // Check if any adjacent terrain water should start flowing
+                self.water_grid
+                    .activate_adjacent_terrain_water(&self.world, target);
+
+                // Queue physics checks (frame-distributed to prevent FPS spikes)
+                let player_pos = self
+                    .player
+                    .feet_pos(self.world_extent, self.texture_origin)
+                    .cast::<f32>();
+
+                // Queue gravity check for block above
+                self.block_updates.enqueue(
+                    target + Vector3::new(0, 1, 0),
+                    BlockUpdateType::Gravity,
+                    player_pos,
+                );
+
+                // Queue ground support check for model block above (fences, torches, gates)
+                self.block_updates.enqueue(
+                    target + Vector3::new(0, 1, 0),
+                    BlockUpdateType::ModelGroundSupport,
+                    player_pos,
+                );
+
+                // Queue tree support checks for all nearby logs
+                if block_type.is_log() {
+                    self.block_updates.enqueue_neighbors(
+                        target,
+                        BlockUpdateType::TreeSupport,
+                        player_pos,
+                    );
+                }
+                self.block_updates.enqueue_radius(
+                    target,
+                    3,
+                    BlockUpdateType::TreeSupport,
+                    player_pos,
+                );
+
+                // Queue orphaned leaves checks
+                self.block_updates.enqueue_radius(
+                    target,
+                    4,
+                    BlockUpdateType::OrphanedLeaves,
+                    player_pos,
+                );
+            }
+
+            // Reset for next block
+            self.breaking_block = None;
+            self.break_progress = 0.0;
+
+            // Set cooldown for instant break mode
+            if self.settings.instant_break {
+                self.break_cooldown = self.settings.break_cooldown_duration;
+            }
+
+            return true;
+        }
+
+        false
+    }
+
+    pub fn toggle_gate_at(&mut self, pos: Vector3<i32>) -> bool {
+        // Check if target is a Model block
+        let Some(BlockType::Model) = self.world.get_block(pos) else {
+            return false;
+        };
+
+        // Get model data
+        let Some(model_data) = self.world.get_model_data(pos) else {
+            return false;
+        };
+
+        let model_id = model_data.model_id;
+        let rotation = model_data.rotation;
+
+        // Check if it's a gate (closed: 20-23, open: 24-27)
+        if !(20..=27).contains(&model_id) {
+            return false;
+        }
+
+        // Calculate new model_id (toggle between closed and open)
+        let new_model_id = if model_id < 24 {
+            // Closed -> Open: add 4
+            model_id + 4
+        } else {
+            // Open -> Closed: subtract 4
+            model_id - 4
+        };
+
+        // Update the gate
+        self.world.set_model_block(pos, new_model_id, rotation);
+
+        true
+    }
+
+    pub fn update_block_placing(&mut self, delta_time: f32) {
+        // Decrease cooldown
+        if self.place_cooldown > 0.0 {
+            self.place_cooldown -= delta_time;
+        }
+
+        let holding_place = self.input.mouse_held(MouseButton::Right);
+
+        if !holding_place {
+            // Reset all line building state when mouse released
+            self.last_place_pos = None;
+            self.line_start_pos = None;
+            self.line_locked_axis = None;
+            self.model_needs_reclick = false; // Allow model placement on next click
+            self.gate_needs_reclick = false; // Allow gate toggle on next click
+            return;
+        }
+
+        if let Some(hit) = &self.current_hit {
+            // Priority 1: Toggle existing gate
+            if !self.gate_needs_reclick && self.toggle_gate_at(hit.block_pos) {
+                self.gate_needs_reclick = true;
+                return;
+            }
+
+            // Priority 2: Place new block
+            let place_pos = get_place_position(hit);
+
+            // Handle model blocks - require re-click to place multiple
+            if self.selected_block() == BlockType::Model && self.model_needs_reclick {
+                return;
+            }
+
+            // Handle line building (lock to axis)
+            let mut constrained_pos = place_pos;
+            if let Some(start) = self.line_start_pos {
+                if let Some(axis) = self.line_locked_axis {
+                    // Lock to the established axis
+                    match axis {
+                        0 => {
+                            constrained_pos.y = start.y;
+                            constrained_pos.z = start.z;
+                        }
+                        1 => {
+                            constrained_pos.x = start.x;
+                            constrained_pos.z = start.z;
+                        }
+                        2 => {
+                            constrained_pos.x = start.x;
+                            constrained_pos.y = start.y;
+                        }
+                        _ => {}
+                    }
+                } else {
+                    // Try to establish an axis
+                    let diff = place_pos - start;
+                    if diff.x.abs() > 0 {
+                        self.line_locked_axis = Some(0);
+                        constrained_pos.y = start.y;
+                        constrained_pos.z = start.z;
+                    } else if diff.y.abs() > 0 {
+                        self.line_locked_axis = Some(1);
+                        constrained_pos.x = start.x;
+                        constrained_pos.z = start.z;
+                    } else if diff.z.abs() > 0 {
+                        self.line_locked_axis = Some(2);
+                        constrained_pos.x = start.x;
+                        constrained_pos.y = start.y;
+                    }
+                }
+            } else {
+                // First block in a potential line
+                self.line_start_pos = Some(place_pos);
+            }
+
+            // Continuous placing logic
+            if self.last_place_pos != Some(constrained_pos) && self.place_cooldown <= 0.0 {
+                if self.place_block_at(constrained_pos) {
+                    if self.selected_block() == BlockType::Model {
+                        self.model_needs_reclick = true;
+                    }
+                }
+            }
+
+            self.last_place_pos = Some(constrained_pos);
+            self.place_cooldown = self.settings.place_cooldown_duration;
+        }
+    }
+
+    pub fn place_block_at(&mut self, place_pos: Vector3<i32>) -> bool {
+        // Bounds check (Y only, X/Z are infinite)
+        if place_pos.y < 0 || place_pos.y >= TEXTURE_SIZE_Y as i32 {
+            return false;
+        }
+
+        // Check if block would overlap with player hitbox (AABB collision)
+        let feet = self.player.feet_pos(self.world_extent, self.texture_origin);
+        let player_min = Vector3::new(
+            feet.x - PLAYER_HALF_WIDTH,
+            feet.y,
+            feet.z - PLAYER_HALF_WIDTH,
+        );
+        let player_max = Vector3::new(
+            feet.x + PLAYER_HALF_WIDTH,
+            feet.y + PLAYER_HEIGHT,
+            feet.z + PLAYER_HALF_WIDTH,
+        );
+        let block_min = place_pos.cast::<f64>();
+        let block_max = block_min + Vector3::new(1.0, 1.0, 1.0);
+
+        // AABB overlap check
+        let overlaps = player_min.x < block_max.x
+            && player_max.x > block_min.x
+            && player_min.y < block_max.y
+            && player_max.y > block_min.y
+            && player_min.z < block_max.z
+            && player_max.z > block_min.z;
+
+        if overlaps {
+            return false; // Can't place block inside player
+        }
+
+        // Check if target position already has a block
+        if let Some(existing) = self.world.get_block(place_pos) {
+            if existing != BlockType::Air {
+                return false; // Can't place on non-air
+            }
+        }
+
+        let block_to_place = self.selected_block();
+
+        // Handle model blocks specially - set both block type and metadata
+        if block_to_place == BlockType::Model {
+            let base_model_id = self.hotbar_model_ids[self.hotbar_index];
+            let rotation = 0u8;
+
+            // Determine final model_id based on type and connections
+            let model_id = if ModelRegistry::is_fence_model(base_model_id)
+                || (4..20).contains(&base_model_id)
+            {
+                // Fence: calculate connections and get correct variant
+                let connections = self.world.calculate_fence_connections(place_pos);
+                ModelRegistry::fence_model_id(connections)
+            } else if ModelRegistry::is_gate_model(base_model_id)
+                || (20..28).contains(&base_model_id)
+            {
+                // Gate: auto-detect orientation based on neighboring fences
+                let has_west = self
+                    .world
+                    .is_fence_connectable(place_pos + Vector3::new(-1, 0, 0));
+                let has_east = self
+                    .world
+                    .is_fence_connectable(place_pos + Vector3::new(1, 0, 0));
+                let has_north = self
+                    .world
+                    .is_fence_connectable(place_pos + Vector3::new(0, 0, -1));
+                let has_south = self
+                    .world
+                    .is_fence_connectable(place_pos + Vector3::new(0, 0, 1));
+
+                // Calculate player position relative to gate for open direction
+                let player_pos = self.player.feet_pos(self.world_extent, self.texture_origin);
+                let gate_center = place_pos.cast::<f64>() + Vector3::new(0.5, 0.0, 0.5);
+                let to_player = player_pos - gate_center;
+
+                let (connections, rotation) = if (has_north || has_south) && !has_west && !has_east
+                {
+                    let mut conn = 0u8;
+                    if has_north {
+                        conn |= 1;
+                    }
+                    if has_south {
+                        conn |= 2;
+                    }
+                    let rot = if to_player.x < 0.0 { 1u8 } else { 3u8 };
+                    (conn, rot)
+                } else {
+                    let connections = self.world.calculate_gate_connections(place_pos);
+                    let rot = if to_player.z < 0.0 { 0u8 } else { 2u8 };
+                    (connections, rot)
+                };
+                self.world.set_model_block(
+                    place_pos,
+                    ModelRegistry::gate_closed_model_id(connections),
+                    rotation,
+                );
+
+                self.world.update_fence_connections(place_pos);
+                return true;
+            } else if ModelRegistry::is_ladder_model(base_model_id) {
+                let player_pos = self.player.feet_pos(self.world_extent, self.texture_origin);
+                let ladder_center = place_pos.cast::<f64>() + Vector3::new(0.5, 0.0, 0.5);
+                let to_player = player_pos - ladder_center;
+
+                let rotation = if to_player.x.abs() > to_player.z.abs() {
+                    if to_player.x > 0.0 { 3 } else { 1 }
+                } else {
+                    if to_player.z > 0.0 { 2 } else { 0 }
+                };
+
+                self.world
+                    .set_model_block(place_pos, base_model_id, rotation);
+                return true;
+            } else {
+                base_model_id
+            };
+
+            self.world.set_model_block(place_pos, model_id, rotation);
+
+            if ModelRegistry::is_fence_or_gate(model_id) {
+                self.world.update_fence_connections(place_pos);
+            }
+        } else {
+            self.world.set_block(place_pos, block_to_place);
+
+            if block_to_place.is_solid() {
+                self.world.update_fence_connections(place_pos);
+            }
+        }
+        self.world
+            .invalidate_minimap_cache(place_pos.x, place_pos.z);
+
+        if block_to_place == BlockType::Water {
+            self.water_grid.place_source(place_pos);
+        } else {
+            self.water_grid.on_block_placed(place_pos);
+        }
+
+        true
+    }
+
+    pub fn process_landed_blocks(&mut self, mut landed: Vec<crate::falling_block::LandedBlock>) {
+        landed.sort_by_key(|lb| lb.position.y);
+
+        for lb in landed {
+            if lb.position.y >= 0 && lb.position.y < TEXTURE_SIZE_Y as i32 {
+                let mut place_y = lb.position.y;
+                while place_y < TEXTURE_SIZE_Y as i32 {
+                    let check_pos = Vector3::new(lb.position.x, place_y, lb.position.z);
+                    if let Some(existing) = self.world.get_block(check_pos) {
+                        if existing == BlockType::Air {
+                            break;
+                        }
+                    }
+                    place_y += 1;
+                }
+
+                if place_y < TEXTURE_SIZE_Y as i32 {
+                    let final_pos = Vector3::new(lb.position.x, place_y, lb.position.z);
+                    self.world.set_block(final_pos, lb.block_type);
+                    self.world
+                        .invalidate_minimap_cache(final_pos.x, final_pos.z);
+
+                    let player_pos = self
+                        .player
+                        .feet_pos(self.world_extent, self.texture_origin)
+                        .cast::<f32>();
+                    self.block_updates.enqueue(
+                        final_pos + Vector3::new(0, 1, 0),
+                        BlockUpdateType::Gravity,
+                        player_pos,
+                    );
+                }
+            }
+        }
+    }
+}
