@@ -1022,11 +1022,6 @@ bool modelBlocksRay(vec3 rayOrigin, vec3 dir, ivec3 blockPos, uint model_id, uin
     return findSubVoxelHit(localOrigin, dir, model_id, rotation, subHit, n, t);
 }
 
-vec3 inverseRotatePoint(vec3 p, uint rotation) {
-    vec3 c = p - 0.5;
-    return inverseRotateNormal(c, rotation) + 0.5;
-}
-
 // Cast shadow ray from a point toward the sun
 // Returns shadow factor: 0 = fully in shadow, 1 = fully lit
 // If debugFlag is provided, it encodes the occlusion reason:
@@ -1118,34 +1113,17 @@ float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFl
                         }
                         if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
                             vec3 localO = blockOrigin - vec3(pos); // 0-1
-                            vec3 testO = localO;
-                            vec3 testDir = dir;
-
-                            // Rotate ray into model space if needed
-                            if (rotation != 0u) {
-                                testO = inverseRotateNormal(localO - 0.5, rotation) + 0.5;
-                                testDir = inverseRotateNormal(dir, rotation);
-                            }
-
                             // Try coarse mask first
-                            if (modelMaskBlocksRay(testO, testDir, model_id)) {
+                            if (modelMaskBlocksRay(localO, dir, model_id)) {
                                 debugFlag = 5u;
                                 return MODEL_PARTIAL_SHADOW; // soft shadow through mask
                             }
                             // Then try model AABB
                             vec3 bbMin, bbMax;
                             modelCollisionBounds(model_id, bbMin, bbMax);
-
-                            // Use safe direction for AABB check
-                            vec3 safeTestDir = testDir;
-                            const float DIR_EPS = 1e-4;
-                            safeTestDir.x = (abs(safeTestDir.x) < DIR_EPS) ? (safeTestDir.x >= 0.0 ? DIR_EPS : -DIR_EPS) : safeTestDir.x;
-                            safeTestDir.y = (abs(safeTestDir.y) < DIR_EPS) ? (safeTestDir.y >= 0.0 ? DIR_EPS : -DIR_EPS) : safeTestDir.y;
-                            safeTestDir.z = (abs(safeTestDir.z) < DIR_EPS) ? (safeTestDir.z >= 0.0 ? DIR_EPS : -DIR_EPS) : safeTestDir.z;
-
-                            vec3 invd = 1.0 / safeTestDir;
-                            vec3 t1b = (bbMin - testO) * invd;
-                            vec3 t2b = (bbMax - testO) * invd;
+                            vec3 invd = 1.0 / dir;
+                            vec3 t1b = (bbMin - localO) * invd;
+                            vec3 t2b = (bbMax - localO) * invd;
                             vec3 tminb = min(t1b, t2b);
                             vec3 tmaxb = max(t1b, t2b);
                             float tNear = max(max(tminb.x, tminb.y), tminb.z);
