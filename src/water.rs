@@ -9,6 +9,7 @@
 
 #![allow(dead_code)]
 
+use crate::constants::ORTHO_DIRS;
 use nalgebra::Vector3;
 use std::collections::{HashMap, HashSet};
 
@@ -273,12 +274,9 @@ impl WaterGrid {
     /// Marks a position and its neighbors as needing update.
     pub fn activate_neighbors(&mut self, pos: Vector3<i32>) {
         self.dirty_positions.insert(pos);
-        self.dirty_positions.insert(pos + Vector3::new(1, 0, 0));
-        self.dirty_positions.insert(pos + Vector3::new(-1, 0, 0));
-        self.dirty_positions.insert(pos + Vector3::new(0, 1, 0));
-        self.dirty_positions.insert(pos + Vector3::new(0, -1, 0));
-        self.dirty_positions.insert(pos + Vector3::new(0, 0, 1));
-        self.dirty_positions.insert(pos + Vector3::new(0, 0, -1));
+        for (dx, dy, dz) in ORTHO_DIRS {
+            self.dirty_positions.insert(pos + Vector3::new(dx, dy, dz));
+        }
     }
 
     /// Called when a solid block is placed - removes water at that position.

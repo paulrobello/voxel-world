@@ -1,5 +1,15 @@
 use crate::chunk::CHUNK_SIZE;
 
+/// Six orthogonal neighbor offsets (±X, ±Y, ±Z).
+pub const ORTHO_DIRS: [(i32, i32, i32); 6] = [
+    (1, 0, 0),
+    (-1, 0, 0),
+    (0, 1, 0),
+    (0, -1, 0),
+    (0, 0, 1),
+    (0, 0, -1),
+];
+
 // World height in chunks (fixed - Y dimension is bounded)
 pub const WORLD_CHUNKS_Y: i32 = 4;
 

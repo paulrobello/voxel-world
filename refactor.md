@@ -27,7 +27,7 @@ Last batch: `make checkall` (2026-01-01) — pass.
    - Locations: identical Y guards in `block_update.rs` at 242, 272, 299, 327; orthogonal neighbor sets duplicated in `block_update::enqueue_neighbors` and `water::activate_neighbors` (`water.rs:273-281`).
    - Impact: Divergent bounds rules or neighbor orders risk subtle bugs; extra code noise.
    - Direction: Add an `ORTHO_DIRS` constant (e.g., in `constants.rs`) and a `WorldBounds::in_y_range(y)` helper; reuse in block updates and water flow.
-   - Status: open.
+   - Status: addressed — `constants::ORTHO_DIRS` and `utils::y_in_bounds` added; `block_update` and `water` now reuse them.
 
 5. `main.rs` monolith (medium)
    - Location: `src/main.rs` `App` struct (~160 fields, lines 268-433) and `App::new` (441+).

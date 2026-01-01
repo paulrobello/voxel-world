@@ -8,6 +8,9 @@ use nalgebra::Vector3;
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashSet};
 
+use crate::constants::ORTHO_DIRS;
+use crate::utils::y_in_bounds;
+
 /// Types of physics checks that can be queued.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BlockUpdateType {
@@ -123,16 +126,8 @@ impl BlockUpdateQueue {
         update_type: BlockUpdateType,
         player_pos: Vector3<f32>,
     ) {
-        let offsets = [
-            Vector3::new(1, 0, 0),
-            Vector3::new(-1, 0, 0),
-            Vector3::new(0, 1, 0),
-            Vector3::new(0, -1, 0),
-            Vector3::new(0, 0, 1),
-            Vector3::new(0, 0, -1),
-        ];
-        for offset in offsets {
-            self.enqueue(center + offset, update_type, player_pos);
+        for (dx, dy, dz) in ORTHO_DIRS {
+            self.enqueue(center + Vector3::new(dx, dy, dz), update_type, player_pos);
         }
     }
 
@@ -237,9 +232,7 @@ impl BlockUpdateQueue {
         falling_blocks: &mut crate::falling_block::FallingBlockSystem,
     ) {
         use crate::chunk::BlockType;
-        use crate::constants::TEXTURE_SIZE_Y;
-
-        if pos.y < 0 || pos.y >= TEXTURE_SIZE_Y as i32 {
+        if !y_in_bounds(pos.y) {
             return;
         }
 
@@ -267,9 +260,7 @@ impl BlockUpdateQueue {
         falling_blocks: &mut crate::falling_block::FallingBlockSystem,
     ) {
         use crate::chunk::BlockType;
-        use crate::constants::TEXTURE_SIZE_Y;
-
-        if pos.y < 0 || pos.y >= TEXTURE_SIZE_Y as i32 {
+        if !y_in_bounds(pos.y) {
             return;
         }
 
@@ -294,9 +285,7 @@ impl BlockUpdateQueue {
         falling_blocks: &mut crate::falling_block::FallingBlockSystem,
     ) {
         use crate::chunk::BlockType;
-        use crate::constants::TEXTURE_SIZE_Y;
-
-        if pos.y < 0 || pos.y >= TEXTURE_SIZE_Y as i32 {
+        if !y_in_bounds(pos.y) {
             return;
         }
 
@@ -322,9 +311,7 @@ impl BlockUpdateQueue {
         model_registry: &crate::sub_voxel::ModelRegistry,
     ) {
         use crate::chunk::BlockType;
-        use crate::constants::TEXTURE_SIZE_Y;
-
-        if pos.y < 1 || pos.y >= TEXTURE_SIZE_Y as i32 {
+        if pos.y < 1 || !y_in_bounds(pos.y) {
             return;
         }
 

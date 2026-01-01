@@ -82,3 +82,9 @@ pub fn get_allocators(
         command_buffer_allocator,
     )
 }
+
+/// Returns true if a Y coordinate is within world bounds.
+#[inline]
+pub fn y_in_bounds(y: i32) -> bool {
+    y >= 0 && y < crate::constants::TEXTURE_SIZE_Y as i32
+}
