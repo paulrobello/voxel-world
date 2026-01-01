@@ -73,6 +73,7 @@ use winit::{
 };
 use winit_input_helper::WinitInputHelper;
 
+mod atmosphere;
 mod block_interaction;
 mod block_update;
 mod camera;
@@ -340,16 +341,8 @@ struct App {
     time_of_day: f32,
     /// Whether the day/night cycle is paused
     day_cycle_paused: bool,
-    /// Base ambient light level (0.0 = pitch black, 1.0 = fully lit)
-    ambient_light: f32,
-    /// Fog density (0.0 = no fog, higher = thicker fog)
-    fog_density: f32,
-    /// Distance where fog starts (blocks)
-    fog_start: f32,
-    /// Whether fog affects the sky (false = clear sky regardless of fog)
-    fog_affects_sky: bool,
-    /// Multiplier for particle/falling-block fog strength (1.0 = default)
-    fog_overlay_scale: f32,
+    /// Atmospheric lighting/fog settings
+    atmosphere: atmosphere::AtmosphereSettings,
     /// Continuous animation time in seconds (for water waves, etc.)
     animation_time: f32,
 
@@ -640,11 +633,7 @@ impl App {
                 .map(|t| t as f32)
                 .unwrap_or(DEFAULT_TIME_OF_DAY),
             day_cycle_paused: true, // Day cycle paused by default
-            ambient_light: 0.1,
-            fog_density: 0.01,
-            fog_start: 128.0,
-            fog_affects_sky: false,
-            fog_overlay_scale: 1.0,
+            atmosphere: atmosphere::AtmosphereSettings::default(),
             animation_time: 0.0,
 
             last_player_chunk: spawn_chunk,
@@ -1214,11 +1203,7 @@ impl App {
                 player_world_pos,
                 time_of_day: &mut self.time_of_day,
                 day_cycle_paused: &mut self.day_cycle_paused,
-                ambient_light: &mut self.ambient_light,
-                fog_density: &mut self.fog_density,
-                fog_start: &mut self.fog_start,
-                fog_affects_sky: &mut self.fog_affects_sky,
-                fog_overlay_scale: &mut self.fog_overlay_scale,
+                atmosphere: &mut self.atmosphere,
                 view_distance: &mut self.view_distance,
                 unload_distance: &mut self.unload_distance,
                 block_updates: &mut self.block_updates,
@@ -1388,11 +1373,11 @@ impl App {
             preview_block_z: preview_z,
             preview_block_type: preview_type,
             light_count,
-            ambient_light: self.ambient_light,
-            fog_density: self.fog_density,
-            fog_start: self.fog_start,
-            fog_affects_sky: self.fog_affects_sky as u32,
-            fog_overlay_scale: self.fog_overlay_scale,
+            ambient_light: self.atmosphere.ambient_light,
+            fog_density: self.atmosphere.fog_density,
+            fog_start: self.atmosphere.fog_start,
+            fog_affects_sky: self.atmosphere.fog_affects_sky as u32,
+            fog_overlay_scale: self.atmosphere.fog_overlay_scale,
             target_block_x: target_x,
             target_block_y: target_y,
             target_block_z: target_z,

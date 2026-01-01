@@ -28,11 +28,7 @@ pub struct HudInputs<'a> {
     pub player_world_pos: Vector3<f64>,
     pub time_of_day: &'a mut f32,
     pub day_cycle_paused: &'a mut bool,
-    pub ambient_light: &'a mut f32,
-    pub fog_density: &'a mut f32,
-    pub fog_start: &'a mut f32,
-    pub fog_affects_sky: &'a mut bool,
-    pub fog_overlay_scale: &'a mut f32,
+    pub atmosphere: &'a mut crate::atmosphere::AtmosphereSettings,
     pub view_distance: &'a mut i32,
     pub unload_distance: &'a mut i32,
     pub block_updates: &'a mut BlockUpdateQueue,
@@ -136,11 +132,7 @@ impl HUDRenderer {
             player_world_pos,
             time_of_day,
             day_cycle_paused,
-            ambient_light,
-            fog_density,
-            fog_start,
-            fog_affects_sky,
-            fog_overlay_scale,
+            atmosphere,
             view_distance,
             unload_distance,
             block_updates,
@@ -253,15 +245,22 @@ impl HUDRenderer {
                                     }),
                             );
                             ui.add(
-                                egui::Slider::new(ambient_light, 0.0..=1.0).text("Ambient Light"),
+                                egui::Slider::new(&mut atmosphere.ambient_light, 0.0..=1.0)
+                                    .text("Ambient Light"),
                             );
-                            ui.add(egui::Slider::new(fog_density, 0.0..=0.1).text("Fog Density"));
-                            ui.add(egui::Slider::new(fog_start, 0.0..=128.0).text("Fog Start"));
                             ui.add(
-                                egui::Slider::new(fog_overlay_scale, 0.0..=2.0)
+                                egui::Slider::new(&mut atmosphere.fog_density, 0.0..=0.1)
+                                    .text("Fog Density"),
+                            );
+                            ui.add(
+                                egui::Slider::new(&mut atmosphere.fog_start, 0.0..=128.0)
+                                    .text("Fog Start"),
+                            );
+                            ui.add(
+                                egui::Slider::new(&mut atmosphere.fog_overlay_scale, 0.0..=2.0)
                                     .text("Fog Overlay Scale"),
                             );
-                            ui.checkbox(fog_affects_sky, "Fog Affects Sky");
+                            ui.checkbox(&mut atmosphere.fog_affects_sky, "Fog Affects Sky");
                             if ui
                                 .add(
                                     egui::Slider::new(&mut settings.max_ray_steps, 128..=1024)
