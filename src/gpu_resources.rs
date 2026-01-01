@@ -923,9 +923,15 @@ pub fn upload_chunks_batched(
         return;
     }
 
-    // Create staging buffers for all chunks (both block data and model metadata)
-    let mut block_buffers_and_regions = Vec::with_capacity(chunks.len());
-    let mut metadata_buffers_and_regions = Vec::with_capacity(chunks.len());
+    // Filter uploads that fit into the current texture window and collect offsets.
+    struct Upload<'a> {
+        offset: [u32; 3],
+        block_data: &'a [u8],
+        model_metadata: &'a [u8],
+    }
+    let mut uploads: Vec<Upload> = Vec::with_capacity(chunks.len());
+    let mut total_block_bytes = 0usize;
+    let mut total_meta_bytes = 0usize;
 
     for (chunk_pos, block_data, model_metadata) in chunks {
         // Convert world chunk position to texture position
@@ -950,63 +956,95 @@ pub fn upload_chunks_batched(
             continue;
         }
 
-        let offset = [texture_x as u32, texture_y as u32, texture_z as u32];
+        uploads.push(Upload {
+            offset: [texture_x as u32, texture_y as u32, texture_z as u32],
+            block_data,
+            model_metadata,
+        });
+        total_block_bytes += block_data.len();
+        total_meta_bytes += model_metadata.len();
+    }
 
-        // Block data buffer (R8_UINT)
-        let block_buffer = Buffer::from_iter(
-            memory_allocator.clone(),
-            BufferCreateInfo {
-                usage: BufferUsage::TRANSFER_SRC,
-                ..Default::default()
-            },
-            AllocationCreateInfo {
-                memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
-                    | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-                ..Default::default()
-            },
-            block_data.iter().copied(),
-        )
-        .unwrap();
+    if uploads.is_empty() {
+        return;
+    }
 
-        let block_region = BufferImageCopy {
-            buffer_offset: 0,
+    // Single staging buffers for all blocks and metadata to cut per-chunk allocations.
+    let block_staging = Buffer::new_slice::<u8>(
+        memory_allocator.clone(),
+        BufferCreateInfo {
+            usage: BufferUsage::TRANSFER_SRC,
+            ..Default::default()
+        },
+        AllocationCreateInfo {
+            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+            ..Default::default()
+        },
+        total_block_bytes as u64,
+    )
+    .unwrap();
+
+    let meta_staging = Buffer::new_slice::<u8>(
+        memory_allocator.clone(),
+        BufferCreateInfo {
+            usage: BufferUsage::TRANSFER_SRC,
+            ..Default::default()
+        },
+        AllocationCreateInfo {
+            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+            ..Default::default()
+        },
+        total_meta_bytes as u64,
+    )
+    .unwrap();
+
+    {
+        let mut block_write = block_staging.write().unwrap();
+        let mut meta_write = meta_staging.write().unwrap();
+        let mut block_cursor = 0usize;
+        let mut meta_cursor = 0usize;
+
+        for upload in &uploads {
+            let blen = upload.block_data.len();
+            block_write[block_cursor..block_cursor + blen].copy_from_slice(upload.block_data);
+            block_cursor += blen;
+
+            let mlen = upload.model_metadata.len();
+            meta_write[meta_cursor..meta_cursor + mlen].copy_from_slice(upload.model_metadata);
+            meta_cursor += mlen;
+        }
+    }
+
+    // Build copy regions referencing the contiguous staging buffers.
+    let mut block_regions = Vec::with_capacity(uploads.len());
+    let mut metadata_regions = Vec::with_capacity(uploads.len());
+    let mut block_offset = 0u64;
+    let mut meta_offset = 0u64;
+
+    for upload in &uploads {
+        block_regions.push(BufferImageCopy {
+            buffer_offset: block_offset,
             buffer_row_length: CHUNK_SIZE as u32,
             buffer_image_height: CHUNK_SIZE as u32,
             image_subresource: voxel_image.subresource_layers(),
-            image_offset: offset,
+            image_offset: upload.offset,
             image_extent: [CHUNK_SIZE as u32, CHUNK_SIZE as u32, CHUNK_SIZE as u32],
             ..Default::default()
-        };
+        });
+        block_offset += upload.block_data.len() as u64;
 
-        block_buffers_and_regions.push((block_buffer, block_region));
-
-        // Model metadata buffer (RG8_UINT - 2 bytes per block)
-        let metadata_buffer = Buffer::from_iter(
-            memory_allocator.clone(),
-            BufferCreateInfo {
-                usage: BufferUsage::TRANSFER_SRC,
-                ..Default::default()
-            },
-            AllocationCreateInfo {
-                memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
-                    | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-                ..Default::default()
-            },
-            model_metadata.iter().copied(),
-        )
-        .unwrap();
-
-        let metadata_region = BufferImageCopy {
-            buffer_offset: 0,
+        metadata_regions.push(BufferImageCopy {
+            buffer_offset: meta_offset,
             buffer_row_length: CHUNK_SIZE as u32,
             buffer_image_height: CHUNK_SIZE as u32,
             image_subresource: model_metadata_image.subresource_layers(),
-            image_offset: offset,
+            image_offset: upload.offset,
             image_extent: [CHUNK_SIZE as u32, CHUNK_SIZE as u32, CHUNK_SIZE as u32],
             ..Default::default()
-        };
-
-        metadata_buffers_and_regions.push((metadata_buffer, metadata_region));
+        });
+        meta_offset += upload.model_metadata.len() as u64;
     }
 
     // Build single command buffer with all copies
@@ -1017,25 +1055,19 @@ pub fn upload_chunks_batched(
     )
     .unwrap();
 
-    // Copy block data to voxel_image
-    for (src_buffer, region) in block_buffers_and_regions {
-        command_buffer_builder
-            .copy_buffer_to_image(CopyBufferToImageInfo {
-                regions: [region].into(),
-                ..CopyBufferToImageInfo::buffer_image(src_buffer, voxel_image.clone())
-            })
-            .unwrap();
-    }
+    command_buffer_builder
+        .copy_buffer_to_image(CopyBufferToImageInfo {
+            regions: block_regions.into(),
+            ..CopyBufferToImageInfo::buffer_image(block_staging, voxel_image.clone())
+        })
+        .unwrap();
 
-    // Copy model metadata (model_id + rotation) to model_metadata image
-    for (src_buffer, region) in metadata_buffers_and_regions {
-        command_buffer_builder
-            .copy_buffer_to_image(CopyBufferToImageInfo {
-                regions: [region].into(),
-                ..CopyBufferToImageInfo::buffer_image(src_buffer, model_metadata_image.clone())
-            })
-            .unwrap();
-    }
+    command_buffer_builder
+        .copy_buffer_to_image(CopyBufferToImageInfo {
+            regions: metadata_regions.into(),
+            ..CopyBufferToImageInfo::buffer_image(meta_staging, model_metadata_image.clone())
+        })
+        .unwrap();
 
     command_buffer_builder
         .build()
