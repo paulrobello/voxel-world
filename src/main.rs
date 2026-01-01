@@ -102,7 +102,7 @@ mod world;
 use crate::block_update::{BlockUpdateQueue, BlockUpdateType};
 use crate::chunk::{BlockType, CHUNK_SIZE};
 use crate::chunk_loader::ChunkLoader;
-use crate::config::{Args, INITIAL_WINDOW_RESOLUTION};
+use crate::config::{Args, INITIAL_WINDOW_RESOLUTION, Settings};
 use crate::constants::{
     CHUNKS_PER_FRAME, EMPTY_CHUNK_DATA, EMPTY_MODEL_METADATA, LOADED_CHUNKS_X, LOADED_CHUNKS_Z,
     TEXTURE_SIZE_X, TEXTURE_SIZE_Y, TEXTURE_SIZE_Z, UNLOAD_DISTANCE, VIEW_DISTANCE, WORLD_CHUNKS_Y,
@@ -319,18 +319,11 @@ struct App {
 
     player: Player,
     render_mode: RenderMode,
-    render_scale: f32,
+    settings: Settings,
     /// Current window size for debug output
     window_size: [u32; 2],
 
-    /// Show debug chunk boundary wireframes
-    show_chunk_boundaries: bool,
-    /// Show block placement preview
-    show_block_preview: bool,
-    /// Show target block outline (wireframe around block player is looking at)
-    show_target_outline: bool,
-
-    // Minimap settings
+    // Minimap state
     /// Whether to show the minimap
     show_minimap: bool,
     /// Minimap component
@@ -344,28 +337,6 @@ struct App {
     /// Last player yaw for rotation-based updates
     minimap_last_yaw: f32,
 
-    // Compass settings
-    /// Whether to show the compass
-    show_compass: bool,
-
-    // Performance profiling toggles
-    /// Enable ambient occlusion
-    enable_ao: bool,
-    /// Enable sun shadow rays
-    enable_shadows: bool,
-    /// Enable model participation in sun shadows
-    enable_model_shadows: bool,
-    /// Enable point lights (torches)
-    enable_point_lights: bool,
-
-    // LOD distance thresholds (0 = use shader defaults)
-    /// Distance for AO calculations (default 32)
-    lod_ao_distance: f32,
-    /// Distance for shadow rays (default 64)
-    lod_shadow_distance: f32,
-    /// Distance for point light calculations (default 24)
-    lod_point_light_distance: f32,
-
     /// Current time of day (0.0 = midnight, 0.5 = noon, 1.0 = midnight)
     time_of_day: f32,
     /// Whether the day/night cycle is paused
@@ -378,8 +349,6 @@ struct App {
     fog_start: f32,
     /// Whether fog affects the sky (false = clear sky regardless of fog)
     fog_affects_sky: bool,
-    /// Maximum ray marching steps (higher = see farther, lower = better FPS)
-    max_ray_steps: u32,
     /// Continuous animation time in seconds (for water waves, etc.)
     animation_time: f32,
 
@@ -408,12 +377,8 @@ struct App {
     breaking_block: Option<Vector3<i32>>,
     /// Progress of breaking current block (0.0 to 1.0).
     break_progress: f32,
-    /// Whether blocks break instantly on click (no hold required).
-    instant_break: bool,
     /// Cooldown timer after breaking a block in instant mode (seconds remaining).
     break_cooldown: f32,
-    /// Configurable cooldown duration for breaking blocks (seconds).
-    break_cooldown_duration: f32,
     /// Skip block breaking until mouse is released (used to ignore focus click).
     skip_break_until_release: bool,
 
@@ -421,8 +386,6 @@ struct App {
     last_place_pos: Option<Vector3<i32>>,
     /// Cooldown timer for continuous block placing.
     place_cooldown: f32,
-    /// Configurable cooldown duration for placing blocks (seconds).
-    place_cooldown_duration: f32,
     /// Whether we need to release right-click before placing another model.
     model_needs_reclick: bool,
     /// Whether we need to release left-click before toggling another gate.
@@ -440,8 +403,6 @@ struct App {
     block_updates: BlockUpdateQueue,
     /// Water flow simulation grid.
     water_grid: WaterGrid,
-    /// Whether water simulation is enabled.
-    water_simulation_enabled: bool,
 
     input: WinitInputHelper,
     focused: bool,
@@ -679,12 +640,12 @@ impl App {
                 Some("depth") => RenderMode::Depth,
                 _ => RenderMode::Textured,
             },
-            render_scale: 0.75, // Balance between quality and FPS, upscaled to window
+            settings: Settings {
+                show_chunk_boundaries: args.show_chunk_boundaries,
+                render_scale: 0.75,
+                ..Settings::default()
+            },
             window_size: INITIAL_WINDOW_RESOLUTION.into(),
-
-            show_chunk_boundaries: args.show_chunk_boundaries,
-            show_block_preview: false,  // Off by default
-            show_target_outline: false, // Off by default (toggle in UI)
 
             // Minimap - disabled by default, toggle with M
             show_minimap: false,
@@ -693,21 +654,6 @@ impl App {
             minimap_last_pos: Vector3::new(i32::MAX, 0, i32::MAX), // Force initial update
             minimap_last_update: Instant::now(),
             minimap_last_yaw: f32::MAX, // Force initial update
-
-            // Compass - enabled by default
-            show_compass: true,
-
-            // Performance toggles - all enabled by default
-            enable_ao: true,
-            enable_shadows: true,
-            enable_model_shadows: true,
-            enable_point_lights: true,
-
-            // LOD distances - use more aggressive defaults for better performance
-            // Set to 0 to use shader defaults (32, 64, 24)
-            lod_ao_distance: 24.0,          // Reduced from 32
-            lod_shadow_distance: 48.0,      // Reduced from 64
-            lod_point_light_distance: 20.0, // Reduced from 24
 
             time_of_day: args
                 .time_of_day
@@ -718,7 +664,6 @@ impl App {
             fog_density: 0.01,
             fog_start: 128.0,
             fog_affects_sky: false,
-            max_ray_steps: 256,
             animation_time: 0.0,
 
             last_player_chunk: spawn_chunk,
@@ -737,14 +682,11 @@ impl App {
 
             breaking_block: None,
             break_progress: 0.0,
-            instant_break: true,
             break_cooldown: 0.0,
-            break_cooldown_duration: 0.1,
             skip_break_until_release: false,
 
             last_place_pos: None,
             place_cooldown: 0.0,
-            place_cooldown_duration: 0.1,
             model_needs_reclick: false,
             gate_needs_reclick: false,
             line_start_pos: None,
@@ -754,7 +696,6 @@ impl App {
             falling_blocks: FallingBlockSystem::new(),
             block_updates: BlockUpdateQueue::new(32),
             water_grid: WaterGrid::new(),
-            water_simulation_enabled: true,
 
             input,
             focused: false,
@@ -1129,7 +1070,7 @@ impl App {
         }
 
         // Don't start breaking if on cooldown (instant break mode)
-        if self.instant_break && self.break_cooldown > 0.0 {
+        if self.settings.instant_break && self.break_cooldown > 0.0 {
             return false;
         }
 
@@ -1153,7 +1094,7 @@ impl App {
         }
 
         // Increment break progress (instant if enabled)
-        if self.instant_break {
+        if self.settings.instant_break {
             self.break_progress = 1.0;
         } else {
             self.break_progress += delta_time / break_time;
@@ -1233,8 +1174,8 @@ impl App {
             self.break_progress = 0.0;
 
             // Set cooldown for instant break mode
-            if self.instant_break {
-                self.break_cooldown = self.break_cooldown_duration;
+            if self.settings.instant_break {
+                self.break_cooldown = self.settings.break_cooldown_duration;
             }
 
             return true;
@@ -1385,7 +1326,7 @@ impl App {
             }
 
             self.last_place_pos = Some(constrained_pos);
-            self.place_cooldown = self.place_cooldown_duration;
+            self.place_cooldown = self.settings.place_cooldown_duration;
         }
     }
 
@@ -1982,8 +1923,8 @@ impl App {
             };
 
             let render_res = [
-                (self.window_size[0] as f32 * self.render_scale) as u32,
-                (self.window_size[1] as f32 * self.render_scale) as u32,
+                (self.window_size[0] as f32 * self.settings.render_scale) as u32,
+                (self.window_size[1] as f32 * self.settings.render_scale) as u32,
             ];
             if self.args.verbose {
                 println!(
@@ -2146,7 +2087,7 @@ impl App {
         );
 
         // Process water flow simulation (frame-distributed)
-        if self.water_simulation_enabled {
+        if self.settings.water_simulation_enabled {
             let player_pos_f32 = self
                 .player
                 .feet_pos(self.world_extent, self.texture_origin)
@@ -2239,8 +2180,8 @@ impl App {
 
             // Toggle chunk boundary debug (B key)
             if self.input.key_pressed(KeyCode::KeyB) {
-                self.show_chunk_boundaries = !self.show_chunk_boundaries;
-                if self.show_chunk_boundaries {
+                self.settings.show_chunk_boundaries = !self.settings.show_chunk_boundaries;
+                if self.settings.show_chunk_boundaries {
                     println!("Chunk boundaries: ON");
                 } else {
                     println!("Chunk boundaries: OFF");
@@ -2363,7 +2304,7 @@ impl App {
         let show_minimap = self.show_minimap;
         let minimap_size = self.minimap.size;
         let minimap_rotate = self.minimap.rotate;
-        let show_compass = self.show_compass;
+        let show_compass = self.settings.show_compass;
 
         let rcx = self.rcx.as_mut().unwrap();
 
@@ -2395,8 +2336,8 @@ impl App {
             let window_extent: [u32; 2] = window_size.into();
             self.window_size = window_extent;
             let render_extent = [
-                (window_extent[0] as f32 * self.render_scale) as u32,
-                (window_extent[1] as f32 * self.render_scale) as u32,
+                (window_extent[0] as f32 * self.settings.render_scale) as u32,
+                (window_extent[1] as f32 * self.settings.render_scale) as u32,
             ];
             (
                 rcx.render_image,
@@ -2595,15 +2536,15 @@ impl App {
 
                             if ui
                                 .add(
-                                    egui::Slider::new(&mut self.render_scale, 0.25..=2.0)
+                                    egui::Slider::new(&mut self.settings.render_scale, 0.25..=2.0)
                                         .text("Render Scale"),
                                 )
                                 .changed()
                             {
                                 let window_extent: [u32; 2] = rcx.window.inner_size().into();
                                 let render_extent = [
-                                    (window_extent[0] as f32 * self.render_scale) as u32,
-                                    (window_extent[1] as f32 * self.render_scale) as u32,
+                                    (window_extent[0] as f32 * self.settings.render_scale) as u32,
+                                    (window_extent[1] as f32 * self.settings.render_scale) as u32,
                                 ];
                                 (
                                     rcx.render_image,
@@ -2664,12 +2605,12 @@ impl App {
                             ui.checkbox(&mut self.fog_affects_sky, "Fog Affects Sky");
                             if ui
                                 .add(
-                                    egui::Slider::new(&mut self.max_ray_steps, 128..=1024)
+                                    egui::Slider::new(&mut self.settings.max_ray_steps, 128..=1024)
                                         .text("Ray Steps"),
                                 )
                                 .changed()
                             {
-                                println!("[SETTING] Ray Steps: {}", self.max_ray_steps);
+                                println!("[SETTING] Ray Steps: {}", self.settings.max_ray_steps);
                             }
                             if ui
                                 .add(
@@ -2704,30 +2645,21 @@ impl App {
                             ui.separator();
                             ui.label("Feature Toggles (for FPS profiling):");
                             if ui
-                                .checkbox(&mut self.enable_ao, "Ambient Occlusion")
+                                .checkbox(&mut self.settings.enable_ao, "Ambient Occlusion")
                                 .changed()
                             {
                                 println!(
                                     "[TOGGLE] Ambient Occlusion: {}",
-                                    if self.enable_ao { "ON" } else { "OFF" }
+                                    if self.settings.enable_ao { "ON" } else { "OFF" }
                                 );
                             }
                             if ui
-                                .checkbox(&mut self.enable_shadows, "Sun Shadows")
+                                .checkbox(&mut self.settings.enable_shadows, "Sun Shadows")
                                 .changed()
                             {
                                 println!(
                                     "[TOGGLE] Sun Shadows: {}",
-                                    if self.enable_shadows { "ON" } else { "OFF" }
-                                );
-                            }
-                            if ui
-                                .checkbox(&mut self.enable_model_shadows, "Model Sun Shadows")
-                                .changed()
-                            {
-                                println!(
-                                    "[TOGGLE] Model Sun Shadows: {}",
-                                    if self.enable_model_shadows {
+                                    if self.settings.enable_shadows {
                                         "ON"
                                     } else {
                                         "OFF"
@@ -2735,12 +2667,31 @@ impl App {
                                 );
                             }
                             if ui
-                                .checkbox(&mut self.enable_point_lights, "Point Lights (torches)")
+                                .checkbox(
+                                    &mut self.settings.enable_model_shadows,
+                                    "Model Sun Shadows",
+                                )
+                                .changed()
+                            {
+                                println!(
+                                    "[TOGGLE] Model Sun Shadows: {}",
+                                    if self.settings.enable_model_shadows {
+                                        "ON"
+                                    } else {
+                                        "OFF"
+                                    }
+                                );
+                            }
+                            if ui
+                                .checkbox(
+                                    &mut self.settings.enable_point_lights,
+                                    "Point Lights (torches)",
+                                )
                                 .changed()
                             {
                                 println!(
                                     "[TOGGLE] Point Lights: {}",
-                                    if self.enable_point_lights {
+                                    if self.settings.enable_point_lights {
                                         "ON"
                                     } else {
                                         "OFF"
@@ -2754,12 +2705,18 @@ impl App {
                                 ui.label("AO:");
                                 if ui
                                     .add(
-                                        egui::Slider::new(&mut self.lod_ao_distance, 8.0..=64.0)
-                                            .suffix(" blocks"),
+                                        egui::Slider::new(
+                                            &mut self.settings.lod_ao_distance,
+                                            8.0..=64.0,
+                                        )
+                                        .suffix(" blocks"),
                                     )
                                     .changed()
                                 {
-                                    println!("[LOD] AO distance: {:.0}", self.lod_ao_distance);
+                                    println!(
+                                        "[LOD] AO distance: {:.0}",
+                                        self.settings.lod_ao_distance
+                                    );
                                 }
                             });
                             ui.horizontal(|ui| {
@@ -2767,7 +2724,7 @@ impl App {
                                 if ui
                                     .add(
                                         egui::Slider::new(
-                                            &mut self.lod_shadow_distance,
+                                            &mut self.settings.lod_shadow_distance,
                                             16.0..=128.0,
                                         )
                                         .suffix(" blocks"),
@@ -2776,7 +2733,7 @@ impl App {
                                 {
                                     println!(
                                         "[LOD] Shadow distance: {:.0}",
-                                        self.lod_shadow_distance
+                                        self.settings.lod_shadow_distance
                                     );
                                 }
                             });
@@ -2785,7 +2742,7 @@ impl App {
                                 if ui
                                     .add(
                                         egui::Slider::new(
-                                            &mut self.lod_point_light_distance,
+                                            &mut self.settings.lod_point_light_distance,
                                             8.0..=48.0,
                                         )
                                         .suffix(" blocks"),
@@ -2794,7 +2751,7 @@ impl App {
                                 {
                                     println!(
                                         "[LOD] Point light distance: {:.0}",
-                                        self.lod_point_light_distance
+                                        self.settings.lod_point_light_distance
                                     );
                                 }
                             });
@@ -2802,9 +2759,15 @@ impl App {
                             ui.separator();
 
                             // Gameplay options
-                            ui.checkbox(&mut self.instant_break, "Instant block break");
-                            ui.checkbox(&mut self.show_block_preview, "Block placement preview");
-                            ui.checkbox(&mut self.show_target_outline, "Target block outline");
+                            ui.checkbox(&mut self.settings.instant_break, "Instant block break");
+                            ui.checkbox(
+                                &mut self.settings.show_block_preview,
+                                "Block placement preview",
+                            );
+                            ui.checkbox(
+                                &mut self.settings.show_target_outline,
+                                "Target block outline",
+                            );
                             if ui
                                 .checkbox(&mut self.player.light_enabled, "Player torch light")
                                 .changed()
@@ -2820,14 +2783,20 @@ impl App {
                             }
 
                             ui.add(
-                                egui::Slider::new(&mut self.break_cooldown_duration, 0.05..=0.5)
-                                    .text("Break cooldown")
-                                    .suffix("s"),
+                                egui::Slider::new(
+                                    &mut self.settings.break_cooldown_duration,
+                                    0.05..=0.5,
+                                )
+                                .text("Break cooldown")
+                                .suffix("s"),
                             );
                             ui.add(
-                                egui::Slider::new(&mut self.place_cooldown_duration, 0.05..=1.0)
-                                    .text("Place cooldown")
-                                    .suffix("s"),
+                                egui::Slider::new(
+                                    &mut self.settings.place_cooldown_duration,
+                                    0.05..=1.0,
+                                )
+                                .text("Place cooldown")
+                                .suffix("s"),
                             );
 
                             // Block physics updates per frame (higher = faster cascades, more CPU)
@@ -2847,7 +2816,7 @@ impl App {
 
                             // Movement settings
                             ui.checkbox(&mut self.player.auto_jump, "Auto-jump");
-                            ui.checkbox(&mut self.show_compass, "Show compass");
+                            ui.checkbox(&mut self.settings.show_compass, "Show compass");
 
                             ui.separator();
 
@@ -3354,7 +3323,7 @@ impl App {
         // Calculate preview block position (where block would be placed)
         let selected_block_id = selected_block as u32;
         // Use player_world_pos computed earlier (before rcx borrow)
-        let (preview_x, preview_y, preview_z, preview_type) = if self.show_block_preview {
+        let (preview_x, preview_y, preview_z, preview_type) = if self.settings.show_block_preview {
             self.current_hit
                 .as_ref()
                 .map(|hit| {
@@ -3378,7 +3347,7 @@ impl App {
 
         // Target block (block player is looking at) - convert to texture coords
         // Only send if outline is enabled
-        let (target_x, target_y, target_z) = if self.show_target_outline {
+        let (target_x, target_y, target_z) = if self.settings.show_target_outline {
             self.current_hit
                 .as_ref()
                 .map(|hit| world_to_tex(hit.block_pos))
@@ -3432,7 +3401,7 @@ impl App {
             texture_size_y: self.world_extent[1],
             texture_size_z: self.world_extent[2],
             render_mode: self.render_mode as u32,
-            show_chunk_boundaries: self.show_chunk_boundaries as u32,
+            show_chunk_boundaries: self.settings.show_chunk_boundaries as u32,
             player_in_water: self.player.in_water as u32,
             time_of_day: self.time_of_day,
             animation_time: self.animation_time,
@@ -3453,18 +3422,26 @@ impl App {
             target_block_x: target_x,
             target_block_y: target_y,
             target_block_z: target_z,
-            max_ray_steps: self.max_ray_steps,
+            max_ray_steps: self.settings.max_ray_steps,
             texture_origin_x: self.texture_origin.x,
             texture_origin_y: self.texture_origin.y,
             texture_origin_z: self.texture_origin.z,
-            enable_ao: if self.enable_ao { 1 } else { 0 },
-            enable_shadows: if self.enable_shadows { 1 } else { 0 },
-            enable_model_shadows: if self.enable_model_shadows { 1 } else { 0 },
-            enable_point_lights: if self.enable_point_lights { 1 } else { 0 },
+            enable_ao: if self.settings.enable_ao { 1 } else { 0 },
+            enable_shadows: if self.settings.enable_shadows { 1 } else { 0 },
+            enable_model_shadows: if self.settings.enable_model_shadows {
+                1
+            } else {
+                0
+            },
+            enable_point_lights: if self.settings.enable_point_lights {
+                1
+            } else {
+                0
+            },
             pass_mode: 0, // Will be set per-pass
-            lod_ao_distance: self.lod_ao_distance,
-            lod_shadow_distance: self.lod_shadow_distance,
-            lod_point_light_distance: self.lod_point_light_distance,
+            lod_ao_distance: self.settings.lod_ao_distance,
+            lod_shadow_distance: self.settings.lod_shadow_distance,
+            lod_point_light_distance: self.settings.lod_point_light_distance,
             falling_block_count: self.falling_blocks.count() as u32,
         };
 
@@ -3618,8 +3595,8 @@ impl ApplicationHandler for App {
 
         let window_extent: [u32; 2] = window.inner_size().into();
         let render_extent = [
-            (window_extent[0] as f32 * self.render_scale) as u32,
-            (window_extent[1] as f32 * self.render_scale) as u32,
+            (window_extent[0] as f32 * self.settings.render_scale) as u32,
+            (window_extent[1] as f32 * self.settings.render_scale) as u32,
         ];
         let (render_image, render_set, resample_image, resample_set) = get_images_and_sets(
             self.memory_allocator.clone(),

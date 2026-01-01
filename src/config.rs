@@ -52,3 +52,54 @@ pub struct Args {
 }
 
 pub const INITIAL_WINDOW_RESOLUTION: PhysicalSize<u32> = PhysicalSize::new(1200, 1080);
+
+/// Gameplay and performance settings.
+pub struct Settings {
+    pub show_chunk_boundaries: bool,
+    pub show_block_preview: bool,
+    pub show_target_outline: bool,
+    pub show_compass: bool,
+
+    pub enable_ao: bool,
+    pub enable_shadows: bool,
+    pub enable_model_shadows: bool,
+    pub enable_point_lights: bool,
+
+    pub lod_ao_distance: f32,
+    pub lod_shadow_distance: f32,
+    pub lod_point_light_distance: f32,
+
+    pub max_ray_steps: u32,
+    pub render_scale: f32,
+    pub water_simulation_enabled: bool,
+    pub instant_break: bool,
+    pub break_cooldown_duration: f32,
+    pub place_cooldown_duration: f32,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            show_chunk_boundaries: false,
+            show_block_preview: true,
+            show_target_outline: true,
+            show_compass: true,
+
+            enable_ao: true,
+            enable_shadows: true,
+            enable_model_shadows: true,
+            enable_point_lights: true,
+
+            lod_ao_distance: 24.0,
+            lod_shadow_distance: 48.0,
+            lod_point_light_distance: 20.0,
+
+            max_ray_steps: 256,
+            render_scale: 0.75,
+            water_simulation_enabled: true,
+            instant_break: true,
+            break_cooldown_duration: 0.1,
+            place_cooldown_duration: 0.1,
+        }
+    }
+}
