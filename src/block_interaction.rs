@@ -220,6 +220,11 @@ impl App {
             return;
         }
 
+        // If we just toggled a gate this hold, require a release before placing or toggling again.
+        if self.gate_needs_reclick {
+            return;
+        }
+
         if let Some(hit) = self.current_hit {
             // Priority 1: Toggle existing gate
             if !self.gate_needs_reclick && self.toggle_gate_at(hit.block_pos) {

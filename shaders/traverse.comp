@@ -66,6 +66,8 @@ layout(push_constant) uniform PushConstants {
     float fog_start;
     // Whether fog affects sky (0 = false, 1 = true)
     uint fog_affects_sky;
+    // Multiplier for particle/falling-block fog strength
+    float fog_overlay_scale;
     // Target block (block player is looking at, -1 = none)
     int target_block_x;
     int target_block_y;
@@ -140,7 +142,7 @@ struct ModelProperties {
     uint aabb_min;          // Packed AABB min
     uint aabb_max;          // Packed AABB max
     vec4 emission;          // Light emission color (RGB) + intensity (A)
-    uint flags;             // Bit 0: rotatable, Bit 1: light_blocking_full, Bit 2: light_blocking_partial
+    uint flags;             // Bit 0: rotatable, Bit 1: light_blocking_partial, Bit 2: light_blocking_full
     uint _pad0;
     uint _pad1;
     uint _pad2;
@@ -539,11 +541,12 @@ float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFl
                         }
                         if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
                             vec3 localO = blockOrigin - vec3(pos); // 0-1
-                            vec3 testO = localO;
+                            vec3 testO = clamp(localO, vec3(0.001), vec3(0.999));
                             vec3 testDir = dir;
 
-                            // Clamp testO to be safe
-                            testO = clamp(testO, vec3(0.001), vec3(0.999));
+                            // Rotate ray into model's unrotated space so masks/AABB line up when rotated
+                            testO = inverseRotatePosition(testO, rotation);
+                            testDir = inverseRotateDirection(testDir, rotation);
 
                             // Check AABB first (filters out padding)
                             vec3 bbMin, bbMax;
@@ -2373,7 +2376,8 @@ void main() {
         if (particleDist < hitDistance) {
             // Particles already have their color, just need fog
             vec3 fogColor = getFogColor(pc.time_of_day);
-            float fogFactor = smoothstep(FOG_START, FOG_END, particleDist);
+            // Use main fog curve and user-controlled overlay scale
+            float fogFactor = getFogFactor(particleDist) * pc.fog_overlay_scale;
             color = mix(color, fogColor, fogFactor * 0.3);  // Lighter fog on particles
         }
     }
@@ -2385,7 +2389,8 @@ void main() {
         // Apply fog to falling blocks if they're closer than the hit
         if (fallingDist < hitDistance) {
             vec3 fogColor = getFogColor(pc.time_of_day);
-            float fogFactor = smoothstep(FOG_START, FOG_END, fallingDist);
+            // Falling blocks should follow the same fog curve as the scene
+            float fogFactor = getFogFactor(fallingDist) * pc.fog_overlay_scale;
             color = mix(color, fogColor, fogFactor * 0.5);
         }
     }

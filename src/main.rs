@@ -348,6 +348,8 @@ struct App {
     fog_start: f32,
     /// Whether fog affects the sky (false = clear sky regardless of fog)
     fog_affects_sky: bool,
+    /// Multiplier for particle/falling-block fog strength (1.0 = default)
+    fog_overlay_scale: f32,
     /// Continuous animation time in seconds (for water waves, etc.)
     animation_time: f32,
 
@@ -642,6 +644,7 @@ impl App {
             fog_density: 0.01,
             fog_start: 128.0,
             fog_affects_sky: false,
+            fog_overlay_scale: 1.0,
             animation_time: 0.0,
 
             last_player_chunk: spawn_chunk,
@@ -1214,6 +1217,7 @@ impl App {
             &mut self.fog_density,
             &mut self.fog_start,
             &mut self.fog_affects_sky,
+            &mut self.fog_overlay_scale,
             &mut self.view_distance,
             &mut self.unload_distance,
             &mut self.block_updates,
@@ -1386,6 +1390,7 @@ impl App {
             fog_density: self.fog_density,
             fog_start: self.fog_start,
             fog_affects_sky: self.fog_affects_sky as u32,
+            fog_overlay_scale: self.fog_overlay_scale,
             target_block_x: target_x,
             target_block_y: target_y,
             target_block_z: target_z,

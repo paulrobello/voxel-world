@@ -123,6 +123,34 @@ vec3 inverseRotateNormal(vec3 n, uint rotation) {
     }
 }
 
+// Inverse-rotate a block-local position (0-1 range) back to model base orientation
+vec3 inverseRotatePosition(vec3 p, uint rotation) {
+    switch (rotation) {
+        case 1u: // 90° CW -> rotate 90° CCW around center
+            return vec3(1.0 - p.z, p.y, p.x);
+        case 2u: // 180°
+            return vec3(1.0 - p.x, p.y, 1.0 - p.z);
+        case 3u: // 270° CW -> rotate 90° CW
+            return vec3(p.z, p.y, 1.0 - p.x);
+        default:
+            return p;
+    }
+}
+
+// Inverse-rotate a direction vector back to model base orientation
+vec3 inverseRotateDirection(vec3 d, uint rotation) {
+    switch (rotation) {
+        case 1u:
+            return vec3(d.z, d.y, -d.x);
+        case 2u:
+            return vec3(-d.x, d.y, -d.z);
+        case 3u:
+            return vec3(-d.z, d.y, d.x);
+        default:
+            return d;
+    }
+}
+
 // Forward declaration for block ray intersection (used before definition in shadow/sky)
 float rayBlockIntersect(vec3 rayOrigin, vec3 rayDir, ivec3 blockPos, out vec3 hitNormal, out vec3 localHit);
 // Forward declaration for sub-voxel hit test (used for model shadows/sky)

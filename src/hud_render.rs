@@ -37,6 +37,7 @@ impl HUDRenderer {
         fog_density: &mut f32,
         fog_start: &mut f32,
         fog_affects_sky: &mut bool,
+        fog_overlay_scale: &mut f32,
         view_distance: &mut i32,
         unload_distance: &mut i32,
         block_updates: &mut BlockUpdateQueue,
@@ -230,6 +231,10 @@ impl HUDRenderer {
                             );
                             ui.add(egui::Slider::new(fog_density, 0.0..=0.1).text("Fog Density"));
                             ui.add(egui::Slider::new(fog_start, 0.0..=128.0).text("Fog Start"));
+                            ui.add(
+                                egui::Slider::new(fog_overlay_scale, 0.0..=2.0)
+                                    .text("Fog Overlay Scale"),
+                            );
                             ui.checkbox(fog_affects_sky, "Fog Affects Sky");
                             if ui
                                 .add(

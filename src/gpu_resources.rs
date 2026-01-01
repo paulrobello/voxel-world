@@ -78,6 +78,7 @@ pub struct PushConstants {
     pub fog_density: f32,
     pub fog_start: f32,
     pub fog_affects_sky: u32,
+    pub fog_overlay_scale: f32,
     pub target_block_x: i32,
     pub target_block_y: i32,
     pub target_block_z: i32,
@@ -864,7 +865,7 @@ pub struct GpuModelProperties {
     pub aabb_max: u32,
     /// Light emission color (RGB) and intensity (A).
     pub emission: [f32; 4],
-    /// Flags: bit 0 = rotatable, bit 1 = light_blocking_full, bit 2 = light_blocking_partial.
+    /// Flags: bit 0 = rotatable, bit 1 = light_blocking_partial, bit 2 = light_blocking_full.
     pub flags: u32,
     /// Padding to align to 16 bytes (total 48 bytes).
     pub _pad2: [u32; 3],
@@ -1121,6 +1122,16 @@ pub fn upload_chunks_batched(
             .copy_buffer_to_image(CopyBufferToImageInfo {
                 regions: [region].into(),
                 ..CopyBufferToImageInfo::buffer_image(src_buffer, voxel_image.clone())
+            })
+            .unwrap();
+    }
+
+    // Copy model metadata (model_id + rotation) to model_metadata image
+    for (src_buffer, region) in metadata_buffers_and_regions {
+        command_buffer_builder
+            .copy_buffer_to_image(CopyBufferToImageInfo {
+                regions: [region].into(),
+                ..CopyBufferToImageInfo::buffer_image(src_buffer, model_metadata_image.clone())
             })
             .unwrap();
     }

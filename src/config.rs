@@ -81,7 +81,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             show_chunk_boundaries: false,
-            show_block_preview: true,
+            show_block_preview: false,
             show_target_outline: true,
             show_compass: true,
 

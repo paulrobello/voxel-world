@@ -29,10 +29,6 @@ const float CLOUD_COVERAGE = 0.45;     // 0-1, higher = more clouds
 const vec3 CLOUD_COLOR = vec3(1.0, 1.0, 1.0);   // White clouds
 const vec2 CLOUD_WIND = vec2(0.8, 0.3);  // Wind direction and speed for cloud movement
 
-// Fog settings (FOG_START/END used for particle fog, main fog uses density)
-const float FOG_START_INTERNAL = 40.0;     // Distance where particle fog begins
-const float FOG_END_INTERNAL = 120.0;      // Distance where particle fog is fully opaque
-
 // Calculate sun direction based on time of day
 // time: 0.0 = midnight, 0.25 = sunrise (east), 0.5 = noon (overhead), 0.75 = sunset (west)
 vec3 getSunDirection(float time) {
