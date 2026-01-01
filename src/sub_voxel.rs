@@ -1,14 +1,13 @@
 //! Sub-voxel model system for detailed 8³ block models.
 //!
-//! This module implements a model registry pattern where reusable sub-voxel models
-//! (torch, slab, fence, stairs, etc.) are stored once and referenced by blocks.
-//! Each model is an 8×8×8 voxel grid with a 16-color palette.
+//! Models (torch, slab, fence, stairs, etc.) are stored once in a registry and
+//! referenced by blocks. Each model is an 8×8×8 voxel grid with a 16-color palette.
 //!
-//! Memory efficiency is achieved through:
-//! - Model registry: ~256KB fixed for up to 256 unique models
-//! - Sparse block metadata: Only blocks with models store model_id + rotation
+//! Memory efficiency:
+//! - Registry footprint: ~256KB fixed for up to 256 models
+//! - Sparse metadata: only Model blocks store model_id + rotation
 
-#![allow(dead_code)] // Module under construction - will be integrated in Phase 4.2+
+#![allow(dead_code)] // Some editor-facing APIs are still planned; rendering/interaction use this today.
 
 use std::collections::HashMap;
 

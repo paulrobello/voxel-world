@@ -298,6 +298,17 @@ impl World {
         std::mem::take(&mut self.dirty_chunks)
     }
 
+    /// Removes the given positions from the dirty chunk queue, if present.
+    pub fn remove_dirty_positions(&mut self, positions: &[ChunkPos]) {
+        if self.dirty_chunks.is_empty() || positions.is_empty() {
+            return;
+        }
+
+        use std::collections::HashSet;
+        let remove: HashSet<_> = positions.iter().copied().collect();
+        self.dirty_chunks.retain(|pos| !remove.contains(pos));
+    }
+
     /// Returns all dirty chunk positions without draining.
     pub fn dirty_chunks(&self) -> &[ChunkPos] {
         &self.dirty_chunks

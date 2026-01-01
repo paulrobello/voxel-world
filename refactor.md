@@ -1,42 +1,24 @@
-# Refactor Opportunities
+# Refactor & Logic Review (2026-01-01)
 
-> Keep this report updated as you address items: note status, decisions, and follow-ups so the list stays current.
-> After each batch of work: run `make checkall`, resolve any issues it finds, then commit so we can easily roll back and pinpoint regressions.
+## Workflow (must follow each batch)
+- Run `make checkall`.
+- Fix any issues it reports.
+- Have the user verify nothing is broken.
+- Update this checklist with outcomes/notes.
+- Commit all work before moving to the next item.
 
-Last batch: `make checkall` (2026-01-01) — pass.
+## Open Findings
+1) **Texture-origin shift leaves stale metadata**  
+   - Location: `src/world_streaming.rs` shift path (lines ~20-93) and metadata refresh (lines ~247-249).  
+   - Issue: When the texture origin shifts, voxel/model images are reuploaded but chunk/brick metadata buffers are not rebuilt unless chunks are loaded/unloaded the same frame. Rays can skip or mis-classify chunks/bricks until a later refresh.  
+   - Direction: After a shift/reupload, force `update_metadata_buffers()` (or gate on `shifted` flag) to keep skip data aligned.
 
-1. Chunk upload path duplication (high)
-   - Locations: `src/world_streaming.rs` lines ~164-212, 314-367, 370-416 all build `(pos, block_data, model_metadata)` vectors, call `upload_chunks_batched`, then mark chunks clean and refresh metadata.
-   - Impact: ~120 duplicated lines; risk of behavior drift between paths (e.g., metadata timing, profiling, dirty-marking). Harder to tweak upload logic or add instrumentation once.
-   - Direction: Extract a shared helper (e.g., `upload_chunks_with_metadata(&[(Vector3<i32>, &[u8], &[u8])])` or a small `ChunkUploadBatch` owned by `World`) that handles upload, dirty marking, metadata updates, and profiling. Reuse across initial loads, dirty uploads, and unload clears.
-   - Status: addressed in `src/world_streaming.rs` via `upload_owned_chunks`, `upload_chunk_refs`, `mark_chunks_clean`, and `update_metadata_buffers`; duplicated upload/metadata blocks replaced. Keep an eye out for future call sites to route through helpers.
+2) **Duplicate uploads for freshly generated chunks**  
+   - Location: `src/world.rs` `insert_chunk` always pushes to `dirty_chunks`; `src/world_streaming.rs` `update_chunk_loading` uploads those chunks immediately and marks them clean. `upload_world_to_gpu` then drains `dirty_chunks` and reuploads the same chunks.  
+   - Impact: Wasted GPU bandwidth and inflated profiler counters each time a chunk generation completes.  
+   - Direction: Clear or skip these positions after the immediate upload (e.g., drain from dirty queue or track “already uploaded this frame”).
 
-2. Descriptor-set and buffer boilerplate (high)
-   - Locations: `src/gpu_resources.rs` helpers `get_images_and_sets`, `get_distance_image_and_set`, `get_particle_and_falling_block_set`, `get_light_set`, `get_chunk_metadata_set`, `get_brick_and_model_set`.
-   - Impact: Repeated `DescriptorSet::new` and buffer-construction patterns make set-index/layout changes error-prone and keep the file at 1.3k LOC.
-   - Direction: Introduce small helpers (e.g., `make_set(pipeline, set_idx, writes)`, `make_storage_buffer<T>(alloc, len)`) to centralize layout lookup and buffer creation, trimming duplication and aligning future descriptor changes.
-   - Status: addressed — added `make_set` and `make_storage_buffer` helpers and rewired the noted call sites to use them.
-
-3. HUD render parameter bloat (medium)
-   - Location: `HUDRenderer::render` signature (`src/hud_render.rs:15-47`) takes ~30 params; overlay panels duplicate `Area` + `Frame` styling (`52-104`, `106-119`).
-   - Impact: Hard to evolve HUD; every new control extends an already unwieldy call site; repeated style code invites divergence.
-   - Direction: Wrap inputs in a `HudInputs` struct and split overlays into helpers (e.g., `draw_stats_overlay`, `draw_position_overlay`) sharing style constants.
-   - Status: addressed — added `HudInputs` struct plus overlay helpers; render call site updated to pass the struct.
-
-4. Repeated neighbor lists and Y-bounds checks (medium)
-   - Locations: identical Y guards in `block_update.rs` at 242, 272, 299, 327; orthogonal neighbor sets duplicated in `block_update::enqueue_neighbors` and `water::activate_neighbors` (`water.rs:273-281`).
-   - Impact: Divergent bounds rules or neighbor orders risk subtle bugs; extra code noise.
-   - Direction: Add an `ORTHO_DIRS` constant (e.g., in `constants.rs`) and a `WorldBounds::in_y_range(y)` helper; reuse in block updates and water flow.
-   - Status: addressed — `constants::ORTHO_DIRS` and `utils::y_in_bounds` added; `block_update` and `water` now reuse them.
-
-5. `main.rs` monolith (medium)
-   - Location: `src/main.rs` `App` struct (~160 fields, lines 268-433) and `App::new` (441+).
-   - Impact: Hard to navigate and extend; responsibilities for CLI, GPU, world gen, HUD, physics all interleaved; inhibits testing and reset/restart flows.
-   - Direction: Split into nested structs (`Graphics`, `WorldSim`, `UiState`, `InputState`) and module-specific `init_*` builders; move constants to modules where used.
-   - Status: addressed — `App` now owns `Graphics`, `WorldSim`, `UiState`, and `InputState` containers (GPU resources, simulation state, HUD/input state separated); `App::new`, `update`, `render`, `world_streaming.rs`, and `block_interaction.rs` rewired to the nested structs. Additional splits: `app_input.rs` (focus & controls), `app_minimap.rs` (minimap throttling/caching), `app_hud.rs` (HUD bridge), `app_stats.rs` (FPS/metrics print). Follow-up: optional—shrink debug interval logging similarly or migrate remaining render prep helpers if desired.
-
-6. Camera/world conversion duplication (low)
-   - Locations: `block_interaction::update_raycast` (`block_interaction.rs:12-35`) and `Player::feet_pos` (`player.rs:97-108`) both scale camera coords by `world_extent` and add `texture_origin`.
-   - Impact: If texture-origin math changes, risk inconsistency; minor code bloat.
-   - Direction: Add a shared helper (e.g., `Player::camera_world_pos(world_extent, texture_origin)`) or a free utility to centralize conversion.
-   - Status: addressed — added `Player::camera_world_pos` and reused in `block_interaction`.
+3) **Outdated comment about sub-voxel integration**  
+   - Location: Top of `src/sub_voxel.rs`.  
+   - Issue: Comment says the module is “under construction” though it’s already used by rendering/interactions.  
+   - Direction: Update wording to reflect current integration to avoid future confusion.

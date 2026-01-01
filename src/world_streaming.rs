@@ -87,7 +87,17 @@ impl App {
             self.clear_voxel_texture();
             // Upload chunks at new positions - convert to slice references
             self.upload_owned_chunks(&chunks_to_upload);
+            // Chunks were uploaded immediately; they are already clean
+            self.sim.world.remove_dirty_positions(
+                &chunks_to_upload
+                    .iter()
+                    .map(|(pos, _, _)| *pos)
+                    .collect::<Vec<_>>(),
+            );
         }
+
+        // Ensure chunk/brick metadata matches the new origin even if no loads/unloads occurred.
+        self.update_metadata_buffers();
 
         true
     }
@@ -187,6 +197,13 @@ impl App {
             // Convert to slice references for upload
             self.upload_owned_chunks(&chunks_to_upload);
             self.mark_chunks_clean(&chunks_to_upload);
+            // Already uploaded this frame; avoid a second upload in upload_world_to_gpu
+            self.sim.world.remove_dirty_positions(
+                &chunks_to_upload
+                    .iter()
+                    .map(|(pos, _, _)| *pos)
+                    .collect::<Vec<_>>(),
+            );
         }
 
         // === STEP 2: Queue new chunks for generation ===
@@ -288,6 +305,13 @@ impl App {
             self.sim.profiler.chunks_uploaded += chunks_to_upload.len() as u32;
             // Convert to slice references for upload
             self.upload_owned_chunks(&chunks_to_upload);
+            // Avoid re-upload in upload_world_to_gpu for the same positions
+            self.sim.world.remove_dirty_positions(
+                &chunks_to_upload
+                    .iter()
+                    .map(|(pos, _, _)| *pos)
+                    .collect::<Vec<_>>(),
+            );
             // Update metadata so shader doesn't skip newly non-empty bricks
             self.update_metadata_buffers();
         }
