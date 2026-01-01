@@ -76,7 +76,6 @@ use winit::{
 };
 use winit_input_helper::WinitInputHelper;
 
-mod block_interaction;
 mod block_update;
 mod camera;
 mod chunk;
@@ -699,6 +698,228 @@ impl App {
 
     /// Checks if texture origin needs to shift and handles re-upload if necessary.
     /// Returns true if a shift occurred.
+    fn update(&mut self, event_loop: &ActiveEventLoop) {
+        self.total_frames += 1;
+        let now = Instant::now();
+
+        // Check for screenshot delay
+        if let Some(delay) = self.args.screenshot_delay {
+            if !self.screenshot_taken {
+                let elapsed = now.duration_since(self.start_time).as_secs_f64();
+                if elapsed >= delay {
+                    // Mark that we need to take a screenshot on the next render
+                    // The actual screenshot will be taken in render()
+                    println!(
+                        "[SCREENSHOT] Taking screenshot after {:.1}s (saving to voxel_world_screen_shot.png)",
+                        elapsed
+                    );
+                }
+            }
+        }
+
+        if now.duration_since(self.last_second) > Duration::from_secs(1) {
+            self.fps = self.frames_since_last_second;
+            self.frames_since_last_second = 0;
+            self.last_second = now;
+
+            // Debug stats output (always show if verbose, otherwise once per second)
+            let player_pos = self.player.feet_pos(self.world_extent, self.texture_origin);
+            let player_chunk = self
+                .player
+                .get_chunk_pos(self.world_extent, self.texture_origin);
+            let frame_time_ms = if self.fps > 0 {
+                1000.0 / self.fps as f32
+            } else {
+                0.0
+            };
+
+            let render_res = [
+                (self.window_size[0] as f32 * self.settings.render_scale) as u32,
+                (self.window_size[1] as f32 * self.settings.render_scale) as u32,
+            ];
+            if self.args.verbose {
+                println!(
+                    "[STATS] FPS: {} ({:.1}ms) | Win: {}x{} Render: {}x{} | Chunks: {} | Dirty: {} | Gen: {} | Pos: ({:.1}, {:.1}, {:.1}) | Chunk: ({}, {}, {}) | TexOrigin: ({}, {})",
+                    self.fps,
+                    frame_time_ms,
+                    self.window_size[0],
+                    self.window_size[1],
+                    render_res[0],
+                    render_res[1],
+                    self.chunk_stats.loaded_count,
+                    self.chunk_stats.dirty_count,
+                    self.chunk_stats.in_flight_count,
+                    player_pos.x,
+                    player_pos.y,
+                    player_pos.z,
+                    player_chunk.x,
+                    player_chunk.y,
+                    player_chunk.z,
+                    self.texture_origin.x,
+                    self.texture_origin.z,
+                );
+            } else {
+                println!(
+                    "[STATS] FPS: {} ({:.1}ms) | Win: {}x{} Render: {}x{} | Chunks: {} | Gen: {} | Pos: ({:.1}, {:.1}, {:.1})",
+                    self.fps,
+                    frame_time_ms,
+                    self.window_size[0],
+                    self.window_size[1],
+                    render_res[0],
+                    render_res[1],
+                    self.chunk_stats.loaded_count,
+                    self.chunk_stats.in_flight_count,
+                    player_pos.x,
+                    player_pos.y,
+                    player_pos.z,
+                );
+            }
+
+            // Print profiler stats and reset
+            self.profiler.print_stats();
+            self.profiler.reset();
+        }
+        self.frames_since_last_second += 1;
+
+        // Debug interval output
+        if self.args.debug_interval > 0 && self.total_frames % self.args.debug_interval as u64 == 0
+        {
+            let player_pos = self.player.feet_pos(self.world_extent, self.texture_origin);
+            let player_chunk = self
+                .player
+                .get_chunk_pos(self.world_extent, self.texture_origin);
+            println!(
+                "[DEBUG Frame {}] Pos: ({:.2}, {:.2}, {:.2}) Chunk: ({}, {}, {}) TexOrigin: ({}, {}, {}) Velocity: ({:.2}, {:.2}, {:.2})",
+                self.total_frames,
+                player_pos.x,
+                player_pos.y,
+                player_pos.z,
+                player_chunk.x,
+                player_chunk.y,
+                player_chunk.z,
+                self.texture_origin.x,
+                self.texture_origin.y,
+                self.texture_origin.z,
+                self.player.velocity.x,
+                self.player.velocity.y,
+                self.player.velocity.z
+            );
+        }
+
+        // Always update chunks and upload to GPU, even before delta_time is available
+        // This ensures initial chunks are uploaded on the first frame
+        let t0 = Instant::now();
+        self.update_chunk_loading();
+        self.profiler.chunk_loading_us += t0.elapsed().as_micros() as u64;
+
+        let t1 = Instant::now();
+        self.upload_world_to_gpu();
+        self.profiler.gpu_upload_us += t1.elapsed().as_micros() as u64;
+
+        let Some(delta_time) = self.input.delta_time().as_ref().map(Duration::as_secs_f64) else {
+            return;
+        };
+
+        if self.input.close_requested() {
+            event_loop.exit();
+            return;
+        }
+
+        // Handle escape to unfocus
+        if self.input.key_pressed(KeyCode::Escape) && self.focused {
+            self.focused = false;
+            self.pending_grab = Some(false);
+            println!("Unfocused - cursor will be released");
+        }
+
+        // Handle focus toggling - click to focus (don't process this click for gameplay)
+        if !self.focused && self.input.mouse_pressed(MouseButton::Left) {
+            println!("Focus click...");
+            self.focused = true;
+            self.pending_grab = Some(true);
+            // Skip block breaking until mouse is released to avoid breaking on focus click
+            self.skip_break_until_release = true;
+            println!("Focus complete - cursor will be grabbed");
+            return;
+        }
+
+        // Update day/night cycle
+        if !self.day_cycle_paused {
+            self.time_of_day += delta_time as f32 / DAY_CYCLE_DURATION;
+            self.time_of_day = self.time_of_day.rem_euclid(1.0);
+        }
+
+        // Update animation time (always advances for water waves, etc.)
+        self.animation_time += delta_time as f32;
+
+        // Update particle system with world collision
+        // Note: X and Z can be any value in an infinite world, only Y has bounds
+        let world = &self.world;
+        self.particles.update(delta_time as f32, |x, y, z| {
+            // Y bounds check only (X and Z are infinite)
+            if y < 0 || y >= TEXTURE_SIZE_Y as i32 {
+                return false;
+            }
+            // Check if block is solid - world.get_block handles infinite X/Z
+            world
+                .get_block(Vector3::new(x, y, z))
+                .is_some_and(|b| b.is_solid())
+        });
+
+        // Update falling blocks with world collision
+        // Note: X and Z can be any value in an infinite world, only Y has bounds
+        let landed = self.falling_blocks.update(delta_time as f32, |x, y, z| {
+            // Y bounds check only (X and Z are infinite)
+            if y < 0 || y >= TEXTURE_SIZE_Y as i32 {
+                return false;
+            }
+            // Check if block is solid - world.get_block handles infinite X/Z
+            world
+                .get_block(Vector3::new(x, y, z))
+                .is_some_and(|b| b.is_solid())
+        });
+
+        // Process any blocks that have landed
+        if !landed.is_empty() {
+            self.process_landed_blocks(landed);
+        }
+
+        // Process queued block physics updates (frame-distributed to prevent FPS spikes)
+        let player_pos_f32 = self
+            .player
+            .feet_pos(self.world_extent, self.texture_origin)
+            .cast::<f32>();
+        self.block_updates.process_updates(
+            &mut self.world,
+            &mut self.falling_blocks,
+            &mut self.particles,
+            &self.model_registry,
+            player_pos_f32,
+        );
+
+        // Process water flow simulation (frame-distributed)
+        if self.settings.water_simulation_enabled {
+            let player_pos_f32 = self
+                .player
+                .feet_pos(self.world_extent, self.texture_origin)
+                .cast::<f32>();
+            self.water_grid
+                .process_simulation(&mut self.world, player_pos_f32);
+        }
+
+        if self.focused {
+            // Update player physics (movement, gravity, collisions)
+            self.player.update_physics(
+                delta_time,
+                &self.world,
+                self.world_extent,
+                self.texture_origin,
+                &self.input,
+                &self.model_registry,
+                self.args.verbose,
+            );
+
+            // Mouse look
             let sens = 0.002 * (self.player.camera.fov.to_radians() * 0.5).tan();
 
             let (dx, dy) = self.input.mouse_diff();
