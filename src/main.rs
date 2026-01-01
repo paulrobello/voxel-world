@@ -112,7 +112,7 @@ use crate::gpu_resources::{
     create_empty_voxel_texture, get_brick_and_model_set, get_chunk_metadata_set,
     get_distance_image_and_set, get_images_and_sets, get_light_set,
     get_particle_and_falling_block_set, get_swapchain_images, load_icon, load_texture_atlas,
-    upload_chunks_batched,
+    save_screenshot, upload_chunks_batched,
 };
 use crate::hot_reload::HotReloadComputePipeline;
 use crate::hud::Minimap;
@@ -2152,65 +2152,6 @@ impl App {
     }
 
     /// Takes a screenshot and saves it to the specified path.
-    fn save_screenshot(&self, image_view: &Arc<ImageView>, path: &str) {
-        let image = image_view.image();
-        let extent = image.extent();
-
-        // Create a buffer to copy the image data into
-        let buffer_size = (extent[0] * extent[1] * 4) as u64; // RGBA
-        let staging_buffer = Buffer::new_slice::<u8>(
-            self.memory_allocator.clone(),
-            BufferCreateInfo {
-                usage: BufferUsage::TRANSFER_DST,
-                ..Default::default()
-            },
-            AllocationCreateInfo {
-                memory_type_filter: MemoryTypeFilter::PREFER_HOST
-                    | MemoryTypeFilter::HOST_RANDOM_ACCESS,
-                ..Default::default()
-            },
-            buffer_size,
-        )
-        .expect("Failed to create screenshot staging buffer");
-
-        // Build command buffer to copy image to buffer
-        let mut builder = AutoCommandBufferBuilder::primary(
-            self.command_buffer_allocator.clone(),
-            self.queue.queue_family_index(),
-            CommandBufferUsage::OneTimeSubmit,
-        )
-        .unwrap();
-
-        builder
-            .copy_image_to_buffer(
-                vulkano::command_buffer::CopyImageToBufferInfo::image_buffer(
-                    image.clone(),
-                    staging_buffer.clone(),
-                ),
-            )
-            .unwrap();
-
-        let command_buffer = builder.build().unwrap();
-
-        // Execute and wait
-        let future = vulkano::sync::now(self.device.clone())
-            .then_execute(self.queue.clone(), command_buffer)
-            .unwrap()
-            .then_signal_fence_and_flush()
-            .unwrap();
-        future.wait(None).unwrap();
-
-        // Read the buffer data
-        let buffer_content = staging_buffer.read().unwrap();
-
-        // Create image and save
-        let img = image::RgbaImage::from_raw(extent[0], extent[1], buffer_content.to_vec())
-            .expect("Failed to create image from buffer");
-
-        img.save(path).expect("Failed to save screenshot");
-        println!("[SCREENSHOT] Saved to {}", path);
-    }
-
     /// Uploads dirty chunks to the GPU.
     fn upload_world_to_gpu(&mut self) {
         // Drain dirty chunk positions from world
@@ -4265,7 +4206,14 @@ impl App {
 
         // Take screenshot if delay has elapsed (outside rcx borrow scope)
         if let Some(image_view) = needs_screenshot {
-            self.save_screenshot(&image_view, "voxel_world_screen_shot.png");
+            save_screenshot(
+                &self.device,
+                &self.queue,
+                &self.memory_allocator,
+                &self.command_buffer_allocator,
+                &image_view,
+                "voxel_world_screen_shot.png",
+            );
             self.screenshot_taken = true;
         }
 

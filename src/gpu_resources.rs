@@ -1059,16 +1059,6 @@ pub fn upload_chunks_batched(
             .unwrap();
     }
 
-    // Copy model metadata to model_metadata image
-    for (src_buffer, region) in metadata_buffers_and_regions {
-        command_buffer_builder
-            .copy_buffer_to_image(CopyBufferToImageInfo {
-                regions: [region].into(),
-                ..CopyBufferToImageInfo::buffer_image(src_buffer, model_metadata_image.clone())
-            })
-            .unwrap();
-    }
-
     command_buffer_builder
         .build()
         .unwrap()
@@ -1078,4 +1068,86 @@ pub fn upload_chunks_batched(
         .unwrap()
         .wait(None)
         .unwrap();
+}
+
+pub fn save_screenshot(
+    device: &Arc<Device>,
+
+    queue: &Arc<Queue>,
+
+    memory_allocator: &Arc<StandardMemoryAllocator>,
+
+    command_buffer_allocator: &Arc<StandardCommandBufferAllocator>,
+
+    image_view: &Arc<ImageView>,
+
+    path: &str,
+) {
+    let image = image_view.image();
+
+    let extent = image.extent();
+
+    // Create a buffer to copy the image data into
+
+    let buffer_size = (extent[0] * extent[1] * 4) as u64; // RGBA
+
+    let staging_buffer = Buffer::new_slice::<u8>(
+        memory_allocator.clone(),
+        BufferCreateInfo {
+            usage: BufferUsage::TRANSFER_DST,
+
+            ..Default::default()
+        },
+        AllocationCreateInfo {
+            memory_type_filter: MemoryTypeFilter::PREFER_HOST
+                | MemoryTypeFilter::HOST_RANDOM_ACCESS,
+
+            ..Default::default()
+        },
+        buffer_size,
+    )
+    .expect("Failed to create screenshot staging buffer");
+
+    // Build command buffer to copy image to buffer
+
+    let mut builder = AutoCommandBufferBuilder::primary(
+        command_buffer_allocator.clone(),
+        queue.queue_family_index(),
+        CommandBufferUsage::OneTimeSubmit,
+    )
+    .unwrap();
+
+    builder
+        .copy_image_to_buffer(
+            vulkano::command_buffer::CopyImageToBufferInfo::image_buffer(
+                image.clone(),
+                staging_buffer.clone(),
+            ),
+        )
+        .unwrap();
+
+    let command_buffer = builder.build().unwrap();
+
+    // Execute and wait
+
+    let future = vulkano::sync::now(device.clone())
+        .then_execute(queue.clone(), command_buffer)
+        .unwrap()
+        .then_signal_fence_and_flush()
+        .unwrap();
+
+    future.wait(None).unwrap();
+
+    // Read the buffer data
+
+    let buffer_content = staging_buffer.read().unwrap();
+
+    // Create image and save
+
+    let img = image::RgbaImage::from_raw(extent[0], extent[1], buffer_content.to_vec())
+        .expect("Failed to create image from buffer");
+
+    img.save(path).expect("Failed to save screenshot");
+
+    println!("[SCREENSHOT] Saved to {}", path);
 }
