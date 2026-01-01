@@ -33,7 +33,103 @@ impl Default for World {
     }
 }
 
+use crate::gpu_resources::GpuLight;
+use crate::player::PLAYER_EYE_HEIGHT;
+use crate::sub_voxel::ModelRegistry;
+
 impl World {
+    /// Collects all light-emitting blocks (including model blocks like torches)
+    /// and returns them as GPU light data.
+    pub fn collect_torch_lights(
+        &self,
+        player_light_enabled: bool,
+        player_pos: Vector3<f64>,
+        texture_origin: Vector3<i32>,
+        model_registry: &ModelRegistry,
+        world_extent: [u32; 3],
+    ) -> Vec<GpuLight> {
+        let mut lights = Vec::new();
+
+        // Add player light if enabled (like holding a torch)
+        if player_light_enabled {
+            // Light is at player's hand/chest level, convert to texture coordinates for shader
+            let tex_x = (player_pos.x - texture_origin.x as f64) as f32;
+            let tex_y = (player_pos.y + PLAYER_EYE_HEIGHT * 0.7 - texture_origin.y as f64) as f32;
+            let tex_z = (player_pos.z - texture_origin.z as f64) as f32;
+            lights.push(GpuLight {
+                pos_radius: [tex_x, tex_y, tex_z, 12.0], // Torch-like radius
+                color_intensity: [1.0, 0.8, 0.5, 1.5],   // Warm torch color
+            });
+        }
+
+        // Iterate over all loaded chunks
+        for (chunk_pos, chunk) in self.chunks() {
+            // Scan chunk for light-emitting blocks
+            for lx in 0..CHUNK_SIZE {
+                for ly in 0..CHUNK_SIZE {
+                    for lz in 0..CHUNK_SIZE {
+                        let block = chunk.get_block(lx, ly, lz);
+
+                        // Check for Model blocks with emission
+                        if block == BlockType::Model {
+                            if let Some(model_data) = chunk.get_model_data(lx, ly, lz) {
+                                if let Some(model) = model_registry.get(model_data.model_id) {
+                                    if let Some(emission) = &model.emission {
+                                        // Calculate world position (center of block)
+                                        let world_x = chunk_pos.x * CHUNK_SIZE as i32 + lx as i32;
+                                        let world_y = chunk_pos.y * CHUNK_SIZE as i32 + ly as i32;
+                                        let world_z = chunk_pos.z * CHUNK_SIZE as i32 + lz as i32;
+
+                                        // Convert to texture coordinates
+                                        let tex_x = (world_x - texture_origin.x) as f32 + 0.5;
+                                        let tex_y = (world_y - texture_origin.y) as f32 + 0.5;
+                                        let tex_z = (world_z - texture_origin.z) as f32 + 0.5;
+
+                                        let r = emission.r as f32 / 255.0;
+                                        let g = emission.g as f32 / 255.0;
+                                        let b = emission.b as f32 / 255.0;
+
+                                        lights.push(GpuLight {
+                                            pos_radius: [tex_x, tex_y, tex_z, 10.0], // Torch radius
+                                            color_intensity: [r, g, b, 1.2],
+                                        });
+
+                                        if lights.len() >= crate::gpu_resources::MAX_LIGHTS {
+                                            return lights;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        // Also check regular block light properties (for future non-model lights)
+                        else if let Some((color, radius)) = block.light_properties() {
+                            // Calculate world position (center of block)
+                            let world_x = chunk_pos.x * CHUNK_SIZE as i32 + lx as i32;
+                            let world_y = chunk_pos.y * CHUNK_SIZE as i32 + ly as i32;
+                            let world_z = chunk_pos.z * CHUNK_SIZE as i32 + lz as i32;
+
+                            // Convert to texture coordinates (shader operates in texture space)
+                            let tex_x = (world_x - texture_origin.x) as f32 + 0.5;
+                            let tex_y = (world_y - texture_origin.y) as f32 + 0.5;
+                            let tex_z = (world_z - texture_origin.z) as f32 + 0.5;
+
+                            lights.push(GpuLight {
+                                pos_radius: [tex_x, tex_y, tex_z, radius],
+                                color_intensity: [color[0], color[1], color[2], 1.2],
+                            });
+
+                            if lights.len() >= crate::gpu_resources::MAX_LIGHTS {
+                                return lights;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        lights
+    }
+
     /// Creates a new empty world.
     pub fn new() -> Self {
         Self {
