@@ -84,21 +84,7 @@ impl App {
             // Clear the texture first (set all to air)
             self.clear_voxel_texture();
             // Upload chunks at new positions - convert to slice references
-            let upload_refs: Vec<_> = chunks_to_upload
-                .iter()
-                .map(|(pos, block_data, model_metadata)| {
-                    (*pos, block_data.as_slice(), model_metadata.as_slice())
-                })
-                .collect();
-            upload_chunks_batched(
-                &self.memory_allocator,
-                &self.command_buffer_allocator,
-                &self.queue,
-                &self.voxel_image,
-                &self.model_metadata,
-                self.texture_origin,
-                &upload_refs,
-            );
+            self.upload_owned_chunks(&chunks_to_upload);
         }
 
         true
@@ -196,28 +182,8 @@ impl App {
         // Batch upload completed chunks to GPU
         if !chunks_to_upload.is_empty() {
             // Convert to slice references for upload
-            let upload_refs: Vec<_> = chunks_to_upload
-                .iter()
-                .map(|(pos, block_data, model_metadata)| {
-                    (*pos, block_data.as_slice(), model_metadata.as_slice())
-                })
-                .collect();
-            upload_chunks_batched(
-                &self.memory_allocator,
-                &self.command_buffer_allocator,
-                &self.queue,
-                &self.voxel_image,
-                &self.model_metadata,
-                self.texture_origin,
-                &upload_refs,
-            );
-
-            // Mark chunks as clean
-            for (pos, _, _) in &chunks_to_upload {
-                if let Some(chunk) = self.world.get_chunk_mut(*pos) {
-                    chunk.mark_clean();
-                }
-            }
+            self.upload_owned_chunks(&chunks_to_upload);
+            self.mark_chunks_clean(&chunks_to_upload);
         }
 
         // === STEP 2: Queue new chunks for generation ===
@@ -268,32 +234,12 @@ impl App {
                     )
                 })
                 .collect();
-            upload_chunks_batched(
-                &self.memory_allocator,
-                &self.command_buffer_allocator,
-                &self.queue,
-                &self.voxel_image,
-                &self.model_metadata,
-                self.texture_origin,
-                &chunks_to_clear,
-            );
+            self.upload_chunk_refs(&chunks_to_clear);
         }
 
         // Update chunk metadata if any chunks were loaded or unloaded
         if !chunks_to_upload.is_empty() || !positions_to_clear.is_empty() {
-            let t_meta = Instant::now();
-            update_chunk_metadata(
-                &mut self.world,
-                &self.chunk_metadata_buffer,
-                self.texture_origin,
-            );
-            update_brick_metadata(
-                &self.world,
-                &self.brick_mask_buffer,
-                &self.brick_dist_buffer,
-                self.texture_origin,
-            );
-            self.profiler.metadata_update_us += t_meta.elapsed().as_micros() as u64;
+            self.update_metadata_buffers();
         }
 
         // Update chunk stats
@@ -334,36 +280,9 @@ impl App {
         if !chunks_to_upload.is_empty() {
             self.profiler.chunks_uploaded += chunks_to_upload.len() as u32;
             // Convert to slice references for upload
-            let upload_refs: Vec<_> = chunks_to_upload
-                .iter()
-                .map(|(pos, block_data, model_metadata)| {
-                    (*pos, block_data.as_slice(), model_metadata.as_slice())
-                })
-                .collect();
-            upload_chunks_batched(
-                &self.memory_allocator,
-                &self.command_buffer_allocator,
-                &self.queue,
-                &self.voxel_image,
-                &self.model_metadata,
-                self.texture_origin,
-                &upload_refs,
-            );
-
+            self.upload_owned_chunks(&chunks_to_upload);
             // Update metadata so shader doesn't skip newly non-empty bricks
-            let t_meta = Instant::now();
-            update_chunk_metadata(
-                &mut self.world,
-                &self.chunk_metadata_buffer,
-                self.texture_origin,
-            );
-            update_brick_metadata(
-                &self.world,
-                &self.brick_mask_buffer,
-                &self.brick_dist_buffer,
-                self.texture_origin,
-            );
-            self.profiler.metadata_update_us += t_meta.elapsed().as_micros() as u64;
+            self.update_metadata_buffers();
         }
     }
 
@@ -380,22 +299,7 @@ impl App {
         }
 
         self.profiler.chunks_uploaded += chunks_to_upload.len() as u32;
-        let upload_refs: Vec<_> = chunks_to_upload
-            .iter()
-            .map(|(pos, block_data, model_metadata)| {
-                (*pos, block_data.as_slice(), model_metadata.as_slice())
-            })
-            .collect();
-
-        upload_chunks_batched(
-            &self.memory_allocator,
-            &self.command_buffer_allocator,
-            &self.queue,
-            &self.voxel_image,
-            &self.model_metadata,
-            self.texture_origin,
-            &upload_refs,
-        );
+        self.upload_owned_chunks(&chunks_to_upload);
 
         for (pos, _, _) in &chunks_to_upload {
             if let Some(chunk) = self.world.get_chunk_mut(*pos) {
@@ -403,6 +307,48 @@ impl App {
             }
         }
 
+        self.update_metadata_buffers();
+    }
+
+    /// Uploads owned chunk buffers (Vec-backed) to GPU by creating borrowed views.
+    fn upload_owned_chunks(&self, uploads: &[(Vector3<i32>, Vec<u8>, Vec<u8>)]) {
+        let upload_refs: Vec<_> = uploads
+            .iter()
+            .map(|(pos, block_data, model_metadata)| {
+                (*pos, block_data.as_slice(), model_metadata.as_slice())
+            })
+            .collect();
+        self.upload_chunk_refs(&upload_refs);
+    }
+
+    /// Uploads chunk data that is already slice-backed to GPU.
+    fn upload_chunk_refs(&self, uploads: &[(Vector3<i32>, &[u8], &[u8])]) {
+        if uploads.is_empty() {
+            return;
+        }
+        upload_chunks_batched(
+            &self.memory_allocator,
+            &self.command_buffer_allocator,
+            &self.queue,
+            &self.voxel_image,
+            &self.model_metadata,
+            self.texture_origin,
+            uploads,
+        );
+    }
+
+    /// Marks chunks referenced in the upload list as clean if they exist in the world.
+    fn mark_chunks_clean(&mut self, uploads: &[(Vector3<i32>, Vec<u8>, Vec<u8>)]) {
+        for (pos, _, _) in uploads {
+            if let Some(chunk) = self.world.get_chunk_mut(*pos) {
+                chunk.mark_clean();
+            }
+        }
+    }
+
+    /// Refreshes chunk and brick metadata buffers and records profiling time.
+    fn update_metadata_buffers(&mut self) {
+        let t_meta = Instant::now();
         update_chunk_metadata(
             &mut self.world,
             &self.chunk_metadata_buffer,
@@ -414,5 +360,6 @@ impl App {
             &self.brick_dist_buffer,
             self.texture_origin,
         );
+        self.profiler.metadata_update_us += t_meta.elapsed().as_micros() as u64;
     }
 }
