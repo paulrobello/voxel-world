@@ -1034,9 +1034,20 @@ float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFl
     vec3 tMax = (vec3(pos) + 0.5 + 0.5 * vec3(step) - rayPos) * inv_dir;
     vec3 tDelta = abs(inv_dir);
 
+    // If asked to ignore the starting model, advance ray just past this voxel boundary
+    // to avoid self-shadowing from sub-voxel geometry.
+    if (ignoreStartModel) {
+        float exitT = min(tMax.x, min(tMax.y, tMax.z)) + 0.002;
+        rayPos += dir * exitT;
+        pos = ivec3(floor(rayPos));
+        startPos = pos;
+        // Recompute stepping info from the new position
+        tMax = (vec3(pos) + 0.5 + 0.5 * vec3(step) - rayPos) * inv_dir;
+    }
+
     // Max shadow ray distance
     const float MAX_SHADOW_DIST = 256.0;
-    float dist = 0.0;
+    float totalDist = 0.0;
 
     // DDA shadow ray march (increased for larger world)
     for (int i = 0; i < 128; i++) {
@@ -1144,6 +1155,7 @@ float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFl
             // Advance ray to exit the current voxel before testing for shadow
             float advanceT = min(tMax.x, min(tMax.y, tMax.z)) + 0.001;
             rayPos += dir * advanceT;
+            totalDist += advanceT;
             pos = ivec3(floor(rayPos));
             // Recompute tMax from the new position
             tMax = (vec3(pos) + 0.5 + 0.5 * vec3(step) - rayPos) * inv_dir;
@@ -1151,24 +1163,38 @@ float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFl
         }
 
         // Step to next voxel
-        if (tMax.x < tMax.y && tMax.x < tMax.z) {
-            dist = tMax.x;
+        // Find next crossing distance from current position
+        float stepDist = tMax.x;
+        int stepAxis = 0;
+        if (tMax.y < stepDist) {
+            stepDist = tMax.y;
+            stepAxis = 1;
+        }
+        if (tMax.z < stepDist) {
+            stepDist = tMax.z;
+            stepAxis = 2;
+        }
+
+        // Advance ray position to the boundary we just crossed so subsequent tests use the correct voxel entry
+        rayPos += dir * stepDist;
+        totalDist += stepDist;
+
+        // Rebase tMax to the new position
+        tMax -= vec3(stepDist);
+
+        // Step to next voxel along chosen axis
+        if (stepAxis == 0) {
             tMax.x += tDelta.x;
             pos.x += step.x;
-        } else if (tMax.y < tMax.z) {
-            dist = tMax.y;
+        } else if (stepAxis == 1) {
             tMax.y += tDelta.y;
             pos.y += step.y;
         } else {
-            dist = tMax.z;
             tMax.z += tDelta.z;
             pos.z += step.z;
         }
 
-        // Advance ray position to the boundary we just crossed so subsequent tests use the correct voxel entry
-        rayPos += dir * dist;
-
-        if (dist > MAX_SHADOW_DIST) {
+        if (totalDist > MAX_SHADOW_DIST) {
             debugFlag = 8u; // exceeded range
             return 1.0;  // Too far = assume lit
         }
@@ -2587,9 +2613,14 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
         // Calculate sky exposure (reduces ambient light underground) - skip for distant blocks
         float skyExposure = nearEnoughForSkyExposure ? getSkyExposure(lightingHit + normal * 0.01) : 1.0;
 
-        // Calculate shadow only for nearby blocks
+        // Start shadow ray slightly off the surface; for models also offset along sun to avoid self-hit
+        vec3 shadowOrigin = lightingHit + normal * 0.01;
+        if (blockType == BLOCK_MODEL) {
+            shadowOrigin += sunDir * 0.01;
+        }
         uint dummyDbg;
-        float shadow = nearEnoughForShadow ? castShadowRayInternal(lightingHit + normal * 0.01, subVoxelHit, dummyDbg) : 1.0;
+        bool ignoreStartModel = (blockType == BLOCK_MODEL);
+        float shadow = nearEnoughForShadow ? castShadowRayInternal(shadowOrigin, ignoreStartModel, dummyDbg) : 1.0;
 
         // Apply directional lighting based on normal and sun direction
         float sunLight = max(0.0, dot(normal, sunDir));
@@ -2620,9 +2651,15 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
         case SHADOW_DEBUG:
         {
         vec3 lightingHit = subVoxelHit ? subVoxelHitPos : hit;
+        vec3 shadowOrigin = lightingHit + normal * 0.01;
+        if (blockType == BLOCK_MODEL) {
+            vec3 sunDirDbg = getCurrentSunDir();
+            shadowOrigin += sunDirDbg * 0.01;
+        }
         uint dbgFlag;
         // Always trace in debug mode regardless of distance/toggles
-        float shadow = castShadowRayInternal(lightingHit + normal * 0.01, subVoxelHit, dbgFlag);
+        bool ignoreStartModel = (blockType == BLOCK_MODEL);
+        float shadow = castShadowRayInternal(shadowOrigin, ignoreStartModel, dbgFlag);
         // Discrete colors by flag for easy reading
         if (dbgFlag == 0u) color = vec3(0.0, 1.0, 0.0); // green lit
         else if (dbgFlag == 1u) color = vec3(0.0, 0.0, 1.0); // blue solid block
