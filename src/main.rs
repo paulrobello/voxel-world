@@ -1485,12 +1485,14 @@ fn get_brick_and_model_set(
 struct GpuModelProperties {
     /// 64-bit collision mask (4×4×4 grid) stored as two u32s.
     collision_mask: [u32; 2],
+    /// Padding to align emission to 16 bytes.
+    _pad1: [u32; 2],
     /// Light emission color (RGB) and intensity (A).
     emission: [f32; 4],
     /// Flags: bit 0 = rotatable, bit 1 = light_blocking_full, bit 2 = light_blocking_partial.
     flags: u32,
-    /// Padding to align to 32 bytes (8 words).
-    _pad: [u32; 3],
+    /// Padding to align to 16 bytes (total 48 bytes).
+    _pad2: [u32; 3],
 }
 
 /// Model atlas dimensions: 16 models per row, 16 rows = 256 models.
@@ -1546,25 +1548,29 @@ fn upload_model_registry(
 
     // Convert properties data to GpuModelProperties
     let gpu_properties: Vec<GpuModelProperties> = properties_data
-        .chunks(32)
+        .chunks(48)
         .map(|chunk| {
             let mut props = GpuModelProperties::default();
-            if chunk.len() >= 32 {
+            if chunk.len() >= 48 {
                 // collision_mask (8 bytes)
                 props.collision_mask[0] =
                     u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
                 props.collision_mask[1] =
                     u32::from_le_bytes([chunk[4], chunk[5], chunk[6], chunk[7]]);
+                // padding (8 bytes) 8..16 skipped
+
                 // emission (16 bytes as 4 floats)
-                props.emission[0] = f32::from_le_bytes([chunk[8], chunk[9], chunk[10], chunk[11]]);
-                props.emission[1] =
-                    f32::from_le_bytes([chunk[12], chunk[13], chunk[14], chunk[15]]);
-                props.emission[2] =
+                props.emission[0] =
                     f32::from_le_bytes([chunk[16], chunk[17], chunk[18], chunk[19]]);
-                props.emission[3] =
+                props.emission[1] =
                     f32::from_le_bytes([chunk[20], chunk[21], chunk[22], chunk[23]]);
+                props.emission[2] =
+                    f32::from_le_bytes([chunk[24], chunk[25], chunk[26], chunk[27]]);
+                props.emission[3] =
+                    f32::from_le_bytes([chunk[28], chunk[29], chunk[30], chunk[31]]);
+
                 // flags (4 bytes)
-                props.flags = u32::from_le_bytes([chunk[24], chunk[25], chunk[26], chunk[27]]);
+                props.flags = u32::from_le_bytes([chunk[32], chunk[33], chunk[34], chunk[35]]);
             }
             props
         })

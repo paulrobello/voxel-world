@@ -799,35 +799,38 @@ impl ModelRegistry {
 
     /// Packs model properties for GPU upload.
     ///
-    /// Layout per model (32 bytes):
+    /// Layout per model (48 bytes) matching GLSL std430:
     /// - collision_mask: u64 (8 bytes)
-    /// - emission: vec4 (16 bytes) - RGB + intensity, or zeros
+    /// - padding: 8 bytes (aligns next vec4 to 16 bytes)
+    /// - emission: vec4 (16 bytes) - RGB + intensity
     /// - flags: u32 (4 bytes) - rotatable, light_blocking
-    /// - padding: 4 bytes
+    /// - padding: 12 bytes (aligns struct to 16 bytes)
     pub fn pack_properties_for_gpu(&self) -> Vec<u8> {
-        const PROPS_SIZE: usize = 32;
+        const PROPS_SIZE: usize = 48;
         let mut data = vec![0u8; MAX_MODELS * PROPS_SIZE];
 
         for (i, model) in self.models.iter().enumerate() {
             let offset = i * PROPS_SIZE;
 
-            // Collision mask (8 bytes)
+            // Collision mask (8 bytes) at offset 0
             data[offset..offset + 8].copy_from_slice(&model.collision_mask.to_le_bytes());
 
-            // Emission (16 bytes as 4 floats)
+            // Padding (8 bytes) at offset 8 - already zeros
+
+            // Emission (16 bytes as 4 floats) at offset 16
             if let Some(emission) = &model.emission {
                 let r = emission.r as f32 / 255.0;
                 let g = emission.g as f32 / 255.0;
                 let b = emission.b as f32 / 255.0;
                 let intensity = 1.0f32;
 
-                data[offset + 8..offset + 12].copy_from_slice(&r.to_le_bytes());
-                data[offset + 12..offset + 16].copy_from_slice(&g.to_le_bytes());
-                data[offset + 16..offset + 20].copy_from_slice(&b.to_le_bytes());
-                data[offset + 20..offset + 24].copy_from_slice(&intensity.to_le_bytes());
+                data[offset + 16..offset + 20].copy_from_slice(&r.to_le_bytes());
+                data[offset + 20..offset + 24].copy_from_slice(&g.to_le_bytes());
+                data[offset + 24..offset + 28].copy_from_slice(&b.to_le_bytes());
+                data[offset + 28..offset + 32].copy_from_slice(&intensity.to_le_bytes());
             }
 
-            // Flags (4 bytes)
+            // Flags (4 bytes) at offset 32
             let mut flags: u32 = 0;
             if model.rotatable {
                 flags |= 1;
@@ -837,9 +840,9 @@ impl ModelRegistry {
                 LightBlocking::Partial => 2,
                 LightBlocking::Full => 4,
             };
-            data[offset + 24..offset + 28].copy_from_slice(&flags.to_le_bytes());
+            data[offset + 32..offset + 36].copy_from_slice(&flags.to_le_bytes());
 
-            // Padding (4 bytes) - already zeros
+            // Padding (12 bytes) at offset 36 - already zeros
         }
 
         data
@@ -977,6 +980,6 @@ mod tests {
         assert_eq!(palettes.len(), MAX_MODELS * PALETTE_SIZE * 4);
 
         let props = registry.pack_properties_for_gpu();
-        assert_eq!(props.len(), MAX_MODELS * 32);
+        assert_eq!(props.len(), MAX_MODELS * 48);
     }
 }
