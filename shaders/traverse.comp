@@ -1124,8 +1124,7 @@ float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFl
                                     return MODEL_PARTIAL_SHADOW;
                                 }
                             }
-                            debugFlag = 0u;
-                            return 1.0;
+                            // Missed partial block: continue to next block
                         }
                     }
                     // Non-blocking models: let light pass
