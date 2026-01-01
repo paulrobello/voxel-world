@@ -11,24 +11,10 @@ use winit::event::MouseButton;
 impl App {
     pub fn update_raycast(&mut self) {
         // Camera uses normalized texture-relative coords (0-1), raycast needs world coords
-        let scale = Vector3::new(
-            self.world_extent[0] as f32,
-            self.world_extent[1] as f32,
-            self.world_extent[2] as f32,
-        );
-        // Convert camera position from normalized texture coords to texture coords
-        let texture_pos = self
+        let origin = self
             .player
-            .camera
-            .position
-            .cast::<f32>()
-            .component_mul(&scale);
-        // Convert texture coords to world coords by adding texture_origin
-        let origin = Vector3::new(
-            texture_pos.x + self.texture_origin.x as f32,
-            texture_pos.y + self.texture_origin.y as f32,
-            texture_pos.z + self.texture_origin.z as f32,
-        );
+            .camera_world_pos(self.world_extent, self.texture_origin)
+            .cast::<f32>();
         let direction = self.player.camera_direction().cast::<f32>();
 
         self.current_hit = raycast(&self.world, origin, direction, MAX_RAYCAST_DISTANCE);

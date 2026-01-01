@@ -94,7 +94,12 @@ impl Player {
         -self.camera.rotation_matrix().column(2).xyz()
     }
 
-    pub fn feet_pos(&self, world_extent: [u32; 3], texture_origin: Vector3<i32>) -> Vector3<f64> {
+    /// World-space position of the camera (not feet), derived from normalized texture coords.
+    pub fn camera_world_pos(
+        &self,
+        world_extent: [u32; 3],
+        texture_origin: Vector3<i32>,
+    ) -> Vector3<f64> {
         let scale = Vector3::new(
             world_extent[0] as f64,
             world_extent[1] as f64,
@@ -103,9 +108,14 @@ impl Player {
         let texture_pos = self.camera.position.component_mul(&scale);
         Vector3::new(
             texture_pos.x + texture_origin.x as f64,
-            texture_pos.y - PLAYER_EYE_HEIGHT + texture_origin.y as f64,
+            texture_pos.y + texture_origin.y as f64,
             texture_pos.z + texture_origin.z as f64,
         )
+    }
+
+    pub fn feet_pos(&self, world_extent: [u32; 3], texture_origin: Vector3<i32>) -> Vector3<f64> {
+        let world_cam = self.camera_world_pos(world_extent, texture_origin);
+        Vector3::new(world_cam.x, world_cam.y - PLAYER_EYE_HEIGHT, world_cam.z)
     }
 
     pub fn set_feet_pos(

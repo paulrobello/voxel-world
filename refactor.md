@@ -39,4 +39,4 @@ Last batch: `make checkall` (2026-01-01) — pass.
    - Locations: `block_interaction::update_raycast` (`block_interaction.rs:12-35`) and `Player::feet_pos` (`player.rs:97-108`) both scale camera coords by `world_extent` and add `texture_origin`.
    - Impact: If texture-origin math changes, risk inconsistency; minor code bloat.
    - Direction: Add a shared helper (e.g., `Player::camera_world_pos(world_extent, texture_origin)`) or a free utility to centralize conversion.
-   - Status: open.
+   - Status: addressed — added `Player::camera_world_pos` and reused in `block_interaction`.
