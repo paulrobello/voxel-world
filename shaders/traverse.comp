@@ -1,5 +1,5 @@
 #version 460
-
+// Updated for shadow fix
 // Has to match the order of the RenderMode enum in main.rs
 const uint COORD = 0;
 const uint STEPS = 1;
