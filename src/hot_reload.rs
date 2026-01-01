@@ -19,14 +19,38 @@ use vulkano::{
     shader::{ShaderModule, ShaderModuleCreateInfo},
 };
 
+fn preprocess_shader(path: &Path) -> String {
+    let mut f = File::open(path).unwrap();
+    let mut source_text = String::new();
+    f.read_to_string(&mut source_text).unwrap();
+
+    let mut result = String::new();
+    for line in source_text.lines() {
+        if line.trim().starts_with("#include \"") {
+            let include_path_str = line
+                .trim()
+                .strip_prefix("#include \"")
+                .unwrap()
+                .strip_suffix("\"")
+                .unwrap();
+            let mut include_path = path.parent().unwrap().to_path_buf();
+            include_path.push(include_path_str);
+            result.push_str(&preprocess_shader(&include_path));
+            result.push('\n');
+        } else {
+            result.push_str(line);
+            result.push('\n');
+        }
+    }
+    result
+}
+
 fn compile_to_spirv(
     path: &Path,
     kind: shaderc::ShaderKind,
     entry_point_name: &str,
 ) -> Result<shaderc::CompilationArtifact, shaderc::Error> {
-    let mut f = File::open(path).unwrap();
-    let mut source_text = String::new();
-    f.read_to_string(&mut source_text).unwrap();
+    let source_text = preprocess_shader(path);
 
     let compiler = shaderc::Compiler::new().unwrap();
     let mut options = shaderc::CompileOptions::new().unwrap();
