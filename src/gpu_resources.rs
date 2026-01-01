@@ -1,3 +1,4 @@
+use nalgebra::Vector3;
 use std::sync::Arc;
 use vulkano::{
     buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer},
@@ -23,6 +24,7 @@ use vulkano::{
 };
 use winit::window::{Icon, Window};
 
+use crate::chunk::CHUNK_SIZE;
 use crate::constants::{LOADED_CHUNKS_X, LOADED_CHUNKS_Z, WORLD_CHUNKS_Y};
 use crate::falling_block::{GpuFallingBlock, MAX_FALLING_BLOCKS};
 use crate::particles;
@@ -928,6 +930,144 @@ pub fn upload_model_registry(
             ..CopyBufferToImageInfo::buffer_image(palette_staging, palettes.clone())
         })
         .unwrap();
+
+    command_buffer_builder
+        .build()
+        .unwrap()
+        .execute(queue.clone())
+        .unwrap()
+        .then_signal_fence_and_flush()
+        .unwrap()
+        .wait(None)
+        .unwrap();
+}
+
+pub fn upload_chunks_batched(
+    memory_allocator: &Arc<StandardMemoryAllocator>,
+    command_buffer_allocator: &Arc<StandardCommandBufferAllocator>,
+    queue: &Arc<Queue>,
+    voxel_image: &Arc<Image>,
+    model_metadata_image: &Arc<Image>,
+    texture_origin: Vector3<i32>,
+    chunks: &[(Vector3<i32>, &[u8], &[u8])],
+) {
+    if chunks.is_empty() {
+        return;
+    }
+
+    // Create staging buffers for all chunks (both block data and model metadata)
+    let mut block_buffers_and_regions = Vec::with_capacity(chunks.len());
+    let mut metadata_buffers_and_regions = Vec::with_capacity(chunks.len());
+
+    for (chunk_pos, block_data, model_metadata) in chunks {
+        // Convert world chunk position to texture position
+        // World block position = chunk_pos * CHUNK_SIZE
+        // Texture block position = world_block_pos - texture_origin
+        let world_block_x = chunk_pos.x * CHUNK_SIZE as i32;
+        let world_block_y = chunk_pos.y * CHUNK_SIZE as i32;
+        let world_block_z = chunk_pos.z * CHUNK_SIZE as i32;
+
+        let texture_x = world_block_x - texture_origin.x;
+        let texture_y = world_block_y - texture_origin.y;
+        let texture_z = world_block_z - texture_origin.z;
+
+        // Skip chunks outside texture bounds
+        if texture_x < 0
+            || texture_y < 0
+            || texture_z < 0
+            || texture_x + CHUNK_SIZE as i32 > crate::constants::TEXTURE_SIZE_X as i32
+            || texture_y + CHUNK_SIZE as i32 > crate::constants::TEXTURE_SIZE_Y as i32
+            || texture_z + CHUNK_SIZE as i32 > crate::constants::TEXTURE_SIZE_Z as i32
+        {
+            continue;
+        }
+
+        let offset = [texture_x as u32, texture_y as u32, texture_z as u32];
+
+        // Block data buffer (R8_UINT)
+        let block_buffer = Buffer::from_iter(
+            memory_allocator.clone(),
+            BufferCreateInfo {
+                usage: BufferUsage::TRANSFER_SRC,
+                ..Default::default()
+            },
+            AllocationCreateInfo {
+                memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+                    | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                ..Default::default()
+            },
+            block_data.iter().copied(),
+        )
+        .unwrap();
+
+        let block_region = BufferImageCopy {
+            buffer_offset: 0,
+            buffer_row_length: CHUNK_SIZE as u32,
+            buffer_image_height: CHUNK_SIZE as u32,
+            image_subresource: voxel_image.subresource_layers(),
+            image_offset: offset,
+            image_extent: [CHUNK_SIZE as u32, CHUNK_SIZE as u32, CHUNK_SIZE as u32],
+            ..Default::default()
+        };
+
+        block_buffers_and_regions.push((block_buffer, block_region));
+
+        // Model metadata buffer (RG8_UINT - 2 bytes per block)
+        let metadata_buffer = Buffer::from_iter(
+            memory_allocator.clone(),
+            BufferCreateInfo {
+                usage: BufferUsage::TRANSFER_SRC,
+                ..Default::default()
+            },
+            AllocationCreateInfo {
+                memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+                    | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                ..Default::default()
+            },
+            model_metadata.iter().copied(),
+        )
+        .unwrap();
+
+        let metadata_region = BufferImageCopy {
+            buffer_offset: 0,
+            buffer_row_length: CHUNK_SIZE as u32,
+            buffer_image_height: CHUNK_SIZE as u32,
+            image_subresource: model_metadata_image.subresource_layers(),
+            image_offset: offset,
+            image_extent: [CHUNK_SIZE as u32, CHUNK_SIZE as u32, CHUNK_SIZE as u32],
+            ..Default::default()
+        };
+
+        metadata_buffers_and_regions.push((metadata_buffer, metadata_region));
+    }
+
+    // Build single command buffer with all copies
+    let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
+        command_buffer_allocator.clone(),
+        queue.queue_family_index(),
+        CommandBufferUsage::OneTimeSubmit,
+    )
+    .unwrap();
+
+    // Copy block data to voxel_image
+    for (src_buffer, region) in block_buffers_and_regions {
+        command_buffer_builder
+            .copy_buffer_to_image(CopyBufferToImageInfo {
+                regions: [region].into(),
+                ..CopyBufferToImageInfo::buffer_image(src_buffer, voxel_image.clone())
+            })
+            .unwrap();
+    }
+
+    // Copy model metadata to model_metadata image
+    for (src_buffer, region) in metadata_buffers_and_regions {
+        command_buffer_builder
+            .copy_buffer_to_image(CopyBufferToImageInfo {
+                regions: [region].into(),
+                ..CopyBufferToImageInfo::buffer_image(src_buffer, model_metadata_image.clone())
+            })
+            .unwrap();
+    }
 
     command_buffer_builder
         .build()

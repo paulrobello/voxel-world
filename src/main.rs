@@ -112,6 +112,7 @@ use crate::gpu_resources::{
     create_empty_voxel_texture, get_brick_and_model_set, get_chunk_metadata_set,
     get_distance_image_and_set, get_images_and_sets, get_light_set,
     get_particle_and_falling_block_set, get_swapchain_images, load_icon, load_texture_atlas,
+    upload_chunks_batched,
 };
 use crate::hot_reload::HotReloadComputePipeline;
 use crate::hud::Minimap;
@@ -857,7 +858,15 @@ impl App {
                     (*pos, block_data.as_slice(), model_metadata.as_slice())
                 })
                 .collect();
-            self.upload_chunks_batched(&upload_refs);
+            upload_chunks_batched(
+                &self.memory_allocator,
+                &self.command_buffer_allocator,
+                &self.queue,
+                &self.voxel_image,
+                &self.model_metadata,
+                self.texture_origin,
+                &upload_refs,
+            );
         }
 
         true
@@ -966,7 +975,15 @@ impl App {
                     (*pos, block_data.as_slice(), model_metadata.as_slice())
                 })
                 .collect();
-            self.upload_chunks_batched(&upload_refs);
+            upload_chunks_batched(
+                &self.memory_allocator,
+                &self.command_buffer_allocator,
+                &self.queue,
+                &self.voxel_image,
+                &self.model_metadata,
+                self.texture_origin,
+                &upload_refs,
+            );
 
             // Mark chunks as clean
             for (pos, _, _) in &chunks_to_upload {
@@ -1025,7 +1042,15 @@ impl App {
                     )
                 })
                 .collect();
-            self.upload_chunks_batched(&chunks_to_clear);
+            upload_chunks_batched(
+                &self.memory_allocator,
+                &self.command_buffer_allocator,
+                &self.queue,
+                &self.voxel_image,
+                &self.model_metadata,
+                self.texture_origin,
+                &chunks_to_clear,
+            );
         }
 
         // Update chunk metadata if any chunks were loaded or unloaded
@@ -2216,149 +2241,20 @@ impl App {
                     (*pos, block_data.as_slice(), model_metadata.as_slice())
                 })
                 .collect();
-            self.upload_chunks_batched(&upload_refs);
+            upload_chunks_batched(
+                &self.memory_allocator,
+                &self.command_buffer_allocator,
+                &self.queue,
+                &self.voxel_image,
+                &self.model_metadata,
+                self.texture_origin,
+                &upload_refs,
+            );
 
             // Update metadata so shader doesn't skip newly non-empty bricks
             self.update_chunk_metadata();
             self.update_brick_metadata();
         }
-    }
-
-    /// Uploads multiple chunks to the GPU in a single batched command buffer.
-    /// This is much faster than uploading chunks one at a time.
-    ///
-    /// Each chunk tuple contains: (chunk_position, block_data, model_metadata)
-    /// - block_data: R8_UINT format, one byte per block
-    /// - model_metadata: RG8_UINT format, two bytes per block (model_id, rotation)
-    fn upload_chunks_batched(&self, chunks: &[(Vector3<i32>, &[u8], &[u8])]) {
-        if chunks.is_empty() {
-            return;
-        }
-
-        // Create staging buffers for all chunks (both block data and model metadata)
-        let mut block_buffers_and_regions = Vec::with_capacity(chunks.len());
-        let mut metadata_buffers_and_regions = Vec::with_capacity(chunks.len());
-
-        for (chunk_pos, block_data, model_metadata) in chunks {
-            // Convert world chunk position to texture position
-            // World block position = chunk_pos * CHUNK_SIZE
-            // Texture block position = world_block_pos - texture_origin
-            let world_block_x = chunk_pos.x * CHUNK_SIZE as i32;
-            let world_block_y = chunk_pos.y * CHUNK_SIZE as i32;
-            let world_block_z = chunk_pos.z * CHUNK_SIZE as i32;
-
-            let texture_x = world_block_x - self.texture_origin.x;
-            let texture_y = world_block_y - self.texture_origin.y;
-            let texture_z = world_block_z - self.texture_origin.z;
-
-            // Skip chunks outside texture bounds
-            if texture_x < 0
-                || texture_y < 0
-                || texture_z < 0
-                || texture_x + CHUNK_SIZE as i32 > TEXTURE_SIZE_X as i32
-                || texture_y + CHUNK_SIZE as i32 > TEXTURE_SIZE_Y as i32
-                || texture_z + CHUNK_SIZE as i32 > TEXTURE_SIZE_Z as i32
-            {
-                continue;
-            }
-
-            let offset = [texture_x as u32, texture_y as u32, texture_z as u32];
-
-            // Block data buffer (R8_UINT)
-            let block_buffer = Buffer::from_iter(
-                self.memory_allocator.clone(),
-                BufferCreateInfo {
-                    usage: BufferUsage::TRANSFER_SRC,
-                    ..Default::default()
-                },
-                AllocationCreateInfo {
-                    memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
-                        | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-                    ..Default::default()
-                },
-                block_data.iter().copied(),
-            )
-            .unwrap();
-
-            let block_region = BufferImageCopy {
-                buffer_offset: 0,
-                buffer_row_length: CHUNK_SIZE as u32,
-                buffer_image_height: CHUNK_SIZE as u32,
-                image_subresource: self.voxel_image.subresource_layers(),
-                image_offset: offset,
-                image_extent: [CHUNK_SIZE as u32, CHUNK_SIZE as u32, CHUNK_SIZE as u32],
-                ..Default::default()
-            };
-
-            block_buffers_and_regions.push((block_buffer, block_region));
-
-            // Model metadata buffer (RG8_UINT - 2 bytes per block)
-            let metadata_buffer = Buffer::from_iter(
-                self.memory_allocator.clone(),
-                BufferCreateInfo {
-                    usage: BufferUsage::TRANSFER_SRC,
-                    ..Default::default()
-                },
-                AllocationCreateInfo {
-                    memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
-                        | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-                    ..Default::default()
-                },
-                model_metadata.iter().copied(),
-            )
-            .unwrap();
-
-            let metadata_region = BufferImageCopy {
-                buffer_offset: 0,
-                buffer_row_length: CHUNK_SIZE as u32,
-                buffer_image_height: CHUNK_SIZE as u32,
-                image_subresource: self.model_metadata.subresource_layers(),
-                image_offset: offset,
-                image_extent: [CHUNK_SIZE as u32, CHUNK_SIZE as u32, CHUNK_SIZE as u32],
-                ..Default::default()
-            };
-
-            metadata_buffers_and_regions.push((metadata_buffer, metadata_region));
-        }
-
-        // Build single command buffer with all copies
-        let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
-            self.command_buffer_allocator.clone(),
-            self.queue.queue_family_index(),
-            CommandBufferUsage::OneTimeSubmit,
-        )
-        .unwrap();
-
-        // Copy block data to voxel_image
-        for (src_buffer, region) in block_buffers_and_regions {
-            command_buffer_builder
-                .copy_buffer_to_image(CopyBufferToImageInfo {
-                    regions: [region].into(),
-                    ..CopyBufferToImageInfo::buffer_image(src_buffer, self.voxel_image.clone())
-                })
-                .unwrap();
-        }
-
-        // Copy model metadata to model_metadata image
-        for (src_buffer, region) in metadata_buffers_and_regions {
-            command_buffer_builder
-                .copy_buffer_to_image(CopyBufferToImageInfo {
-                    regions: [region].into(),
-                    ..CopyBufferToImageInfo::buffer_image(src_buffer, self.model_metadata.clone())
-                })
-                .unwrap();
-        }
-
-        // Execute - batching reduces per-chunk overhead significantly
-        command_buffer_builder
-            .build()
-            .unwrap()
-            .execute(self.queue.clone())
-            .unwrap()
-            .then_signal_fence_and_flush()
-            .unwrap()
-            .wait(None)
-            .unwrap();
     }
 
     /// Uploads all dirty chunks to GPU at once (used for initial world load).
@@ -2386,7 +2282,15 @@ impl App {
                 (*pos, block_data.as_slice(), model_metadata.as_slice())
             })
             .collect();
-        self.upload_chunks_batched(&upload_refs);
+        upload_chunks_batched(
+            &self.memory_allocator,
+            &self.command_buffer_allocator,
+            &self.queue,
+            &self.voxel_image,
+            &self.model_metadata,
+            self.texture_origin,
+            &upload_refs,
+        );
 
         // Mark all as clean
         for (pos, _, _) in &chunks_to_upload {
@@ -2630,7 +2534,15 @@ impl App {
                     (*pos, block_data.as_slice(), model_metadata.as_slice())
                 })
                 .collect();
-            self.upload_chunks_batched(&upload_refs);
+            upload_chunks_batched(
+                &self.memory_allocator,
+                &self.command_buffer_allocator,
+                &self.queue,
+                &self.voxel_image,
+                &self.model_metadata,
+                self.texture_origin,
+                &upload_refs,
+            );
 
             // Mark as clean
             for pos in dirty_positions {
