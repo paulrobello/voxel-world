@@ -46,24 +46,20 @@ use std::{
     time::{Duration, Instant},
 };
 use vulkano::{
-    Validated, Version, VulkanError, VulkanLibrary,
+    Validated, VulkanError,
     buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer},
     command_buffer::{
         AutoCommandBufferBuilder, BlitImageInfo, BufferImageCopy, ClearColorImageInfo,
         CommandBufferUsage, CopyBufferToImageInfo, PrimaryCommandBufferAbstract,
-        allocator::StandardCommandBufferAllocator,
     },
-    descriptor_set::{DescriptorSet, allocator::StandardDescriptorSetAllocator},
-    device::{
-        Device, DeviceCreateInfo, DeviceExtensions, DeviceFeatures, Queue, QueueCreateInfo,
-        QueueFlags, physical::PhysicalDeviceType,
-    },
+    descriptor_set::DescriptorSet,
+    device::{Device, Queue},
     image::{
         Image,
         sampler::{Filter, SamplerAddressMode, SamplerCreateInfo},
         view::{ImageView, ImageViewCreateInfo},
     },
-    instance::{Instance, InstanceCreateFlags, InstanceCreateInfo},
+    instance::Instance,
     memory::allocator::{AllocationCreateInfo, MemoryTypeFilter, StandardMemoryAllocator},
     pipeline::{Pipeline, PipelineBindPoint},
     swapchain::{
@@ -98,6 +94,7 @@ mod sub_voxel;
 mod svt;
 mod terrain_gen;
 mod utils;
+mod vulkan_context;
 mod water;
 mod world;
 
@@ -127,9 +124,12 @@ use crate::render_mode::RenderMode;
 use crate::sub_voxel::ModelRegistry;
 use crate::svt::ChunkSVT;
 use crate::terrain_gen::{TerrainGenerator, generate_chunk_terrain};
-use crate::utils::{ChunkStats, Profiler, get_allocators};
+use crate::utils::{ChunkStats, Profiler};
+use crate::vulkan_context::VulkanContext;
 use crate::water::WaterGrid;
 use crate::world::World;
+use vulkano::command_buffer::allocator::StandardCommandBufferAllocator;
+use vulkano::descriptor_set::allocator::StandardDescriptorSetAllocator as StdDescriptorSetAllocator;
 
 // Constants moved to constants.rs
 
@@ -272,7 +272,7 @@ struct App {
     queue: Arc<Queue>,
 
     memory_allocator: Arc<StandardMemoryAllocator>,
-    descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
+    descriptor_set_allocator: Arc<StdDescriptorSetAllocator>,
     command_buffer_allocator: Arc<StandardCommandBufferAllocator>,
 
     render_pipeline: HotReloadComputePipeline,
@@ -511,93 +511,13 @@ impl App {
         let view_distance = args.view_distance.unwrap_or(VIEW_DISTANCE);
         let unload_distance = UNLOAD_DISTANCE;
 
-        let library = VulkanLibrary::new().unwrap();
-
-        let mut required_extensions = Surface::required_extensions(event_loop).unwrap();
-
-        required_extensions.ext_debug_utils = true;
-
-        let instance = Instance::new(
-            library,
-            InstanceCreateInfo {
-                flags: InstanceCreateFlags::ENUMERATE_PORTABILITY,
-                enabled_extensions: required_extensions,
-                ..Default::default()
-            },
-        )
-        .unwrap();
-
-        let mut device_extensions = DeviceExtensions {
-            khr_swapchain: true,
-            khr_portability_subset: true,
-            ..DeviceExtensions::empty()
-        };
-
-        let (physical_device, queue_family_index) = instance
-            .enumerate_physical_devices()
-            .unwrap()
-            .filter(|p| {
-                p.api_version() >= Version::V1_3 || p.supported_extensions().khr_dynamic_rendering
-            })
-            .filter(|p| p.supported_extensions().contains(&device_extensions))
-            .filter_map(|p| {
-                p.queue_family_properties()
-                    .iter()
-                    .enumerate()
-                    .position(|(i, q)| {
-                        q.queue_flags.intersects(QueueFlags::GRAPHICS)
-                            && p.presentation_support(i as u32, event_loop).unwrap()
-                    })
-                    .map(|i| (p, i as u32))
-            })
-            .min_by_key(|(p, _)| match p.properties().device_type {
-                PhysicalDeviceType::DiscreteGpu => 0,
-                PhysicalDeviceType::IntegratedGpu => 1,
-                PhysicalDeviceType::VirtualGpu => 2,
-                PhysicalDeviceType::Cpu => 3,
-                PhysicalDeviceType::Other => 4,
-                _ => 5,
-            })
-            .unwrap();
-
-        println!(
-            "Using device: {} (type: {:?})",
-            physical_device.properties().device_name,
-            physical_device.properties().device_type,
-        );
-
-        if physical_device.api_version() < Version::V1_3 {
-            device_extensions.khr_dynamic_rendering = true;
-        }
-
-        let (device, mut queues) = Device::new(
-            physical_device,
-            DeviceCreateInfo {
-                queue_create_infos: vec![QueueCreateInfo {
-                    queue_family_index,
-                    ..Default::default()
-                }],
-                enabled_extensions: device_extensions,
-                enabled_features: DeviceFeatures {
-                    dynamic_rendering: true,
-                    image_view_format_swizzle: true,
-                    ..DeviceFeatures::empty()
-                },
-                ..Default::default()
-            },
-        )
-        .unwrap();
-
-        let queue = queues.next().unwrap();
-
-        let (memory_allocator, descriptor_set_allocator, command_buffer_allocator) =
-            get_allocators(&device);
+        let vk = VulkanContext::new(event_loop);
 
         let shaders_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("shaders");
         let render_pipeline =
-            HotReloadComputePipeline::new(device.clone(), &shaders_dir.join("traverse.comp"));
+            HotReloadComputePipeline::new(vk.device.clone(), &shaders_dir.join("traverse.comp"));
         let resample_pipeline =
-            HotReloadComputePipeline::new(device.clone(), &shaders_dir.join("resample.comp"));
+            HotReloadComputePipeline::new(vk.device.clone(), &shaders_dir.join("resample.comp"));
 
         // Calculate spawn chunk based on CLI args (or default to origin)
         let spawn_block_x = args.spawn_x.unwrap_or(0);
@@ -642,11 +562,11 @@ impl App {
 
         // Create empty GPU texture (chunks will be uploaded by update_chunk_loading)
         let (voxel_set, voxel_image) = create_empty_voxel_texture(
-            memory_allocator.clone(),
-            command_buffer_allocator.clone(),
-            descriptor_set_allocator.clone(),
+            vk.memory_allocator.clone(),
+            vk.command_buffer_allocator.clone(),
+            vk.descriptor_set_allocator.clone(),
             &render_pipeline,
-            &queue,
+            &vk.queue,
             world_extent,
         );
 
@@ -655,33 +575,33 @@ impl App {
             .join("textures")
             .join("texture_atlas.png");
         let (texture_set, _sampler, texture_atlas_view) = load_texture_atlas(
-            memory_allocator.clone(),
-            command_buffer_allocator.clone(),
-            descriptor_set_allocator.clone(),
+            vk.memory_allocator.clone(),
+            vk.command_buffer_allocator.clone(),
+            vk.descriptor_set_allocator.clone(),
             &render_pipeline,
-            &queue,
+            &vk.queue,
             &texture_path,
         );
 
         // Create particle and falling block buffers (share set 3)
         let (particle_buffer, falling_block_buffer, particle_set) =
             get_particle_and_falling_block_set(
-                memory_allocator.clone(),
-                descriptor_set_allocator.clone(),
+                vk.memory_allocator.clone(),
+                vk.descriptor_set_allocator.clone(),
                 &render_pipeline,
             );
 
         // Create light buffer and descriptor set
         let (light_buffer, light_set) = get_light_set(
-            memory_allocator.clone(),
-            descriptor_set_allocator.clone(),
+            vk.memory_allocator.clone(),
+            vk.descriptor_set_allocator.clone(),
             &render_pipeline,
         );
 
         // Create chunk metadata buffer and descriptor set
         let (chunk_metadata_buffer, chunk_metadata_set) = get_chunk_metadata_set(
-            memory_allocator.clone(),
-            descriptor_set_allocator.clone(),
+            vk.memory_allocator.clone(),
+            vk.descriptor_set_allocator.clone(),
             &render_pipeline,
         );
 
@@ -696,11 +616,11 @@ impl App {
             model_metadata,
             brick_and_model_set,
         ) = get_brick_and_model_set(
-            memory_allocator.clone(),
-            command_buffer_allocator.clone(),
-            descriptor_set_allocator.clone(),
+            vk.memory_allocator.clone(),
+            vk.command_buffer_allocator.clone(),
+            vk.descriptor_set_allocator.clone(),
             &render_pipeline,
-            &queue,
+            &vk.queue,
             world_extent,
             &model_registry,
         );
@@ -721,13 +641,13 @@ impl App {
         );
 
         App {
-            instance,
-            device,
-            queue,
+            instance: vk.instance,
+            device: vk.device,
+            queue: vk.queue,
 
-            memory_allocator,
-            descriptor_set_allocator,
-            command_buffer_allocator,
+            memory_allocator: vk.memory_allocator,
+            descriptor_set_allocator: vk.descriptor_set_allocator,
+            command_buffer_allocator: vk.command_buffer_allocator,
 
             render_pipeline,
             resample_pipeline,
