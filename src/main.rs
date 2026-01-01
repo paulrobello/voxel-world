@@ -2231,7 +2231,7 @@ impl App {
             auto_jump: true, // Enabled by default
             player_light: false,
             show_chunk_boundaries: args.show_chunk_boundaries,
-            show_block_preview: false, // Off by default
+            show_block_preview: false,  // Off by default
             show_target_outline: false, // Off by default (toggle in UI)
 
             // Minimap - disabled by default, toggle with M
@@ -3854,8 +3854,8 @@ impl App {
                         let connections = self.calculate_fence_connections(neighbor_pos);
                         let new_model_id = ModelRegistry::fence_model_id(connections);
                         if new_model_id != data.model_id {
-                            self.world
-                                .set_model_block(neighbor_pos, new_model_id, data.rotation);
+                            // Force rotation 0 for fences as their orientation is in the model_id
+                            self.world.set_model_block(neighbor_pos, new_model_id, 0);
                         }
                     } else if ModelRegistry::is_gate_model(data.model_id) {
                         // Update gate connections
