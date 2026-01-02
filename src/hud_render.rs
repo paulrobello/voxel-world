@@ -585,14 +585,14 @@ impl HUDRenderer {
                 stroke,
             );
 
-            // Minimap HUD (top-left)
+            // Minimap HUD (bottom-right)
             if *show_minimap {
                 if let Some(image) = minimap_image {
                     // Load the pre-generated image as texture
                     let texture = ctx.load_texture("minimap", image, egui::TextureOptions::NEAREST);
 
                     egui::Area::new(egui::Id::new("minimap_hud"))
-                        .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-10.0, -60.0))
+                        .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-12.0, -12.0))
                         .show(&ctx, |ui| {
                             egui::Frame::new()
                                 .fill(egui::Color32::from_rgba_unmultiplied(0, 0, 0, 200))
@@ -648,7 +648,7 @@ impl HUDRenderer {
             // Compass HUD (bottom-left)
             if settings.show_compass {
                 egui::Area::new(egui::Id::new("compass_hud"))
-                    .anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(10.0, -60.0))
+                    .anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(12.0, -12.0))
                     .show(&ctx, |ui| {
                         egui::Frame::new()
                             .fill(egui::Color32::from_rgba_unmultiplied(0, 0, 0, 200))
