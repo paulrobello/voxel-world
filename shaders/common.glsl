@@ -54,6 +54,7 @@ layout(push_constant) uniform PushConstants {
     uint player_in_water;
     float time_of_day;
     float animation_time;
+    float cloud_speed;
     int break_block_x;
     int break_block_y;
     int break_block_z;

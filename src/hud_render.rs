@@ -249,6 +249,11 @@ impl HUDRenderer {
                                     .text("Ambient Light"),
                             );
                             ui.add(
+                                egui::Slider::new(&mut atmosphere.cloud_speed, 0.0..=3.0)
+                                    .text("Cloud Speed")
+                                    .suffix("x"),
+                            );
+                            ui.add(
                                 egui::Slider::new(&mut atmosphere.fog_density, 0.0..=0.1)
                                     .text("Fog Density"),
                             );

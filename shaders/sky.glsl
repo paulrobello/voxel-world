@@ -122,14 +122,15 @@ float getCloudDensity(vec3 rayOrigin, vec3 rayDir) {
     // Convert to world coordinates so clouds don't shift when texture origin moves
     vec3 worldCloudPos = cloudPos + vec3(textureOrigin());
 
-    // Animate clouds with wind - offset UV by time
-    vec2 cloudUV = worldCloudPos.xz * CLOUD_SCALE + pc.animation_time * CLOUD_WIND * CLOUD_SCALE;
+    // Animate clouds with wind - offset UV by time (scaled by user speed)
+    vec2 wind = CLOUD_WIND * pc.cloud_speed;
+    vec2 cloudUV = worldCloudPos.xz * CLOUD_SCALE + pc.animation_time * wind * CLOUD_SCALE;
 
     // Sample cloud noise with multiple octaves for detail
     float density = fbm(cloudUV);
 
     // Add secondary layer moving at different speed for depth
-    vec2 cloudUV2 = worldCloudPos.xz * CLOUD_SCALE * 0.5 + pc.animation_time * CLOUD_WIND * CLOUD_SCALE * 0.6;
+    vec2 cloudUV2 = worldCloudPos.xz * CLOUD_SCALE * 0.5 + pc.animation_time * wind * CLOUD_SCALE * 0.6;
     float density2 = fbm(cloudUV2) * 0.3;
     density = density + density2;
 

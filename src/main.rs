@@ -1097,6 +1097,7 @@ impl App {
             player_in_water: self.sim.player.in_water as u32,
             time_of_day: self.sim.time_of_day,
             animation_time: self.sim.animation_time,
+            cloud_speed: self.sim.atmosphere.cloud_speed,
             break_block_x: break_x,
             break_block_y: break_y,
             break_block_z: break_z,

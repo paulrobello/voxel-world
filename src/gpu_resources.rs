@@ -102,6 +102,7 @@ pub struct PushConstants {
     pub player_in_water: u32,
     pub time_of_day: f32,
     pub animation_time: f32,
+    pub cloud_speed: f32,
     pub break_block_x: i32,
     pub break_block_y: i32,
     pub break_block_z: i32,
