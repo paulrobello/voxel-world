@@ -97,7 +97,8 @@ float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFl
                     // Treat model as non-blocking when disabled
                 } else {
                     // Match render LOD: skip sub-voxel shadowing when model is beyond camera LOD range.
-                    float camDist = length(vec3(pos) + vec3(0.5) - pc.camera_pos.xyz);
+                    // Compare camera distance in world space so LOD matches render culling.
+                    float camDist = length(vec3(pos) + vec3(0.5 + textureOrigin()) - pc.camera_pos.xyz);
                     if (camDist > SUB_VOXEL_LOD_DISTANCE) {
                         // No detailed model shadow beyond LOD distance.
                     } else {
