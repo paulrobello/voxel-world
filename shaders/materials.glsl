@@ -14,40 +14,39 @@ vec3 sampleTexture(uint textureIndex, vec2 uv) {
 }
 
 // Get animated water UV distortion
+// Lightweight 3-octave FBM
+float fbmWater(vec2 p) {
+    float v = 0.0;
+    float a = 0.5;
+    float f = 1.0;
+    for (int i = 0; i < 3; i++) {
+        v += a * noise2D(p * f);
+        f *= 2.0;
+        a *= 0.55;
+    }
+    return v;
+}
+
 vec2 getWaterUVAnimation(vec2 uv, vec3 texPos, float time) {
     vec3 worldPos = texPos + vec3(textureOrigin());
-    float t = time * 0.8;
-
-    vec2 flow1 = vec2(
-        noise2D(worldPos.xz * 0.3 + vec2(t * 0.15, t * 0.1)) - 0.5,
-        noise2D(worldPos.xz * 0.3 + vec2(t * 0.1, -t * 0.12) + 50.0) - 0.5
-    ) * 0.08;
-
-    vec2 flow2 = vec2(
-        noise2D(worldPos.xz * 0.8 + vec2(-t * 0.25, t * 0.2)) - 0.5,
-        noise2D(worldPos.xz * 0.8 + vec2(t * 0.18, t * 0.22) + 100.0) - 0.5
-    ) * 0.04;
-
-    vec2 flow3 = vec2(
-        noise2D(worldPos.xz * 2.0 + vec2(t * 0.4, -t * 0.35)) - 0.5,
-        noise2D(worldPos.xz * 2.0 + vec2(-t * 0.3, t * 0.4) + 150.0) - 0.5
-    ) * 0.02;
-
-    return uv + flow1 + flow2 + flow3;
+    float t = time * 0.6;
+    vec2 base = worldPos.xz * 0.5 + vec2(t * 0.2, -t * 0.15);
+    float flow = fbmWater(base) - 0.5;
+    float flow2 = fbmWater(base * 1.7 + vec2(37.0, -19.0)) - 0.5;
+    return uv + vec2(flow, flow2) * 0.08;
 }
 
 // Get caustic light pattern for underwater surfaces
 float getWaterCaustics(vec3 texPos, float time) {
     vec3 worldPos = texPos + vec3(textureOrigin());
-    float t = time * 1.2;
+    float t = time * 0.9;
     vec2 pos = worldPos.xz;
 
-    float c1 = noise2D(pos * 1.5 + vec2(t * 0.3, t * 0.2));
-    float c2 = noise2D(pos * 2.3 + vec2(-t * 0.25, t * 0.35) + 30.0);
-    float c3 = noise2D(pos * 3.7 + vec2(t * 0.4, -t * 0.3) + 60.0);
+    float c1 = fbmWater(pos * 1.2 + vec2(t * 0.25, t * 0.18));
+    float c2 = fbmWater(pos * 2.1 + vec2(-t * 0.3, t * 0.32) + 30.0);
 
-    float caustic = c1 * c2 + c2 * c3 + c1 * c3;
-    caustic = smoothstep(0.3, 0.7, caustic);
+    float caustic = c1 * c2;
+    caustic = smoothstep(0.35, 0.65, caustic);
 
     return caustic * 0.3;
 }
@@ -112,31 +111,17 @@ vec3 getWaterWaveNormal(vec3 texPos, float time) {
     vec2 pos = worldPos.xz;
     float t = time * WAVE_SPEED;
 
-    vec2 wave1Pos = pos * WAVE_SCALE * 0.5 + vec2(t * 0.3, t * 0.2);
-    float h1 = noise2D(wave1Pos) * 2.0 - 1.0;
+    auto heightFn = [](vec2 p) -> float {
+        return fbmWater(p) * 2.0 - 1.0;
+    };
 
-    vec2 wave2Pos = pos * WAVE_SCALE * 1.0 + vec2(-t * 0.4, t * 0.35);
-    float h2 = noise2D(wave2Pos) * 2.0 - 1.0;
+    float h = heightFn(pos * WAVE_SCALE + vec2(t * 0.25, t * 0.2));
+    float delta = 0.12;
+    float hpx = heightFn((pos + vec2(delta, 0.0)) * WAVE_SCALE + vec2(t * 0.25, t * 0.2));
+    float hpz = heightFn((pos + vec2(0.0, delta)) * WAVE_SCALE + vec2(t * 0.25, t * 0.2));
 
-    vec2 wave3Pos = pos * WAVE_SCALE * 2.5 + vec2(t * 0.5, -t * 0.45);
-    float h3 = noise2D(wave3Pos) * 2.0 - 1.0;
-
-    float totalHeight = h1 * 0.5 + h2 * 0.3 + h3 * 0.2;
-
-    float delta = 0.1;
-    vec2 offsetX = vec2(delta, 0.0);
-    vec2 offsetZ = vec2(0.0, delta);
-
-    float hpx = noise2D((pos + offsetX) * WAVE_SCALE * 0.5 + vec2(t * 0.3, t * 0.2)) * 0.5
-              + noise2D((pos + offsetX) * WAVE_SCALE * 1.0 + vec2(-t * 0.4, t * 0.35)) * 0.3
-              + noise2D((pos + offsetX) * WAVE_SCALE * 2.5 + vec2(t * 0.5, -t * 0.45)) * 0.2;
-
-    float hpz = noise2D((pos + offsetZ) * WAVE_SCALE * 0.5 + vec2(t * 0.3, t * 0.2)) * 0.5
-              + noise2D((pos + offsetZ) * WAVE_SCALE * 1.0 + vec2(-t * 0.4, t * 0.35)) * 0.3
-              + noise2D((pos + offsetZ) * WAVE_SCALE * 2.5 + vec2(t * 0.5, -t * 0.45)) * 0.2;
-
-    float dx = (hpx - totalHeight) / delta;
-    float dz = (hpz - totalHeight) / delta;
+    float dx = (hpx - h) / delta;
+    float dz = (hpz - h) / delta;
 
     vec3 waveNormal = normalize(vec3(
         -dx * WAVE_AMPLITUDE * WAVE_NORMAL_STRENGTH,
