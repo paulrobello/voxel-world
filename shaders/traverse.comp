@@ -703,10 +703,8 @@ void main() {
         color = applyFog(color, hitDistance, d);
     } else {
         color = getSkyColor(d);
-        if (pc.fog_affects_sky != 0u) {
-            float skyDistance = length(vec3(pc.texture_size_x, pc.texture_size_y, pc.texture_size_z)) * 0.5;
-            color = applyFog(color, skyDistance, d);
-        }
+        float skyDistance = length(vec3(pc.texture_size_x, pc.texture_size_y, pc.texture_size_z)) * 0.5;
+        color = applyFog(color, skyDistance, d);
     }
 
     if (pc.particle_count > 0 && pc.render_mode != STEPS) {

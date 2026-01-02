@@ -1111,7 +1111,6 @@ impl App {
             ambient_light: self.sim.atmosphere.ambient_light,
             fog_density: self.sim.atmosphere.fog_density,
             fog_start: self.sim.atmosphere.fog_start,
-            fog_affects_sky: self.sim.atmosphere.fog_affects_sky as u32,
             fog_overlay_scale: self.sim.atmosphere.fog_overlay_scale,
             target_block_x: target_x,
             target_block_y: target_y,

@@ -68,7 +68,6 @@ layout(push_constant) uniform PushConstants {
     float ambient_light;
     float fog_density;
     float fog_start;
-    uint fog_affects_sky;
     float fog_overlay_scale;
     int target_block_x;
     int target_block_y;

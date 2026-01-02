@@ -265,7 +265,6 @@ impl HUDRenderer {
                                 egui::Slider::new(&mut atmosphere.fog_overlay_scale, 0.0..=2.0)
                                     .text("Fog Overlay Scale"),
                             );
-                            ui.checkbox(&mut atmosphere.fog_affects_sky, "Fog Affects Sky");
                             if ui
                                 .add(
                                     egui::Slider::new(&mut settings.max_ray_steps, 128..=1024)

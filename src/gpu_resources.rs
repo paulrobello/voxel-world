@@ -116,7 +116,6 @@ pub struct PushConstants {
     pub ambient_light: f32,
     pub fog_density: f32,
     pub fog_start: f32,
-    pub fog_affects_sky: u32,
     pub fog_overlay_scale: f32,
     pub target_block_x: i32,
     pub target_block_y: i32,
