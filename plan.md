@@ -137,7 +137,7 @@ Support detailed 8³ voxel models within standard block space for furniture, fen
 - [x] Sub-voxel ray marching for hit tests and shading
 - [x] Model voxel + palette atlases uploaded to GPU
 - [x] LOD switching based on distance for render and shadows
-- [x] Ambient occlusion for sub-voxel geometry (toggleable)
+- [ ] Ambient occlusion for sub-voxel geometry (disabled for now)
 - [x] Shadow casting from sub-voxel shapes (fine marcher + mask fallback)
 - [x] Shadow receiving tuned for slabs/models (fine march + offset, no skip)
 

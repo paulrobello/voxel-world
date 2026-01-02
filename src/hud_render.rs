@@ -232,9 +232,9 @@ impl HUDRenderer {
             .default_size(egui::vec2(520.0, 360.0))
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
+                    ui.selectable_value(palette_tab, PaletteTab::All, "All");
                     ui.selectable_value(palette_tab, PaletteTab::Blocks, "Blocks");
                     ui.selectable_value(palette_tab, PaletteTab::Models, "Models");
-                    ui.selectable_value(palette_tab, PaletteTab::All, "All");
                 });
                 ui.label("Drag items to the hotbar, left-click to set current slot, middle-click to fill (or replace if full).");
                 ui.separator();
@@ -243,21 +243,24 @@ impl HUDRenderer {
                 egui::ScrollArea::vertical()
                     .auto_shrink([false; 2])
                     .show(ui, |ui| {
-                        ui.horizontal_wrapped(|ui| {
-                            for (item, label) in items {
-                                Self::draw_palette_item(
-                                    ui,
-                                    atlas_texture_id,
-                                    item,
-                                    &label,
-                                    hotbar_blocks,
-                                    hotbar_model_ids,
-                                    hotbar_index,
-                                    dragging_item,
-                                );
-                                ui.add_space(6.0);
-                            }
-                        });
+                        for row in items.chunks(12) {
+                            ui.horizontal(|ui| {
+                                for (item, label) in row.iter() {
+                                    Self::draw_palette_item(
+                                        ui,
+                                        atlas_texture_id,
+                                        *item,
+                                        label,
+                                        hotbar_blocks,
+                                        hotbar_model_ids,
+                                        hotbar_index,
+                                        dragging_item,
+                                    );
+                                    ui.add_space(6.0);
+                                }
+                            });
+                            ui.add_space(6.0);
+                        }
                     });
             });
     }
@@ -582,19 +585,6 @@ impl HUDRenderer {
                                 println!(
                                     "[TOGGLE] Ambient Occlusion: {}",
                                     if settings.enable_ao { "ON" } else { "OFF" }
-                                );
-                            }
-                            if ui
-                                .checkbox(&mut settings.enable_subvoxel_ao, "Sub-voxel AO")
-                                .changed()
-                            {
-                                println!(
-                                    "[TOGGLE] Sub-voxel AO: {}",
-                                    if settings.enable_subvoxel_ao {
-                                        "ON"
-                                    } else {
-                                        "OFF"
-                                    }
                                 );
                             }
                             if ui

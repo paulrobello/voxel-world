@@ -1207,11 +1207,6 @@ impl App {
             } else {
                 0
             },
-            enable_subvoxel_ao: if self.ui.settings.enable_subvoxel_ao {
-                1
-            } else {
-                0
-            },
             pass_mode: 0, // Will be set per-pass
             lod_ao_distance: self.ui.settings.lod_ao_distance,
             lod_shadow_distance: self.ui.settings.lod_shadow_distance,

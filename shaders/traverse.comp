@@ -445,7 +445,6 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
     float skyExposureDistance = aoDistance;
 
     bool nearEnoughForAO = hitDistance < aoDistance && pc.enable_ao != 0;
-    bool enableSubVoxelAO = pc.enable_subvoxel_ao != 0;
     bool nearEnoughForShadow = hitDistance < shadowDistance && pc.enable_shadows != 0;
     bool nearEnoughForPointLights = hitDistance < pointLightDistance && pc.enable_point_lights != 0;
     bool nearEnoughForSkyExposure = hitDistance < skyExposureDistance;
@@ -454,26 +453,8 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
     if (nearEnoughForAO) {
         if (!subVoxelHit) {
             ao = calculateAO(ivec3(coord), normal, uv);
-        } else if (enableSubVoxelAO) {
-            uvec2 meta = readModelMetadata(ivec3(coord));
-            uint model_id = meta.r;
-            uint rotation = meta.g & 3u;
-
-            vec3 localSubPos = (subVoxelHitPos - vec3(coord)) * float(SUB_VOXEL_SIZE);
-            ivec3 subVoxel = ivec3(clamp(floor(localSubPos), vec3(0.0), vec3(float(SUB_VOXEL_SIZE - 1))));
-            ivec3 n = ivec3(round(subVoxelNormal));
-
-            vec3 subFrac = fract(localSubPos);
-            vec2 subUv;
-            if (abs(n.x) == 1) {
-                subUv = subFrac.yz;
-            } else if (abs(n.y) == 1) {
-                subUv = subFrac.xz;
-            } else {
-                subUv = subFrac.xy;
-            }
-
-            ao = calculateSubVoxelAO(model_id, rotation, subVoxel, n, subUv);
+        } else {
+            ao = 1.0; // Sub-voxels: no AO
         }
     }
 

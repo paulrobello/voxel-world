@@ -80,7 +80,6 @@ layout(push_constant) uniform PushConstants {
     uint enable_shadows;
     uint enable_model_shadows;
     uint enable_point_lights;
-    uint enable_subvoxel_ao;
     uint pass_mode;
     float lod_ao_distance;
     float lod_shadow_distance;
