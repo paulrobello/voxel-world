@@ -649,10 +649,15 @@ impl App {
             return;
         }
 
-        let work_indices = self
-            .sim
-            .metadata_state
-            .take_work(metadata_chunks_per_frame());
+        // After a texture-origin shift we must rebuild all chunk/brick metadata in one frame
+        // to avoid a “world is empty” flash. Otherwise, keep the amortized per-frame budget.
+        let budget = if reset_buffers {
+            TOTAL_CHUNKS
+        } else {
+            metadata_chunks_per_frame()
+        };
+
+        let work_indices = self.sim.metadata_state.take_work(budget);
 
         if work_indices.is_empty() {
             self.sim.metadata_state.mark_results_applied();
