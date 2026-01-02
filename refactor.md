@@ -36,4 +36,6 @@
 - Shadow + sky DDA stepping now share a `ddaAdvance` helper to keep traversal logic in sync and reduce duplicated fixes.
 - Profiling (render 900x810 in 1200x1080, latest time sweep with added models):
   - Run 7 (61 samples): avg 123.5 fps (7.49 ms), 1% low 91.0 fps, min 99 fps; max 131 fps. Render avg 7.49 ms, p90 7.81 ms; chunkload avg 0.48 ms; ~2,019 chunks resident.
+  - Run 8 (42 samples, models + time sweep after shadow step-cap bounds): avg 120.1 fps (8.33 ms), 1% low 107.0 fps, min 98 fps; max 122 fps. Render avg 7.71 ms, p90 7.82 ms; chunkload avg 0.47 ms; ~2,053 chunks resident.
+  - Δ vs Run 7: avg fps -3.4 (-2.7%), 1% low -4.6 fps; render p90 +0.03 ms; chunkload -0.01 ms; resident chunks +34 (scene a bit heavier).
 - Shadow rays: step budget now bounds to the world exit distance (still capped at 256) so the angle-aware range actually hits 96–256 steps; keeps chunk/brick skipping and adds world-bounds awareness to avoid under/over-stepping at steep sun angles. `make checkall` passes.
