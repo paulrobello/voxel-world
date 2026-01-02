@@ -13,13 +13,26 @@ use nalgebra::{Vector3, vector};
 use rayon::prelude::*;
 use std::cell::Ref;
 use std::collections::{HashSet, VecDeque};
+use std::sync::OnceLock;
 use std::time::Instant;
 use vulkano::command_buffer::{
     AutoCommandBufferBuilder, ClearColorImageInfo, CommandBufferUsage, PrimaryCommandBufferAbstract,
 };
 use vulkano::sync::GpuFuture;
 
-const METADATA_CHUNKS_PER_FRAME: usize = 256;
+const METADATA_DEFAULT_BUDGET: usize = 192;
+const METADATA_MIN_BUDGET: usize = 64;
+
+fn metadata_chunks_per_frame() -> usize {
+    static BUDGET: OnceLock<usize> = OnceLock::new();
+    *BUDGET.get_or_init(|| {
+        std::env::var("METADATA_CHUNKS_PER_FRAME")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .map(|v| v.clamp(METADATA_MIN_BUDGET, TOTAL_CHUNKS))
+            .unwrap_or(METADATA_DEFAULT_BUDGET)
+    })
+}
 
 /// Maintains CPU-side metadata buffers and scheduling for amortized uploads.
 pub(crate) struct MetadataState {
@@ -636,7 +649,10 @@ impl App {
             return;
         }
 
-        let work_indices = self.sim.metadata_state.take_work(METADATA_CHUNKS_PER_FRAME);
+        let work_indices = self
+            .sim
+            .metadata_state
+            .take_work(metadata_chunks_per_frame());
 
         if work_indices.is_empty() {
             self.sim.metadata_state.mark_results_applied();
