@@ -8,7 +8,7 @@
 - Commit all work before moving to the next item.
 
 ## Open Findings
-- _(none; monitor shadows during next playtest for horizon/foliage artifacts with new step cap)_
+- _(none)_
 
 ## Completed today
 - _(cleared; ready for next batch)_
