@@ -25,7 +25,8 @@ float getWireframeFactor(vec3 localHit, vec3 normal) {
         edgeCoords = localHit.xy;
     }
 
-    float edgeWidth = 0.08;
+    // Very thin outline; edgeWidth controls thickness in UV space
+    float edgeWidth = 0.01;
     float dx = min(edgeCoords.x, 1.0 - edgeCoords.x);
     float dy = min(edgeCoords.y, 1.0 - edgeCoords.y);
     float edgeDist = min(dx, dy);
@@ -201,8 +202,8 @@ bool renderTargetBlockOutline(vec3 origin, vec3 dir, inout vec3 color, float sce
 
     float wireframe = getWireframeFactor(localHit, hitNormal);
     if (wireframe > 0.1) {
-        vec3 outlineColor = vec3(0.0, 1.0, 1.0);
-        float outlineAlpha = wireframe * 0.8;
+        vec3 outlineColor = vec3(1.0, 0.1, 0.1); // debug red
+        float outlineAlpha = wireframe * 0.9;
         color = mix(color, outlineColor, outlineAlpha);
     }
 
