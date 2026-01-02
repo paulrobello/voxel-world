@@ -23,7 +23,7 @@ const vec3 MOON_COLOR = vec3(0.9, 0.9, 1.0);           // Cool white moon
 const float MOON_SIZE = 0.03;                           // Slightly smaller than sun
 
 // Cloud settings
-const float CLOUD_HEIGHT = 80.0;       // Height of cloud layer
+const float CLOUD_HEIGHT = 144.0;      // Height of cloud layer (2 chunks above old 80)
 const float CLOUD_SCALE = 0.02;        // Scale of cloud noise
 const float CLOUD_COVERAGE = 0.45;     // 0-1, higher = more clouds
 const vec3 CLOUD_COLOR = vec3(1.0, 1.0, 1.0);   // White clouds

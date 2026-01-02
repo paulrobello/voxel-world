@@ -11,7 +11,7 @@ pub const ORTHO_DIRS: [(i32, i32, i32); 6] = [
 ];
 
 // World height in chunks (fixed - Y dimension is bounded)
-pub const WORLD_CHUNKS_Y: i32 = 4;
+pub const WORLD_CHUNKS_Y: i32 = 8;
 
 // Texture pool dimensions for loaded chunks (X and Z are centered on player)
 // This defines how many chunks can be loaded at once, not world bounds

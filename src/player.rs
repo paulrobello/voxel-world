@@ -410,6 +410,17 @@ impl Player {
         }
         self.head_bob_intensity = self.head_bob_intensity.clamp(0.0, 1.0);
 
+        // Clamp fly-mode vertical movement to world bounds (Y is bounded; X/Z are effectively infinite)
+        if self.fly_mode {
+            let min_y = 0.0;
+            let max_y = world_extent[1] as f64 - PLAYER_HEIGHT;
+            let clamped_y = feet.y.clamp(min_y, max_y);
+            if clamped_y != feet.y {
+                feet.y = clamped_y;
+                self.velocity.y = 0.0;
+            }
+        }
+
         self.set_feet_pos(feet, world_extent, texture_origin);
     }
 
