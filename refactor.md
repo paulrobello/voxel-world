@@ -17,4 +17,3 @@
 - [x] CPU perf: Offload chunk metadata + brick SVT generation to a rayon pool; parallelize over loaded chunks instead of single-thread scans. _Done: per-chunk SVT/mask packing runs in rayon on cloned block snapshots with empty/solid fast paths._
 - [x] CPU perf: Skip metadata recompute when texture origin is unchanged and no chunks were loaded/unloaded/dirty (early return flag in `update_metadata_buffers`). _Done: dirty/pending scheduler gates work; per-frame call no-ops when world state unchanged._
 - [x] CPU perf: Expose configurable metadata budget (env `METADATA_CHUNKS_PER_FRAME`, default 192) to keep frame spikes flat without lowering render scale; latest profile shows metadata_ms ≤0.053 ms at ~2.8k chunks.
-- [ ] CPU perf: Consider coarser LOD masks for far chunks to reduce metadata iteration (e.g., mark whole Y stack as empty/solid when all four Y levels match).
