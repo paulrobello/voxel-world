@@ -133,6 +133,7 @@ pub struct PushConstants {
     pub lod_shadow_distance: f32,
     pub lod_point_light_distance: f32,
     pub falling_block_count: u32,
+    pub _pc_pad_camera: [u32; 2],
     pub camera_pos: [f32; 4],
 }
 
