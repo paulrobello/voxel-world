@@ -665,7 +665,7 @@ float getSkyExposure(vec3 origin) {
                 if (pc.enable_model_shadows == 0u) {
                     // Treat model as non-blocking for sky when disabled
                 } else {
-                    uvec2 meta = readModelMetadata(texPos);
+                    uvec2 meta = readModelMetadata(pos);
                     uint model_id = meta.r;
                     uint rotation = meta.g & 3u;
                     if (model_id == 0u) {
