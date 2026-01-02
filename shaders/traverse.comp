@@ -204,23 +204,6 @@ bool isChunkEmpty(ivec3 chunkPos) {
     return (chunk_flags[wordIdx] & (1u << bitIdx)) != 0u;
 }
 
-// Calculate distance to exit current chunk (for chunk skipping)
-// Returns t value to reach the exit face of the chunk
-float getChunkExitT(vec3 pos, vec3 dir, vec3 invDir, ivec3 chunkPos) {
-    vec3 chunkMin = vec3(chunkPos) * float(CHUNK_SIZE);
-    vec3 chunkMax = chunkMin + float(CHUNK_SIZE);
-
-    // Calculate t values to each face
-    vec3 t1 = (chunkMin - pos) * invDir;
-    vec3 t2 = (chunkMax - pos) * invDir;
-
-    // Get exit t values (the far faces)
-    vec3 tFar = max(t1, t2);
-
-    // Return the closest exit (minimum of far faces)
-    return min(min(tFar.x, tFar.y), tFar.z);
-}
-
 // Brick constants
 const uint BRICK_SIZE = 8;        // 8³ voxels per brick
 const uint BRICKS_PER_AXIS = 4;   // 32/8 = 4 bricks per chunk axis
@@ -259,51 +242,6 @@ bool isBrickEmpty(ivec3 coord) {
 
     // Bit set = brick has solid blocks, so NOT set = empty
     return (mask & (1u << bitIdx)) == 0u;
-}
-
-// Get minimum distance to nearest solid brick (for sphere-tracing)
-// coord: texture-space voxel coordinate
-// Returns distance in brick units (multiply by BRICK_SIZE for voxels)
-uint getBrickDistance(ivec3 coord) {
-    // Calculate chunk position
-    ivec3 chunkPos = coord / int(CHUNK_SIZE);
-
-    // Bounds check - return 0 (treat as solid) for out-of-bounds
-    if (chunkPos.x < 0 || chunkPos.x >= int(CHUNKS_X) ||
-        chunkPos.y < 0 || chunkPos.y >= int(CHUNKS_Y) ||
-        chunkPos.z < 0 || chunkPos.z >= int(CHUNKS_Z)) {
-        return 0u;
-    }
-
-    // Calculate brick position within chunk
-    ivec3 localVoxel = coord - chunkPos * int(CHUNK_SIZE);
-    ivec3 brickPos = localVoxel / int(BRICK_SIZE);
-    uint brickIdx = uint(brickPos.x) + uint(brickPos.y) * BRICKS_PER_AXIS
-                  + uint(brickPos.z) * BRICKS_PER_AXIS * BRICKS_PER_AXIS;
-
-    // Calculate chunk index
-    uint chunkIdx = uint(chunkPos.x) + uint(chunkPos.z) * CHUNKS_X
-                  + uint(chunkPos.y) * CHUNKS_X * CHUNKS_Z;
-
-    // Read distance (16 u32 per chunk = 64 bytes, accessed as individual bytes)
-    uint distOffset = chunkIdx * 16u + brickIdx / 4u;
-    uint byteIdx = brickIdx % 4u;
-    uint distWord = brick_distances[distOffset];
-
-    // Extract byte from word
-    return (distWord >> (byteIdx * 8u)) & 0xFFu;
-}
-
-// Calculate distance to exit current brick
-float getBrickExitT(vec3 pos, vec3 dir, vec3 invDir, ivec3 brickWorldPos) {
-    vec3 brickMin = vec3(brickWorldPos);
-    vec3 brickMax = brickMin + float(BRICK_SIZE);
-
-    vec3 t1 = (brickMin - pos) * invDir;
-    vec3 t2 = (brickMax - pos) * invDir;
-
-    vec3 tFar = max(t1, t2);
-    return min(min(tFar.x, tFar.y), tFar.z);
 }
 
 // Get the world position of the brick containing this voxel
@@ -425,6 +363,48 @@ bool isOccluderSafe(ivec3 texCoord) {
 }
 
 const float FLT_MAX = 3.4028235e+38;
+const float DIR_EPS = 1e-4;
+
+// Prevent NaN/INF when a ray component is ~0
+vec3 makeSafeDir(vec3 dir) {
+    vec3 safeDir = dir;
+    safeDir.x = (abs(safeDir.x) < DIR_EPS) ? (safeDir.x >= 0.0 ? DIR_EPS : -DIR_EPS) : safeDir.x;
+    safeDir.y = (abs(safeDir.y) < DIR_EPS) ? (safeDir.y >= 0.0 ? DIR_EPS : -DIR_EPS) : safeDir.y;
+    safeDir.z = (abs(safeDir.z) < DIR_EPS) ? (safeDir.z >= 0.0 ? DIR_EPS : -DIR_EPS) : safeDir.z;
+    return safeDir;
+}
+
+// Generic axis-aligned box intersection returning t along the (unnormalized) ray
+bool rayBoxHit(vec3 rayOrigin, vec3 rayDir, vec3 boxMin, vec3 boxMax, out float tHit, out vec3 hitNormal) {
+    vec3 safeDir = makeSafeDir(rayDir);
+    vec3 invDir = 1.0 / safeDir;
+
+    vec3 t1 = (boxMin - rayOrigin) * invDir;
+    vec3 t2 = (boxMax - rayOrigin) * invDir;
+
+    vec3 tmin = min(t1, t2);
+    vec3 tmax = max(t1, t2);
+
+    float tNear = max(max(tmin.x, tmin.y), tmin.z);
+    float tFar = min(min(tmax.x, tmax.y), tmax.z);
+
+    if (tNear > tFar || tFar < 0.0) {
+        return false;
+    }
+
+    tHit = tNear > 0.0 ? tNear : tFar;
+
+    hitNormal = vec3(0.0);
+    if (tmin.x >= tmin.y && tmin.x >= tmin.z) {
+        hitNormal.x = -sign(rayDir.x);
+    } else if (tmin.y >= tmin.z) {
+        hitNormal.y = -sign(rayDir.y);
+    } else {
+        hitNormal.z = -sign(rayDir.z);
+    }
+
+    return true;
+}
 
 // Helper: test whether a ray segment through a model block hits its sub-voxel geometry
 // rayOrigin: point on the ray near the current voxel (world/texture space)
@@ -667,10 +647,8 @@ float getSkyExposure(vec3 origin) {
 
     // March upward through voxels (increased for taller world: 128 blocks)
     for (int i = 0; i < 128; i++) {
-        ivec3 texPos = worldToTexture(pos);
-
         // Check if we've exited the loaded world (treated as sky)
-        if (!isInTextureBounds(texPos)) {
+        if (!isInTextureBounds(pos)) {
             return 1.0;  // Out of loaded area = assume sky
         }
 
@@ -678,7 +656,7 @@ float getSkyExposure(vec3 origin) {
         vec3 blockOrigin = rayPos + dir * 0.01;
 
         // Check for solid block; treat OOB as air for debug
-        uint blockType = readBlockTypeAtTexCoord(texPos);
+        uint blockType = readBlockTypeAtTexCoord(pos);
         bool skipSelf = all(equal(pos, startPos));
 
         if (!skipSelf) {
@@ -1129,46 +1107,21 @@ bool isBreakingBlock(ivec3 blockPos) {
 float rayAABBIntersect(vec3 rayOrigin, vec3 rayDir, vec3 boxCenter, float boxHalfSize, out vec3 hitNormal) {
     vec3 boxMin = boxCenter - vec3(boxHalfSize);
     vec3 boxMax = boxCenter + vec3(boxHalfSize);
-
-    vec3 invDir = 1.0 / rayDir;
-
-    vec3 t1 = (boxMin - rayOrigin) * invDir;
-    vec3 t2 = (boxMax - rayOrigin) * invDir;
-
-    vec3 tmin = min(t1, t2);
-    vec3 tmax = max(t1, t2);
-
-    float tNear = max(max(tmin.x, tmin.y), tmin.z);
-    float tFar = min(min(tmax.x, tmax.y), tmax.z);
-
-    // No hit if box is behind ray or ray misses box
-    if (tNear > tFar || tFar < 0.0) {
+    float tHit;
+    if (!rayBoxHit(rayOrigin, rayDir, boxMin, boxMax, tHit, hitNormal)) {
         return -1.0;
     }
-
-    // Use tNear if in front of ray, otherwise tFar (we're inside the box)
-    float t = tNear > 0.0 ? tNear : tFar;
-    if (t < 0.0) {
-        return -1.0;
-    }
-
-    // Calculate which face was hit based on which axis had the largest tmin
-    hitNormal = vec3(0.0);
-    if (tmin.x >= tmin.y && tmin.x >= tmin.z) {
-        hitNormal.x = -sign(rayDir.x);
-    } else if (tmin.y >= tmin.z) {
-        hitNormal.y = -sign(rayDir.y);
-    } else {
-        hitNormal.z = -sign(rayDir.z);
-    }
-
-    return t;
+    return tHit;
 }
 
 // Render particles and composite over the scene
 // Returns true if a particle was hit, modifies color and hitDistance
 bool renderParticles(vec3 origin, vec3 dir, inout vec3 color, inout float hitDistance) {
     bool anyHit = false;
+    float dirLen = length(dir);
+    if (dirLen < 1e-6) {
+        return false;
+    }
     float closestT = hitDistance;
     vec3 closestColor = color;
     float closestAlpha = 0.0;
@@ -1183,7 +1136,8 @@ bool renderParticles(vec3 origin, vec3 dir, inout vec3 color, inout float hitDis
         // Ray-AABB intersection for cube particles
         vec3 faceNormal;
         float t = rayAABBIntersect(origin, dir, particlePos, particleSize, faceNormal);
-        if (t > 0.0 && t < closestT) {
+        float tWorld = t * dirLen;
+        if (t > 0.0 && tWorld < closestT) {
             // Calculate lighting using the cube face normal
             vec3 sunDir = getCurrentSunDir();
             float daylight = getDaylightFactor(pc.time_of_day);
@@ -1195,7 +1149,7 @@ bool renderParticles(vec3 origin, vec3 dir, inout vec3 color, inout float hitDis
             float lighting = ambient + direct;
 
             // Update closest hit
-            closestT = t;
+            closestT = tWorld;
             closestColor = particleColor * lighting;
             closestAlpha = particleAlpha;
             anyHit = true;
@@ -1215,6 +1169,10 @@ bool renderParticles(vec3 origin, vec3 dir, inout vec3 color, inout float hitDis
 // Returns true if a falling block was hit, modifies color and hitDistance
 bool renderFallingBlocks(vec3 origin, vec3 dir, inout vec3 color, inout float hitDistance) {
     bool anyHit = false;
+    float dirLen = length(dir);
+    if (dirLen < 1e-6) {
+        return false;
+    }
     float closestT = hitDistance;
     vec3 closestColor = color;
 
@@ -1226,7 +1184,8 @@ bool renderFallingBlocks(vec3 origin, vec3 dir, inout vec3 color, inout float hi
         // Ray-AABB intersection for 1.0 sized cube (half-size = 0.5)
         vec3 faceNormal;
         float t = rayAABBIntersect(origin, dir, blockCenter, 0.5, faceNormal);
-        if (t > 0.0 && t < closestT) {
+        float tWorld = t * dirLen;
+        if (t > 0.0 && tWorld < closestT) {
             // Calculate hit position
             vec3 hitPos = origin + dir * t;
             vec3 localHit = hitPos - (blockCenter - vec3(0.5));  // Convert to 0-1 range
@@ -1269,7 +1228,7 @@ bool renderFallingBlocks(vec3 origin, vec3 dir, inout vec3 color, inout float hi
             float lighting = ambient + direct;
 
             // Update closest hit
-            closestT = t;
+            closestT = tWorld;
             closestColor = texColor * lighting;
             anyHit = true;
         }
@@ -1312,53 +1271,14 @@ vec3 applyTargetHighlight(vec3 color) {
 // Ray-AABB intersection for unit cube at integer position
 // Returns t (distance) or -1 if no hit, also outputs hit normal and local hit position
 float rayBlockIntersect(vec3 rayOrigin, vec3 rayDir, ivec3 blockPos, out vec3 hitNormal, out vec3 localHit) {
-    vec3 boxMin = vec3(blockPos);
-    vec3 boxMax = vec3(blockPos) + vec3(1.0);
-
-    // Guard against zero components to avoid INF/NaN when the ray is axis-aligned
-    vec3 safeDir = rayDir;
-    const float DIR_EPS = 1e-4;
-    safeDir.x = (abs(safeDir.x) < DIR_EPS) ? (safeDir.x >= 0.0 ? DIR_EPS : -DIR_EPS) : safeDir.x;
-    safeDir.y = (abs(safeDir.y) < DIR_EPS) ? (safeDir.y >= 0.0 ? DIR_EPS : -DIR_EPS) : safeDir.y;
-    safeDir.z = (abs(safeDir.z) < DIR_EPS) ? (safeDir.z >= 0.0 ? DIR_EPS : -DIR_EPS) : safeDir.z;
-    vec3 invDir = 1.0 / safeDir;
-
-    vec3 t1 = (boxMin - rayOrigin) * invDir;
-    vec3 t2 = (boxMax - rayOrigin) * invDir;
-
-    vec3 tmin = min(t1, t2);
-    vec3 tmax = max(t1, t2);
-
-    float tNear = max(max(tmin.x, tmin.y), tmin.z);
-    float tFar = min(min(tmax.x, tmax.y), tmax.z);
-
-    if (tNear > tFar || tFar < 0.0) {
+    float tHit;
+    if (!rayBoxHit(rayOrigin, rayDir, vec3(blockPos), vec3(blockPos) + vec3(1.0), tHit, hitNormal)) {
         return -1.0;
     }
 
-    float t = tNear > 0.0 ? tNear : tFar;
-    if (t < 0.0) {
-        return -1.0;
-    }
-
-    // Calculate hit normal
-    hitNormal = vec3(0.0);
-    if (tmin.x >= tmin.y && tmin.x >= tmin.z) {
-        hitNormal.x = -sign(rayDir.x);
-    } else if (tmin.y >= tmin.z) {
-        hitNormal.y = -sign(rayDir.y);
-    } else {
-        hitNormal.z = -sign(rayDir.z);
-    }
-
-    // Calculate local hit position (0-1 within block)
-    vec3 hitPoint = rayOrigin + rayDir * t;
-    localHit = hitPoint - vec3(blockPos);
-
-    // Clamp to [0,1] to avoid boundary precision issues
-    localHit = clamp(localHit, vec3(0.0), vec3(1.0));
-
-    return t;
+    vec3 hitPoint = rayOrigin + rayDir * tHit;
+    localHit = clamp(hitPoint - vec3(blockPos), vec3(0.0), vec3(1.0));
+    return tHit;
 }
 
 // Calculate wireframe factor for block preview edges
@@ -1455,11 +1375,7 @@ bool findSubVoxelHit(
     vec3 pos = origin * float(SUB_VOXEL_SIZE);
 
     // Avoid infinities / NaNs for near-zero components
-    vec3 safeDir = dir;
-    const float DIR_EPS = 1e-4;
-    safeDir.x = (abs(safeDir.x) < DIR_EPS) ? (safeDir.x >= 0.0 ? DIR_EPS : -DIR_EPS) : safeDir.x;
-    safeDir.y = (abs(safeDir.y) < DIR_EPS) ? (safeDir.y >= 0.0 ? DIR_EPS : -DIR_EPS) : safeDir.y;
-    safeDir.z = (abs(safeDir.z) < DIR_EPS) ? (safeDir.z >= 0.0 ? DIR_EPS : -DIR_EPS) : safeDir.z;
+    vec3 safeDir = makeSafeDir(dir);
     vec3 invDir = 1.0 / safeDir;
 
     // Calculate entry t
@@ -1561,37 +1477,14 @@ bool findSubVoxelHit(
 
 // Ray-box intersection for sub-voxel cube (returns t and sets normal/localHit)
 float raySubVoxelIntersect(vec3 origin, vec3 dir, vec3 boxMin, vec3 boxMax, out vec3 hitNormal, out vec3 localHit) {
-    vec3 invDir = 1.0 / dir;
-
-    vec3 t1 = (boxMin - origin) * invDir;
-    vec3 t2 = (boxMax - origin) * invDir;
-
-    vec3 tmin = min(t1, t2);
-    vec3 tmax = max(t1, t2);
-
-    float tNear = max(max(tmin.x, tmin.y), tmin.z);
-    float tFar = min(min(tmax.x, tmax.y), tmax.z);
-
-    if (tNear > tFar || tFar < 0.0) {
+    float tHit;
+    if (!rayBoxHit(origin, dir, boxMin, boxMax, tHit, hitNormal)) {
         return -1.0;
     }
 
-    float t = tNear > 0.0 ? tNear : tFar;
-    vec3 hitPoint = origin + dir * t;
-
-    // Calculate normal based on which face was hit
-    hitNormal = vec3(0.0);
-    if (abs(hitPoint.x - boxMin.x) < 0.001) hitNormal = vec3(-1.0, 0.0, 0.0);
-    else if (abs(hitPoint.x - boxMax.x) < 0.001) hitNormal = vec3(1.0, 0.0, 0.0);
-    else if (abs(hitPoint.y - boxMin.y) < 0.001) hitNormal = vec3(0.0, -1.0, 0.0);
-    else if (abs(hitPoint.y - boxMax.y) < 0.001) hitNormal = vec3(0.0, 1.0, 0.0);
-    else if (abs(hitPoint.z - boxMin.z) < 0.001) hitNormal = vec3(0.0, 0.0, -1.0);
-    else hitNormal = vec3(0.0, 0.0, 1.0);
-
-    // Local hit in 0-1 space within sub-voxel
+    vec3 hitPoint = origin + dir * tHit;
     localHit = (hitPoint - boxMin) / (boxMax - boxMin);
-
-    return t;
+    return tHit;
 }
 
 // Render target block outline (wireframe only, drawn on top of hit block)
