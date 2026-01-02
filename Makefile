@@ -6,7 +6,7 @@ export DYLD_LIBRARY_PATH := /opt/homebrew/lib:/opt/homebrew/opt/vulkan-loader/li
 export DYLD_FALLBACK_LIBRARY_PATH := /opt/homebrew/lib:/opt/homebrew/opt/vulkan-loader/lib
 export VK_ICD_FILENAMES := /opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json
 
-.PHONY: build build-release build-debug run run-release run-debug clean test check fmt lint checkall
+.PHONY: build build-release build-debug run run-release run-debug profile run-profile clean test check fmt lint checkall
 
 # Default target
 all: build-release
@@ -33,6 +33,12 @@ run-debug: build-debug
 	@echo "DYLD_FALLBACK_LIBRARY_PATH=$(DYLD_FALLBACK_LIBRARY_PATH)"
 	@echo "VK_ICD_FILENAMES=$(VK_ICD_FILENAMES)"
 	DYLD_LIBRARY_PATH=$(DYLD_LIBRARY_PATH) DYLD_FALLBACK_LIBRARY_PATH=$(DYLD_FALLBACK_LIBRARY_PATH) VK_ICD_FILENAMES=$(VK_ICD_FILENAMES) RUST_BACKTRACE=1 ./target/debug/voxel_ray_traversal $(ARGS)
+
+# Profiling target (writes profile.csv in cwd)
+profile: run-profile
+
+run-profile: build-release
+	./target/release/voxel_ray_traversal --verbose --profile-log profile.csv --debug-interval 120 --view-distance 8 --fly-mode $(ARGS)
 
 # Development targets
 clean:
