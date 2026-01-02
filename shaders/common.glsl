@@ -158,5 +158,3 @@ const float SUB_VOXEL_MIN_DISTANCE = 0.4;
 layout(set = 0, binding = 0, rgba8) writeonly uniform image2D targetImage;
 layout(set = 1, binding = 0, r8ui) readonly uniform uimage3D blockImage;
 layout(set = 2, binding = 0) uniform sampler2D textureAtlas;
-
-#endif // COMMON_GLSL
