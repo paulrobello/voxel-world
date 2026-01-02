@@ -144,7 +144,7 @@ Support detailed 8³ voxel models within standard block space for furniture, fen
 #### 4.4 Collision Detection
 - [x] Sub-voxel collision masks/AABB for player collision
 - [x] Per-model collision masks (non-solid voxels supported)
-- [ ] Physics integration: falling sub-voxel objects
+- [ ] Physics integration: falling sub-voxel objects (not needed right now)
 - [x] Raycasting through sub-voxel geometry
 
 ### Technical Approach
