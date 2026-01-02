@@ -6,11 +6,10 @@ const bool SHADOW_SKIP = true;
 // Helper: test whether a ray segment through a model block hits its sub-voxel geometry
 bool modelBlocksRay(vec3 rayOrigin, vec3 dir, ivec3 blockPos, uint model_id, uint rotation) {
     vec3 localOrigin = clamp(rayOrigin - vec3(blockPos), vec3(SUB_VOXEL_EPS), vec3(1.0 - SUB_VOXEL_EPS));
-
-    ivec3 subHit;
-    vec3 n;
-    float t;
-    return findSubVoxelHit(localOrigin, dir, model_id, rotation, subHit, n, t);
+    vec3 dummyColor, dummyNormal;
+    float dummyT;
+    // Reuse the full sub-voxel marcher so shadows and primary hits agree on geometry/rotation.
+    return marchSubVoxelModel(localOrigin, dir, model_id, rotation, dummyColor, dummyNormal, dummyT);
 }
 
 // Cast shadow ray from a point toward the sun
@@ -43,8 +42,10 @@ float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFl
 
     const float MAX_SHADOW_DIST = 256.0;
     float totalDist = 0.0;
+    float maxAbsDir = max(abs(dir.x), max(abs(dir.y), abs(dir.z)));
+    int maxSteps = int(clamp(MAX_SHADOW_DIST * maxAbsDir + 4.0, 96.0, 256.0)); // angle-aware cap; higher when sun is low
 
-    for (int i = 0; i < 128; i++) {
+    for (int i = 0; i < maxSteps; i++) {
         // Optional coarse skipping: empty chunks/bricks
         if (SHADOW_SKIP) {
             ivec3 chunkPos = pos / int(CHUNK_SIZE);
@@ -116,39 +117,12 @@ float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFl
                                 return 0.0;
                             }
                         }
+                        // For full blockers, conservative: still block if not hit due to precision.
                         if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u) {
                             debugFlag = 4u;
                             return 0.0;
                         }
-                        if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
-                            vec3 localO = blockOrigin - vec3(pos);
-                            vec3 testO = clamp(localO, vec3(0.001), vec3(0.999));
-                            vec3 testDir = dir;
-
-                            testO = inverseRotatePosition(testO, rotation);
-                            testDir = inverseRotateDirection(testDir, rotation);
-
-                            vec3 bbMin, bbMax;
-                            modelCollisionBounds(model_id, bbMin, bbMax);
-
-                            vec3 safeTestDir = testDir;
-                            safeTestDir = makeSafeDir(safeTestDir);
-
-                            vec3 invd = 1.0 / safeTestDir;
-                            vec3 t1b = (bbMin - testO) * invd;
-                            vec3 t2b = (bbMax - testO) * invd;
-                            vec3 tminb = min(t1b, t2b);
-                            vec3 tmaxb = max(t1b, t2b);
-                            float tNear = max(max(tminb.x, tminb.y), tminb.z);
-                            float tFar = min(min(tmaxb.x, tmaxb.y), tmaxb.z);
-                            
-                            if (tNear <= tFar && tFar > 0.0) {
-                                if (modelMaskBlocksRay(testO, testDir, model_id)) {
-                                    debugFlag = 5u;
-                                    return MODEL_PARTIAL_SHADOW;
-                                }
-                            }
-                        }
+                        // For partial blockers, only geometry should occlude; skip coarse mask fallback to avoid over-occluding thin models (e.g., ladders).
                     }
                 }
             } else if (blockType != BLOCK_AIR && blockType != BLOCK_LEAVES && blockType != BLOCK_GLASS && blockType != BLOCK_WATER) {

@@ -462,9 +462,6 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
         vec3 lightingHit = subVoxelHit ? subVoxelHitPos : hit;
         float skyExposure = nearEnoughForSkyExposure ? getSkyExposure(lightingHit + normal * 0.01) : 1.0;
         vec3 shadowOrigin = lightingHit + normal * 0.01;
-        if (blockType == BLOCK_MODEL) {
-            shadowOrigin += sunDir * 0.01;
-        }
         uint dummyDbg;
         bool ignoreStartModel = (blockType == BLOCK_MODEL);
         float shadow = nearEnoughForShadow ? castShadowRayInternal(shadowOrigin, ignoreStartModel, dummyDbg) : 1.0;
@@ -492,10 +489,6 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
         {
         vec3 lightingHit = subVoxelHit ? subVoxelHitPos : hit;
         vec3 shadowOrigin = lightingHit + normal * 0.01;
-        if (blockType == BLOCK_MODEL) {
-            vec3 sunDirDbg = getCurrentSunDir();
-            shadowOrigin += sunDirDbg * 0.01;
-        }
         uint dbgFlag;
         bool ignoreStartModel = (blockType == BLOCK_MODEL);
         float shadow = castShadowRayInternal(shadowOrigin, ignoreStartModel, dbgFlag);
