@@ -308,6 +308,93 @@ bool marchSubVoxelModel(
     return false;  // Ray passed through without hitting
 }
 
+// Shadow-only sub-voxel march: returns true on any occupancy hit.
+// Uses a capped number of steps since we only need to know whether the model blocks light.
+bool marchSubVoxelShadow(
+    vec3 origin,
+    vec3 dir,
+    uint model_id,
+    uint rotation,
+    int maxSteps
+) {
+    // Clamp step budget to the maximum possible voxels we could traverse in 8^3 grid.
+    int stepsLeft = clamp(maxSteps, 1, 24);
+
+    // Scale to sub-voxel coordinates (0-8)
+    vec3 pos = origin * float(SUB_VOXEL_SIZE);
+
+    vec3 safeDir = makeSafeDir(dir);
+    vec3 invDir = 1.0 / safeDir;
+
+    // Calculate entry t into the 0-8 cube
+    vec3 tMin = (vec3(-SUB_VOXEL_EPS) - pos) * invDir;
+    vec3 tMax = (vec3(float(SUB_VOXEL_SIZE) + SUB_VOXEL_EPS) - pos) * invDir;
+
+    vec3 t1 = min(tMin, tMax);
+    vec3 t2 = max(tMin, tMax);
+
+    float tNear = max(max(t1.x, t1.y), t1.z);
+    float tFar = min(min(t2.x, t2.y), t2.z);
+    if (tNear > tFar || tFar < 0.0) {
+        return false;
+    }
+
+    float startT = max(tNear, 0.0);
+    vec3 startPos = pos + dir * startT;
+    startPos += safeDir * SUB_VOXEL_EPS;
+    startPos = clamp(startPos, vec3(SUB_VOXEL_EPS), vec3(float(SUB_VOXEL_SIZE) - SUB_VOXEL_EPS));
+
+    ivec3 voxel = ivec3(clamp(floor(startPos), vec3(0.0), vec3(float(SUB_VOXEL_SIZE - 1))));
+
+    ivec3 step = ivec3(sign(safeDir));
+    vec3 tDelta = abs(invDir);
+
+    vec3 tMaxAxis;
+    tMaxAxis.x = (step.x > 0) ? (float(voxel.x + 1) - startPos.x) * invDir.x
+                              : (step.x < 0) ? (startPos.x - float(voxel.x)) * (-invDir.x)
+                                             : 1e30;
+    tMaxAxis.y = (step.y > 0) ? (float(voxel.y + 1) - startPos.y) * invDir.y
+                              : (step.y < 0) ? (startPos.y - float(voxel.y)) * (-invDir.y)
+                                             : 1e30;
+    tMaxAxis.z = (step.z > 0) ? (float(voxel.z + 1) - startPos.z) * invDir.z
+                              : (step.z < 0) ? (startPos.z - float(voxel.z)) * (-invDir.z)
+                                             : 1e30;
+
+    for (int i = 0; i < stepsLeft; i++) {
+        if (any(lessThan(voxel, ivec3(0))) || any(greaterThanEqual(voxel, ivec3(int(SUB_VOXEL_SIZE))))) {
+            break;
+        }
+
+        ivec3 rotatedPos = rotateModelPos(voxel, rotation);
+        rotatedPos = clamp(rotatedPos, ivec3(0), ivec3(int(SUB_VOXEL_SIZE) - 1));
+        uint palette_idx = sampleModelVoxel(model_id, rotatedPos);
+        if (palette_idx != 0u) {
+            return true;
+        }
+
+        // Step to next sub-voxel
+        if (tMaxAxis.x < tMaxAxis.y) {
+            if (tMaxAxis.x < tMaxAxis.z) {
+                voxel.x += step.x;
+                tMaxAxis.x += tDelta.x;
+            } else {
+                voxel.z += step.z;
+                tMaxAxis.z += tDelta.z;
+            }
+        } else {
+            if (tMaxAxis.y < tMaxAxis.z) {
+                voxel.y += step.y;
+                tMaxAxis.y += tDelta.y;
+            } else {
+                voxel.z += step.z;
+                tMaxAxis.z += tDelta.z;
+            }
+        }
+    }
+
+    return false;
+}
+
 // Read model metadata at a texture coordinate
 // Returns: model_id in .r, rotation in .g
 uvec2 readModelMetadata(ivec3 texCoord) {

@@ -6,10 +6,10 @@ const bool SHADOW_SKIP = true;
 // Helper: test whether a ray segment through a model block hits its sub-voxel geometry
 bool modelBlocksRay(vec3 rayOrigin, vec3 dir, ivec3 blockPos, uint model_id, uint rotation) {
     vec3 localOrigin = clamp(rayOrigin - vec3(blockPos), vec3(SUB_VOXEL_EPS), vec3(1.0 - SUB_VOXEL_EPS));
-    vec3 dummyColor, dummyNormal;
-    float dummyT;
-    // Reuse the full sub-voxel marcher so shadows and primary hits agree on geometry/rotation.
-    return marchSubVoxelModel(localOrigin, dir, model_id, rotation, dummyColor, dummyNormal, dummyT);
+    // Shadow path: cheaper, capped marcher—only cares if any occupied voxel blocks light.
+    // Limit steps to reduce worst-case cost through thin models; still covers the 8^3 grid.
+    const int SHADOW_MODEL_MAX_STEPS = 16;
+    return marchSubVoxelShadow(localOrigin, dir, model_id, rotation, SHADOW_MODEL_MAX_STEPS);
 }
 
 // Cast shadow ray from a point toward the sun
