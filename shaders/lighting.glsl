@@ -25,9 +25,9 @@ float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFl
     vec3 rayPos = origin;
     ivec3 pos = ivec3(floor(rayPos));
     ivec3 startPos = pos;
-    ivec3 step = ivec3(sign(dir));
+    ivec3 stepDir = ivec3(sign(dir));
 
-    vec3 tMax = (vec3(pos) + 0.5 + 0.5 * vec3(step) - rayPos) * inv_dir;
+    vec3 tMax = (vec3(pos) + 0.5 + 0.5 * vec3(stepDir) - rayPos) * inv_dir;
     vec3 tDelta = abs(inv_dir);
 
     if (ignoreStartModel) {
@@ -35,7 +35,7 @@ float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFl
         rayPos += dir * exitT;
         pos = ivec3(floor(rayPos));
         startPos = pos;
-        tMax = (vec3(pos) + 0.5 + 0.5 * vec3(step) - rayPos) * inv_dir;
+        tMax = (vec3(pos) + 0.5 + 0.5 * vec3(stepDir) - rayPos) * inv_dir;
     }
 
     float maxShadowDist = min(256.0, length(textureSize3D()));
@@ -54,7 +54,7 @@ float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFl
             float minExit = min(min(tExit.x, tExit.y), tExit.z);
             rayPos += dir * (minExit + 0.001);
             pos = ivec3(floor(rayPos));
-            tMax = (vec3(pos) + 0.5 + 0.5 * vec3(step) - rayPos) * inv_dir;
+            tMax = (vec3(pos) + 0.5 + 0.5 * vec3(stepDir) - rayPos) * inv_dir;
             totalDist += minExit;
             if (totalDist > maxShadowDist) { debugFlag = 8u; return 1.0; }
             continue;
@@ -70,7 +70,7 @@ float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFl
             float minExit = min(min(tExit.x, tExit.y), tExit.z);
             rayPos += dir * (minExit + 0.001);
             pos = ivec3(floor(rayPos));
-            tMax = (vec3(pos) + 0.5 + 0.5 * vec3(step) - rayPos) * inv_dir;
+            tMax = (vec3(pos) + 0.5 + 0.5 * vec3(stepDir) - rayPos) * inv_dir;
             totalDist += minExit;
             if (totalDist > maxShadowDist) { debugFlag = 8u; return 1.0; }
             continue;
@@ -165,7 +165,7 @@ float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFl
             rayPos += dir * advanceT;
             totalDist += advanceT;
             pos = ivec3(floor(rayPos));
-            tMax = (vec3(pos) + 0.5 + 0.5 * vec3(step) - rayPos) * inv_dir;
+            tMax = (vec3(pos) + 0.5 + 0.5 * vec3(stepDir) - rayPos) * inv_dir;
             continue;
         }
 
@@ -187,13 +187,13 @@ float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFl
 
         if (stepAxis == 0) {
             tMax.x += tDelta.x;
-            pos.x += step.x;
+            pos.x += stepDir.x;
         } else if (stepAxis == 1) {
             tMax.y += tDelta.y;
-            pos.y += step.y;
+            pos.y += stepDir.y;
         } else {
             tMax.z += tDelta.z;
-            pos.z += step.z;
+            pos.z += stepDir.z;
         }
 
         if (totalDist > maxShadowDist) {

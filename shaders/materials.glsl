@@ -106,19 +106,19 @@ const float WAVE_SCALE = 0.8;
 const float WAVE_AMPLITUDE = 0.15;
 const float WAVE_NORMAL_STRENGTH = 0.4;
 
+float waveHeight(vec2 p) {
+    return fbmWater(p) * 2.0 - 1.0;
+}
+
 vec3 getWaterWaveNormal(vec3 texPos, float time) {
     vec3 worldPos = texPos + vec3(textureOrigin());
     vec2 pos = worldPos.xz;
     float t = time * WAVE_SPEED;
 
-    auto heightFn = [](vec2 p) -> float {
-        return fbmWater(p) * 2.0 - 1.0;
-    };
-
-    float h = heightFn(pos * WAVE_SCALE + vec2(t * 0.25, t * 0.2));
+    float h = waveHeight(pos * WAVE_SCALE + vec2(t * 0.25, t * 0.2));
     float delta = 0.12;
-    float hpx = heightFn((pos + vec2(delta, 0.0)) * WAVE_SCALE + vec2(t * 0.25, t * 0.2));
-    float hpz = heightFn((pos + vec2(0.0, delta)) * WAVE_SCALE + vec2(t * 0.25, t * 0.2));
+    float hpx = waveHeight((pos + vec2(delta, 0.0)) * WAVE_SCALE + vec2(t * 0.25, t * 0.2));
+    float hpz = waveHeight((pos + vec2(0.0, delta)) * WAVE_SCALE + vec2(t * 0.25, t * 0.2));
 
     float dx = (hpx - h) / delta;
     float dz = (hpz - h) / delta;
