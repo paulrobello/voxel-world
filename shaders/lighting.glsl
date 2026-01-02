@@ -12,6 +12,44 @@ bool modelBlocksRay(vec3 rayOrigin, vec3 dir, ivec3 blockPos, uint model_id, uin
     return marchSubVoxelShadow(localOrigin, dir, model_id, rotation, SHADOW_MODEL_MAX_STEPS);
 }
 
+// Advance a DDA to the next voxel along the ray.
+// Updates pos, rayPos, tMax; returns stepped axis and step distance.
+void ddaAdvance(
+    inout ivec3 pos,
+    inout vec3 rayPos,
+    inout vec3 tMax,
+    vec3 tDelta,
+    ivec3 stepDir,
+    vec3 dir,
+    out int stepAxis,
+    out float stepDist
+) {
+    stepDist = tMax.x;
+    stepAxis = 0;
+    if (tMax.y < stepDist) {
+        stepDist = tMax.y;
+        stepAxis = 1;
+    }
+    if (tMax.z < stepDist) {
+        stepDist = tMax.z;
+        stepAxis = 2;
+    }
+
+    rayPos += dir * stepDist;
+    tMax -= vec3(stepDist);
+
+    if (stepAxis == 0) {
+        tMax.x += tDelta.x;
+        pos.x += stepDir.x;
+    } else if (stepAxis == 1) {
+        tMax.y += tDelta.y;
+        pos.y += stepDir.y;
+    } else {
+        tMax.z += tDelta.z;
+        pos.z += stepDir.z;
+    }
+}
+
 // Cast shadow ray from a point toward the sun
 float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFlag) {
     debugFlag = 0u;
@@ -151,32 +189,10 @@ float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFl
             continue;
         }
 
-        float stepDist = tMax.x;
-        int stepAxis = 0;
-        if (tMax.y < stepDist) {
-            stepDist = tMax.y;
-            stepAxis = 1;
-        }
-        if (tMax.z < stepDist) {
-            stepDist = tMax.z;
-            stepAxis = 2;
-        }
-
-        rayPos += dir * stepDist;
+        int stepAxis;
+        float stepDist;
+        ddaAdvance(pos, rayPos, tMax, tDelta, stepDir, dir, stepAxis, stepDist);
         totalDist += stepDist;
-
-        tMax -= vec3(stepDist);
-
-        if (stepAxis == 0) {
-            tMax.x += tDelta.x;
-            pos.x += stepDir.x;
-        } else if (stepAxis == 1) {
-            tMax.y += tDelta.y;
-            pos.y += stepDir.y;
-        } else {
-            tMax.z += tDelta.z;
-            pos.z += stepDir.z;
-        }
 
         if (totalDist > MAX_SHADOW_DIST) {
             debugFlag = 8u;
@@ -198,8 +214,11 @@ float getSkyExposure(vec3 origin) {
     vec3 rayPos = origin;
     ivec3 pos = ivec3(floor(rayPos));
     ivec3 startPos = pos;
-    float tMax = (float(pos.y) + 1.0 - rayPos.y);
-    float tDelta = 1.0;
+    ivec3 stepDir = ivec3(0, 1, 0);
+    vec3 tMax = vec3(1e30);
+    tMax.y = (float(pos.y) + 1.0 - rayPos.y);
+    vec3 tDelta = vec3(1e30);
+    tDelta.y = 1.0;
 
     for (int i = 0; i < 128; i++) {
         if (!isInTextureBounds(pos)) {
@@ -259,14 +278,12 @@ float getSkyExposure(vec3 origin) {
             }
         }
         else {
-            rayPos += dir * (tMax + 0.001);
-            pos = ivec3(floor(rayPos));
-            tMax = 1.0;
+            int stepAxis;
+            float stepDist;
+            ddaAdvance(pos, rayPos, tMax, tDelta, stepDir, dir, stepAxis, stepDist);
             continue;
         }
 
-        pos.y += 1;
-        rayPos += dir * tDelta;
     }
 
     return 1.0;
