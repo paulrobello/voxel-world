@@ -46,44 +46,11 @@ float marchUntil(
         tMax = (vec3(pos) + 0.5 + 0.5 * vec3(stepDir) - rayPos) * inv_dir;
     }
 
-    float maxShadowDist = min(256.0, length(textureSize3D()));
+    float maxShadowDist = 256.0;
     float totalDist = 0.0;
-    int maxSteps = int(clamp(length(textureSize3D()) * 0.6, 32.0, 128.0));
+    int maxSteps = 128;
 
     for (int i = 0; i < maxSteps; i++) {
-        // Chunk skipping
-        ivec3 chunkPos = pos / int(CHUNK_SIZE);
-        if (isChunkEmpty(chunkPos)) {
-            vec3 chunkMin = vec3(chunkPos * int(CHUNK_SIZE));
-            vec3 chunkMax = chunkMin + float(CHUNK_SIZE);
-            vec3 tExit = mix((chunkMin - rayPos) * inv_dir,
-                             (chunkMax - rayPos) * inv_dir,
-                             step(vec3(0.0), dir));
-            float minExit = min(min(tExit.x, tExit.y), tExit.z);
-            rayPos += dir * (minExit + 0.001);
-            pos = ivec3(floor(rayPos));
-            tMax = (vec3(pos) + 0.5 + 0.5 * vec3(stepDir) - rayPos) * inv_dir;
-            totalDist += minExit;
-            if (totalDist > maxShadowDist) { debugFlag = 8u; return 1.0; }
-            continue;
-        }
-        // Brick skipping
-        if (isBrickEmpty(pos)) {
-            ivec3 brickWorldPos = getBrickWorldPos(pos);
-            vec3 brickMin = vec3(brickWorldPos);
-            vec3 brickMax = brickMin + float(BRICK_SIZE);
-            vec3 tExit = mix((brickMin - rayPos) * inv_dir,
-                             (brickMax - rayPos) * inv_dir,
-                             step(vec3(0.0), dir));
-            float minExit = min(min(tExit.x, tExit.y), tExit.z);
-            rayPos += dir * (minExit + 0.001);
-            pos = ivec3(floor(rayPos));
-            tMax = (vec3(pos) + 0.5 + 0.5 * vec3(stepDir) - rayPos) * inv_dir;
-            totalDist += minExit;
-            if (totalDist > maxShadowDist) { debugFlag = 8u; return 1.0; }
-            continue;
-        }
-
         bool oob = !isInTextureBounds(pos);
         if (oob) {
             debugFlag = 7u; // out of loaded area = sky
