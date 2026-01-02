@@ -615,8 +615,8 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
         float innerFrame = smoothstep(frameWidth * 0.7, innerFrameWidth, distFromEdge) *
                           (1.0 - smoothstep(innerFrameWidth, innerFrameWidth + 0.01, distFromEdge));
 
-        vec3 frameColor = vec3(0.6, 0.9, 0.95);
-        vec3 highlightColor = vec3(0.95, 0.99, 1.0);
+        vec3 frameColor = vec3(1.0, 0.25, 0.25);       // base red frame
+        vec3 highlightColor = vec3(1.0, 0.6, 0.6);    // lighter red highlight
 
         color = mix(color, frameColor, outerFrame * 0.35);
         color = mix(color, highlightColor, innerFrame * 0.22);
