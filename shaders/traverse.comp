@@ -603,8 +603,9 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
             faceUV = localPos.xy;
         }
 
-        float frameWidth = 0.08;
-        float innerFrameWidth = 0.12;
+        // Thinner edge highlight
+        float frameWidth = 0.04;
+        float innerFrameWidth = 0.08;
 
         float distFromEdgeX = min(faceUV.x, 1.0 - faceUV.x);
         float distFromEdgeY = min(faceUV.y, 1.0 - faceUV.y);
