@@ -1,7 +1,7 @@
 // Sun/sky lighting helpers and point lights
 
-// Opt-in shadow acceleration via specialization constant (default off for correctness)
-layout(constant_id = 0) const bool SHADOW_SKIP = false;
+// Shadow acceleration (chunk/brick skipping) now enabled by default
+const bool SHADOW_SKIP = true;
 
 // Helper: test whether a ray segment through a model block hits its sub-voxel geometry
 bool modelBlocksRay(vec3 rayOrigin, vec3 dir, ivec3 blockPos, uint model_id, uint rotation) {
