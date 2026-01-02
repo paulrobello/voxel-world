@@ -34,3 +34,4 @@
     - Run 6 (ladder stress mix, sun shadows ON, more models placed, 92 samples): avg 77.0 fps (12.87 ms), 1% low 63.9 fps, min 64 fps; max 271 fps. Render avg 12.87 ms, p90 14.00 ms; chunkload avg 0.56 ms; ~1,780 chunks resident.
 - Shadow rays now use an angle-aware adaptive step cap (96–256 steps based on sun direction) to avoid horizon artifacts while keeping the distance cap at 256.
 - Sub-voxel (model) shadows now use a capped shadow-only marcher (16 steps) for occlusion, keeping geometry/rotation correct while bounding cost.
+- Model shadow occlusion respects the sub-voxel LOD distance (32m); beyond that, models no longer cast sub-voxel shadows.

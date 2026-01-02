@@ -95,6 +95,8 @@ float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFl
             if (blockType == BLOCK_MODEL) {
                 if (pc.enable_model_shadows == 0u) {
                     // Treat model as non-blocking when disabled
+                } else if (totalDist > SUB_VOXEL_LOD_DISTANCE) {
+                    // Match model render cutoff: beyond LOD, models don’t cast detailed shadows.
                 } else {
                     uvec2 meta = readModelMetadata(pos);
                     uint model_id = meta.r;
