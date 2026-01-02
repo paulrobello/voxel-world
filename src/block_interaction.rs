@@ -273,16 +273,18 @@ impl App {
             }
 
             // Continuous placing logic
-            if self.ui.last_place_pos != Some(constrained_pos)
-                && self.ui.place_cooldown <= 0.0
-                && self.place_block_at(constrained_pos)
-                && self.selected_block() == BlockType::Model
-            {
-                self.ui.model_needs_reclick = true;
-            }
+            let can_place_new =
+                self.ui.last_place_pos != Some(constrained_pos) && self.ui.place_cooldown <= 0.0;
 
-            self.ui.last_place_pos = Some(constrained_pos);
-            self.ui.place_cooldown = self.ui.settings.place_cooldown_duration;
+            if can_place_new && self.place_block_at(constrained_pos) {
+                // Only advance state when we actually placed a block
+                self.ui.last_place_pos = Some(constrained_pos);
+                self.ui.place_cooldown = self.ui.settings.place_cooldown_duration;
+
+                if self.selected_block() == BlockType::Model {
+                    self.ui.model_needs_reclick = true;
+                }
+            }
         }
     }
 
