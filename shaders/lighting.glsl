@@ -246,6 +246,16 @@ float castShadowRay(vec3 origin) {
     return marchUntil(origin, sunDir, false, true, dbg, false);
 }
 
+// Backward-compatible helper with debug flag (used by traversal for debug mode)
+float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFlag) {
+    vec3 sunDir = getCurrentSunDir();
+    if (sunDir.y < 0.0) {
+        debugFlag = 0u;
+        return 0.3;
+    }
+    return marchUntil(origin, sunDir, ignoreStartModel, true, debugFlag, false);
+}
+
 // Sky exposure for ambient light
 float getSkyExposure(vec3 origin) {
     uint dbg;
