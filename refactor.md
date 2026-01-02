@@ -10,8 +10,6 @@
 ## Open Findings
 - **Shader bottlenecks (still open)**
   - Shadow rays: chunk/brick-skipping + angle-aware step budget (96–256). Need perf/visual check across sun angles and dense foliage with new cap; tune if artifacts remain.
-- **Future DRY**
-  - Shadow + sky DDA loops are very similar; a shared “march until predicate” helper would reduce duplicate fixes.
 
 ## Completed today
 - Fixed sky-exposure bug when `texture_origin` slides (stay in texture space).
@@ -36,3 +34,4 @@
 - Sub-voxel (model) shadows now use a capped shadow-only marcher (16 steps) for occlusion, keeping geometry/rotation correct while bounding cost.
 - Model shadow occlusion now uses camera-distance LOD cutoff (32 m) in world coords (texture origin aware) to match model render culling; shadows disappear when models do.
 - Fixed push-constant padding for the added `camera_pos` field to satisfy the pipeline’s push-constant range and prevent runtime panics.
+- Shadow + sky DDA stepping now share a `ddaAdvance` helper to keep traversal logic in sync and reduce duplicated fixes.
