@@ -243,7 +243,7 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
             vec3 tExit = mix(
                 (chunkMin - currentPos) * inv_dir,
                 (chunkMax - currentPos) * inv_dir,
-                step(vec3(0.0), dir)
+                vec3(dir.x > 0.0 ? 1.0 : 0.0, dir.y > 0.0 ? 1.0 : 0.0, dir.z > 0.0 ? 1.0 : 0.0)
             );
 
             float minExit = min(min(tExit.x, tExit.y), tExit.z);
@@ -268,7 +268,7 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
             vec3 tExit = mix(
                 (brickMin - currentPos) * inv_dir,
                 (brickMax - currentPos) * inv_dir,
-                step(vec3(0.0), dir)
+                vec3(dir.x > 0.0 ? 1.0 : 0.0, dir.y > 0.0 ? 1.0 : 0.0, dir.z > 0.0 ? 1.0 : 0.0)
             );
 
             float minExit = min(min(tExit.x, tExit.y), tExit.z);
