@@ -472,6 +472,18 @@ impl Chunk {
         self.blocks.iter().filter(|&&b| b != BlockType::Air).count()
     }
 
+    /// Returns an immutable view of the chunk's block storage.
+    #[inline]
+    pub fn block_slice(&self) -> &[BlockType; CHUNK_VOLUME] {
+        &self.blocks
+    }
+
+    /// Clones the chunk's block storage into a new boxed array.
+    /// Useful for off-thread processing without borrowing the chunk.
+    pub fn clone_blocks(&self) -> Box<[BlockType; CHUNK_VOLUME]> {
+        self.blocks.clone()
+    }
+
     /// Returns true if the chunk is completely empty (all air).
     /// Uses cached value if available, otherwise recomputes.
     pub fn is_empty(&self) -> bool {

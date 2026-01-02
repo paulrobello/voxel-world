@@ -9,7 +9,7 @@
 //! Only non-empty bricks store voxel data, dramatically reducing memory
 //! for sparse worlds and enabling efficient ray skipping.
 
-use crate::chunk::{BlockType, CHUNK_SIZE, Chunk};
+use crate::chunk::{BlockType, CHUNK_SIZE, CHUNK_VOLUME, Chunk};
 use nalgebra::Vector3;
 
 /// Size of a brick in each dimension (8³ = 512 voxels per brick).
@@ -58,6 +58,11 @@ impl ChunkSVT {
 
     /// Builds a sparse voxel tree from chunk data.
     pub fn from_chunk(chunk: &Chunk) -> Self {
+        Self::from_block_data(chunk.block_slice())
+    }
+
+    /// Builds a sparse voxel tree from raw block storage (32³ array).
+    pub fn from_block_data(blocks: &[BlockType; CHUNK_VOLUME]) -> Self {
         let mut brick_mask = 0u64;
         let mut brick_data = Vec::new();
         let mut brick_has_solid = [false; BRICKS_PER_CHUNK];
@@ -79,7 +84,10 @@ impl ChunkSVT {
                                 let world_y = by * BRICK_SIZE + vy;
                                 let world_z = bz * BRICK_SIZE + vz;
 
-                                let block = chunk.get_block(world_x, world_y, world_z);
+                                let idx = world_x
+                                    + world_y * CHUNK_SIZE
+                                    + world_z * CHUNK_SIZE * CHUNK_SIZE;
+                                let block = blocks[idx];
                                 let block_u8 = block as u8;
                                 let voxel_idx = vx + vy * BRICK_SIZE + vz * BRICK_SIZE * BRICK_SIZE;
                                 brick_voxels[voxel_idx] = block_u8;

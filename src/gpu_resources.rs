@@ -1150,6 +1150,7 @@ pub fn upload_chunks_batched(
     });
 }
 
+#[allow(dead_code)]
 pub fn update_chunk_metadata(
     world: &mut crate::world::World,
     chunk_metadata_buffer: &Subbuffer<[u32]>,
@@ -1196,6 +1197,7 @@ pub fn update_chunk_metadata(
     });
 }
 
+#[allow(dead_code)]
 pub fn update_brick_metadata(
     world: &crate::world::World,
     brick_mask_buffer: &Subbuffer<[u32]>,

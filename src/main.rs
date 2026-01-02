@@ -132,6 +132,7 @@ use crate::water::WaterGrid;
 use crate::world::World;
 use vulkano::command_buffer::allocator::StandardCommandBufferAllocator;
 use vulkano::descriptor_set::allocator::StandardDescriptorSetAllocator as StdDescriptorSetAllocator;
+use world_streaming::MetadataState;
 
 // Constants moved to constants.rs
 
@@ -327,6 +328,8 @@ struct WorldSim {
     unload_distance: i32,
 
     profiler: Profiler,
+
+    metadata_state: MetadataState,
 }
 
 struct UiState {
@@ -607,6 +610,7 @@ impl App {
             view_distance,
             unload_distance,
             profiler: Profiler::default(),
+            metadata_state: MetadataState::new(texture_origin),
         };
 
         let start_time = Instant::now();
@@ -733,6 +737,9 @@ impl App {
         let t1 = Instant::now();
         self.upload_world_to_gpu();
         self.sim.profiler.gpu_upload_us += t1.elapsed().as_micros() as u64;
+
+        // Amortized metadata refresh runs once per frame.
+        self.update_metadata_buffers();
 
         let Some(delta_time) = self.input.delta_time().as_ref().map(Duration::as_secs_f64) else {
             return;
