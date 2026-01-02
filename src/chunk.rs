@@ -8,7 +8,9 @@
 
 #![allow(dead_code)]
 
+use std::cell::{Cell, Ref, RefCell};
 use std::collections::HashMap;
+use std::slice;
 use std::sync::Arc;
 use vulkano::image::view::ImageView;
 
@@ -212,6 +214,14 @@ pub struct Chunk {
     /// Key: block index, Value: model_id and rotation.
     model_data: HashMap<usize, BlockModelData>,
 
+    /// Reusable RG8 buffer for model metadata uploads (len = CHUNK_VOLUME * 2).
+    model_metadata_buf: RefCell<Vec<u8>>,
+    /// Whether the cached model metadata buffer needs recomputing.
+    model_metadata_dirty: Cell<bool>,
+
+    /// Count of non-model light-emitting block types (for quick skip).
+    light_block_count: usize,
+
     /// Whether this chunk has been modified since last GPU upload.
     pub dirty: bool,
 
@@ -240,6 +250,9 @@ impl Chunk {
         Self {
             blocks: Box::new([BlockType::Air; CHUNK_VOLUME]),
             model_data: HashMap::new(),
+            model_metadata_buf: RefCell::new(vec![0u8; CHUNK_VOLUME * 2]),
+            model_metadata_dirty: Cell::new(false),
+            light_block_count: 0,
             dirty: true,
             gpu_texture: None,
             cached_is_empty: true,
@@ -252,9 +265,17 @@ impl Chunk {
     pub fn filled(block_type: BlockType) -> Self {
         let is_empty = block_type == BlockType::Air;
         let is_solid = block_type.is_solid();
+        let light_block_count = if block_type.is_light_source() {
+            CHUNK_VOLUME
+        } else {
+            0
+        };
         Self {
             blocks: Box::new([block_type; CHUNK_VOLUME]),
             model_data: HashMap::new(),
+            model_metadata_buf: RefCell::new(vec![0u8; CHUNK_VOLUME * 2]),
+            model_metadata_dirty: Cell::new(false),
+            light_block_count,
             dirty: true,
             gpu_texture: None,
             cached_is_empty: is_empty,
@@ -270,6 +291,16 @@ impl Chunk {
         x + y * CHUNK_SIZE + z * CHUNK_SIZE * CHUNK_SIZE
     }
 
+    /// Converts a flat array index back to local coordinates.
+    #[inline]
+    pub fn index_to_coords(idx: usize) -> (usize, usize, usize) {
+        debug_assert!(idx < CHUNK_VOLUME);
+        let x = idx % CHUNK_SIZE;
+        let y = (idx / CHUNK_SIZE) % CHUNK_SIZE;
+        let z = idx / (CHUNK_SIZE * CHUNK_SIZE);
+        (x, y, z)
+    }
+
     /// Gets the block at the given local coordinates.
     #[inline]
     pub fn get_block(&self, x: usize, y: usize, z: usize) -> BlockType {
@@ -280,7 +311,16 @@ impl Chunk {
     #[inline]
     pub fn set_block(&mut self, x: usize, y: usize, z: usize, block: BlockType) {
         let idx = Self::index(x, y, z);
-        if self.blocks[idx] != block {
+        let old = self.blocks[idx];
+        if old != block {
+            // Maintain light block count
+            if old.is_light_source() && self.light_block_count > 0 {
+                self.light_block_count -= 1;
+            }
+            if block.is_light_source() {
+                self.light_block_count += 1;
+            }
+
             self.blocks[idx] = block;
             self.dirty = true;
             self.metadata_dirty = true;
@@ -288,7 +328,10 @@ impl Chunk {
             // Clean up model data if block is no longer a Model
             if block != BlockType::Model {
                 self.model_data.remove(&idx);
+                self.model_metadata_dirty.set(true);
             }
+        } else if block.is_light_source() {
+            // No change, keep counts stable
         }
     }
 
@@ -301,6 +344,7 @@ impl Chunk {
             .insert(idx, BlockModelData { model_id, rotation });
         self.dirty = true;
         self.metadata_dirty = true;
+        self.model_metadata_dirty.set(true);
     }
 
     /// Gets the model data for a block at the given local coordinates.
@@ -318,12 +362,31 @@ impl Chunk {
         let idx = Self::index(x, y, z);
         self.model_data.insert(idx, data);
         self.dirty = true;
+        self.model_metadata_dirty.set(true);
     }
 
     /// Returns the number of model blocks in this chunk.
     #[inline]
     pub fn model_count(&self) -> usize {
         self.model_data.len()
+    }
+
+    /// Returns true if this chunk may contain non-model light sources.
+    #[inline]
+    pub fn light_block_count(&self) -> usize {
+        self.light_block_count
+    }
+
+    /// Iterates over all model block entries (index -> metadata).
+    #[inline]
+    pub fn model_entries(&self) -> impl Iterator<Item = (&usize, &BlockModelData)> {
+        self.model_data.iter()
+    }
+
+    /// Iterates over all blocks with their flat index.
+    #[inline]
+    pub fn iter_blocks(&self) -> impl Iterator<Item = (usize, BlockType)> + '_ {
+        self.blocks.iter().copied().enumerate()
     }
 
     /// Checks if a block is solid at the given local coordinates.
@@ -367,6 +430,13 @@ impl Chunk {
         self.blocks.iter().map(|&b| b as u8).collect()
     }
 
+    /// Returns a zero-copy view of the chunk blocks as raw u8 bytes.
+    #[inline]
+    pub fn block_bytes(&self) -> &[u8] {
+        // SAFETY: BlockType is #[repr(u8)] and blocks is a contiguous array.
+        unsafe { slice::from_raw_parts(self.blocks.as_ptr() as *const u8, CHUNK_VOLUME) }
+    }
+
     /// Converts the chunk's model metadata to GPU format.
     ///
     /// This returns a Vec<u8> with 2 bytes per block (RG8 format):
@@ -375,15 +445,26 @@ impl Chunk {
     ///
     /// Suitable for uploading to an RG8_UINT 3D texture.
     pub fn to_model_metadata(&self) -> Vec<u8> {
-        let mut metadata = vec![0u8; CHUNK_VOLUME * 2]; // 2 bytes per block
+        self.model_metadata_bytes().to_vec()
+    }
 
-        for (idx, data) in &self.model_data {
-            let offset = idx * 2;
-            metadata[offset] = data.model_id;
-            metadata[offset + 1] = data.rotation;
+    /// Returns a cached RG8 view of the model metadata (2 bytes per voxel).
+    /// The buffer is rebuilt only when model data changes.
+    #[inline]
+    pub fn model_metadata_bytes(&self) -> Ref<'_, [u8]> {
+        if self.model_metadata_dirty.get() {
+            {
+                let mut buf = self.model_metadata_buf.borrow_mut();
+                buf.fill(0);
+                for (idx, data) in &self.model_data {
+                    let offset = idx * 2;
+                    buf[offset] = data.model_id;
+                    buf[offset + 1] = data.rotation;
+                }
+            }
+            self.model_metadata_dirty.set(false);
         }
-
-        metadata
+        Ref::map(self.model_metadata_buf.borrow(), |v| v.as_slice())
     }
 
     /// Returns the number of non-air blocks in the chunk.

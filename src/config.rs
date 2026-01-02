@@ -49,6 +49,10 @@ pub struct Args {
     /// Verbose debug output to console
     #[arg(long)]
     pub verbose: bool,
+
+    /// Write per-second performance samples to CSV file
+    #[arg(long)]
+    pub profile_log: Option<String>,
 }
 
 pub const INITIAL_WINDOW_RESOLUTION: PhysicalSize<u32> = PhysicalSize::new(1200, 1080);

@@ -1,5 +1,6 @@
 use egui_winit_vulkano::{Gui, egui};
 use nalgebra::{Matrix4, Vector3};
+use std::cell::RefCell;
 use std::sync::Arc;
 use vulkano::{
     buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer},
@@ -542,6 +543,13 @@ pub const TOTAL_CHUNKS: usize =
     LOADED_CHUNKS_X as usize * WORLD_CHUNKS_Y as usize * LOADED_CHUNKS_Z as usize;
 /// Number of u32 words needed to store 1 bit per chunk
 pub const CHUNK_METADATA_WORDS: usize = TOTAL_CHUNKS.div_ceil(32);
+
+thread_local! {
+    // Reusable scratch buffers to avoid per-frame allocations during streaming.
+    static CHUNK_META_SCRATCH: RefCell<Vec<u32>> = const { RefCell::new(Vec::new()) };
+    static BRICK_MASK_SCRATCH: RefCell<Vec<u32>> = const { RefCell::new(Vec::new()) };
+    static BRICK_DIST_SCRATCH: RefCell<Vec<u32>> = const { RefCell::new(Vec::new()) };
+}
 
 /// Creates a storage buffer and descriptor set for chunk metadata (empty/solid flags).
 pub fn get_chunk_metadata_set(
@@ -1147,41 +1155,45 @@ pub fn update_chunk_metadata(
     chunk_metadata_buffer: &Subbuffer<[u32]>,
     texture_origin: Vector3<i32>,
 ) {
-    let mut metadata = vec![0u32; CHUNK_METADATA_WORDS];
+    CHUNK_META_SCRATCH.with(|scratch| {
+        let mut metadata = scratch.borrow_mut();
+        metadata.clear();
+        metadata.resize(CHUNK_METADATA_WORDS, 0);
 
-    // Iterate over texture-relative chunk positions
-    for cy in 0..WORLD_CHUNKS_Y {
-        for cz in 0..LOADED_CHUNKS_Z {
-            for cx in 0..LOADED_CHUNKS_X {
-                // Convert texture-relative chunk position to world chunk position
-                let world_chunk_x = texture_origin.x / CHUNK_SIZE as i32 + cx;
-                let world_chunk_y = cy;
-                let world_chunk_z = texture_origin.z / CHUNK_SIZE as i32 + cz;
-                let world_chunk_pos = Vector3::new(world_chunk_x, world_chunk_y, world_chunk_z);
+        // Iterate over texture-relative chunk positions
+        for cy in 0..WORLD_CHUNKS_Y {
+            for cz in 0..LOADED_CHUNKS_Z {
+                for cx in 0..LOADED_CHUNKS_X {
+                    // Convert texture-relative chunk position to world chunk position
+                    let world_chunk_x = texture_origin.x / CHUNK_SIZE as i32 + cx;
+                    let world_chunk_y = cy;
+                    let world_chunk_z = texture_origin.z / CHUNK_SIZE as i32 + cz;
+                    let world_chunk_pos = Vector3::new(world_chunk_x, world_chunk_y, world_chunk_z);
 
-                // Calculate flat chunk index
-                let chunk_idx = cx as usize
-                    + cz as usize * LOADED_CHUNKS_X as usize
-                    + cy as usize * LOADED_CHUNKS_X as usize * LOADED_CHUNKS_Z as usize;
+                    // Calculate flat chunk index
+                    let chunk_idx = cx as usize
+                        + cz as usize * LOADED_CHUNKS_X as usize
+                        + cy as usize * LOADED_CHUNKS_X as usize * LOADED_CHUNKS_Z as usize;
 
-                if let Some(chunk) = world.get_chunk_mut(world_chunk_pos) {
-                    chunk.update_metadata();
-                    if chunk.is_empty() {
+                    if let Some(chunk) = world.get_chunk_mut(world_chunk_pos) {
+                        chunk.update_metadata();
+                        if chunk.is_empty() {
+                            let word_idx = chunk_idx / 32;
+                            let bit_idx = chunk_idx % 32;
+                            metadata[word_idx] |= 1u32 << bit_idx;
+                        }
+                    } else {
                         let word_idx = chunk_idx / 32;
                         let bit_idx = chunk_idx % 32;
                         metadata[word_idx] |= 1u32 << bit_idx;
                     }
-                } else {
-                    let word_idx = chunk_idx / 32;
-                    let bit_idx = chunk_idx % 32;
-                    metadata[word_idx] |= 1u32 << bit_idx;
                 }
             }
         }
-    }
 
-    let mut buffer_write = chunk_metadata_buffer.write().unwrap();
-    buffer_write.copy_from_slice(&metadata);
+        let mut buffer_write = chunk_metadata_buffer.write().unwrap();
+        buffer_write.copy_from_slice(&metadata);
+    });
 }
 
 pub fn update_brick_metadata(
@@ -1192,54 +1204,58 @@ pub fn update_brick_metadata(
 ) {
     use crate::svt::ChunkSVT;
 
-    let mut brick_masks = vec![0u32; BRICK_MASK_WORDS];
-    let mut brick_distances = vec![0u32; BRICK_DIST_WORDS];
+    BRICK_MASK_SCRATCH.with(|mask_scratch| {
+        BRICK_DIST_SCRATCH.with(|dist_scratch| {
+            let mut brick_masks = mask_scratch.borrow_mut();
+            let mut brick_distances = dist_scratch.borrow_mut();
+            brick_masks.clear();
+            brick_masks.resize(BRICK_MASK_WORDS, 0);
+            brick_distances.clear();
+            brick_distances.resize(BRICK_DIST_WORDS, 0xFFFFFFFF);
 
-    for cy in 0..WORLD_CHUNKS_Y {
-        for cz in 0..LOADED_CHUNKS_Z {
-            for cx in 0..LOADED_CHUNKS_X {
-                let world_chunk_x = texture_origin.x / CHUNK_SIZE as i32 + cx;
-                let world_chunk_y = cy;
-                let world_chunk_z = texture_origin.z / CHUNK_SIZE as i32 + cz;
-                let world_chunk_pos = Vector3::new(world_chunk_x, world_chunk_y, world_chunk_z);
+            for cy in 0..WORLD_CHUNKS_Y {
+                for cz in 0..LOADED_CHUNKS_Z {
+                    for cx in 0..LOADED_CHUNKS_X {
+                        let world_chunk_x = texture_origin.x / CHUNK_SIZE as i32 + cx;
+                        let world_chunk_y = cy;
+                        let world_chunk_z = texture_origin.z / CHUNK_SIZE as i32 + cz;
+                        let world_chunk_pos =
+                            Vector3::new(world_chunk_x, world_chunk_y, world_chunk_z);
 
-                let chunk_idx = cx as usize
-                    + cz as usize * LOADED_CHUNKS_X as usize
-                    + cy as usize * LOADED_CHUNKS_X as usize * LOADED_CHUNKS_Z as usize;
+                        let chunk_idx = cx as usize
+                            + cz as usize * LOADED_CHUNKS_X as usize
+                            + cy as usize * LOADED_CHUNKS_X as usize * LOADED_CHUNKS_Z as usize;
 
-                if let Some(chunk) = world.get_chunk(world_chunk_pos) {
-                    let svt = ChunkSVT::from_chunk(chunk);
+                        if let Some(chunk) = world.get_chunk(world_chunk_pos) {
+                            let svt = ChunkSVT::from_chunk(chunk);
 
-                    let mask_offset = chunk_idx * 2;
-                    brick_masks[mask_offset] = svt.brick_mask as u32;
-                    brick_masks[mask_offset + 1] = (svt.brick_mask >> 32) as u32;
+                            let mask_offset = chunk_idx * 2;
+                            brick_masks[mask_offset] = svt.brick_mask as u32;
+                            brick_masks[mask_offset + 1] = (svt.brick_mask >> 32) as u32;
 
-                    let dist_offset = chunk_idx * 16;
-                    for (i, chunk_distances) in svt.brick_distances.chunks(4).enumerate() {
-                        let word = (chunk_distances[0] as u32)
-                            | ((chunk_distances[1] as u32) << 8)
-                            | ((chunk_distances[2] as u32) << 16)
-                            | ((chunk_distances[3] as u32) << 24);
-                        brick_distances[dist_offset + i] = word;
-                    }
-                } else {
-                    let dist_offset = chunk_idx * 16;
-                    for i in 0..16 {
-                        brick_distances[dist_offset + i] = 0xFFFFFFFF;
+                            let dist_offset = chunk_idx * 16;
+                            for (i, chunk_distances) in svt.brick_distances.chunks(4).enumerate() {
+                                let word = (chunk_distances[0] as u32)
+                                    | ((chunk_distances[1] as u32) << 8)
+                                    | ((chunk_distances[2] as u32) << 16)
+                                    | ((chunk_distances[3] as u32) << 24);
+                                brick_distances[dist_offset + i] = word;
+                            }
+                        }
                     }
                 }
             }
-        }
-    }
 
-    {
-        let mut mask_write = brick_mask_buffer.write().unwrap();
-        mask_write.copy_from_slice(&brick_masks);
-    }
-    {
-        let mut dist_write = brick_dist_buffer.write().unwrap();
-        dist_write.copy_from_slice(&brick_distances);
-    }
+            {
+                let mut mask_write = brick_mask_buffer.write().unwrap();
+                mask_write.copy_from_slice(&brick_masks);
+            }
+            {
+                let mut dist_write = brick_dist_buffer.write().unwrap();
+                dist_write.copy_from_slice(&brick_distances);
+            }
+        });
+    });
 }
 
 pub fn save_screenshot(

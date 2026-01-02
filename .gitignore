@@ -2,3 +2,6 @@
 
 # Ignore clipboard dumps
 .gemini-clipboard/
+
+# Local profiling output
+profile.csv

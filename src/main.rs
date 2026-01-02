@@ -332,6 +332,9 @@ struct WorldSim {
 struct UiState {
     settings: Settings,
     window_size: [u32; 2],
+    start_time: Instant,
+    profile_log_path: Option<String>,
+    profile_log_header_written: bool,
 
     show_minimap: bool,
     minimap: Minimap,
@@ -606,6 +609,8 @@ impl App {
             profiler: Profiler::default(),
         };
 
+        let start_time = Instant::now();
+
         let ui = UiState {
             settings: Settings {
                 show_chunk_boundaries: args.show_chunk_boundaries,
@@ -613,6 +618,9 @@ impl App {
                 ..Settings::default()
             },
             window_size: INITIAL_WINDOW_RESOLUTION.into(),
+            start_time,
+            profile_log_path: args.profile_log.clone(),
+            profile_log_header_written: false,
             show_minimap: false,
             minimap: Minimap::new(),
             minimap_cached_image: None,
@@ -648,7 +656,7 @@ impl App {
 
         App {
             args,
-            start_time: Instant::now(),
+            start_time,
             graphics,
             sim,
             ui,

@@ -7,13 +7,11 @@ use crate::constants::{
 use crate::gpu_resources::{update_brick_metadata, update_chunk_metadata, upload_chunks_batched};
 use crate::utils::ChunkStats;
 use nalgebra::{Vector3, vector};
+use std::cell::Ref;
 use std::time::Instant;
-use vulkano::buffer::{Buffer, BufferCreateInfo, BufferUsage};
 use vulkano::command_buffer::{
-    AutoCommandBufferBuilder, BufferImageCopy, CommandBufferUsage, CopyBufferToImageInfo,
-    PrimaryCommandBufferAbstract,
+    AutoCommandBufferBuilder, ClearColorImageInfo, CommandBufferUsage, PrimaryCommandBufferAbstract,
 };
-use vulkano::memory::allocator::{AllocationCreateInfo, MemoryTypeFilter};
 use vulkano::sync::GpuFuture;
 
 impl App {
@@ -74,26 +72,36 @@ impl App {
         self.sim.player.camera.position.y += origin_delta.y as f64 / scale.y;
         self.sim.player.camera.position.z += origin_delta.z as f64 / scale.z;
 
-        // Re-upload all loaded chunks to their new texture positions
-        let chunks_to_upload: Vec<(Vector3<i32>, Vec<u8>, Vec<u8>)> = self
-            .sim
-            .world
-            .chunks()
-            .map(|(pos, chunk)| (*pos, chunk.to_block_data(), chunk.to_model_metadata()))
-            .collect();
+        // Re-upload all loaded chunks to their new texture positions (slice-backed, no alloc).
+        struct Upload<'a> {
+            pos: Vector3<i32>,
+            block: &'a [u8],
+            meta: Ref<'a, [u8]>,
+        }
 
-        if !chunks_to_upload.is_empty() {
+        let mut uploads: Vec<Upload> = Vec::new();
+        for (pos, chunk) in self.sim.world.chunks() {
+            uploads.push(Upload {
+                pos: *pos,
+                block: chunk.block_bytes(),
+                meta: chunk.model_metadata_bytes(),
+            });
+        }
+
+        if !uploads.is_empty() {
             // Clear the texture first (set all to air)
             self.clear_voxel_texture();
             // Upload chunks at new positions - convert to slice references
-            self.upload_owned_chunks(&chunks_to_upload);
-            // Chunks were uploaded immediately; they are already clean
-            self.sim.world.remove_dirty_positions(
-                &chunks_to_upload
-                    .iter()
-                    .map(|(pos, _, _)| *pos)
-                    .collect::<Vec<_>>(),
-            );
+            let upload_slices: Vec<_> =
+                uploads.iter().map(|u| (u.pos, u.block, &*u.meta)).collect();
+            self.upload_chunk_refs(&upload_slices);
+        }
+        // Drop metadata refs and chunk borrows before any mutable world operations
+        let uploaded_positions: Vec<_> = uploads.iter().map(|u| u.pos).collect();
+        drop(uploads);
+
+        if !uploaded_positions.is_empty() {
+            self.sim.world.remove_dirty_positions(&uploaded_positions);
         }
 
         // Ensure chunk/brick metadata matches the new origin even if no loads/unloads occurred.
@@ -103,24 +111,6 @@ impl App {
     }
 
     pub fn clear_voxel_texture(&self) {
-        let total_size = TEXTURE_SIZE_X * TEXTURE_SIZE_Y * TEXTURE_SIZE_Z;
-        let empty_data = vec![0u8; total_size];
-
-        let src_buffer = Buffer::from_iter(
-            self.graphics.memory_allocator.clone(),
-            BufferCreateInfo {
-                usage: BufferUsage::TRANSFER_SRC,
-                ..Default::default()
-            },
-            AllocationCreateInfo {
-                memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
-                    | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-                ..Default::default()
-            },
-            empty_data,
-        )
-        .unwrap();
-
         let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
             self.graphics.command_buffer_allocator.clone(),
             self.graphics.queue.queue_family_index(),
@@ -129,23 +119,15 @@ impl App {
         .unwrap();
 
         command_buffer_builder
-            .copy_buffer_to_image(CopyBufferToImageInfo {
-                regions: [BufferImageCopy {
-                    buffer_offset: 0,
-                    buffer_row_length: TEXTURE_SIZE_X as u32,
-                    buffer_image_height: TEXTURE_SIZE_Y as u32,
-                    image_subresource: self.graphics.voxel_image.subresource_layers(),
-                    image_offset: [0, 0, 0],
-                    image_extent: [
-                        TEXTURE_SIZE_X as u32,
-                        TEXTURE_SIZE_Y as u32,
-                        TEXTURE_SIZE_Z as u32,
-                    ],
-                    ..Default::default()
-                }]
-                .into(),
-                ..CopyBufferToImageInfo::buffer_image(src_buffer, self.graphics.voxel_image.clone())
-            })
+            .clear_color_image(ClearColorImageInfo::image(
+                self.graphics.voxel_image.clone(),
+            ))
+            .unwrap();
+
+        command_buffer_builder
+            .clear_color_image(ClearColorImageInfo::image(
+                self.graphics.model_metadata.clone(),
+            ))
             .unwrap();
 
         command_buffer_builder
@@ -288,55 +270,97 @@ impl App {
             return;
         }
 
-        // Collect chunk data for all dirty chunks
-        let chunks_to_upload: Vec<(Vector3<i32>, Vec<u8>, Vec<u8>)> = dirty_positions
-            .iter()
-            .filter_map(|&pos| {
-                self.sim.world.get_chunk_mut(pos).map(|chunk| {
-                    let block_data = chunk.to_block_data();
-                    let model_metadata = chunk.to_model_metadata();
-                    chunk.mark_clean();
-                    (pos, block_data, model_metadata)
-                })
-            })
-            .collect();
+        struct Upload<'a> {
+            pos: Vector3<i32>,
+            block: &'a [u8],
+            meta: Ref<'a, [u8]>,
+        }
 
-        if !chunks_to_upload.is_empty() {
-            self.sim.profiler.chunks_uploaded += chunks_to_upload.len() as u32;
-            // Convert to slice references for upload
-            self.upload_owned_chunks(&chunks_to_upload);
-            // Avoid re-upload in upload_world_to_gpu for the same positions
-            self.sim.world.remove_dirty_positions(
-                &chunks_to_upload
-                    .iter()
-                    .map(|(pos, _, _)| *pos)
-                    .collect::<Vec<_>>(),
-            );
+        let mut uploads: Vec<Upload> = Vec::new();
+        for &pos in &dirty_positions {
+            if let Some(chunk) = self.sim.world.get_chunk(pos) {
+                uploads.push(Upload {
+                    pos,
+                    block: chunk.block_bytes(),
+                    meta: chunk.model_metadata_bytes(),
+                });
+            }
+        }
+
+        if !uploads.is_empty() {
+            self.sim.profiler.chunks_uploaded += uploads.len() as u32;
+            let upload_slices: Vec<_> =
+                uploads.iter().map(|u| (u.pos, u.block, &*u.meta)).collect();
+            self.upload_chunk_refs(&upload_slices);
+
+            // Release borrows before marking chunks clean
+            let uploaded_positions: Vec<_> = uploads.iter().map(|u| u.pos).collect();
+            drop(uploads);
+
+            for pos in dirty_positions {
+                if let Some(chunk) = self.sim.world.get_chunk_mut(pos) {
+                    chunk.mark_clean();
+                }
+            }
             // Update metadata so shader doesn't skip newly non-empty bricks
             self.update_metadata_buffers();
+            // Avoid re-upload if any positions remain queued
+            if !uploaded_positions.is_empty() {
+                self.sim.world.remove_dirty_positions(&uploaded_positions);
+            }
         }
     }
 
     pub fn upload_all_dirty_chunks(&mut self) {
-        let chunks_to_upload: Vec<(Vector3<i32>, Vec<u8>, Vec<u8>)> = self
+        let dirty_positions: Vec<_> = self
             .sim
             .world
             .chunks()
             .filter(|(_, chunk)| chunk.dirty)
-            .map(|(pos, chunk)| (*pos, chunk.to_block_data(), chunk.to_model_metadata()))
+            .map(|(pos, _)| *pos)
             .collect();
 
-        if chunks_to_upload.is_empty() {
+        if dirty_positions.is_empty() {
             return;
         }
 
-        self.sim.profiler.chunks_uploaded += chunks_to_upload.len() as u32;
-        self.upload_owned_chunks(&chunks_to_upload);
+        struct Upload<'a> {
+            pos: Vector3<i32>,
+            block: &'a [u8],
+            meta: Ref<'a, [u8]>,
+        }
 
-        for (pos, _, _) in &chunks_to_upload {
-            if let Some(chunk) = self.sim.world.get_chunk_mut(*pos) {
+        let mut uploads: Vec<Upload> = Vec::new();
+
+        for pos in &dirty_positions {
+            if let Some(chunk) = self.sim.world.get_chunk(*pos) {
+                uploads.push(Upload {
+                    pos: *pos,
+                    block: chunk.block_bytes(),
+                    meta: chunk.model_metadata_bytes(),
+                });
+            }
+        }
+
+        if uploads.is_empty() {
+            return;
+        }
+
+        self.sim.profiler.chunks_uploaded += uploads.len() as u32;
+        let upload_slices: Vec<_> = uploads.iter().map(|u| (u.pos, u.block, &*u.meta)).collect();
+        self.upload_chunk_refs(&upload_slices);
+
+        let uploaded_positions: Vec<_> = uploads.iter().map(|u| u.pos).collect();
+        drop(uploads);
+
+        for pos in dirty_positions {
+            if let Some(chunk) = self.sim.world.get_chunk_mut(pos) {
                 chunk.mark_clean();
             }
+        }
+
+        if !uploaded_positions.is_empty() {
+            self.sim.world.remove_dirty_positions(&uploaded_positions);
         }
 
         self.update_metadata_buffers();

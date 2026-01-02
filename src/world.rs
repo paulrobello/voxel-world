@@ -66,63 +66,65 @@ impl World {
 
         // Iterate over all loaded chunks
         for (chunk_pos, chunk) in self.chunks() {
-            // Scan chunk for light-emitting blocks
-            for lx in 0..CHUNK_SIZE {
-                for ly in 0..CHUNK_SIZE {
-                    for lz in 0..CHUNK_SIZE {
-                        let block = chunk.get_block(lx, ly, lz);
+            // Skip chunks that cannot contribute any light.
+            if chunk.is_empty() && chunk.model_count() == 0 && chunk.light_block_count() == 0 {
+                continue;
+            }
 
-                        // Check for Model blocks with emission
-                        if block == BlockType::Model {
-                            if let Some(model_data) = chunk.get_model_data(lx, ly, lz) {
-                                if let Some(model) = model_registry.get(model_data.model_id) {
-                                    if let Some(emission) = &model.emission {
-                                        // Calculate world position (center of block)
-                                        let world_x = chunk_pos.x * CHUNK_SIZE as i32 + lx as i32;
-                                        let world_y = chunk_pos.y * CHUNK_SIZE as i32 + ly as i32;
-                                        let world_z = chunk_pos.z * CHUNK_SIZE as i32 + lz as i32;
-
-                                        // Convert to texture coordinates
-                                        let tex_x = (world_x - texture_origin.x) as f32 + 0.5;
-                                        let tex_y = (world_y - texture_origin.y) as f32 + 0.5;
-                                        let tex_z = (world_z - texture_origin.z) as f32 + 0.5;
-
-                                        let r = emission.r as f32 / 255.0;
-                                        let g = emission.g as f32 / 255.0;
-                                        let b = emission.b as f32 / 255.0;
-
-                                        lights.push(GpuLight {
-                                            pos_radius: [tex_x, tex_y, tex_z, 10.0], // Torch radius
-                                            color_intensity: [r, g, b, 1.2],
-                                        });
-
-                                        if lights.len() >= crate::gpu_resources::MAX_LIGHTS {
-                                            return lights;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        // Also check regular block light properties (for future non-model lights)
-                        else if let Some((color, radius)) = block.light_properties() {
-                            // Calculate world position (center of block)
+            // Fast path: iterate only model blocks that have metadata.
+            if chunk.model_count() > 0 {
+                for (idx, model_data) in chunk.model_entries() {
+                    if let Some(model) = model_registry.get(model_data.model_id) {
+                        if let Some(emission) = &model.emission {
+                            let (lx, ly, lz) = crate::chunk::Chunk::index_to_coords(*idx);
                             let world_x = chunk_pos.x * CHUNK_SIZE as i32 + lx as i32;
                             let world_y = chunk_pos.y * CHUNK_SIZE as i32 + ly as i32;
                             let world_z = chunk_pos.z * CHUNK_SIZE as i32 + lz as i32;
 
-                            // Convert to texture coordinates (shader operates in texture space)
                             let tex_x = (world_x - texture_origin.x) as f32 + 0.5;
                             let tex_y = (world_y - texture_origin.y) as f32 + 0.5;
                             let tex_z = (world_z - texture_origin.z) as f32 + 0.5;
 
+                            let r = emission.r as f32 / 255.0;
+                            let g = emission.g as f32 / 255.0;
+                            let b = emission.b as f32 / 255.0;
+
                             lights.push(GpuLight {
-                                pos_radius: [tex_x, tex_y, tex_z, radius],
-                                color_intensity: [color[0], color[1], color[2], 1.2],
+                                pos_radius: [tex_x, tex_y, tex_z, 10.0], // Torch radius
+                                color_intensity: [r, g, b, 1.2],
                             });
 
                             if lights.len() >= crate::gpu_resources::MAX_LIGHTS {
                                 return lights;
                             }
+                        }
+                    }
+                }
+            }
+
+            // Optional scan for non-model light sources (if any).
+            if chunk.light_block_count() > 0 {
+                for (idx, block) in chunk.iter_blocks() {
+                    if !block.is_light_source() {
+                        continue;
+                    }
+                    if let Some((color, radius)) = block.light_properties() {
+                        let (lx, ly, lz) = crate::chunk::Chunk::index_to_coords(idx);
+                        let world_x = chunk_pos.x * CHUNK_SIZE as i32 + lx as i32;
+                        let world_y = chunk_pos.y * CHUNK_SIZE as i32 + ly as i32;
+                        let world_z = chunk_pos.z * CHUNK_SIZE as i32 + lz as i32;
+
+                        let tex_x = (world_x - texture_origin.x) as f32 + 0.5;
+                        let tex_y = (world_y - texture_origin.y) as f32 + 0.5;
+                        let tex_z = (world_z - texture_origin.z) as f32 + 0.5;
+
+                        lights.push(GpuLight {
+                            pos_radius: [tex_x, tex_y, tex_z, radius],
+                            color_intensity: [color[0], color[1], color[2], 1.2],
+                        });
+
+                        if lights.len() >= crate::gpu_resources::MAX_LIGHTS {
+                            return lights;
                         }
                     }
                 }

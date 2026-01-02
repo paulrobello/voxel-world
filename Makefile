@@ -20,17 +20,19 @@ build-release:
 build-debug:
 	cargo build
 
-# Run targets
+# Run targets (pass CLI args via `make run ARGS="--flag"`).
+ARGS ?=
+
 run: run-release
 
 run-release: build-release
-	./target/release/voxel_ray_traversal
+	./target/release/voxel_ray_traversal $(ARGS)
 
 run-debug: build-debug
 	@echo "DYLD_LIBRARY_PATH=$(DYLD_LIBRARY_PATH)"
 	@echo "DYLD_FALLBACK_LIBRARY_PATH=$(DYLD_FALLBACK_LIBRARY_PATH)"
 	@echo "VK_ICD_FILENAMES=$(VK_ICD_FILENAMES)"
-	DYLD_LIBRARY_PATH=$(DYLD_LIBRARY_PATH) DYLD_FALLBACK_LIBRARY_PATH=$(DYLD_FALLBACK_LIBRARY_PATH) VK_ICD_FILENAMES=$(VK_ICD_FILENAMES) RUST_BACKTRACE=1 ./target/debug/voxel_ray_traversal
+	DYLD_LIBRARY_PATH=$(DYLD_LIBRARY_PATH) DYLD_FALLBACK_LIBRARY_PATH=$(DYLD_FALLBACK_LIBRARY_PATH) VK_ICD_FILENAMES=$(VK_ICD_FILENAMES) RUST_BACKTRACE=1 ./target/debug/voxel_ray_traversal $(ARGS)
 
 # Development targets
 clean:

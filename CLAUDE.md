@@ -19,13 +19,13 @@ The Makefile sets `DYLD_LIBRARY_PATH` and `VK_ICD_FILENAMES` for macOS MoltenVK.
 ## CLI Options
 
 ```bash
-make run -- --seed 42           # Custom terrain seed (-S)
-make run -- --fly-mode          # Start in fly mode (-f)
-make run -- --spawn-x 100 --spawn-z 200  # Custom spawn (-x, -z)
-make run -- --time-of-day 0.5   # Pause at noon (-t)
-make run -- --view-distance 8   # Increase view distance (-v)
-make run -- --render-mode depth # Start in depth mode (-r)
-make run -- --verbose           # Debug output
+make run ARGS="--seed 42"           # Custom terrain seed (-S)
+make run ARGS="--fly-mode"          # Start in fly mode (-f)
+make run ARGS=\"--spawn-x 100 --spawn-z 200\"  # Custom spawn (-x, -z)
+make run ARGS="--time-of-day 0.5"   # Pause at noon (-t)
+make run ARGS="--view-distance 8"   # Increase view distance (-v)
+make run ARGS="--render-mode depth" # Start in depth mode (-r)
+make run ARGS="--verbose"           # Debug output
 ```
 
 ## Development Workflow
