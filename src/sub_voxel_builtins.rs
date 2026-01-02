@@ -58,7 +58,7 @@ pub fn create_slab_bottom() -> SubVoxelModel {
     let mut model = SubVoxelModel::new("slab_bottom");
     model.palette[1] = Color::rgb(128, 128, 128); // Stone gray
     model.fill_box(0, 0, 0, 7, 3, 7, 1);
-    model.light_blocking = LightBlocking::Full;
+    model.light_blocking = LightBlocking::Partial;
     model.rotatable = false;
     model.compute_collision_mask();
     model
@@ -69,7 +69,7 @@ pub fn create_slab_top() -> SubVoxelModel {
     let mut model = SubVoxelModel::new("slab_top");
     model.palette[1] = Color::rgb(128, 128, 128); // Stone gray
     model.fill_box(0, 4, 0, 7, 7, 7, 1);
-    model.light_blocking = LightBlocking::Full;
+    model.light_blocking = LightBlocking::Partial;
     model.rotatable = false;
     model.compute_collision_mask();
     model

@@ -61,6 +61,7 @@ float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFl
 
     vec3 dir = sunDir;
     vec3 inv_dir = clamp(1.0 / dir, vec3(-FLT_MAX), vec3(FLT_MAX));
+    bool allowSkip = SHADOW_SKIP && (pc.enable_model_shadows == 0u);
 
     vec3 rayPos = origin;
     ivec3 pos = ivec3(floor(rayPos));
@@ -93,9 +94,11 @@ float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFl
 
     for (int i = 0; i < maxSteps; i++) {
         // Optional coarse skipping: empty chunks/bricks
-        if (SHADOW_SKIP) {
+        if (allowSkip) {
             ivec3 chunkPos = pos / int(CHUNK_SIZE);
-            if (isChunkEmpty(chunkPos)) {
+            uvec2 metaHere = readModelMetadata(pos);
+            bool hasModelHere = metaHere.r != 0u;
+            if (isChunkEmpty(chunkPos) && !hasModelHere) {
                 vec3 chunkMin = vec3(chunkPos) * float(CHUNK_SIZE);
                 vec3 chunkMax = chunkMin + float(CHUNK_SIZE);
                 vec3 tExit = mix((chunkMin - rayPos) * inv_dir,
@@ -108,20 +111,21 @@ float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFl
                 totalDist += minExit;
                 continue;
             }
-            if (isBrickEmpty(pos)) {
-                ivec3 brickWorldPos = getBrickWorldPos(pos);
-                vec3 brickMin = vec3(brickWorldPos);
-                vec3 brickMax = brickMin + float(BRICK_SIZE);
-                vec3 tExit = mix((brickMin - rayPos) * inv_dir,
-                                 (brickMax - rayPos) * inv_dir,
-                                 step(vec3(0.0), dir));
-                float minExit = min(min(tExit.x, tExit.y), tExit.z);
-                rayPos += dir * (minExit + 0.001);
-                pos = ivec3(floor(rayPos));
-                tMax = (vec3(pos) + 0.5 + 0.5 * vec3(stepDir) - rayPos) * inv_dir;
-                totalDist += minExit;
-                continue;
-            }
+        }
+        // Disable brick skipping entirely when model shadows are enabled to avoid missing thin geometry.
+        if (allowSkip && isBrickEmpty(pos)) {
+            ivec3 brickWorldPos = getBrickWorldPos(pos);
+            vec3 brickMin = vec3(brickWorldPos);
+            vec3 brickMax = brickMin + float(BRICK_SIZE);
+            vec3 tExit = mix((brickMin - rayPos) * inv_dir,
+                             (brickMax - rayPos) * inv_dir,
+                             step(vec3(0.0), dir));
+            float minExit = min(min(tExit.x, tExit.y), tExit.z);
+            rayPos += dir * (minExit + 0.001);
+            pos = ivec3(floor(rayPos));
+            tMax = (vec3(pos) + 0.5 + 0.5 * vec3(stepDir) - rayPos) * inv_dir;
+            totalDist += minExit;
+            continue;
         }
 
         bool oob = !isInTextureBounds(pos);
@@ -145,22 +149,35 @@ float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFl
                     // Match render LOD: skip sub-voxel shadowing when model is beyond camera LOD range.
                     // Compare camera distance in world space so LOD matches render culling.
                     float camDist = length(vec3(pos) + vec3(0.5 + textureOrigin()) - pc.camera_pos.xyz);
-                    if (camDist > SUB_VOXEL_LOD_DISTANCE) {
-                        // No detailed model shadow beyond LOD distance.
-                    } else {
-                        uvec2 meta = readModelMetadata(pos);
-                        uint model_id = meta.r;
-                        uint rotation = meta.g & 3u;
-                        const float MODEL_PARTIAL_SHADOW = 0.4;
-                        if (model_id == 0u) {
+                    uvec2 meta = readModelMetadata(pos);
+                    uint model_id = meta.r;
+                    uint rotation = meta.g & 3u;
+                    const float MODEL_PARTIAL_SHADOW = 0.4;
+                    if (model_id == 0u) {
+                        return MODEL_PARTIAL_SHADOW;
+                    }
+                    ModelProperties props = model_properties[model_id];
+
+                    bool forceFine = (model_id == 2u || model_id == 3u); // slabs need fine shadowing even far
+                    if (camDist > SUB_VOXEL_LOD_DISTANCE && !forceFine) {
+                        // Far: skip fine march but still honor coarse light-blocking flags.
+                        if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u) {
+                            debugFlag = 5u;
+                            return 0.0;
+                        }
+                        if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
+                            debugFlag = 5u;
                             return MODEL_PARTIAL_SHADOW;
                         }
-                        ModelProperties props = model_properties[model_id];
-
+                    } else {
                         if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u ||
                             (props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
                             bool hitGeo = modelBlocksRay(blockOrigin, dir, pos, model_id, rotation);
                             if (hitGeo) {
+                                if (model_id == 2u || model_id == 3u) {
+                                    debugFlag = 2u;
+                                    return 0.0; // slabs: block fully where geometry exists
+                                }
                                 if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
                                     debugFlag = 3u;
                                     return MODEL_PARTIAL_SHADOW;
