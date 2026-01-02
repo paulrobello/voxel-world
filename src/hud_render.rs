@@ -585,6 +585,19 @@ impl HUDRenderer {
                                 );
                             }
                             if ui
+                                .checkbox(&mut settings.enable_subvoxel_ao, "Sub-voxel AO")
+                                .changed()
+                            {
+                                println!(
+                                    "[TOGGLE] Sub-voxel AO: {}",
+                                    if settings.enable_subvoxel_ao {
+                                        "ON"
+                                    } else {
+                                        "OFF"
+                                    }
+                                );
+                            }
+                            if ui
                                 .checkbox(&mut settings.enable_shadows, "Sun Shadows")
                                 .changed()
                             {

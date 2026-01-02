@@ -1207,12 +1207,16 @@ impl App {
             } else {
                 0
             },
+            enable_subvoxel_ao: if self.ui.settings.enable_subvoxel_ao {
+                1
+            } else {
+                0
+            },
             pass_mode: 0, // Will be set per-pass
             lod_ao_distance: self.ui.settings.lod_ao_distance,
             lod_shadow_distance: self.ui.settings.lod_shadow_distance,
             lod_point_light_distance: self.ui.settings.lod_point_light_distance,
             falling_block_count: self.sim.falling_blocks.count() as u32,
-            _pc_pad_camera: 0,
             camera_pos: {
                 let cam = self
                     .sim

@@ -68,6 +68,7 @@ pub struct Settings {
     pub enable_shadows: bool,
     pub enable_model_shadows: bool,
     pub enable_point_lights: bool,
+    pub enable_subvoxel_ao: bool,
 
     pub lod_ao_distance: f32,
     pub lod_shadow_distance: f32,
@@ -93,6 +94,7 @@ impl Default for Settings {
             enable_shadows: true,
             enable_model_shadows: true,
             enable_point_lights: true,
+            enable_subvoxel_ao: true,
 
             lod_ao_distance: 64.0,
             lod_shadow_distance: 48.0,

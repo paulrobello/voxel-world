@@ -128,12 +128,12 @@ pub struct PushConstants {
     pub enable_shadows: u32,
     pub enable_model_shadows: u32,
     pub enable_point_lights: u32,
+    pub enable_subvoxel_ao: u32,
     pub pass_mode: u32,
     pub lod_ao_distance: f32,
     pub lod_shadow_distance: f32,
     pub lod_point_light_distance: f32,
     pub falling_block_count: u32,
-    pub _pc_pad_camera: u32,
     pub camera_pos: [f32; 4],
 }
 

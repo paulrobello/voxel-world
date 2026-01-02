@@ -43,6 +43,17 @@ ivec3 rotateModelPos(ivec3 pos, uint rotation) {
     }
 }
 
+// Sample a model voxel with rotation and bounds checks.
+// Returns true if the rotated position is inside the model and non-empty.
+bool sampleModelFilled(uint model_id, ivec3 local_pos, uint rotation) {
+    if (any(lessThan(local_pos, ivec3(0))) || any(greaterThanEqual(local_pos, ivec3(int(SUB_VOXEL_SIZE))))) {
+        return false;
+    }
+    ivec3 rotated = rotateModelPos(local_pos, rotation);
+    rotated = clamp(rotated, ivec3(0), ivec3(int(SUB_VOXEL_SIZE) - 1));
+    return sampleModelVoxel(model_id, rotated) != 0u;
+}
+
 // Compute fine voxel bounds for a model (in block-local 0-1 space)
 void modelCollisionBounds(uint model_id, out vec3 minB, out vec3 maxB) {
     ModelProperties props = model_properties[model_id];
@@ -149,6 +160,52 @@ vec3 inverseRotateDirection(vec3 d, uint rotation) {
         default:
             return d;
     }
+}
+
+// Sub-voxel ambient occlusion using the model's 8³ occupancy.
+// Mirrors the block-level AO pattern but operates on sub-voxel cells.
+float calculateSubVoxelAO(uint model_id, uint rotation, ivec3 voxel, ivec3 normal, vec2 uv) {
+    ivec3 inormal = normal;
+    ivec3 tangent1, tangent2;
+
+    if (abs(inormal.x) > 0) {
+        tangent1 = ivec3(0, 1, 0);
+        tangent2 = ivec3(0, 0, 1);
+    } else if (abs(inormal.y) > 0) {
+        tangent1 = ivec3(1, 0, 0);
+        tangent2 = ivec3(0, 0, 1);
+    } else {
+        tangent1 = ivec3(1, 0, 0);
+        tangent2 = ivec3(0, 1, 0);
+    }
+
+    ivec3 facePos = voxel + inormal;
+
+    float ao[4];
+    for (int i = 0; i < 4; i++) {
+        int s1 = (i & 1) * 2 - 1;
+        int s2 = ((i >> 1) & 1) * 2 - 1;
+
+        bool side1 = sampleModelFilled(model_id, facePos + tangent1 * s1, rotation);
+        bool side2 = sampleModelFilled(model_id, facePos + tangent2 * s2, rotation);
+        bool corner = sampleModelFilled(model_id, facePos + tangent1 * s1 + tangent2 * s2, rotation);
+
+        if (side1 && side2) {
+            ao[i] = 0.0;
+        } else {
+            ao[i] = 1.0 - float(int(side1) + int(side2) + int(corner)) / 3.0;
+        }
+    }
+
+    float u = clamp(uv.x, 0.0, 1.0);
+    float v = clamp(uv.y, 0.0, 1.0);
+
+    float ao_bottom = mix(ao[0], ao[1], u);
+    float ao_top = mix(ao[2], ao[3], u);
+    float ao_final = mix(ao_bottom, ao_top, v);
+
+    // Match block-level AO curve
+    return 0.3 + ao_final * 0.7;
 }
 
 // Forward declaration for block ray intersection (used before definition in shadow/sky)
