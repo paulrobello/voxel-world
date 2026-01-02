@@ -95,36 +95,40 @@ float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFl
             if (blockType == BLOCK_MODEL) {
                 if (pc.enable_model_shadows == 0u) {
                     // Treat model as non-blocking when disabled
-                } else if (totalDist > SUB_VOXEL_LOD_DISTANCE) {
-                    // Match model render cutoff: beyond LOD, models don’t cast detailed shadows.
                 } else {
-                    uvec2 meta = readModelMetadata(pos);
-                    uint model_id = meta.r;
-                    uint rotation = meta.g & 3u;
-                    const float MODEL_PARTIAL_SHADOW = 0.4;
-                    if (model_id == 0u) {
-                        return MODEL_PARTIAL_SHADOW;
-                    }
-                    ModelProperties props = model_properties[model_id];
+                    // Match render LOD: skip sub-voxel shadowing when model is beyond camera LOD range.
+                    float camDist = length(vec3(pos) + vec3(0.5) - pc.camera_pos.xyz);
+                    if (camDist > SUB_VOXEL_LOD_DISTANCE) {
+                        // No detailed model shadow beyond LOD distance.
+                    } else {
+                        uvec2 meta = readModelMetadata(pos);
+                        uint model_id = meta.r;
+                        uint rotation = meta.g & 3u;
+                        const float MODEL_PARTIAL_SHADOW = 0.4;
+                        if (model_id == 0u) {
+                            return MODEL_PARTIAL_SHADOW;
+                        }
+                        ModelProperties props = model_properties[model_id];
 
-                    if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u ||
-                        (props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
-                        bool hitGeo = modelBlocksRay(blockOrigin, dir, pos, model_id, rotation);
-                        if (hitGeo) {
-                            if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
-                                debugFlag = 3u;
-                                return MODEL_PARTIAL_SHADOW;
-                            } else {
-                                debugFlag = 2u;
+                        if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u ||
+                            (props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
+                            bool hitGeo = modelBlocksRay(blockOrigin, dir, pos, model_id, rotation);
+                            if (hitGeo) {
+                                if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
+                                    debugFlag = 3u;
+                                    return MODEL_PARTIAL_SHADOW;
+                                } else {
+                                    debugFlag = 2u;
+                                    return 0.0;
+                                }
+                            }
+                            // For full blockers, conservative: still block if not hit due to precision.
+                            if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u) {
+                                debugFlag = 4u;
                                 return 0.0;
                             }
+                            // For partial blockers, only geometry should occlude; skip coarse mask fallback to avoid over-occluding thin models (e.g., ladders).
                         }
-                        // For full blockers, conservative: still block if not hit due to precision.
-                        if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u) {
-                            debugFlag = 4u;
-                            return 0.0;
-                        }
-                        // For partial blockers, only geometry should occlude; skip coarse mask fallback to avoid over-occluding thin models (e.g., ladders).
                     }
                 }
             } else if (blockType != BLOCK_AIR && blockType != BLOCK_LEAVES && blockType != BLOCK_GLASS && blockType != BLOCK_WATER) {

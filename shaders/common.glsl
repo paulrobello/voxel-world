@@ -85,6 +85,7 @@ layout(push_constant) uniform PushConstants {
     float lod_shadow_distance;
     float lod_point_light_distance;
     uint falling_block_count;
+    vec4 camera_pos; // world-space camera position
 } pc;
 
 // Particles (set 3)

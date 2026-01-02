@@ -1140,6 +1140,13 @@ impl App {
             lod_shadow_distance: self.ui.settings.lod_shadow_distance,
             lod_point_light_distance: self.ui.settings.lod_point_light_distance,
             falling_block_count: self.sim.falling_blocks.count() as u32,
+            camera_pos: {
+                let cam = self
+                    .sim
+                    .player
+                    .camera_world_pos(self.sim.world_extent, self.sim.texture_origin);
+                [cam.x as f32, cam.y as f32, cam.z as f32, 0.0]
+            },
         };
 
         let mut builder = AutoCommandBufferBuilder::primary(
