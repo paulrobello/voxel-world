@@ -35,3 +35,5 @@
 - Model shadow occlusion now uses camera-distance LOD cutoff (32 m) in world coords (texture origin aware) to match model render culling; shadows disappear when models do.
 - Fixed push-constant padding for the added `camera_pos` field to satisfy the pipeline’s push-constant range and prevent runtime panics.
 - Shadow + sky DDA stepping now share a `ddaAdvance` helper to keep traversal logic in sync and reduce duplicated fixes.
+- Profiling (render 900x810 in 1200x1080, latest time sweep with added models):
+  - Run 7 (61 samples): avg 123.5 fps (7.49 ms), 1% low 91.0 fps, min 99 fps; max 131 fps. Render avg 7.49 ms, p90 7.81 ms; chunkload avg 0.48 ms; ~2,019 chunks resident.
