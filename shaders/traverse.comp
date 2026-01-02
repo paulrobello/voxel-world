@@ -713,7 +713,7 @@ void main() {
         float particleDist = hitDistance;
         renderParticles(o, d, color, particleDist);
         if (particleDist < hitDistance) {
-            vec3 fogColor = getFogColor(pc.time_of_day);
+            vec3 fogColor = getSkyColor(normalize(d));
             float fogFactor = getFogFactor(particleDist) * pc.fog_overlay_scale;
             color = mix(color, fogColor, fogFactor * 0.3);
         }
@@ -723,7 +723,7 @@ void main() {
         float fallingDist = hitDistance;
         renderFallingBlocks(o, d, color, fallingDist);
         if (fallingDist < hitDistance) {
-            vec3 fogColor = getFogColor(pc.time_of_day);
+            vec3 fogColor = getSkyColor(normalize(d));
             float fogFactor = getFogFactor(fallingDist) * pc.fog_overlay_scale;
             color = mix(color, fogColor, fogFactor * 0.5);
         }

@@ -271,6 +271,7 @@ vec3 getCurrentSunDir() {
 // Apply fog to a color
 vec3 applyFog(vec3 color, float distance, vec3 rayDir) {
     float fogFactor = getFogFactor(distance);
-    vec3 fogColor = getFogColor(pc.time_of_day);
+    // Blend toward the actual sky color in the ray direction to avoid flat tinted fog.
+    vec3 fogColor = getSkyColor(normalize(rayDir));
     return mix(color, fogColor, fogFactor);
 }
