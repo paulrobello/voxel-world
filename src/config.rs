@@ -94,12 +94,12 @@ impl Default for Settings {
             enable_model_shadows: true,
             enable_point_lights: true,
 
-            lod_ao_distance: 24.0,
+            lod_ao_distance: 64.0,
             lod_shadow_distance: 48.0,
             lod_point_light_distance: 20.0,
 
             max_ray_steps: 256,
-            render_scale: 0.75,
+            render_scale: 1.0,
             water_simulation_enabled: true,
             instant_break: true,
             break_cooldown_duration: 0.1,
