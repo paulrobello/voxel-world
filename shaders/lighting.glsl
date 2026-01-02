@@ -10,16 +10,24 @@ bool modelBlocksRay(vec3 rayOrigin, vec3 dir, ivec3 blockPos, uint model_id, uin
     return findSubVoxelHit(localOrigin, dir, model_id, rotation, subHit, n, t);
 }
 
-// Cast shadow ray from a point toward the sun
-float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFlag) {
+// Generic voxel march with a user predicate. Returns true when predicate says stop.
+// The predicate signature:
+//   bool pred(ivec3 pos, bool skipSelf, vec3 rayPos, out uint dbg, out float result)
+// - pos: current voxel
+// - skipSelf: true on the first voxel when ignoreStartModel is requested
+// - rayPos: current ray position in voxel space
+// - dbg: optional debug flag (only used by shadow)
+// - result: predicate writes the final factor (shadow or exposure). If pred returns true, march stops and result is returned.
+// Returns the factor produced by predicate, or 1.0 if the march exits world/limits.
+float marchUntil(
+    vec3 origin,
+    vec3 dir,
+    bool ignoreStartModel,
+    bool forShadow,
+    out uint debugFlag,
+    bool isSkyPass
+) {
     debugFlag = 0u;
-    vec3 sunDir = getCurrentSunDir();
-
-    if (sunDir.y < 0.0) {
-        return 0.3;  // Dim ambient at night
-    }
-
-    vec3 dir = sunDir;
     vec3 inv_dir = clamp(1.0 / dir, vec3(-FLT_MAX), vec3(FLT_MAX));
 
     vec3 rayPos = origin;
@@ -89,75 +97,101 @@ float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFl
         }
 
         if (!skipSelf) {
-            vec3 blockOrigin = rayPos + dir * 0.001; // texture space
-            if (blockType == BLOCK_MODEL) {
-                if (pc.enable_model_shadows == 0u) {
-                    // Treat model as non-blocking when disabled
-                } else {
-                    uvec2 meta = readModelMetadata(pos);
-                    uint model_id = meta.r;
-                    uint rotation = meta.g & 3u;
-                    const float MODEL_PARTIAL_SHADOW = 0.4;
-                    if (model_id == 0u) {
-                        return MODEL_PARTIAL_SHADOW;
-                    }
-                    ModelProperties props = model_properties[model_id];
+            if (forShadow) {
+                vec3 blockOrigin = rayPos + dir * 0.001;
+                if (blockType == BLOCK_MODEL) {
+                    if (pc.enable_model_shadows == 0u) {
+                    } else {
+                        uvec2 meta = readModelMetadata(pos);
+                        uint model_id = meta.r;
+                        uint rotation = meta.g & 3u;
+                        const float MODEL_PARTIAL_SHADOW = 0.4;
+                        if (model_id == 0u) {
+                            return MODEL_PARTIAL_SHADOW;
+                        }
+                        ModelProperties props = model_properties[model_id];
 
-                    if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u ||
-                        (props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
-                        bool hitGeo = modelBlocksRay(blockOrigin, dir, pos, model_id, rotation);
-                        if (hitGeo) {
-                            if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
-                                debugFlag = 3u;
-                                return MODEL_PARTIAL_SHADOW;
-                            } else {
-                                debugFlag = 2u;
+                        if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u ||
+                            (props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
+                            bool hitGeo = modelBlocksRay(blockOrigin, dir, pos, model_id, rotation);
+                            if (hitGeo) {
+                                if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
+                                    debugFlag = 3u;
+                                    return MODEL_PARTIAL_SHADOW;
+                                } else {
+                                    debugFlag = 2u;
+                                    return 0.0;
+                                }
+                            }
+                            if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u) {
+                                debugFlag = 4u;
                                 return 0.0;
                             }
-                        }
-                        if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u) {
-                            debugFlag = 4u;
-                            return 0.0;
-                        }
-                        if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
-                            vec3 localO = blockOrigin - vec3(pos);
-                            vec3 testO = clamp(localO, vec3(0.001), vec3(0.999));
-                            vec3 testDir = dir;
+                            if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
+                                vec3 localO = blockOrigin - vec3(pos);
+                                vec3 testO = clamp(localO, vec3(0.001), vec3(0.999));
+                                vec3 testDir = dir;
 
-                            testO = inverseRotatePosition(testO, rotation);
-                            testDir = inverseRotateDirection(testDir, rotation);
+                                testO = inverseRotatePosition(testO, rotation);
+                                testDir = inverseRotateDirection(testDir, rotation);
 
-                            vec3 bbMin, bbMax;
-                            modelCollisionBounds(model_id, bbMin, bbMax);
+                                vec3 bbMin, bbMax;
+                                modelCollisionBounds(model_id, bbMin, bbMax);
 
-                            vec3 safeTestDir = testDir;
-                            safeTestDir = makeSafeDir(safeTestDir);
-
-                            vec3 invd = 1.0 / safeTestDir;
-                            vec3 t1b = (bbMin - testO) * invd;
-                            vec3 t2b = (bbMax - testO) * invd;
-                            vec3 tminb = min(t1b, t2b);
-                            vec3 tmaxb = max(t1b, t2b);
-                            float tNear = max(max(tminb.x, tminb.y), tminb.z);
-                            float tFar = min(min(tmaxb.x, tmaxb.y), tmaxb.z);
-                            
-                            if (tNear <= tFar && tFar > 0.0) {
-                                if (modelMaskBlocksRay(testO, testDir, model_id)) {
-                                    debugFlag = 5u;
-                                    return MODEL_PARTIAL_SHADOW;
+                                vec3 safeTestDir = makeSafeDir(testDir);
+                                vec3 invd = 1.0 / safeTestDir;
+                                vec3 t1b = (bbMin - testO) * invd;
+                                vec3 t2b = (bbMax - testO) * invd;
+                                vec3 tminb = min(t1b, t2b);
+                                vec3 tmaxb = max(t1b, t2b);
+                                float tNear = max(max(tminb.x, tminb.y), tminb.z);
+                                float tFar = min(min(tmaxb.x, tmaxb.y), tmaxb.z);
+                                
+                                if (tNear <= tFar && tFar > 0.0) {
+                                    if (modelMaskBlocksRay(testO, testDir, model_id)) {
+                                        debugFlag = 5u;
+                                        return MODEL_PARTIAL_SHADOW;
+                                    }
                                 }
                             }
                         }
                     }
+                } else if (blockType != BLOCK_AIR && blockType != BLOCK_LEAVES && blockType != BLOCK_GLASS && blockType != BLOCK_WATER) {
+                    debugFlag = 1u;
+                    return 0.0;
                 }
-            } else if (blockType != BLOCK_AIR && blockType != BLOCK_LEAVES && blockType != BLOCK_GLASS && blockType != BLOCK_WATER) {
-                debugFlag = 1u;
-                return 0.0;
-            }
 
-            if (blockType == BLOCK_LEAVES) {
-                debugFlag = 6u;
-                return 0.5;
+                if (blockType == BLOCK_LEAVES) {
+                    debugFlag = 6u;
+                    return 0.5;
+                }
+            } else {
+                // sky pass: any solid stops exposure
+                if (blockType != BLOCK_AIR && blockType != BLOCK_WATER &&
+                    blockType != BLOCK_GLASS && blockType != BLOCK_LEAVES) {
+                    return 0.0;
+                }
+                if (blockType == BLOCK_LEAVES) {
+                    return 0.4;
+                }
+                if (blockType == BLOCK_MODEL && pc.enable_model_shadows != 0u) {
+                    uvec2 meta = readModelMetadata(pos);
+                    uint model_id = meta.r;
+                    uint rotation = meta.g & 3u;
+                    if (model_id == 0u) {
+                        return 0.4;
+                    }
+                    ModelProperties props = model_properties[model_id];
+                    bool blocksRay = false;
+                    if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u ||
+                        (props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
+                        blocksRay = modelBlocksRay(rayPos + dir * 0.01, dir, pos, model_id, rotation);
+                    }
+                    if (blocksRay) {
+                        if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u) return 0.0;
+                        if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) return 0.4;
+                    }
+                }
             }
         }
         else {
@@ -207,87 +241,15 @@ float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFl
 
 float castShadowRay(vec3 origin) {
     uint dbg;
-    return castShadowRayInternal(origin, false, dbg);
+    vec3 sunDir = getCurrentSunDir();
+    if (sunDir.y < 0.0) return 0.3;
+    return marchUntil(origin, sunDir, false, true, dbg, false);
 }
 
 // Sky exposure for ambient light
 float getSkyExposure(vec3 origin) {
-    vec3 dir = vec3(0.0, 1.0, 0.0);
-    vec3 rayPos = origin;
-    ivec3 pos = ivec3(floor(rayPos));
-    ivec3 startPos = pos;
-    float tMax = (float(pos.y) + 1.0 - rayPos.y);
-    float tDelta = 1.0;
-
-    for (int i = 0; i < 128; i++) {
-        if (!isInTextureBounds(pos)) {
-            return 1.0;
-        }
-
-        vec3 blockOrigin = rayPos + dir * 0.01;
-        uint blockType = readBlockTypeAtTexCoord(pos);
-        bool skipSelf = all(equal(pos, startPos));
-
-        if (!skipSelf) {
-            const float MODEL_PARTIAL_EXPOSURE = 0.4;
-            if (blockType == BLOCK_MODEL) {
-                if (pc.enable_model_shadows == 0u) {
-                    // Treat model as non-blocking for sky when disabled
-                } else {
-                    uvec2 meta = readModelMetadata(pos);
-                    uint model_id = meta.r;
-                    uint rotation = meta.g & 3u;
-                    if (model_id == 0u) {
-                        return MODEL_PARTIAL_EXPOSURE;
-                    }
-                    ModelProperties props = model_properties[model_id];
-
-                    bool blocksRay = false;
-                    if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u ||
-                        (props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
-                        blocksRay = modelBlocksRay(blockOrigin, dir, pos, model_id, rotation);
-                    }
-
-                    if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u ||
-                        (props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
-                        if (blocksRay) {
-                            if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u) {
-                                return 0.0;
-                            }
-                            if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
-                                return MODEL_PARTIAL_EXPOSURE;
-                            }
-                        } else {
-                            if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u) {
-                                return 0.0;
-                            }
-                            if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
-                                return 1.0;
-                            }
-                        }
-                    }
-                }
-            } else if (blockType != BLOCK_AIR && blockType != BLOCK_WATER &&
-                       blockType != BLOCK_GLASS && blockType != BLOCK_LEAVES) {
-                return 0.0;
-            }
-
-            if (blockType == BLOCK_LEAVES) {
-                return 0.4;
-            }
-        }
-        else {
-            rayPos += dir * (tMax + 0.001);
-            pos = ivec3(floor(rayPos));
-            tMax = 1.0;
-            continue;
-        }
-
-        pos.y += 1;
-        rayPos += dir * tDelta;
-    }
-
-    return 1.0;
+    uint dbg;
+    return marchUntil(origin, vec3(0.0, 1.0, 0.0), false, false, dbg, true);
 }
 
 // Point light accumulation
