@@ -5,7 +5,9 @@ use crate::hud::Minimap;
 use crate::player::Player;
 use crate::raycast::RaycastHit;
 use crate::render_mode::RenderMode;
+use crate::sub_voxel::ModelRegistry;
 use crate::utils::ChunkStats;
+use crate::{PaletteItem, PaletteTab};
 use egui_winit_vulkano::{Gui, egui};
 use nalgebra::Vector3;
 
@@ -19,9 +21,9 @@ pub struct HudInputs<'a> {
     pub render_mode: &'a mut RenderMode,
     pub current_hit: &'a Option<RaycastHit>,
     pub selected_block: BlockType,
-    pub hotbar_index: usize,
-    pub hotbar_blocks: &'a [BlockType; 9],
-    pub hotbar_model_ids: &'a [u8; 9],
+    pub hotbar_index: &'a mut usize,
+    pub hotbar_blocks: &'a mut [BlockType; 9],
+    pub hotbar_model_ids: &'a mut [u8; 9],
     pub minimap_image: Option<egui::ColorImage>,
     pub atlas_texture_id: egui::TextureId,
     pub camera_yaw: f32,
@@ -35,11 +37,231 @@ pub struct HudInputs<'a> {
     pub show_minimap: &'a mut bool,
     pub minimap: &'a mut Minimap,
     pub minimap_cached_image: &'a mut Option<egui::ColorImage>,
+    pub palette_open: &'a mut bool,
+    pub palette_tab: &'a mut PaletteTab,
+    pub dragging_item: &'a mut Option<PaletteItem>,
+    pub model_registry: &'a ModelRegistry,
 }
 
 pub struct HUDRenderer;
 
 impl HUDRenderer {
+    fn atlas_tile_for(block: BlockType, model_id: u8) -> f32 {
+        if block == BlockType::Model {
+            match model_id {
+                1 => 11.0,     // Torch
+                4..=27 => 4.0, // Wood-based models use planks texture
+                29 => 4.0,     // Ladder
+                _ => 11.0,
+            }
+        } else {
+            block as u8 as f32
+        }
+    }
+
+    fn apply_item_to_slot(
+        item: PaletteItem,
+        slot: usize,
+        hotbar_blocks: &mut [BlockType; 9],
+        hotbar_model_ids: &mut [u8; 9],
+    ) {
+        hotbar_blocks[slot] = item.block;
+        hotbar_model_ids[slot] = if item.block == BlockType::Model {
+            item.model_id
+        } else {
+            0
+        };
+    }
+
+    fn fill_or_replace_hotbar(
+        item: PaletteItem,
+        hotbar_blocks: &mut [BlockType; 9],
+        hotbar_model_ids: &mut [u8; 9],
+        hotbar_index: &mut usize,
+    ) {
+        if let Some(empty_slot) = hotbar_blocks.iter().position(|b| *b == BlockType::Air) {
+            Self::apply_item_to_slot(item, empty_slot, hotbar_blocks, hotbar_model_ids);
+            *hotbar_index = empty_slot;
+        } else {
+            let idx = *hotbar_index;
+            Self::apply_item_to_slot(item, idx, hotbar_blocks, hotbar_model_ids);
+        }
+    }
+
+    fn palette_items_for_tab(
+        tab: PaletteTab,
+        registry: &ModelRegistry,
+    ) -> Vec<(PaletteItem, String)> {
+        const BLOCK_PALETTE: [BlockType; 15] = [
+            BlockType::Stone,
+            BlockType::Dirt,
+            BlockType::Grass,
+            BlockType::Planks,
+            BlockType::Leaves,
+            BlockType::Sand,
+            BlockType::Gravel,
+            BlockType::Water,
+            BlockType::Glass,
+            BlockType::Log,
+            BlockType::Brick,
+            BlockType::Snow,
+            BlockType::Cobblestone,
+            BlockType::Iron,
+            BlockType::Bedrock,
+        ];
+
+        let mut items = Vec::new();
+
+        if matches!(tab, PaletteTab::Blocks | PaletteTab::All) {
+            for &block in BLOCK_PALETTE.iter() {
+                items.push((PaletteItem { block, model_id: 0 }, format!("{:?}", block)));
+            }
+        }
+
+        if matches!(tab, PaletteTab::Models | PaletteTab::All) {
+            let mut push_if = |id: u8, label: &str| {
+                if registry.get(id).is_some() {
+                    items.push((
+                        PaletteItem {
+                            block: BlockType::Model,
+                            model_id: id,
+                        },
+                        label.to_string(),
+                    ));
+                }
+            };
+
+            // Curated list: single fence entry (auto-connects), representative gate, etc.
+            push_if(1, "Torch");
+            push_if(2, "Slab (Bottom)");
+            push_if(3, "Slab (Top)");
+            push_if(4, "Fence");
+            push_if(20, "Gate");
+            push_if(28, "Stairs");
+            push_if(29, "Ladder");
+        }
+
+        items
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn draw_palette_item(
+        ui: &mut egui::Ui,
+        atlas_texture_id: egui::TextureId,
+        item: PaletteItem,
+        label: &str,
+        hotbar_blocks: &mut [BlockType; 9],
+        hotbar_model_ids: &mut [u8; 9],
+        hotbar_index: &mut usize,
+        dragging_item: &mut Option<PaletteItem>,
+    ) {
+        const ATLAS_TILE_COUNT: f32 = 19.0;
+        let block_idx = Self::atlas_tile_for(item.block, item.model_id);
+        let uv_left = block_idx / ATLAS_TILE_COUNT;
+        let uv_right = (block_idx + 1.0) / ATLAS_TILE_COUNT;
+        let uv_rect = egui::Rect::from_min_max(egui::pos2(uv_left, 0.0), egui::pos2(uv_right, 1.0));
+
+        ui.vertical(|ui| {
+            let button = egui::ImageButton::new((atlas_texture_id, egui::vec2(48.0, 48.0)))
+                .uv(uv_rect)
+                .frame(true)
+                .sense(egui::Sense::click_and_drag());
+            let resp = ui.add(button);
+            let clicked = resp.clicked();
+            let middle = resp.middle_clicked();
+            let drag_started = resp.drag_started();
+
+            if drag_started {
+                *dragging_item = Some(item);
+            }
+            if clicked {
+                Self::apply_item_to_slot(item, *hotbar_index, hotbar_blocks, hotbar_model_ids);
+            }
+            if middle {
+                Self::fill_or_replace_hotbar(item, hotbar_blocks, hotbar_model_ids, hotbar_index);
+            }
+
+            let hover_rect = resp.rect;
+            resp.on_hover_text("Drag to a hotbar slot, left-click to set current slot, middle-click to fill/replace hotbar");
+            if item.model_id == 2 {
+                ui.painter().text(
+                    hover_rect.left_top() + egui::vec2(6.0, 6.0),
+                    egui::Align2::LEFT_TOP,
+                    "B",
+                    egui::FontId::proportional(12.0),
+                    egui::Color32::YELLOW,
+                );
+            } else if item.model_id == 3 {
+                ui.painter().text(
+                    hover_rect.left_top() + egui::vec2(6.0, 6.0),
+                    egui::Align2::LEFT_TOP,
+                    "T",
+                    egui::FontId::proportional(12.0),
+                    egui::Color32::YELLOW,
+                );
+            }
+            ui.add(
+                egui::Label::new(
+                    egui::RichText::new(label)
+                        .color(egui::Color32::WHITE)
+                        .small(),
+                )
+                .wrap(),
+            );
+        });
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn draw_palette_window(
+        ctx: &egui::Context,
+        atlas_texture_id: egui::TextureId,
+        palette_open: &mut bool,
+        palette_tab: &mut PaletteTab,
+        dragging_item: &mut Option<PaletteItem>,
+        model_registry: &ModelRegistry,
+        hotbar_blocks: &mut [BlockType; 9],
+        hotbar_model_ids: &mut [u8; 9],
+        hotbar_index: &mut usize,
+    ) {
+        if !*palette_open {
+            return;
+        }
+
+        egui::Window::new("Block & Model Palette")
+            .open(palette_open)
+            .default_size(egui::vec2(520.0, 360.0))
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.selectable_value(palette_tab, PaletteTab::Blocks, "Blocks");
+                    ui.selectable_value(palette_tab, PaletteTab::Models, "Models");
+                    ui.selectable_value(palette_tab, PaletteTab::All, "All");
+                });
+                ui.label("Drag items to the hotbar, left-click to set current slot, middle-click to fill (or replace if full).");
+                ui.separator();
+
+                let items = Self::palette_items_for_tab(*palette_tab, model_registry);
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false; 2])
+                    .show(ui, |ui| {
+                        ui.horizontal_wrapped(|ui| {
+                            for (item, label) in items {
+                                Self::draw_palette_item(
+                                    ui,
+                                    atlas_texture_id,
+                                    item,
+                                    &label,
+                                    hotbar_blocks,
+                                    hotbar_model_ids,
+                                    hotbar_index,
+                                    dragging_item,
+                                );
+                                ui.add_space(6.0);
+                            }
+                        });
+                    });
+            });
+    }
+
     fn overlay_frame() -> egui::Frame {
         egui::Frame::new()
             .fill(egui::Color32::from_rgba_unmultiplied(0, 0, 0, 180))
@@ -139,6 +361,10 @@ impl HUDRenderer {
             show_minimap,
             minimap,
             minimap_cached_image,
+            palette_open,
+            palette_tab,
+            dragging_item,
+            model_registry,
         } = input;
         let mut scale_changed = false;
         gui.immediate_ui(|gui| {
@@ -146,6 +372,55 @@ impl HUDRenderer {
 
             Self::draw_stats_overlay(&ctx, fps, chunk_stats);
             Self::draw_position_overlay(&ctx, player_world_pos);
+            Self::draw_palette_window(
+                &ctx,
+                atlas_texture_id,
+                palette_open,
+                palette_tab,
+                dragging_item,
+                model_registry,
+                hotbar_blocks,
+                hotbar_model_ids,
+                hotbar_index,
+            );
+
+            // Drag preview near cursor
+            if let Some(item) = dragging_item.as_ref() {
+                if let Some(pointer_pos) = ctx.input(|i| i.pointer.latest_pos()) {
+                    const ATLAS_TILE_COUNT: f32 = 19.0;
+                    let block_idx = Self::atlas_tile_for(item.block, item.model_id);
+                    let uv_left = block_idx / ATLAS_TILE_COUNT;
+                    let uv_right = (block_idx + 1.0) / ATLAS_TILE_COUNT;
+                    let uv_rect = egui::Rect::from_min_max(
+                        egui::pos2(uv_left, 0.0),
+                        egui::pos2(uv_right, 1.0),
+                    );
+
+                    let size = egui::vec2(48.0, 48.0);
+                    let rect = egui::Rect::from_min_size(pointer_pos - size * 0.5, size);
+                    let painter = ctx.layer_painter(egui::LayerId::new(
+                        egui::Order::Tooltip,
+                        egui::Id::new("drag_preview"),
+                    ));
+                    painter.image(atlas_texture_id, rect, uv_rect, egui::Color32::WHITE);
+                    let label = if item.model_id == 2 {
+                        "B"
+                    } else if item.model_id == 3 {
+                        "T"
+                    } else {
+                        ""
+                    };
+                    if !label.is_empty() {
+                        painter.text(
+                            rect.left_top() + egui::vec2(4.0, 4.0),
+                            egui::Align2::LEFT_TOP,
+                            label,
+                            egui::FontId::proportional(12.0),
+                            egui::Color32::YELLOW,
+                        );
+                    }
+                }
+            }
 
             egui::Window::new("Voxel Game")
                 .default_open(false)
@@ -731,6 +1006,8 @@ impl HUDRenderer {
             // Hotbar HUD at bottom center - 9 slots
             const ATLAS_TILE_COUNT: f32 = 19.0;
             const SLOT_SIZE: f32 = 40.0;
+            let pointer_released =
+                ctx.input(|i| i.pointer.button_released(egui::PointerButton::Primary));
 
             egui::Area::new(egui::Id::new("hotbar_hud"))
                 .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -10.0))
@@ -744,22 +1021,14 @@ impl HUDRenderer {
                             ui.horizontal(|ui| {
                                 ui.spacing_mut().item_spacing = egui::vec2(4.0, 0.0);
 
-                                for (i, block) in hotbar_blocks.iter().enumerate() {
-                                    let is_selected = i == hotbar_index;
+                                let len = hotbar_blocks.len();
+                                for i in 0..len {
+                                    let block = hotbar_blocks[i];
+                                    let is_selected = i == *hotbar_index;
 
                                     // Calculate UV for this block
-                                    // For Model blocks, use texture based on model type
-                                    let block_idx = if *block == BlockType::Model {
-                                        match hotbar_model_ids[i] {
-                                            1 => 11.0,      // Torch
-                                            4..=19 => 4.0,  // Fence -> use planks texture
-                                            20..=27 => 4.0, // Gate -> use planks texture
-                                            29 => 4.0,      // Ladder -> use planks texture
-                                            _ => 11.0,      // Default to torch
-                                        }
-                                    } else {
-                                        *block as u8 as f32
-                                    };
+                                    let block_idx =
+                                        Self::atlas_tile_for(block, hotbar_model_ids[i]);
                                     let uv_left = block_idx / ATLAS_TILE_COUNT;
                                     let uv_right = (block_idx + 1.0) / ATLAS_TILE_COUNT;
                                     let uv_rect = egui::Rect::from_min_max(
@@ -776,9 +1045,9 @@ impl HUDRenderer {
                                     let border_width = if is_selected { 3.0 } else { 1.0 };
 
                                     // Allocate space for slot
-                                    let (rect, _response) = ui.allocate_exact_size(
+                                    let (rect, response) = ui.allocate_exact_size(
                                         egui::vec2(SLOT_SIZE + 4.0, SLOT_SIZE + 16.0),
-                                        egui::Sense::hover(),
+                                        egui::Sense::click_and_drag(),
                                     );
 
                                     // Draw slot background
@@ -799,6 +1068,23 @@ impl HUDRenderer {
                                         uv_rect,
                                         egui::Color32::WHITE,
                                     );
+                                    if hotbar_model_ids[i] == 2 {
+                                        ui.painter().text(
+                                            texture_rect.left_top() + egui::vec2(4.0, 4.0),
+                                            egui::Align2::LEFT_TOP,
+                                            "B",
+                                            egui::FontId::proportional(11.0),
+                                            egui::Color32::YELLOW,
+                                        );
+                                    } else if hotbar_model_ids[i] == 3 {
+                                        ui.painter().text(
+                                            texture_rect.left_top() + egui::vec2(4.0, 4.0),
+                                            egui::Align2::LEFT_TOP,
+                                            "T",
+                                            egui::FontId::proportional(11.0),
+                                            egui::Color32::YELLOW,
+                                        );
+                                    }
 
                                     // Draw border
                                     ui.painter().rect_stroke(
@@ -817,15 +1103,36 @@ impl HUDRenderer {
                                         egui::FontId::proportional(10.0),
                                         egui::Color32::WHITE,
                                     );
+
+                                    // Interactions: click selects slot, drop assigns dragged item.
+                                    if response.clicked() {
+                                        *hotbar_index = i;
+                                    }
+                                    if pointer_released && response.hovered() {
+                                        if let Some(item) = dragging_item.take() {
+                                            Self::apply_item_to_slot(
+                                                item,
+                                                i,
+                                                hotbar_blocks,
+                                                hotbar_model_ids,
+                                            );
+                                            *hotbar_index = i;
+                                        }
+                                    }
                                 }
                             });
+
+                            if pointer_released && dragging_item.is_some() {
+                                // Drop cancelled (released outside hotbar).
+                                *dragging_item = None;
+                            }
 
                             // Selected block name below hotbar
                             ui.vertical_centered(|ui| {
                                 ui.add_space(4.0);
                                 // For Model blocks, show the model type name
                                 let block_name = if selected_block == BlockType::Model {
-                                    match hotbar_model_ids[hotbar_index] {
+                                    match hotbar_model_ids[*hotbar_index] {
                                         1 => "Torch".to_string(),
                                         4..=19 => "Fence".to_string(),
                                         20..=23 => "Gate".to_string(),

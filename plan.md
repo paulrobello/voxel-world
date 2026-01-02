@@ -121,53 +121,53 @@ Support detailed 8³ voxel models within standard block space for furniture, fen
 ### Implementation Tasks
 
 #### 4.1 Sub-Voxel Data Structure
-- [ ] Define `SubVoxelModel` struct: 8³ voxel grid + palette
-- [ ] Palette-based coloring: 256 colors per model (1 byte per sub-voxel)
-- [ ] Model registry: HashMap<ModelId, SubVoxelModel>
-- [ ] Built-in models: torch, fence, chair, table, picture_frame
-- [ ] Model LOD: Full detail near, simplified far
+- [x] Define `SubVoxelModel` struct: 8³ voxel grid + 16-color palette (1 byte indices)
+- [x] Palette-based coloring: per-model RGBA palette packing
+- [x] Model registry: HashMap<ModelId, SubVoxelModel> with name lookups
+- [x] Built-in models: torch, slabs, fences/gates (connection variants), stairs, ladder (chair/table/picture_frame TBD)
+- [x] Model LOD: full detail within LOD radius, culled beyond
 
 #### 4.2 Block Metadata System
-- [ ] Extend block storage: BlockType + optional metadata
-- [ ] Metadata types: rotation, model_id, custom_data
-- [ ] Efficient storage: inline small data, heap for large
-- [ ] GPU upload strategy: separate texture for sub-voxel models
+- [x] Extend block storage: BlockType::Model + optional metadata
+- [x] Metadata types: `model_id` + `rotation` (custom data deferred)
+- [x] Efficient storage: sparse per-chunk map + cached RG8 buffer
+- [x] GPU upload strategy: separate model metadata texture + atlas packing
 
 #### 4.3 Shader Integration
-- [ ] Sub-voxel ray marching: refine hit position within block
-- [ ] Model texture atlas for sub-voxel palettes
-- [ ] LOD switching based on distance
-- [ ] Ambient occlusion for sub-voxel geometry
-- [ ] Shadow casting from sub-voxel shapes
+- [x] Sub-voxel ray marching for hit tests and shading
+- [x] Model voxel + palette atlases uploaded to GPU
+- [x] LOD switching based on distance for render and shadows
+- [ ] Ambient occlusion for sub-voxel geometry (still block-level AO)
+- [x] Shadow casting from sub-voxel shapes (fine marcher + mask fallback)
 
 #### 4.4 Collision Detection
-- [ ] Sub-voxel AABB for player collision
-- [ ] Per-model collision masks (some voxels non-solid)
+- [x] Sub-voxel collision masks/AABB for player collision
+- [x] Per-model collision masks (non-solid voxels supported)
 - [ ] Physics integration: falling sub-voxel objects
-- [ ] Raycasting through sub-voxel geometry
+- [x] Raycasting through sub-voxel geometry
 
 ### Technical Approach
 
 **Memory Layout:**
 ```rust
 struct SubVoxelModel {
-    voxels: [u8; 512],      // 8³ palette indices (0 = air)
-    palette: [Color; 256],   // RGBA colors
-    collision_mask: u64,     // 64-bit simplified collision
-    flags: ModelFlags,       // Transparent, emissive, etc.
+    voxels: [u8; 512],     // 8³ palette indices (0 = air)
+    palette: [Color; 16],  // 16-color RGBA palette
+    collision_mask: u64,   // 64-bit simplified collision
+    flags: ModelFlags,     // Transparent, emissive, etc.
 }
 
 struct BlockMetadata {
-    rotation: u8,            // 0-23 rotation states
-    model_id: u16,           // Reference to model registry
-    custom: u8,              // Block-specific data
+    rotation: u8,   // 0-3 rotation states (Y axis)
+    model_id: u8,   // Reference to model registry
+    custom: u8,     // Reserved for future block-specific data
 }
 ```
 
 **GPU Data:**
 - 3D texture for sub-voxel models (8×8×8 per slice)
-- Indirection buffer: block position → model slice
-- Palette texture: model_id → 256 colors
+- Model metadata texture (RG8) stores model_id + rotation per block
+- Palette texture: model_id → 16 colors
 
 ---
 

@@ -26,9 +26,9 @@ pub fn render_hud(
             render_mode: &mut sim.render_mode,
             current_hit: &ui.current_hit,
             selected_block,
-            hotbar_index: ui.hotbar_index,
-            hotbar_blocks: &ui.hotbar_blocks,
-            hotbar_model_ids: &ui.hotbar_model_ids,
+            hotbar_index: &mut ui.hotbar_index,
+            hotbar_blocks: &mut ui.hotbar_blocks,
+            hotbar_model_ids: &mut ui.hotbar_model_ids,
             minimap_image,
             atlas_texture_id: rcx.atlas_texture_id,
             camera_yaw,
@@ -42,6 +42,10 @@ pub fn render_hud(
             show_minimap: &mut ui.show_minimap,
             minimap: &mut ui.minimap,
             minimap_cached_image: &mut ui.minimap_cached_image,
+            palette_open: &mut ui.palette_open,
+            palette_tab: &mut ui.palette_tab,
+            dragging_item: &mut ui.dragging_item,
+            model_registry: &sim.model_registry,
         },
     )
 }

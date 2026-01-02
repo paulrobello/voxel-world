@@ -145,6 +145,21 @@ const DAY_CYCLE_DURATION: f32 = 120.0;
 /// 0.583 = 20:00 (8pm)
 const DEFAULT_TIME_OF_DAY: f32 = 0.583;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+enum PaletteTab {
+    #[default]
+    Blocks,
+    Models,
+    All,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct PaletteItem {
+    block: BlockType,
+    /// For non-Model blocks this is 0; for Model blocks this is the registry model_id.
+    model_id: u8,
+}
+
 /// Default blocks available in the hotbar (9 slots, keys 1-9)
 const DEFAULT_HOTBAR_BLOCKS: [BlockType; 9] = [
     BlockType::Stone,
@@ -346,6 +361,11 @@ struct UiState {
     minimap_last_update: Instant,
     minimap_last_yaw: f32,
 
+    palette_open: bool,
+    palette_tab: PaletteTab,
+    palette_previously_focused: bool,
+    dragging_item: Option<PaletteItem>,
+
     hotbar_index: usize,
     hotbar_blocks: [BlockType; 9],
     hotbar_model_ids: [u8; 9],
@@ -405,6 +425,43 @@ impl App {
     /// Returns the currently selected block from the hotbar.
     fn selected_block(&self) -> BlockType {
         self.ui.hotbar_blocks[self.ui.hotbar_index]
+    }
+
+    /// Move the player upward in small steps until no collision, to safely exit fly mode.
+    fn resolve_player_overlap(&mut self) {
+        let mut feet = self
+            .sim
+            .player
+            .feet_pos(self.sim.world_extent, self.sim.texture_origin);
+        for _ in 0..12 {
+            if !self
+                .sim
+                .player
+                .check_collision(feet, &self.sim.world, &self.sim.model_registry)
+            {
+                break;
+            }
+            feet.y += 0.25;
+        }
+        self.sim
+            .player
+            .set_feet_pos(feet, self.sim.world_extent, self.sim.texture_origin);
+    }
+
+    fn toggle_palette_panel(&mut self) {
+        self.ui.palette_open = !self.ui.palette_open;
+        if self.ui.palette_open {
+            self.ui.palette_previously_focused = self.input.focused;
+            self.input.focused = false;
+            self.input.pending_grab = Some(false);
+            macos_cursor::release_and_show();
+            self.ui.dragging_item = None;
+        } else if self.ui.palette_previously_focused {
+            self.input.focused = true;
+            self.input.pending_grab = Some(true);
+            macos_cursor::grab_and_hide();
+            self.ui.palette_previously_focused = false;
+        }
     }
 
     fn new(event_loop: &EventLoop<()>) -> Self {
@@ -631,6 +688,10 @@ impl App {
             minimap_last_pos: Vector3::new(i32::MAX, 0, i32::MAX),
             minimap_last_update: Instant::now(),
             minimap_last_yaw: f32::MAX,
+            palette_open: false,
+            palette_tab: PaletteTab::default(),
+            palette_previously_focused: false,
+            dragging_item: None,
             hotbar_index: 0,
             hotbar_blocks: DEFAULT_HOTBAR_BLOCKS,
             hotbar_model_ids: DEFAULT_HOTBAR_MODEL_IDS,
@@ -752,6 +813,17 @@ impl App {
 
         if self.handle_focus_toggles() {
             return;
+        }
+
+        self.handle_global_shortcuts();
+
+        if !self.ui.palette_open && self.ui.palette_previously_focused && !self.input.focused {
+            self.input.focused = true;
+            self.input.pending_grab = Some(true);
+            self.ui.palette_previously_focused = false;
+        }
+        if !self.ui.palette_open {
+            self.ui.dragging_item = None;
         }
 
         // Update day/night cycle

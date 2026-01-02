@@ -1,15 +1,29 @@
 use crate::App;
 use crate::chunk::BlockType;
+use nalgebra::Vector3;
 use winit::event::MouseButton;
 use winit::keyboard::KeyCode;
 
 impl App {
     /// Handle focus/unfocus toggles. Returns true if we should early-return from update.
     pub fn handle_focus_toggles(&mut self) -> bool {
+        // Close palette with Escape (restores focus if it was focused before opening)
+        if self.input.key_pressed(KeyCode::Escape) && self.ui.palette_open {
+            self.ui.palette_open = false;
+            self.ui.dragging_item = None;
+            if self.ui.palette_previously_focused {
+                self.input.focused = true;
+                self.input.pending_grab = Some(true);
+                self.ui.palette_previously_focused = false;
+            }
+            return true;
+        }
+
         // Handle escape to unfocus
         if self.input.key_pressed(KeyCode::Escape) && self.input.focused {
             self.input.focused = false;
             self.input.pending_grab = Some(false);
+            macos_cursor::release_and_show();
             println!("Unfocused - cursor will be released");
         }
 
@@ -18,6 +32,7 @@ impl App {
             println!("Focus click...");
             self.input.focused = true;
             self.input.pending_grab = Some(true);
+            macos_cursor::grab_and_hide();
             // Skip block breaking until mouse is released to avoid breaking on focus click
             self.ui.skip_break_until_release = true;
             println!("Focus complete - cursor will be grabbed");
@@ -107,15 +122,18 @@ impl App {
 
         // Toggle fly mode (F key)
         if self.input.key_pressed(KeyCode::KeyF) {
-            self.sim.player.fly_mode = !self.sim.player.fly_mode;
-            println!(
-                "Fly mode: {}",
-                if self.sim.player.fly_mode {
-                    "ON"
-                } else {
-                    "OFF"
-                }
-            );
+            let new_mode = !self.sim.player.fly_mode;
+            self.sim.player.fly_mode = new_mode;
+            if !new_mode {
+                // Dropping out of fly: clear any overlap and reset vertical velocity.
+                self.resolve_player_overlap();
+                self.sim.player.velocity.y = 0.0;
+                self.sim.player.on_ground = false;
+            } else {
+                // Entering fly: zero velocity to avoid lingering gravity impulses.
+                self.sim.player.velocity = Vector3::zeros();
+            }
+            println!("Fly mode: {}", if new_mode { "ON" } else { "OFF" });
         }
 
         // Toggle sprint mode (Left Control)
@@ -207,4 +225,25 @@ impl App {
             }
         }
     }
+
+    /// Hotkeys that should work even when gameplay focus is released.
+    pub fn handle_global_shortcuts(&mut self) {
+        if self.input.key_pressed(KeyCode::KeyE) {
+            self.toggle_palette_panel();
+        }
+
+        // Allow scrolling hotbar while palette is open (focus may be released)
+        if self.ui.palette_open {
+            let ds = self.input.scroll_diff();
+            if ds.1.abs() > 0.1 {
+                let len = self.ui.hotbar_blocks.len();
+                self.ui.hotbar_index = if ds.1 > 0.0 {
+                    (self.ui.hotbar_index + len - 1) % len
+                } else {
+                    (self.ui.hotbar_index + 1) % len
+                };
+            }
+        }
+    }
 }
+use crate::macos_cursor;

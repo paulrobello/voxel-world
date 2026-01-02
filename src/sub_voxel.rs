@@ -311,6 +311,9 @@ impl ModelRegistry {
 
         // ID 29: Ladder
         self.register(create_ladder());
+
+        // ID 30: Upside-down stairs
+        self.register(create_stairs_north_inverted());
     }
 
     /// Gets the model ID for a fence with the given connections.
@@ -384,6 +387,15 @@ impl ModelRegistry {
     /// Checks if a model ID is a ladder (ID 29).
     pub fn is_ladder_model(model_id: u8) -> bool {
         model_id == 29
+    }
+
+    /// Returns the model ID for the upside-down stairs.
+    pub fn stairs_inverted_model_id() -> u8 {
+        30
+    }
+
+    pub fn is_stairs_model(model_id: u8) -> bool {
+        model_id == 28 || model_id == 30
     }
 
     /// Checks if a model requires ground support (breaks if block below removed).

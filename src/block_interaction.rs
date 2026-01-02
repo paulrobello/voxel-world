@@ -332,11 +332,19 @@ impl App {
         }
 
         let block_to_place = self.selected_block();
+        let existing_block = self.sim.world.get_block(place_pos);
+
+        // Prevent placement on occupied blocks.
+        if let Some(existing) = existing_block {
+            if existing != BlockType::Air {
+                return false;
+            }
+        }
 
         // Handle model blocks specially - set both block type and metadata
         if block_to_place == BlockType::Model {
             let base_model_id = self.ui.hotbar_model_ids[self.ui.hotbar_index];
-            let rotation = 0u8;
+            let mut rotation = 0u8;
 
             // Determine final model_id based on type and connections
             let model_id = if ModelRegistry::is_fence_model(base_model_id)
@@ -420,7 +428,24 @@ impl App {
                     .set_model_block(place_pos, base_model_id, rotation);
                 return true;
             } else {
-                base_model_id
+                if base_model_id == 28 {
+                    // Stairs: face the player's look direction (nearest 90°)
+                    let yaw = self.sim.player.camera.rotation.y as f32;
+                    let rot = (yaw / std::f32::consts::FRAC_PI_2).round() as i32;
+                    rotation = ((rot + 2).rem_euclid(4)) as u8; // 180° so steps face the player
+                }
+
+                if base_model_id == 28 {
+                    let mut chosen = base_model_id;
+                    if let Some(hit) = self.ui.current_hit {
+                        if hit.normal.y < 0 {
+                            chosen = ModelRegistry::stairs_inverted_model_id();
+                        }
+                    }
+                    chosen
+                } else {
+                    base_model_id
+                }
             };
 
             self.sim

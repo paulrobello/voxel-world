@@ -189,6 +189,30 @@ pub fn create_stairs_north() -> SubVoxelModel {
     model
 }
 
+/// Creates an upside-down variant of the stairs (ceiling mounted).
+pub fn create_stairs_north_inverted() -> SubVoxelModel {
+    use crate::sub_voxel::SUB_VOXEL_SIZE;
+    let base = create_stairs_north();
+    let mut model = SubVoxelModel::new("stairs_north_inverted");
+    model.palette = base.palette;
+
+    for x in 0..SUB_VOXEL_SIZE {
+        for y in 0..SUB_VOXEL_SIZE {
+            for z in 0..SUB_VOXEL_SIZE {
+                let v = base.get_voxel(x, y, z);
+                if v != 0 {
+                    model.set_voxel(x, SUB_VOXEL_SIZE - 1 - y, z, v);
+                }
+            }
+        }
+    }
+
+    model.light_blocking = base.light_blocking;
+    model.rotatable = true;
+    model.compute_collision_mask();
+    model
+}
+
 /// Creates a ladder (thin vertical rungs against wall).
 pub fn create_ladder() -> SubVoxelModel {
     let mut model = SubVoxelModel::new("ladder");
