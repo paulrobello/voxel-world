@@ -1,5 +1,8 @@
 // Sun/sky lighting helpers and point lights
 
+// Opt-in shadow acceleration via specialization constant (default off for correctness)
+layout(constant_id = 0) const bool SHADOW_SKIP = false;
+
 // Helper: test whether a ray segment through a model block hits its sub-voxel geometry
 bool modelBlocksRay(vec3 rayOrigin, vec3 dir, ivec3 blockPos, uint model_id, uint rotation) {
     vec3 localOrigin = clamp(rayOrigin - vec3(blockPos), vec3(SUB_VOXEL_EPS), vec3(1.0 - SUB_VOXEL_EPS));
@@ -42,6 +45,38 @@ float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFl
     float totalDist = 0.0;
 
     for (int i = 0; i < 128; i++) {
+        // Optional coarse skipping: empty chunks/bricks
+        if (SHADOW_SKIP) {
+            ivec3 chunkPos = pos / int(CHUNK_SIZE);
+            if (isChunkEmpty(chunkPos)) {
+                vec3 chunkMin = vec3(chunkPos) * float(CHUNK_SIZE);
+                vec3 chunkMax = chunkMin + float(CHUNK_SIZE);
+                vec3 tExit = mix((chunkMin - rayPos) * inv_dir,
+                                 (chunkMax - rayPos) * inv_dir,
+                                 step(vec3(0.0), dir));
+                float minExit = min(min(tExit.x, tExit.y), tExit.z);
+                rayPos += dir * (minExit + 0.001);
+                pos = ivec3(floor(rayPos));
+                tMax = (vec3(pos) + 0.5 + 0.5 * vec3(step) - rayPos) * inv_dir;
+                totalDist += minExit;
+                continue;
+            }
+            if (isBrickEmpty(pos)) {
+                ivec3 brickWorldPos = getBrickWorldPos(pos);
+                vec3 brickMin = vec3(brickWorldPos);
+                vec3 brickMax = brickMin + float(BRICK_SIZE);
+                vec3 tExit = mix((brickMin - rayPos) * inv_dir,
+                                 (brickMax - rayPos) * inv_dir,
+                                 step(vec3(0.0), dir));
+                float minExit = min(min(tExit.x, tExit.y), tExit.z);
+                rayPos += dir * (minExit + 0.001);
+                pos = ivec3(floor(rayPos));
+                tMax = (vec3(pos) + 0.5 + 0.5 * vec3(step) - rayPos) * inv_dir;
+                totalDist += minExit;
+                continue;
+            }
+        }
+
         bool oob = !isInTextureBounds(pos);
         if (oob) {
             debugFlag = 7u; // out of loaded area = sky
