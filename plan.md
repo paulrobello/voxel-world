@@ -139,6 +139,7 @@ Support detailed 8³ voxel models within standard block space for furniture, fen
 - [x] LOD switching based on distance for render and shadows
 - [ ] Ambient occlusion for sub-voxel geometry (still block-level AO)
 - [x] Shadow casting from sub-voxel shapes (fine marcher + mask fallback)
+- [x] Shadow receiving tuned for slabs/models (fine march + offset, no skip)
 
 #### 4.4 Collision Detection
 - [x] Sub-voxel collision masks/AABB for player collision
