@@ -81,7 +81,15 @@ float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFl
     const float MAX_SHADOW_DIST = 256.0;
     float totalDist = 0.0;
     float maxAbsDir = max(abs(dir.x), max(abs(dir.y), abs(dir.z)));
-    int maxSteps = int(clamp(MAX_SHADOW_DIST * maxAbsDir + 4.0, 96.0, 256.0)); // angle-aware cap; higher when sun is low
+    // Angle-aware step budget: scale with both view angle and the distance needed to leave the loaded world.
+    vec3 worldMin = vec3(0.0);
+    vec3 worldMax = worldSize();
+    vec3 tExitWorld = mix((worldMin - rayPos) * inv_dir,
+                          (worldMax - rayPos) * inv_dir,
+                          step(vec3(0.0), dir));
+    float exitDist = min(min(tExitWorld.x, tExitWorld.y), tExitWorld.z);
+    float maxTravel = min(MAX_SHADOW_DIST, max(exitDist, 0.0));
+    int maxSteps = int(clamp(maxTravel * maxAbsDir + 4.0, 96.0, 256.0)); // 96–256 depending on sun elevation/world headroom
 
     for (int i = 0; i < maxSteps; i++) {
         // Optional coarse skipping: empty chunks/bricks
