@@ -20,3 +20,5 @@
 - Added shared `makeSafeDir`/`rayBoxHit` helper; removed unused brick/chunk distance helpers.
 - Split shader into includes: `shaders/common.glsl`, `accel.glsl`, `util.glsl`, `lighting.glsl`, `materials.glsl`, `overlays.glsl`; `traverse.comp` now holds traversal/sub-voxel + main.
 - `cargo build --release` succeeds after the split (no runtime fog).
+- Shadow rays now reuse chunk/brick skipping with adaptive step/distance caps to cut wasted iterations.
+- Water shading now uses a compact 3-octave FBM for flow/caustics/waves, reducing per-pixel noise calls.
