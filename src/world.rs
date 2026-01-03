@@ -776,9 +776,9 @@ impl World {
         if shape == StairShape::Straight {
             if let Some(ff) = front_neighbor {
                 if ff == left_dir {
-                    shape = StairShape::OuterRight;
-                } else if ff == right_dir {
                     shape = StairShape::OuterLeft;
+                } else if ff == right_dir {
+                    shape = StairShape::OuterRight;
                 }
             }
         }
@@ -1063,7 +1063,7 @@ mod tests {
 
         assert_eq!(data.model_id, expected_id, "Should form InnerLeft corner");
 
-        // Case 2: Outer Right Corner
+        // Case 2: Outer Left Corner (Previously Outer Right)
         // Me: Facing North (0 -> -Z) at (10,0,0)
         // Front Neighbor: At (10,0,-1) (North), Facing West (3 -> -X)
         world.set_model_block(vector![10, 0, 0], straight_id, 0); // North
@@ -1072,12 +1072,12 @@ mod tests {
         world.update_stair_shape_at(vector![10, 0, 0]);
 
         let data = world.get_model_data(vector![10, 0, 0]).unwrap();
-        // Expect OuterRight.
-        // Neighbor (West) -> Me (North).
-        // West -> North is Right Turn.
-        let expected_shape = StairShape::OuterRight;
+        // Expect OuterLeft.
+        // Neighbor(West) is Left of Facing(North).
+        // Wiki: Front Neighbor Facing Left -> Outer Left.
+        let expected_shape = StairShape::OuterLeft;
         let expected_id = ModelRegistry::stairs_model_id(expected_shape, false);
 
-        assert_eq!(data.model_id, expected_id, "Should form OuterRight corner");
+        assert_eq!(data.model_id, expected_id, "Should form OuterLeft corner");
     }
 }
