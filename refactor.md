@@ -28,12 +28,18 @@
 
 1. [x] **Refactor CPU Raycast**: Implement sub-voxel intersection in Rust.
 
-2. [ ] **Optimize Shaders**: Inject coarse mask checks in GLSL.
+2. [x] **Optimize Shaders**: Inject coarse mask checks in GLSL.
 
-3. [ ] **Cleanup**: Remove unused shader functions.
+3. [x] **Cleanup**: Remove unused shader functions.
 
 
 
 ## Completed today
 
 - [x] **Refactor CPU Raycast**: Accurate sub-voxel intersection on the CPU to match GPU rendering.
+
+- [x] **Optimize Shaders**: Improved sub-voxel traversal performance using 4x4x4 coarse bitmasks.
+
+- [x] **Cleanup**: Removed dead code from `traverse.comp`.
+
+

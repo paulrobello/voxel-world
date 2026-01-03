@@ -43,6 +43,49 @@ ivec3 rotateModelPos(ivec3 pos, uint rotation) {
     }
 }
 
+// Inverse-rotate a normal to match model rotation
+// Since positions are rotated CW, normals need to be rotated CCW (inverse) to get world-space normal
+vec3 inverseRotateNormal(vec3 n, uint rotation) {
+    switch (rotation) {
+        case 1u:  // Position was 90° CW, so normal needs 90° CCW
+            return vec3(n.z, n.y, -n.x);
+        case 2u:  // 180° inverse is 180°
+            return vec3(-n.x, n.y, -n.z);
+        case 3u:  // Position was 270° CW, so normal needs 270° CCW (= 90° CW)
+            return vec3(-n.z, n.y, n.x);
+        default:  // 0° (no rotation)
+            return n;
+    }
+}
+
+// Inverse-rotate a block-local position (0-1 range) back to model base orientation
+vec3 inverseRotatePosition(vec3 p, uint rotation) {
+    switch (rotation) {
+        case 1u: // 90° CW -> rotate 90° CCW around center
+            return vec3(1.0 - p.z, p.y, p.x);
+        case 2u: // 180°
+            return vec3(1.0 - p.x, p.y, 1.0 - p.z);
+        case 3u: // 270° CW -> rotate 90° CW
+            return vec3(p.z, p.y, 1.0 - p.x);
+        default:
+            return p;
+    }
+}
+
+// Inverse-rotate a direction vector back to model base orientation
+vec3 inverseRotateDirection(vec3 d, uint rotation) {
+    switch (rotation) {
+        case 1u:
+            return vec3(d.z, d.y, -d.x);
+        case 2u:
+            return vec3(-d.x, d.y, -d.z);
+        case 3u:
+            return vec3(-d.z, d.y, d.x);
+        default:
+            return d;
+    }
+}
+
 // Sample a model voxel with rotation and bounds checks.
 // Returns true if the rotated position is inside the model and non-empty.
 bool sampleModelFilled(uint model_id, ivec3 local_pos, uint rotation) {
@@ -132,49 +175,6 @@ bool modelMaskBlocksRay(vec3 origin, vec3 dir, uint model_id, uint rotation) {
         }
     }
     return false;
-}
-
-// Inverse-rotate a normal to match model rotation
-// Since positions are rotated CW, normals need to be rotated CCW (inverse) to get world-space normal
-vec3 inverseRotateNormal(vec3 n, uint rotation) {
-    switch (rotation) {
-        case 1u:  // Position was 90° CW, so normal needs 90° CCW
-            return vec3(n.z, n.y, -n.x);
-        case 2u:  // 180° inverse is 180°
-            return vec3(-n.x, n.y, -n.z);
-        case 3u:  // Position was 270° CW, so normal needs 270° CCW (= 90° CW)
-            return vec3(-n.z, n.y, n.x);
-        default:  // 0° (no rotation)
-            return n;
-    }
-}
-
-// Inverse-rotate a block-local position (0-1 range) back to model base orientation
-vec3 inverseRotatePosition(vec3 p, uint rotation) {
-    switch (rotation) {
-        case 1u: // 90° CW -> rotate 90° CCW around center
-            return vec3(1.0 - p.z, p.y, p.x);
-        case 2u: // 180°
-            return vec3(1.0 - p.x, p.y, 1.0 - p.z);
-        case 3u: // 270° CW -> rotate 90° CW
-            return vec3(p.z, p.y, 1.0 - p.x);
-        default:
-            return p;
-    }
-}
-
-// Inverse-rotate a direction vector back to model base orientation
-vec3 inverseRotateDirection(vec3 d, uint rotation) {
-    switch (rotation) {
-        case 1u:
-            return vec3(d.z, d.y, -d.x);
-        case 2u:
-            return vec3(-d.x, d.y, -d.z);
-        case 3u:
-            return vec3(-d.z, d.y, d.x);
-        default:
-            return d;
-    }
 }
 
 // Sub-voxel AO removed (no ambient occlusion applied to sub-voxel models).
