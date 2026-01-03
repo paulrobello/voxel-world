@@ -1,11 +1,13 @@
 use crate::block_update::BlockUpdateQueue;
 use crate::chunk::BlockType;
 use crate::config::Settings;
+use crate::editor::{EditorState, draw_editor_ui, draw_model_preview};
 use crate::gpu_resources::SpriteIcons;
 use crate::hud::Minimap;
 use crate::player::Player;
 use crate::raycast::RaycastHit;
 use crate::render_mode::RenderMode;
+use crate::storage::model_format::LibraryManager;
 use crate::sub_voxel::ModelRegistry;
 use crate::utils::ChunkStats;
 use crate::{PaletteItem, PaletteTab};
@@ -43,6 +45,7 @@ pub struct HudInputs<'a> {
     pub palette_tab: &'a mut PaletteTab,
     pub dragging_item: &'a mut Option<PaletteItem>,
     pub model_registry: &'a ModelRegistry,
+    pub editor: &'a mut EditorState,
 }
 
 pub struct HUDRenderer;
@@ -394,6 +397,7 @@ impl HUDRenderer {
             palette_tab,
             dragging_item,
             model_registry,
+            editor,
         } = input;
         let mut scale_changed = false;
         gui.immediate_ui(|gui| {
@@ -1235,6 +1239,14 @@ impl HUDRenderer {
                             });
                         });
                 });
+
+            // Draw editor UI if active
+            if editor.active {
+                let library = LibraryManager::new("user_models");
+                let _ = library.init();
+                draw_editor_ui(&ctx, editor, &library, "Player");
+                draw_model_preview(&ctx, editor);
+            }
         });
         scale_changed
     }
