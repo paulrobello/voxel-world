@@ -433,9 +433,10 @@ impl App {
                 return true;
             } else if ModelRegistry::is_stairs_model(base_model_id) {
                 // Stairs: determine rotation from player yaw
+                // Step (low side) faces toward player
                 let yaw = self.sim.player.camera.rotation.y as f32;
                 let rot = (yaw / std::f32::consts::FRAC_PI_2).round() as i32;
-                rotation = ((rot + 2).rem_euclid(4)) as u8; // face toward player (default MC placement)
+                rotation = ((rot + 2).rem_euclid(4)) as u8;
 
                 // Determine if inverted (ceiling) placement
                 let mut inverted = ModelRegistry::is_stairs_inverted(base_model_id);

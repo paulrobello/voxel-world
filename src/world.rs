@@ -748,37 +748,69 @@ impl World {
         let left_dir = Self::rotate_left(facing);
         let right_dir = Self::rotate_right(facing);
 
-        // Minecraft logic:
-        // Inner corner: Check neighbor BEHIND (pos - facing)
-        // Outer corner: Check neighbor IN FRONT (pos + facing)
-        let back_pos = pos - facing;
-        let front_pos = pos + facing;
+        // Minecraft wiki stair corner logic:
+        // - Inner corner: Our HALF-BLOCK (low/front) side adjacent to SIDE of another stair
+        // - Outer corner: Our FULL-BLOCK (high/back) side adjacent to SIDE of another stair
+        //
+        // facing = direction of LOW side, so:
+        //   front_pos (pos + facing) = toward our low side
+        //   back_pos (pos - facing) = toward our high side
+        let front_pos = pos + facing; // Low side direction - check for INNER corners
+        let back_pos = pos - facing; // High side direction - check for OUTER corners
 
-        let back_neighbor = self.stair_neighbor_facing(back_pos, inverted);
         let front_neighbor = self.stair_neighbor_facing(front_pos, inverted);
+        let back_neighbor = self.stair_neighbor_facing(back_pos, inverted);
 
         let mut shape = StairShape::Straight;
 
-        // 1. Inner Corner Check (Priority)
-        // If the stair behind is facing Left relative to us -> Inner Left
-        // If the stair behind is facing Right relative to us -> Inner Right
-        if let Some(bf) = back_neighbor {
-            if bf == left_dir {
+        // 1. Inner Corner Check (Priority) - check FRONT neighbor (at our low side)
+        // Neighbor faces our left → their back is to our right → InnerRight (void at front-right)
+        // Neighbor faces our right → their back is to our left → InnerLeft (void at front-left)
+        if let Some(ff) = front_neighbor {
+            if ff == left_dir {
                 shape = StairShape::InnerRight;
-            } else if bf == right_dir {
+            } else if ff == right_dir {
                 shape = StairShape::InnerLeft;
             }
         }
 
-        // 2. Outer Corner Check (Only if straight)
-        // If the stair in front is facing Left relative to us -> Outer Left
-        // If the stair in front is facing Right relative to us -> Outer Right
+        // 2. Outer Corner Check - check BACK neighbor (at our high side)
+        // If neighbor faces our left, their back is to our right → OuterLeft (elevated at back-left, toward neighbor's back)
+        // If neighbor faces our right, their back is to our left → OuterRight (elevated at back-right, toward neighbor's back)
         if shape == StairShape::Straight {
-            if let Some(ff) = front_neighbor {
-                if ff == left_dir {
+            if let Some(bf) = back_neighbor {
+                if bf == left_dir {
                     shape = StairShape::OuterLeft;
-                } else if ff == right_dir {
+                } else if bf == right_dir {
                     shape = StairShape::OuterRight;
+                }
+            }
+        }
+
+        // 3. Check LEFT neighbor - stair to our left that's perpendicular
+        // When neighbor's step faces away (our right_dir), their back faces toward us
+        // We need elevated quarter at back-left (toward the neighbor's back) → OuterLeft
+        if shape == StairShape::Straight {
+            let left_pos = pos + left_dir;
+            if let Some(lf) = self.stair_neighbor_facing(left_pos, inverted) {
+                if lf == right_dir {
+                    // Neighbor's back faces our left → OuterLeft (back-left elevated)
+                    shape = StairShape::OuterLeft;
+                } else if lf == -left_dir {
+                    shape = StairShape::InnerLeft;
+                }
+            }
+        }
+
+        // 4. Check RIGHT neighbor - stair to our right that's perpendicular
+        if shape == StairShape::Straight {
+            let right_pos = pos + right_dir;
+            if let Some(rf) = self.stair_neighbor_facing(right_pos, inverted) {
+                if rf == left_dir {
+                    // Neighbor's back faces our right → OuterRight (back-right elevated)
+                    shape = StairShape::OuterRight;
+                } else if rf == -right_dir {
+                    shape = StairShape::InnerRight;
                 }
             }
         }
@@ -802,18 +834,9 @@ impl World {
         }
     }
 
-    /// Recompute shape for a stair and its four horizontal neighbors (placement case).
+    /// Recompute shape for a newly placed stair (only the placed stair adapts, not neighbors).
     pub fn update_stair_and_neighbors(&mut self, pos: Vector3<i32>) {
         self.update_stair_shape_at(pos);
-        let neighbors = [
-            Vector3::new(1, 0, 0),
-            Vector3::new(-1, 0, 0),
-            Vector3::new(0, 0, 1),
-            Vector3::new(0, 0, -1),
-        ];
-        for n in neighbors {
-            self.update_stair_shape_at(pos + n);
-        }
     }
 
     /// Updates fence/gate connections for a position and its neighbors.
@@ -1041,43 +1064,267 @@ mod tests {
     }
 
     #[test]
-    fn test_stair_shapes() {
+    fn test_stair_shapes_front_back_neighbors() {
         use crate::sub_voxel::{ModelRegistry, StairShape};
         let mut world = World::new();
 
-        // Case 1: Inner Right Corner (Inverted Mapping)
-        // Me: Facing North (0 -> -Z) at (0,0,0)
-        // Back Neighbor: At (0,0,1) (South), Facing West (3 -> -X)
+        // Stair corner detection logic (Minecraft wiki):
+        // - Inner corner: Our LOW (half-block/step) side adjacent to SIDE of another stair
+        // - Outer corner: Our HIGH (full-block/back) side adjacent to SIDE of another stair
+        //
+        // Rotation 0: low side at -Z (front), high side at +Z (back), left_dir = -X, right_dir = +X
+        // Rotation 1: low side at +X, left_dir = -Z, right_dir = +Z
+        // Rotation 3: low side at -X, left_dir = +Z, right_dir = -Z
+
         let straight_id = ModelRegistry::stairs_model_id(StairShape::Straight, false);
-        world.set_model_block(vector![0, 0, 0], straight_id, 0); // North
-        world.set_model_block(vector![0, 0, 1], straight_id, 3); // West
+
+        // Case 1: OUTER corner - neighbor at our HIGH/back side, neighbor faces our left
+        // Our stair at (0,0,0): rotation 0 → facing (-Z), left_dir = (-X)
+        // Neighbor at (0,0,1): rotation 3 → facing (-X) = our left_dir
+        // back_neighbor == left_dir → OuterLeft (elevated at back-left)
+        world.set_model_block(vector![0, 0, 0], straight_id, 0);
+        world.set_model_block(vector![0, 0, 1], straight_id, 3);
 
         world.update_stair_shape_at(vector![0, 0, 0]);
 
         let data = world.get_model_data(vector![0, 0, 0]).unwrap();
-        // Expect InnerRight.
-        // Neighbor (West) is Left of Low.
-        // Logic: Left -> InnerRight.
-        let expected_shape = StairShape::InnerRight;
-        let expected_id = ModelRegistry::stairs_model_id(expected_shape, false);
+        let expected_id = ModelRegistry::stairs_model_id(StairShape::OuterLeft, false);
+        assert_eq!(
+            data.model_id, expected_id,
+            "Back neighbor facing left → OuterLeft"
+        );
 
-        assert_eq!(data.model_id, expected_id, "Should form InnerRight corner");
-
-        // Case 2: Outer Left Corner (Straight Mapping)
-        // Me: Facing North (0 -> -Z) at (10,0,0)
-        // Front Neighbor: At (10,0,-1) (North), Facing West (3 -> -X)
-        world.set_model_block(vector![10, 0, 0], straight_id, 0); // North
-        world.set_model_block(vector![10, 0, -1], straight_id, 3); // West
+        // Case 2: INNER corner - neighbor at our LOW/front side, neighbor faces our left
+        // Our stair at (10,0,0): rotation 0 → facing (-Z), left_dir = (-X)
+        // Neighbor at (10,0,-1): rotation 3 → facing (-X) = our left_dir
+        // front_neighbor == left_dir → InnerRight (void at front-right)
+        world.set_model_block(vector![10, 0, 0], straight_id, 0);
+        world.set_model_block(vector![10, 0, -1], straight_id, 3);
 
         world.update_stair_shape_at(vector![10, 0, 0]);
 
         let data = world.get_model_data(vector![10, 0, 0]).unwrap();
-        // Expect OuterLeft.
-        // Neighbor (West) is Left of Low.
-        // Logic: Left -> OuterLeft.
-        let expected_shape = StairShape::OuterLeft;
-        let expected_id = ModelRegistry::stairs_model_id(expected_shape, false);
+        let expected_id = ModelRegistry::stairs_model_id(StairShape::InnerRight, false);
+        assert_eq!(
+            data.model_id, expected_id,
+            "Front neighbor facing left → InnerRight"
+        );
 
-        assert_eq!(data.model_id, expected_id, "Should form OuterLeft corner");
+        // Case 3: INNER corner - neighbor at our LOW/front side, neighbor faces our right
+        // Our stair at (20,0,0): rotation 0 → facing (-Z), right_dir = (+X)
+        // Neighbor at (20,0,-1): rotation 1 → facing (+X) = our right_dir
+        // front_neighbor == right_dir → InnerLeft (void at front-left)
+        world.set_model_block(vector![20, 0, 0], straight_id, 0);
+        world.set_model_block(vector![20, 0, -1], straight_id, 1);
+
+        world.update_stair_shape_at(vector![20, 0, 0]);
+
+        let data = world.get_model_data(vector![20, 0, 0]).unwrap();
+        let expected_id = ModelRegistry::stairs_model_id(StairShape::InnerLeft, false);
+        assert_eq!(
+            data.model_id, expected_id,
+            "Front neighbor facing right → InnerLeft"
+        );
+
+        // Case 4: OUTER corner - neighbor at our HIGH/back side, neighbor faces our right
+        // Our stair at (30,0,0): rotation 0 → facing (-Z), right_dir = (+X)
+        // Neighbor at (30,0,1): rotation 1 → facing (+X) = our right_dir
+        // back_neighbor == right_dir → OuterRight (elevated at back-right)
+        world.set_model_block(vector![30, 0, 0], straight_id, 0);
+        world.set_model_block(vector![30, 0, 1], straight_id, 1);
+
+        world.update_stair_shape_at(vector![30, 0, 0]);
+
+        let data = world.get_model_data(vector![30, 0, 0]).unwrap();
+        let expected_id = ModelRegistry::stairs_model_id(StairShape::OuterRight, false);
+        assert_eq!(
+            data.model_id, expected_id,
+            "Back neighbor facing right → OuterRight"
+        );
+    }
+
+    #[test]
+    fn test_stair_shapes_left_right_neighbors() {
+        use crate::sub_voxel::{ModelRegistry, StairShape};
+        let mut world = World::new();
+
+        let straight_id = ModelRegistry::stairs_model_id(StairShape::Straight, false);
+
+        // Case 1: Left neighbor outer corner
+        // Our stair at (0,0,0): rotation 0 → facing (-Z), left_dir = (-X), right_dir = (+X)
+        // Left neighbor at (-1,0,0): rotation 1 → facing (+X) = our right_dir
+        // Left neighbor facing our right_dir → OuterLeft
+        world.set_model_block(vector![0, 0, 0], straight_id, 0);
+        world.set_model_block(vector![-1, 0, 0], straight_id, 1);
+
+        world.update_stair_shape_at(vector![0, 0, 0]);
+
+        let data = world.get_model_data(vector![0, 0, 0]).unwrap();
+        let expected_id = ModelRegistry::stairs_model_id(StairShape::OuterLeft, false);
+        assert_eq!(
+            data.model_id, expected_id,
+            "Left neighbor facing away → OuterLeft"
+        );
+
+        // Case 2: Right neighbor outer corner
+        // Our stair at (10,0,0): rotation 0 → facing (-Z), left_dir = (-X), right_dir = (+X)
+        // Right neighbor at (11,0,0): rotation 3 → facing (-X) = our left_dir
+        // Right neighbor facing our left_dir → OuterRight
+        world.set_model_block(vector![10, 0, 0], straight_id, 0);
+        world.set_model_block(vector![11, 0, 0], straight_id, 3);
+
+        world.update_stair_shape_at(vector![10, 0, 0]);
+
+        let data = world.get_model_data(vector![10, 0, 0]).unwrap();
+        let expected_id = ModelRegistry::stairs_model_id(StairShape::OuterRight, false);
+        assert_eq!(
+            data.model_id, expected_id,
+            "Right neighbor facing away → OuterRight"
+        );
+    }
+
+    #[test]
+    fn test_stair_shapes_parallel_neighbors_stay_straight() {
+        use crate::sub_voxel::{ModelRegistry, StairShape};
+        let mut world = World::new();
+
+        let straight_id = ModelRegistry::stairs_model_id(StairShape::Straight, false);
+
+        // Two stairs side by side facing the same direction should both stay straight
+        // Our stair at (0,0,0): rotation 0 (facing -Z)
+        // Neighbor at (1,0,0): rotation 0 (facing -Z) - parallel, not perpendicular
+        world.set_model_block(vector![0, 0, 0], straight_id, 0);
+        world.set_model_block(vector![1, 0, 0], straight_id, 0);
+
+        world.update_stair_shape_at(vector![0, 0, 0]);
+
+        let data = world.get_model_data(vector![0, 0, 0]).unwrap();
+        assert_eq!(
+            data.model_id, straight_id,
+            "Parallel neighbors should stay straight"
+        );
+
+        // Also test the other neighbor
+        world.update_stair_shape_at(vector![1, 0, 0]);
+        let data = world.get_model_data(vector![1, 0, 0]).unwrap();
+        assert_eq!(
+            data.model_id, straight_id,
+            "Parallel neighbors should stay straight"
+        );
+
+        // Test a row of 3 stairs all facing same direction
+        world.set_model_block(vector![10, 0, 0], straight_id, 0);
+        world.set_model_block(vector![11, 0, 0], straight_id, 0);
+        world.set_model_block(vector![12, 0, 0], straight_id, 0);
+
+        world.update_stair_shape_at(vector![11, 0, 0]); // Middle one
+        let data = world.get_model_data(vector![11, 0, 0]).unwrap();
+        assert_eq!(
+            data.model_id, straight_id,
+            "Middle of row should stay straight"
+        );
+    }
+
+    #[test]
+    fn test_stair_shapes_different_rotations() {
+        use crate::sub_voxel::{ModelRegistry, StairShape};
+        let mut world = World::new();
+
+        let straight_id = ModelRegistry::stairs_model_id(StairShape::Straight, false);
+
+        // Test with rotation 2 (facing +Z)
+        // Our stair at (0,0,0): rotation 2 → facing (+Z), left_dir = (+X), right_dir = (-X)
+        // Neighbor at (0,0,-1): this is at our HIGH/back side (opposite of +Z)
+        // Neighbor with rotation 1 → facing (+X) = our left_dir
+        // back_neighbor == left_dir → OuterLeft
+        world.set_model_block(vector![0, 0, 0], straight_id, 2);
+        world.set_model_block(vector![0, 0, -1], straight_id, 1);
+
+        world.update_stair_shape_at(vector![0, 0, 0]);
+
+        let data = world.get_model_data(vector![0, 0, 0]).unwrap();
+        let expected_id = ModelRegistry::stairs_model_id(StairShape::OuterLeft, false);
+        assert_eq!(
+            data.model_id, expected_id,
+            "Rotation 2 outer corner should work"
+        );
+
+        // Test with rotation 1 (facing +X)
+        // Our stair at (10,0,0): rotation 1 → facing (+X), left_dir = (-Z), right_dir = (+Z)
+        // Neighbor at (9,0,0): this is at our HIGH/back side (opposite of +X)
+        // Neighbor with rotation 0 → facing (-Z) = our left_dir
+        // back_neighbor == left_dir → OuterLeft
+        world.set_model_block(vector![10, 0, 0], straight_id, 1);
+        world.set_model_block(vector![9, 0, 0], straight_id, 0);
+
+        world.update_stair_shape_at(vector![10, 0, 0]);
+
+        let data = world.get_model_data(vector![10, 0, 0]).unwrap();
+        let expected_id = ModelRegistry::stairs_model_id(StairShape::OuterLeft, false);
+        assert_eq!(
+            data.model_id, expected_id,
+            "Rotation 1 outer corner should work"
+        );
+    }
+
+    #[test]
+    fn test_stair_inner_priority_over_outer() {
+        use crate::sub_voxel::{ModelRegistry, StairShape};
+        let mut world = World::new();
+
+        let straight_id = ModelRegistry::stairs_model_id(StairShape::Straight, false);
+
+        // When a stair has both front and back neighbors that could trigger corners,
+        // inner (front) takes priority over outer (back)
+        // Our stair at (0,0,0): rotation 0 → facing (-Z)
+        // Front neighbor at (0,0,-1): rotation 3 → facing (-X) = left_dir → InnerRight
+        // Back neighbor at (0,0,1): rotation 1 → facing (+X) = right_dir → would be OuterRight
+        // Inner should win
+        world.set_model_block(vector![0, 0, 0], straight_id, 0);
+        world.set_model_block(vector![0, 0, -1], straight_id, 3); // Front - triggers inner
+        world.set_model_block(vector![0, 0, 1], straight_id, 1); // Back - would trigger outer
+
+        world.update_stair_shape_at(vector![0, 0, 0]);
+
+        let data = world.get_model_data(vector![0, 0, 0]).unwrap();
+        let expected_id = ModelRegistry::stairs_model_id(StairShape::InnerRight, false);
+        assert_eq!(
+            data.model_id, expected_id,
+            "Inner corner takes priority over outer"
+        );
+    }
+
+    #[test]
+    fn test_stair_no_corner_with_opposite_facing() {
+        use crate::sub_voxel::{ModelRegistry, StairShape};
+        let mut world = World::new();
+
+        let straight_id = ModelRegistry::stairs_model_id(StairShape::Straight, false);
+
+        // Stairs facing opposite directions (180° apart) should not form corners
+        // Our stair at (0,0,0): rotation 0 (facing -Z)
+        // Neighbor at (0,0,1): rotation 2 (facing +Z) - directly opposite, not perpendicular
+        world.set_model_block(vector![0, 0, 0], straight_id, 0);
+        world.set_model_block(vector![0, 0, 1], straight_id, 2);
+
+        world.update_stair_shape_at(vector![0, 0, 0]);
+
+        let data = world.get_model_data(vector![0, 0, 0]).unwrap();
+        assert_eq!(
+            data.model_id, straight_id,
+            "Opposite facing neighbors stay straight"
+        );
+
+        // Same test for front neighbor with opposite facing
+        world.set_model_block(vector![10, 0, 0], straight_id, 0);
+        world.set_model_block(vector![10, 0, -1], straight_id, 2); // Facing toward us
+
+        world.update_stair_shape_at(vector![10, 0, 0]);
+
+        let data = world.get_model_data(vector![10, 0, 0]).unwrap();
+        assert_eq!(
+            data.model_id, straight_id,
+            "Opposite facing front neighbor stays straight"
+        );
     }
 }

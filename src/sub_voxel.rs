@@ -71,6 +71,16 @@ pub enum LightBlocking {
     Full,
 }
 
+/// Shape variants for stair models.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StairShape {
+    Straight,
+    InnerLeft,
+    InnerRight,
+    OuterLeft,
+    OuterRight,
+}
+
 /// A single sub-voxel model definition.
 ///
 /// Models are 8×8×8 voxel grids where each voxel is a palette index (0 = air).
@@ -314,6 +324,18 @@ impl ModelRegistry {
 
         // ID 30: Upside-down stairs
         self.register(create_stairs_north_inverted());
+
+        // ID 31-34: Inner/outer stairs (upright)
+        self.register(create_stairs_inner_left());
+        self.register(create_stairs_inner_right());
+        self.register(create_stairs_outer_left());
+        self.register(create_stairs_outer_right());
+
+        // ID 35-38: Inner/outer stairs (inverted)
+        self.register(create_stairs_inner_left_inverted());
+        self.register(create_stairs_inner_right_inverted());
+        self.register(create_stairs_outer_left_inverted());
+        self.register(create_stairs_outer_right_inverted());
     }
 
     /// Gets the model ID for a fence with the given connections.
@@ -394,8 +416,42 @@ impl ModelRegistry {
         30
     }
 
+    /// Returns true if model_id is any stair variant.
     pub fn is_stairs_model(model_id: u8) -> bool {
-        model_id == 28 || model_id == 30
+        (28..=38).contains(&model_id)
+    }
+
+    /// Returns true if the stair model is upside-down.
+    pub fn is_stairs_inverted(model_id: u8) -> bool {
+        matches!(model_id, 30 | 35 | 36 | 37 | 38)
+    }
+
+    /// Returns the shape for a stair model_id.
+    pub fn stairs_shape(model_id: u8) -> Option<StairShape> {
+        match model_id {
+            28 | 30 => Some(StairShape::Straight),
+            31 | 35 => Some(StairShape::InnerLeft),
+            32 | 36 => Some(StairShape::InnerRight),
+            33 | 37 => Some(StairShape::OuterLeft),
+            34 | 38 => Some(StairShape::OuterRight),
+            _ => None,
+        }
+    }
+
+    /// Returns the model ID for the requested stair shape and orientation.
+    pub fn stairs_model_id(shape: StairShape, inverted: bool) -> u8 {
+        match (shape, inverted) {
+            (StairShape::Straight, false) => 28,
+            (StairShape::Straight, true) => 30,
+            (StairShape::InnerLeft, false) => 31,
+            (StairShape::InnerLeft, true) => 35,
+            (StairShape::InnerRight, false) => 32,
+            (StairShape::InnerRight, true) => 36,
+            (StairShape::OuterLeft, false) => 33,
+            (StairShape::OuterLeft, true) => 37,
+            (StairShape::OuterRight, false) => 34,
+            (StairShape::OuterRight, true) => 38,
+        }
     }
 
     /// Checks if a model requires ground support (breaks if block below removed).

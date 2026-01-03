@@ -1,4 +1,28 @@
-use crate::sub_voxel::{Color, LightBlocking, SubVoxelModel};
+use crate::sub_voxel::{Color, LightBlocking, SUB_VOXEL_SIZE, SubVoxelModel};
+
+/// Creates an inverted (flipped on Y) copy of a model with a new name.
+fn inverted_copy(base: &SubVoxelModel, name: &str) -> SubVoxelModel {
+    let mut model = SubVoxelModel::new(name);
+    model.palette = base.palette;
+
+    for x in 0..SUB_VOXEL_SIZE {
+        for y in 0..SUB_VOXEL_SIZE {
+            for z in 0..SUB_VOXEL_SIZE {
+                let v = base.get_voxel(x, y, z);
+                if v != 0 {
+                    model.set_voxel(x, SUB_VOXEL_SIZE - 1 - y, z, v);
+                }
+            }
+        }
+    }
+
+    model.light_blocking = base.light_blocking;
+    model.rotatable = base.rotatable;
+    model.emission = base.emission;
+    model.requires_ground_support = base.requires_ground_support;
+    model.compute_collision_mask();
+    model
+}
 
 /// Creates an empty model (placeholder, id 0).
 pub fn create_empty() -> SubVoxelModel {
@@ -191,26 +215,8 @@ pub fn create_stairs_north() -> SubVoxelModel {
 
 /// Creates an upside-down variant of the stairs (ceiling mounted).
 pub fn create_stairs_north_inverted() -> SubVoxelModel {
-    use crate::sub_voxel::SUB_VOXEL_SIZE;
     let base = create_stairs_north();
-    let mut model = SubVoxelModel::new("stairs_north_inverted");
-    model.palette = base.palette;
-
-    for x in 0..SUB_VOXEL_SIZE {
-        for y in 0..SUB_VOXEL_SIZE {
-            for z in 0..SUB_VOXEL_SIZE {
-                let v = base.get_voxel(x, y, z);
-                if v != 0 {
-                    model.set_voxel(x, SUB_VOXEL_SIZE - 1 - y, z, v);
-                }
-            }
-        }
-    }
-
-    model.light_blocking = base.light_blocking;
-    model.rotatable = true;
-    model.compute_collision_mask();
-    model
+    inverted_copy(&base, "stairs_north_inverted")
 }
 
 /// Creates a ladder (thin vertical rungs against wall).
@@ -231,4 +237,124 @@ pub fn create_ladder() -> SubVoxelModel {
     model.requires_ground_support = true;
     model.compute_collision_mask();
     model
+}
+
+/// Creates an inner-corner stairs (concave), missing front-left quadrant (relative to facing).
+pub fn create_stairs_inner_left() -> SubVoxelModel {
+    let mut model = SubVoxelModel::new("stairs_inner_left");
+    model.palette[1] = Color::rgb(128, 128, 128); // Stone gray
+
+    // Bottom half solid
+    model.fill_box(0, 0, 0, 7, 3, 7, 1);
+
+    // Upper L: high where z>=4 OR x>=4 (concave interior) leaving front-left void
+    for z in 0..SUB_VOXEL_SIZE {
+        for y in 4..SUB_VOXEL_SIZE {
+            for x in 0..SUB_VOXEL_SIZE {
+                if x >= 4 || z >= 4 {
+                    model.set_voxel(x, y, z, 1);
+                }
+            }
+        }
+    }
+
+    model.light_blocking = LightBlocking::Partial;
+    model.rotatable = true;
+    model.compute_collision_mask();
+    model
+}
+
+/// Inner-corner stairs missing front-right quadrant (relative to facing).
+pub fn create_stairs_inner_right() -> SubVoxelModel {
+    let mut model = SubVoxelModel::new("stairs_inner_right");
+    model.palette[1] = Color::rgb(128, 128, 128); // Stone gray
+
+    // Bottom half solid
+    model.fill_box(0, 0, 0, 7, 3, 7, 1);
+
+    // Upper L: high where z>=4 OR x<=3 (mirror)
+    for z in 0..SUB_VOXEL_SIZE {
+        for y in 4..SUB_VOXEL_SIZE {
+            for x in 0..SUB_VOXEL_SIZE {
+                if x <= 3 || z >= 4 {
+                    model.set_voxel(x, y, z, 1);
+                }
+            }
+        }
+    }
+
+    model.light_blocking = LightBlocking::Partial;
+    model.rotatable = true;
+    model.compute_collision_mask();
+    model
+}
+
+/// Creates an outer-corner stairs (convex), filled back-left (relative to facing).
+pub fn create_stairs_outer_left() -> SubVoxelModel {
+    let mut model = SubVoxelModel::new("stairs_outer_left");
+    model.palette[1] = Color::rgb(128, 128, 128); // Stone gray
+
+    // Bottom half solid
+    model.fill_box(0, 0, 0, 7, 3, 7, 1);
+
+    // Upper quarter: only back-left corner (x<=3 AND z>=4)
+    for z in 4..SUB_VOXEL_SIZE {
+        for y in 4..SUB_VOXEL_SIZE {
+            for x in 0..=3 {
+                model.set_voxel(x, y, z, 1);
+            }
+        }
+    }
+
+    model.light_blocking = LightBlocking::Partial;
+    model.rotatable = true;
+    model.compute_collision_mask();
+    model
+}
+
+/// Creates an outer-corner stairs (convex), filled back-right (relative to facing).
+pub fn create_stairs_outer_right() -> SubVoxelModel {
+    let mut model = SubVoxelModel::new("stairs_outer_right");
+    model.palette[1] = Color::rgb(128, 128, 128); // Stone gray
+
+    // Bottom half solid
+    model.fill_box(0, 0, 0, 7, 3, 7, 1);
+
+    // Upper quarter: only back-right corner (x>=4 AND z>=4)
+    for z in 4..SUB_VOXEL_SIZE {
+        for y in 4..SUB_VOXEL_SIZE {
+            for x in 4..SUB_VOXEL_SIZE {
+                model.set_voxel(x, y, z, 1);
+            }
+        }
+    }
+
+    model.light_blocking = LightBlocking::Partial;
+    model.rotatable = true;
+    model.compute_collision_mask();
+    model
+}
+
+/// Inner-corner stairs flipped for ceiling placement (left).
+pub fn create_stairs_inner_left_inverted() -> SubVoxelModel {
+    let base = create_stairs_inner_left();
+    inverted_copy(&base, "stairs_inner_left_inverted")
+}
+
+/// Inner-corner stairs flipped for ceiling placement (right).
+pub fn create_stairs_inner_right_inverted() -> SubVoxelModel {
+    let base = create_stairs_inner_right();
+    inverted_copy(&base, "stairs_inner_right_inverted")
+}
+
+/// Outer-corner stairs flipped for ceiling placement (left).
+pub fn create_stairs_outer_left_inverted() -> SubVoxelModel {
+    let base = create_stairs_outer_left();
+    inverted_copy(&base, "stairs_outer_left_inverted")
+}
+
+/// Outer-corner stairs flipped for ceiling placement (right).
+pub fn create_stairs_outer_right_inverted() -> SubVoxelModel {
+    let base = create_stairs_outer_right();
+    inverted_copy(&base, "stairs_outer_right_inverted")
 }

@@ -1137,11 +1137,12 @@ impl HUDRenderer {
                                 let block_name = if selected_block == BlockType::Model {
                                     match hotbar_model_ids[*hotbar_index] {
                                         1 => "Torch".to_string(),
+                                        2 | 3 => "Slab".to_string(),
                                         4..=19 => "Fence".to_string(),
-                                        20..=23 => "Gate".to_string(),
-                                        24..=27 => "Gate (Open)".to_string(),
+                                        20..=27 => "Gate".to_string(),
                                         29 => "Ladder".to_string(),
-                                        _ => format!("{:?}", selected_block),
+                                        28 | 30..=38 => "Stairs".to_string(),
+                                        _ => "Model".to_string(),
                                     }
                                 } else {
                                     format!("{:?}", selected_block)
