@@ -206,6 +206,86 @@ impl LibraryManager {
     }
 }
 
+/// Persisted model registry for a world.
+/// Stores custom models (IDs >= first_custom_id) to models.dat.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct WorldModelStore {
+    pub version: u16,
+    /// The first model ID that is custom (built-ins have lower IDs).
+    pub first_custom_id: u8,
+    /// Custom models, stored in order. ID = first_custom_id + index.
+    pub models: Vec<VxmFile>,
+}
+
+impl WorldModelStore {
+    /// Creates an empty store with the given first custom ID.
+    pub fn new(first_custom_id: u8) -> Self {
+        Self {
+            version: 1,
+            first_custom_id,
+            models: Vec::new(),
+        }
+    }
+
+    /// Adds a model to the store. Returns the assigned ID.
+    pub fn add_model(&mut self, model: &SubVoxelModel, author: &str) -> u8 {
+        let id = self.first_custom_id + self.models.len() as u8;
+        self.models
+            .push(VxmFile::from_model(model, author.to_string()));
+        id
+    }
+
+    /// Gets a model by ID. Returns None if ID is out of range.
+    pub fn get_model(&self, id: u8) -> Option<SubVoxelModel> {
+        if id < self.first_custom_id {
+            return None;
+        }
+        let index = (id - self.first_custom_id) as usize;
+        self.models.get(index).map(|vxm| vxm.to_model())
+    }
+
+    /// Saves the store to models.dat in the given world directory.
+    pub fn save(&self, world_dir: &std::path::Path) -> io::Result<()> {
+        let path = world_dir.join("models.dat");
+        let file = File::create(path)?;
+        let writer = BufWriter::new(file);
+        bincode::serialize_into(writer, self).map_err(io::Error::other)?;
+        Ok(())
+    }
+
+    /// Loads the store from models.dat in the given world directory.
+    /// Returns None if the file doesn't exist.
+    pub fn load(world_dir: &std::path::Path) -> io::Result<Option<Self>> {
+        let path = world_dir.join("models.dat");
+        if !path.exists() {
+            return Ok(None);
+        }
+        let file = File::open(path)?;
+        let reader = BufReader::new(file);
+        let store: Self = bincode::deserialize_from(reader)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+        Ok(Some(store))
+    }
+
+    /// Returns an iterator over all models with their IDs.
+    pub fn iter(&self) -> impl Iterator<Item = (u8, SubVoxelModel)> + '_ {
+        self.models.iter().enumerate().map(|(i, vxm)| {
+            let id = self.first_custom_id + i as u8;
+            (id, vxm.to_model())
+        })
+    }
+
+    /// Returns the number of custom models.
+    pub fn len(&self) -> usize {
+        self.models.len()
+    }
+
+    /// Returns true if there are no custom models.
+    pub fn is_empty(&self) -> bool {
+        self.models.is_empty()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -248,5 +328,45 @@ mod tests {
         let loaded = manager.load_model("my_table").unwrap();
         assert_eq!(loaded.name, "my_table");
         assert_eq!(loaded.get_voxel(2, 2, 2), 5);
+    }
+
+    #[test]
+    fn test_world_model_store() {
+        let dir = tempdir().unwrap();
+
+        // Create store with first custom ID = 39 (after built-ins)
+        let mut store = WorldModelStore::new(39);
+
+        let mut model1 = SubVoxelModel::new("custom_chair");
+        model1.set_voxel(0, 0, 0, 1);
+
+        let mut model2 = SubVoxelModel::new("custom_lamp");
+        model2.set_voxel(1, 1, 1, 2);
+
+        let id1 = store.add_model(&model1, "Alice");
+        let id2 = store.add_model(&model2, "Bob");
+
+        assert_eq!(id1, 39);
+        assert_eq!(id2, 40);
+        assert_eq!(store.len(), 2);
+
+        // Save and reload
+        store.save(dir.path()).unwrap();
+        let loaded = WorldModelStore::load(dir.path()).unwrap().unwrap();
+
+        assert_eq!(loaded.first_custom_id, 39);
+        assert_eq!(loaded.len(), 2);
+
+        let m1 = loaded.get_model(39).unwrap();
+        assert_eq!(m1.name, "custom_chair");
+        assert_eq!(m1.get_voxel(0, 0, 0), 1);
+
+        let m2 = loaded.get_model(40).unwrap();
+        assert_eq!(m2.name, "custom_lamp");
+        assert_eq!(m2.get_voxel(1, 1, 1), 2);
+
+        // Out of range returns None
+        assert!(loaded.get_model(38).is_none());
+        assert!(loaded.get_model(41).is_none());
     }
 }

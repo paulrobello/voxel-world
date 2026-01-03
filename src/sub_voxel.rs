@@ -846,6 +846,39 @@ impl ModelRegistry {
     pub fn iter(&self) -> impl Iterator<Item = &SubVoxelModel> {
         self.models.iter()
     }
+
+    /// Returns the number of built-in models.
+    /// Custom models start at this ID.
+    pub fn builtin_count(&self) -> u8 {
+        // Built-in models are IDs 0-38 (39 total)
+        39
+    }
+
+    /// Loads custom models from a WorldModelStore.
+    /// Models are registered in order to preserve their IDs.
+    pub fn load_from_store(&mut self, store: &crate::storage::model_format::WorldModelStore) {
+        for (_id, model) in store.iter() {
+            self.register(model);
+        }
+    }
+
+    /// Creates a WorldModelStore containing all custom models.
+    /// Returns None if there are no custom models.
+    pub fn save_to_store(
+        &self,
+        author: &str,
+    ) -> Option<crate::storage::model_format::WorldModelStore> {
+        let first_custom = self.builtin_count();
+        if self.models.len() <= first_custom as usize {
+            return None;
+        }
+
+        let mut store = crate::storage::model_format::WorldModelStore::new(first_custom);
+        for model in &self.models[first_custom as usize..] {
+            store.add_model(model, author);
+        }
+        Some(store)
+    }
 }
 
 #[cfg(test)]

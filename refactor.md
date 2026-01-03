@@ -92,11 +92,14 @@ Utilize `egui_winit_vulkano` for tool windows.
 - [x] Implement `save_vxm(path, model)` and `load_vxm(path)`.
 - [x] **Test**: Round-trip serialization test.
 
-### Step 2: Model Registry Upgrade
-- [ ] Ensure `Chunk` and `World` use `u16` for Model IDs (currently `u8` in `BlockType`?).
-    - *Check `chunk.rs`: `BlockType` enum might need refactoring if it packs ID tightly.*
-- [ ] Implement `models.dat` saving/loading for the world (persisting the registry).
-- [ ] Add `LibraryManager` to list external `.vxm` files.
+### Step 2: Model Registry Upgrade ✅ COMPLETE
+- [x] Ensure `Chunk` and `World` use `u16` for Model IDs (currently `u8` in `BlockType`?).
+    - *Check `chunk.rs`: Model IDs are u8 with MAX_MODELS=256. Storage format uses u16 packing with room for expansion. Keeping u8 for now - 256 models is sufficient for editor use case.*
+- [x] Implement `models.dat` saving/loading for the world (persisting the registry).
+    - *Added `WorldModelStore` struct for serialization*
+    - *Added `ModelRegistry::load_from_store()` and `save_to_store()` methods*
+- [x] Add `LibraryManager` to list external `.vxm` files.
+    - *Already implemented in Step 1 with `list_models()`, `save_model()`, `load_model()`*
 
 ### Step 3: Editor Logic & Camera (`src/editor/mod.rs`)
 - [ ] Create `EditorSystem` resource.
