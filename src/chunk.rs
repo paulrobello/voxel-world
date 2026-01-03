@@ -395,13 +395,11 @@ impl Chunk {
         self.get_block(x, y, z).is_solid()
     }
 
-    /// Converts the chunk to bit-packed format for GPU upload.
+    /// Converts the chunk to bit-packed format.
     ///
-    /// This matches the format expected by the current traverse.comp shader:
-    /// - Each u128 represents a 4×4×8 block of voxels
-    /// - Each bit indicates whether a block is solid (1) or air (0)
-    ///
-    /// The output size is CHUNK_SIZE³ / 128 = 256 u128 values for a 32³ chunk.
+    /// LEGACY: This method is currently unused. The actual GPU acceleration structure
+    /// is built using the `svt` module (Sparse Voxel Tree), which generates a
+    /// 64-bit brick mask (split into two u32s) per chunk, not this u128 format.
     pub fn to_bit_packed(&self) -> Vec<u128> {
         let packed_size = CHUNK_VOLUME / 128;
         let mut packed = vec![0u128; packed_size];
