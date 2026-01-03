@@ -390,10 +390,17 @@ pub fn draw_model_preview(ctx: &egui::Context, editor: &mut EditorState) {
                 base_x.y * sin_yaw + base_z.y * cos_yaw,
             );
 
-            // Project isometric coordinates to screen
+            // Model center for rotation
+            let model_center = 4.0; // Center of 8x8x8 grid
+
+            // Project isometric coordinates to screen, rotating around model center
             let project = |x: f32, y: f32, z: f32| -> egui::Pos2 {
-                let offset = iso_x_rot * x + iso_z_rot * z + iso_y * y;
-                center + offset - egui::vec2(0.0, size * 0.25) // Center the grid
+                // Translate to center, then project
+                let cx = x - model_center;
+                let cy = y - model_center;
+                let cz = z - model_center;
+                let offset = iso_x_rot * cx + iso_z_rot * cz + iso_y * cy;
+                center + offset
             };
 
             // Draw floor grid (Y=0 plane) - these are clickable cells
@@ -426,6 +433,41 @@ pub fn draw_model_preview(ctx: &egui::Context, editor: &mut EditorState) {
                 }
             }
 
+            // Draw axis FIRST (behind voxels)
+            let origin = project(0.0, 0.0, 0.0);
+            let x_end = project(2.0, 0.0, 0.0);
+            let y_end = project(0.0, 2.0, 0.0);
+            let z_end = project(0.0, 0.0, 2.0);
+
+            painter.line_segment([origin, x_end], egui::Stroke::new(2.0, egui::Color32::RED));
+            painter.line_segment(
+                [origin, y_end],
+                egui::Stroke::new(2.0, egui::Color32::GREEN),
+            );
+            painter.line_segment([origin, z_end], egui::Stroke::new(2.0, egui::Color32::BLUE));
+
+            painter.text(
+                x_end + egui::vec2(5.0, 0.0),
+                egui::Align2::LEFT_CENTER,
+                "X",
+                egui::FontId::proportional(12.0),
+                egui::Color32::RED,
+            );
+            painter.text(
+                y_end + egui::vec2(0.0, -5.0),
+                egui::Align2::CENTER_BOTTOM,
+                "Y",
+                egui::FontId::proportional(12.0),
+                egui::Color32::GREEN,
+            );
+            painter.text(
+                z_end + egui::vec2(-5.0, 0.0),
+                egui::Align2::RIGHT_CENTER,
+                "Z",
+                egui::FontId::proportional(12.0),
+                egui::Color32::BLUE,
+            );
+
             // Collect voxels for depth-sorted rendering
             struct VoxelDraw {
                 x: usize,
@@ -441,8 +483,16 @@ pub fn draw_model_preview(ctx: &egui::Context, editor: &mut EditorState) {
                     for x in 0..SUB_VOXEL_SIZE {
                         let idx = editor.scratch_pad.get_voxel(x, y, z);
                         if idx != 0 {
-                            // Depth: further back = drawn first (painter's algorithm)
-                            let depth = -(x as f32) - (z as f32) + (y as f32) * 0.01;
+                            // Depth calculation accounting for rotation
+                            // View direction in world space after yaw rotation
+                            // At yaw=0, we look from (-1, -, -1) direction
+                            // Depth = projection onto view direction
+                            let xf = x as f32 - model_center;
+                            let zf = z as f32 - model_center;
+                            // Rotated depth: how far "back" is this voxel from current view
+                            let depth = -(xf * cos_yaw + zf * sin_yaw)
+                                - (zf * cos_yaw - xf * sin_yaw)
+                                + (y as f32) * 0.001;
                             voxels.push(VoxelDraw {
                                 x,
                                 y,
@@ -455,7 +505,7 @@ pub fn draw_model_preview(ctx: &egui::Context, editor: &mut EditorState) {
                 }
             }
 
-            // Sort by depth (back to front)
+            // Sort by depth (back to front - smaller depth drawn first)
             voxels.sort_by(|a, b| {
                 a.depth
                     .partial_cmp(&b.depth)
@@ -498,36 +548,34 @@ pub fn draw_model_preview(ctx: &egui::Context, editor: &mut EditorState) {
                 let outline =
                     egui::Stroke::new(0.5, egui::Color32::from_rgba_unmultiplied(0, 0, 0, 100));
 
-                // Top face (brightest) - always visible
+                // Top face (brightest) - always visible from above
                 painter.add(egui::Shape::convex_polygon(
                     vec![p010, p110, p111, p011],
                     top_color,
                     outline,
                 ));
 
-                // Determine which side faces are visible based on rotation
-                // Normalize yaw to 0..2*PI range
-                let yaw_norm = editor.orbit_yaw.rem_euclid(std::f32::consts::TAU);
+                // Determine which side faces are visible based on rotated axis directions
+                // A face is visible if its projected normal points "out of the screen"
+                // We can determine this by checking which direction each axis points on screen
 
-                // X+ face visible when yaw in roughly [-PI/2, PI/2] (front-right quadrant)
-                // X- face visible when yaw in roughly [PI/2, 3*PI/2] (back-left quadrant)
-                // Z+ face visible when yaw in roughly [0, PI] (front-left quadrant)
-                // Z- face visible when yaw in roughly [PI, 2*PI] (back-right quadrant)
+                // X axis: if it points right on screen (positive x), we see X+ face
+                // If it points left (negative x), we see X- face
+                let show_x_plus = iso_x_rot.x > 0.0;
 
-                let half_pi = std::f32::consts::FRAC_PI_2;
-                let three_half_pi = 3.0 * std::f32::consts::FRAC_PI_2;
+                // Z axis: if it points right on screen (positive x), we see Z+ face
+                // If it points left (negative x), we see Z- face
+                let show_z_plus = iso_z_rot.x > 0.0;
 
-                // X+ face (right side of cube)
-                if !(half_pi..=three_half_pi).contains(&yaw_norm) {
+                // X+ face (connects X=x+1 corners)
+                if show_x_plus {
                     painter.add(egui::Shape::convex_polygon(
                         vec![p100, p110, p111, p101],
                         right_color,
                         outline,
                     ));
-                }
-
-                // X- face (left side of cube)
-                if (half_pi..=three_half_pi).contains(&yaw_norm) {
+                } else {
+                    // X- face (connects X=x corners)
                     painter.add(egui::Shape::convex_polygon(
                         vec![p000, p001, p011, p010],
                         right_color,
@@ -535,17 +583,15 @@ pub fn draw_model_preview(ctx: &egui::Context, editor: &mut EditorState) {
                     ));
                 }
 
-                // Z+ face (front of cube)
-                if yaw_norm < std::f32::consts::PI {
+                // Z+ face (connects Z=z+1 corners)
+                if show_z_plus {
                     painter.add(egui::Shape::convex_polygon(
                         vec![p001, p011, p111, p101],
                         left_color,
                         outline,
                     ));
-                }
-
-                // Z- face (back of cube)
-                if yaw_norm > std::f32::consts::PI {
+                } else {
+                    // Z- face (connects Z=z corners)
                     painter.add(egui::Shape::convex_polygon(
                         vec![p000, p010, p110, p100],
                         left_color,
@@ -658,41 +704,6 @@ pub fn draw_model_preview(ctx: &egui::Context, editor: &mut EditorState) {
             if response.middle_clicked() {
                 editor.on_middle_click();
             }
-
-            // Draw axis labels
-            let origin = project(0.0, 0.0, 0.0);
-            let x_end = project(2.0, 0.0, 0.0);
-            let y_end = project(0.0, 2.0, 0.0);
-            let z_end = project(0.0, 0.0, 2.0);
-
-            painter.line_segment([origin, x_end], egui::Stroke::new(2.0, egui::Color32::RED));
-            painter.line_segment(
-                [origin, y_end],
-                egui::Stroke::new(2.0, egui::Color32::GREEN),
-            );
-            painter.line_segment([origin, z_end], egui::Stroke::new(2.0, egui::Color32::BLUE));
-
-            painter.text(
-                x_end + egui::vec2(5.0, 0.0),
-                egui::Align2::LEFT_CENTER,
-                "X",
-                egui::FontId::proportional(12.0),
-                egui::Color32::RED,
-            );
-            painter.text(
-                y_end + egui::vec2(0.0, -5.0),
-                egui::Align2::CENTER_BOTTOM,
-                "Y",
-                egui::FontId::proportional(12.0),
-                egui::Color32::GREEN,
-            );
-            painter.text(
-                z_end + egui::vec2(-5.0, 0.0),
-                egui::Align2::RIGHT_CENTER,
-                "Z",
-                egui::FontId::proportional(12.0),
-                egui::Color32::BLUE,
-            );
 
             // Info panel
             ui.separator();
