@@ -881,53 +881,55 @@ impl HUDRenderer {
                         }); // end ScrollArea
                 });
 
-            // Draw crosshair at screen center
+            // Draw crosshair at screen center (hide when editor is open)
             // Changes appearance when targeting a block
-            let screen_rect = ctx.screen_rect();
-            let center = screen_rect.center();
-            let painter = ctx.layer_painter(egui::LayerId::new(
-                egui::Order::Foreground,
-                egui::Id::new("crosshair"),
-            ));
+            if !editor.active {
+                let screen_rect = ctx.screen_rect();
+                let center = screen_rect.center();
+                let painter = ctx.layer_painter(egui::LayerId::new(
+                    egui::Order::Foreground,
+                    egui::Id::new("crosshair"),
+                ));
 
-            let targeting_block = current_hit.is_some();
-            let (crosshair_size, crosshair_gap, crosshair_color) = if targeting_block {
-                (12.0, 4.0, egui::Color32::from_rgb(100, 255, 100)) // Green, larger, with gap
-            } else {
-                (8.0, 0.0, egui::Color32::WHITE) // White, smaller, no gap
-            };
-            let stroke = egui::Stroke::new(2.0, crosshair_color);
+                let targeting_block = current_hit.is_some();
+                let (crosshair_size, crosshair_gap, crosshair_color) = if targeting_block {
+                    (12.0, 4.0, egui::Color32::from_rgb(100, 255, 100)) // Green, larger, with gap
+                } else {
+                    (8.0, 0.0, egui::Color32::WHITE) // White, smaller, no gap
+                };
+                let stroke = egui::Stroke::new(2.0, crosshair_color);
 
-            // Horizontal lines (with gap when targeting)
-            painter.line_segment(
-                [
-                    egui::pos2(center.x - crosshair_size, center.y),
-                    egui::pos2(center.x - crosshair_gap, center.y),
-                ],
-                stroke,
-            );
-            painter.line_segment(
-                [
-                    egui::pos2(center.x + crosshair_gap, center.y),
-                    egui::pos2(center.x + crosshair_size, center.y),
-                ],
-                stroke,
-            );
-            // Vertical lines (with gap when targeting)
-            painter.line_segment(
-                [
-                    egui::pos2(center.x, center.y - crosshair_size),
-                    egui::pos2(center.x, center.y - crosshair_gap),
-                ],
-                stroke,
-            );
-            painter.line_segment(
-                [
-                    egui::pos2(center.x, center.y + crosshair_gap),
-                    egui::pos2(center.x, center.y + crosshair_size),
-                ],
-                stroke,
-            );
+                // Horizontal lines (with gap when targeting)
+                painter.line_segment(
+                    [
+                        egui::pos2(center.x - crosshair_size, center.y),
+                        egui::pos2(center.x - crosshair_gap, center.y),
+                    ],
+                    stroke,
+                );
+                painter.line_segment(
+                    [
+                        egui::pos2(center.x + crosshair_gap, center.y),
+                        egui::pos2(center.x + crosshair_size, center.y),
+                    ],
+                    stroke,
+                );
+                // Vertical lines (with gap when targeting)
+                painter.line_segment(
+                    [
+                        egui::pos2(center.x, center.y - crosshair_size),
+                        egui::pos2(center.x, center.y - crosshair_gap),
+                    ],
+                    stroke,
+                );
+                painter.line_segment(
+                    [
+                        egui::pos2(center.x, center.y + crosshair_gap),
+                        egui::pos2(center.x, center.y + crosshair_size),
+                    ],
+                    stroke,
+                );
+            }
 
             // Minimap HUD (bottom-right)
             if *show_minimap {

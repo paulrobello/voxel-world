@@ -359,16 +359,40 @@ pub fn draw_model_preview(ctx: &egui::Context, editor: &mut EditorState) {
 
             // Isometric projection parameters
             let cell_size = size / 14.0;
-            let iso_x = egui::vec2(cell_size * 0.866, cell_size * 0.5); // cos(30), sin(30)
-            let iso_z = egui::vec2(-cell_size * 0.866, cell_size * 0.5); // -cos(30), sin(30)
             let iso_y = egui::vec2(0.0, -cell_size); // straight up
+
+            // Handle camera rotation with drag
+            if response.dragged_by(egui::PointerButton::Secondary)
+                || response.dragged_by(egui::PointerButton::Middle)
+            {
+                let delta = response.drag_delta();
+                editor.orbit_yaw += delta.x * 0.01;
+            }
 
             // Dark background
             painter.rect_filled(rect, egui::CornerRadius::ZERO, egui::Color32::from_gray(30));
 
+            // Calculate rotated isometric axes based on orbit_yaw
+            let cos_yaw = editor.orbit_yaw.cos();
+            let sin_yaw = editor.orbit_yaw.sin();
+
+            // Base isometric vectors (30 degree projection)
+            let base_x = egui::vec2(cell_size * 0.866, cell_size * 0.5);
+            let base_z = egui::vec2(-cell_size * 0.866, cell_size * 0.5);
+
+            // Rotate X and Z axes around Y (which points up on screen)
+            let iso_x_rot = egui::vec2(
+                base_x.x * cos_yaw - base_z.x * sin_yaw,
+                base_x.y * cos_yaw - base_z.y * sin_yaw,
+            );
+            let iso_z_rot = egui::vec2(
+                base_x.x * sin_yaw + base_z.x * cos_yaw,
+                base_x.y * sin_yaw + base_z.y * cos_yaw,
+            );
+
             // Project isometric coordinates to screen
             let project = |x: f32, y: f32, z: f32| -> egui::Pos2 {
-                let offset = iso_x * x + iso_z * z + iso_y * y;
+                let offset = iso_x_rot * x + iso_z_rot * z + iso_y * y;
                 center + offset - egui::vec2(0.0, size * 0.25) // Center the grid
             };
 
@@ -474,26 +498,60 @@ pub fn draw_model_preview(ctx: &egui::Context, editor: &mut EditorState) {
                 let outline =
                     egui::Stroke::new(0.5, egui::Color32::from_rgba_unmultiplied(0, 0, 0, 100));
 
-                // Top face (brightest)
+                // Top face (brightest) - always visible
                 painter.add(egui::Shape::convex_polygon(
                     vec![p010, p110, p111, p011],
                     top_color,
                     outline,
                 ));
 
-                // Left face (darkest)
-                painter.add(egui::Shape::convex_polygon(
-                    vec![p000, p010, p011, p001],
-                    left_color,
-                    outline,
-                ));
+                // Determine which side faces are visible based on rotation
+                // Normalize yaw to 0..2*PI range
+                let yaw_norm = editor.orbit_yaw.rem_euclid(std::f32::consts::TAU);
 
-                // Right face (medium)
-                painter.add(egui::Shape::convex_polygon(
-                    vec![p100, p101, p111, p110],
-                    right_color,
-                    outline,
-                ));
+                // X+ face visible when yaw in roughly [-PI/2, PI/2] (front-right quadrant)
+                // X- face visible when yaw in roughly [PI/2, 3*PI/2] (back-left quadrant)
+                // Z+ face visible when yaw in roughly [0, PI] (front-left quadrant)
+                // Z- face visible when yaw in roughly [PI, 2*PI] (back-right quadrant)
+
+                let half_pi = std::f32::consts::FRAC_PI_2;
+                let three_half_pi = 3.0 * std::f32::consts::FRAC_PI_2;
+
+                // X+ face (right side of cube)
+                if !(half_pi..=three_half_pi).contains(&yaw_norm) {
+                    painter.add(egui::Shape::convex_polygon(
+                        vec![p100, p110, p111, p101],
+                        right_color,
+                        outline,
+                    ));
+                }
+
+                // X- face (left side of cube)
+                if (half_pi..=three_half_pi).contains(&yaw_norm) {
+                    painter.add(egui::Shape::convex_polygon(
+                        vec![p000, p001, p011, p010],
+                        right_color,
+                        outline,
+                    ));
+                }
+
+                // Z+ face (front of cube)
+                if yaw_norm < std::f32::consts::PI {
+                    painter.add(egui::Shape::convex_polygon(
+                        vec![p001, p011, p111, p101],
+                        left_color,
+                        outline,
+                    ));
+                }
+
+                // Z- face (back of cube)
+                if yaw_norm > std::f32::consts::PI {
+                    painter.add(egui::Shape::convex_polygon(
+                        vec![p000, p010, p110, p100],
+                        left_color,
+                        outline,
+                    ));
+                }
             }
 
             // Handle mouse interaction
