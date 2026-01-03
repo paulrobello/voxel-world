@@ -8,8 +8,12 @@
 
 #![allow(dead_code)] // WIP: Full integration pending
 
+pub mod ui;
+
 use crate::sub_voxel::{Color, SUB_VOXEL_SIZE, SubVoxelModel};
 use nalgebra::Vector3;
+
+pub use ui::{draw_editor_ui, draw_model_preview};
 
 /// The currently selected editing tool.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

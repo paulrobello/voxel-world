@@ -19,6 +19,19 @@ impl App {
             return true;
         }
 
+        // Close editor with Escape (restores focus if it was focused before opening)
+        if self.input.key_pressed(KeyCode::Escape) && self.ui.editor.active {
+            self.ui.editor.active = false;
+            if self.ui.editor_previously_focused {
+                self.input.focused = true;
+                self.input.pending_grab = Some(true);
+                macos_cursor::grab_and_hide();
+                self.ui.editor_previously_focused = false;
+            }
+            println!("Model editor: OFF");
+            return true;
+        }
+
         // Handle escape to unfocus
         if self.input.key_pressed(KeyCode::Escape) && self.input.focused {
             self.input.focused = false;
@@ -232,6 +245,11 @@ impl App {
             self.toggle_palette_panel();
         }
 
+        // Toggle model editor (N key)
+        if self.input.key_pressed(KeyCode::KeyN) {
+            self.toggle_editor_panel();
+        }
+
         // Allow scrolling hotbar while palette is open (focus may be released)
         if self.ui.palette_open {
             let ds = self.input.scroll_diff();
@@ -243,6 +261,28 @@ impl App {
                     (self.ui.hotbar_index + 1) % len
                 };
             }
+        }
+    }
+
+    /// Toggles the model editor on/off.
+    fn toggle_editor_panel(&mut self) {
+        self.ui.editor.toggle();
+        if self.ui.editor.active {
+            // Opening editor: release cursor, store previous focus
+            self.ui.editor_previously_focused = self.input.focused;
+            self.input.focused = false;
+            self.input.pending_grab = Some(false);
+            macos_cursor::release_and_show();
+            println!("Model editor: ON");
+        } else {
+            // Closing editor: restore focus if we were focused before
+            if self.ui.editor_previously_focused {
+                self.input.focused = true;
+                self.input.pending_grab = Some(true);
+                macos_cursor::grab_and_hide();
+                self.ui.editor_previously_focused = false;
+            }
+            println!("Model editor: OFF");
         }
     }
 }

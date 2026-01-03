@@ -115,6 +115,7 @@ use crate::constants::{
     LOADED_CHUNKS_X, LOADED_CHUNKS_Z, TEXTURE_SIZE_X, TEXTURE_SIZE_Y, TEXTURE_SIZE_Z,
     UNLOAD_DISTANCE, VIEW_DISTANCE, WORLD_CHUNKS_Y,
 };
+use crate::editor::EditorState;
 use crate::falling_block::{FallingBlockSystem, GpuFallingBlock};
 use crate::gpu_resources::{
     GpuLight, PushConstants, create_empty_voxel_texture, get_brick_and_model_set,
@@ -417,6 +418,11 @@ struct UiState {
     fps: u32,
     total_frames: u64,
     screenshot_taken: bool,
+
+    /// In-game model editor state.
+    editor: EditorState,
+    /// Whether we were focused before opening the editor.
+    editor_previously_focused: bool,
 }
 
 struct InputState {
@@ -883,6 +889,8 @@ impl App {
             fps: 0,
             total_frames: 0,
             screenshot_taken: false,
+            editor: EditorState::new(),
+            editor_previously_focused: false,
         };
 
         let input = InputState {

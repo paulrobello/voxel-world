@@ -110,15 +110,20 @@ Utilize `egui_winit_vulkano` for tool windows.
     - *`raycast_voxel()` method with DDA algorithm*
     - *Returns voxel position and face normal for placement*
 
-### Step 4: UI Implementation
-- [ ] **Main Menu / HUD**: Add button or keybind ('M') to toggle editor.
-- [ ] **Egui Integration**:
-    - Palette Window: Color pickers.
-    - File Window: List box for `user_models`.
-- [ ] **Interaction**:
+### Step 4: UI Implementation ✅ COMPLETE
+- [x] **Main Menu / HUD**: Add keybind ('N') to toggle editor.
+    - *'N' key toggles editor on/off, Escape also closes*
+    - *EditorState added to UiState in main.rs*
+- [x] **Egui Integration**:
+    - Palette Window: 4x4 color grid with color picker.
+    - File Window: List box for `user_models/` with Load buttons.
+    - Tools Window: Pencil, Eraser, Eyedropper tools.
+    - Preview Window: 2D isometric projection of model.
+- [x] **Interaction** (planned for mouse integration):
     - Left Click: Place Voxel (Current Color).
     - Right Click: Remove Voxel.
     - Middle Click: Pick Color.
+- *Note: Full mouse interaction with 3D viewport pending - requires render pipeline changes.*
 
 ### Step 5: World Integration
 - [ ] "Place in World": When saving/exiting, update the `ModelRegistry` and place the block in the world at the player's previous target.

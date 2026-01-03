@@ -1,6 +1,8 @@
 use crate::chunk::BlockType;
+use crate::editor::{draw_editor_ui, draw_model_preview};
 use crate::gpu_resources::RenderContext;
 use crate::hud_render::{HUDRenderer, HudInputs};
+use crate::storage::model_format::LibraryManager;
 use crate::{UiState, WorldSim};
 use egui_winit_vulkano::egui;
 use nalgebra::Vector3;
@@ -15,7 +17,7 @@ pub fn render_hud(
     camera_yaw: f32,
     player_world_pos: Vector3<f64>,
 ) -> bool {
-    HUDRenderer.render(
+    let scale_changed = HUDRenderer.render(
         &mut rcx.gui,
         HudInputs {
             fps: ui.fps,
@@ -48,5 +50,19 @@ pub fn render_hud(
             dragging_item: &mut ui.dragging_item,
             model_registry: &sim.model_registry,
         },
-    )
+    );
+
+    // Render editor UI if active
+    if ui.editor.active {
+        rcx.gui.immediate_ui(|gui| {
+            let ctx = gui.context();
+            let library = LibraryManager::new("user_models");
+            let _ = library.init(); // Ensure directory exists
+
+            draw_editor_ui(&ctx, &mut ui.editor, &library, "Player");
+            draw_model_preview(&ctx, &ui.editor);
+        });
+    }
+
+    scale_changed
 }
