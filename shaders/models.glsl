@@ -75,14 +75,18 @@ void modelCollisionBounds(uint model_id, out vec3 minB, out vec3 maxB) {
 }
 
 // Quick coarse 4x4x4 mask ray test (block-local 0-1 space). Returns true on hit.
-bool modelMaskBlocksRay(vec3 origin, vec3 dir, uint model_id) {
+bool modelMaskBlocksRay(vec3 origin, vec3 dir, uint model_id, uint rotation) {
     ModelProperties props = model_properties[model_id];
     uint hi = props.collision_mask.y;
     uint lo = props.collision_mask.x;
 
+    // Transform ray to model space (inverse of model rotation)
+    vec3 modelOrigin = inverseRotatePosition(origin, rotation);
+    vec3 modelDir = inverseRotateDirection(dir, rotation);
+
     // Transform to 4x4x4 grid
-    vec3 pos = origin * 4.0;
-    vec3 safeDir = dir;
+    vec3 pos = modelOrigin * 4.0;
+    vec3 safeDir = modelDir;
     const float DIR_EPS = 1e-4;
     safeDir.x = (abs(safeDir.x) < DIR_EPS) ? (safeDir.x >= 0.0 ? DIR_EPS : -DIR_EPS) : safeDir.x;
     safeDir.y = (abs(safeDir.y) < DIR_EPS) ? (safeDir.y >= 0.0 ? DIR_EPS : -DIR_EPS) : safeDir.y;
@@ -341,6 +345,11 @@ bool marchSubVoxelShadow(
     uint rotation,
     int maxSteps
 ) {
+    // Early out using coarse mask
+    if (!modelMaskBlocksRay(origin, dir, model_id, rotation)) {
+        return false;
+    }
+
     // Clamp step budget to the maximum possible voxels we could traverse in 8^3 grid.
     int stepsLeft = clamp(maxSteps, 1, 24);
 

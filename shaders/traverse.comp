@@ -19,115 +19,6 @@ bool isBreakingBlock(ivec3 blockPos) {
            blockPos.z == pc.break_block_z;
 }
 
-// Find which sub-voxel is hit in a model block and output the hit sub-voxel position
-bool findSubVoxelHit(
-    vec3 origin,  // Ray origin in block-local 0-1 space
-    vec3 dir,
-    uint model_id,
-    uint rotation,
-    out ivec3 hitSubVoxel,
-    out vec3 hitNormal,
-    out float hitT
-) {
-    vec3 pos = origin * float(SUB_VOXEL_SIZE);
-
-    vec3 safeDir = makeSafeDir(dir);
-    vec3 invDir = 1.0 / safeDir;
-
-    vec3 tMin = (vec3(-SUB_VOXEL_EPS) - pos) * invDir;
-    vec3 tMax = (vec3(float(SUB_VOXEL_SIZE) + SUB_VOXEL_EPS) - pos) * invDir;
-
-    vec3 t1 = min(tMin, tMax);
-    vec3 t2 = max(tMin, tMax);
-
-    float tNear = max(max(t1.x, t1.y), t1.z);
-    float tFar = min(min(t2.x, t2.y), t2.z);
-
-    if (tNear > tFar || tFar < 0.0) {
-        return false;
-    }
-
-    uint entryAxis;
-    if (t1.x >= t1.y && t1.x >= t1.z) {
-        entryAxis = 0u;
-    } else if (t1.y >= t1.z) {
-        entryAxis = 1u;
-    } else {
-        entryAxis = 2u;
-    }
-
-    float startT = max(tNear, 0.0);
-    vec3 startPos = pos + dir * startT;
-    
-    startPos += safeDir * SUB_VOXEL_EPS;
-    startPos = clamp(startPos, vec3(1.5 * SUB_VOXEL_EPS), vec3(float(SUB_VOXEL_SIZE) - 1.5 * SUB_VOXEL_EPS));
-
-    ivec3 voxel = ivec3(floor(startPos));
-    voxel = clamp(voxel, ivec3(0), ivec3(int(SUB_VOXEL_SIZE) - 1));
-
-    ivec3 step = ivec3(sign(safeDir));
-    vec3 tDelta = abs(invDir);
-
-    vec3 tMaxAxis;
-    tMaxAxis.x = max(0.0, (step.x > 0) ? (float(voxel.x + 1) - startPos.x) * invDir.x
-                              : (step.x < 0) ? (startPos.x - float(voxel.x)) * (-invDir.x)
-                                             : 1e30);
-    tMaxAxis.y = max(0.0, (step.y > 0) ? (float(voxel.y + 1) - startPos.y) * invDir.y
-                              : (step.y < 0) ? (startPos.y - float(voxel.y)) * (-invDir.y)
-                                             : 1e30);
-    tMaxAxis.z = max(0.0, (step.z > 0) ? (float(voxel.z + 1) - startPos.z) * invDir.z
-                              : (step.z < 0) ? (startPos.z - float(voxel.z)) * (-invDir.z)
-                                             : 1e30);
-
-    uint stepped_axis = 0u;
-
-    for (int i = 0; i < 24; i++) {
-        if (any(lessThan(voxel, ivec3(0))) || any(greaterThanEqual(voxel, ivec3(int(SUB_VOXEL_SIZE))))) {
-            break;
-        }
-
-        ivec3 rotatedPos = rotateModelPos(voxel, rotation);
-        rotatedPos = clamp(rotatedPos, ivec3(0), ivec3(int(SUB_VOXEL_SIZE) - 1));
-        uint palette_idx = sampleModelVoxel(model_id, rotatedPos);
-
-        if (palette_idx != 0u) {
-            hitSubVoxel = voxel;
-            uint hitAxis = (i == 0) ? entryAxis : stepped_axis;
-            hitNormal = vec3(0.0);
-            hitNormal[hitAxis] = -float(step[hitAxis]);
-            hitNormal = inverseRotateNormal(hitNormal, rotation);
-            
-            float voxelDist = (i == 0) ? 0.0 : (tMaxAxis[stepped_axis] - tDelta[stepped_axis]);
-            hitT = (startT + voxelDist) / float(SUB_VOXEL_SIZE);
-            return true;
-        }
-
-        if (tMaxAxis.x < tMaxAxis.y) {
-            if (tMaxAxis.x < tMaxAxis.z) {
-                voxel.x += step.x;
-                tMaxAxis.x += tDelta.x;
-                stepped_axis = 0u;
-            } else {
-                voxel.z += step.z;
-                tMaxAxis.z += tDelta.z;
-                stepped_axis = 2u;
-            }
-        } else {
-            if (tMaxAxis.y < tMaxAxis.z) {
-                voxel.y += step.y;
-                tMaxAxis.y += tDelta.y;
-                stepped_axis = 1u;
-            } else {
-                voxel.z += step.z;
-                tMaxAxis.z += tDelta.z;
-                stepped_axis = 2u;
-            }
-        }
-    }
-
-    return false;
-}
-
 bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out float hitDistance) {
     hitDistance = FLT_MAX;
 
@@ -342,16 +233,19 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
             uint rotation = metadata.g & 3u;
 
             if (model_id > 0u && distToBlock < SUB_VOXEL_LOD_DISTANCE) {
-                vec3 subColor;
-                vec3 subNormal;
-                float subT;
                 vec3 dirNorm = normalize(dir);
-                if (marchSubVoxelModel(localEntry, dirNorm, model_id, rotation, subColor, subNormal, subT)) {
-                    subVoxelHit = true;
-                    subVoxelColor = subColor;
-                    subVoxelNormal = subNormal;
-                    subVoxelHitPos = vec3(coord) + localEntry + dirNorm * subT;
-                    break;
+                // Early out using coarse mask
+                if (modelMaskBlocksRay(localEntry, dirNorm, model_id, rotation)) {
+                    vec3 subColor;
+                    vec3 subNormal;
+                    float subT;
+                    if (marchSubVoxelModel(localEntry, dirNorm, model_id, rotation, subColor, subNormal, subT)) {
+                        subVoxelHit = true;
+                        subVoxelColor = subColor;
+                        subVoxelNormal = subNormal;
+                        subVoxelHitPos = vec3(coord) + localEntry + dirNorm * subT;
+                        break;
+                    }
                 }
             }
         }

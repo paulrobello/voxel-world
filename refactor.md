@@ -25,9 +25,15 @@
 - **Rotation Verification**: `rotateModelPos` and inverse functions in `shaders/models.glsl` are verified correct.
 
 #### Action Plan
-1. [ ] **Refactor CPU Raycast**: Implement sub-voxel intersection in Rust.
+
+1. [x] **Refactor CPU Raycast**: Implement sub-voxel intersection in Rust.
+
 2. [ ] **Optimize Shaders**: Inject coarse mask checks in GLSL.
+
 3. [ ] **Cleanup**: Remove unused shader functions.
 
+
+
 ## Completed today
-- _(cleared; ready for next batch)_
+
+- [x] **Refactor CPU Raycast**: Accurate sub-voxel intersection on the CPU to match GPU rendering.
