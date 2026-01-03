@@ -5,3 +5,15 @@
 
 # Local profiling output
 profile.csv
+
+# Python / virtualenvs
+.venv/
+venv/
+ENV/
+env/
+*.pyc
+__pycache__/
+*.pyo
+*.pyd
+.python-version
+.pytest_cache/
