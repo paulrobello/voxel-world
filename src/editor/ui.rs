@@ -318,71 +318,282 @@ pub enum EditorAction {
     ModelLoaded,
 }
 
-/// Draws the 3D model preview in the editor.
-/// This is a simple 2D representation of the 8x8x8 grid.
-pub fn draw_model_preview(ctx: &egui::Context, editor: &EditorState) {
+/// Draws the interactive 3D model editor viewport.
+/// Supports clicking to place/erase voxels and dragging to rotate view.
+pub fn draw_model_preview(ctx: &egui::Context, editor: &mut EditorState) {
     if !editor.active {
         return;
     }
 
-    // Center preview window
-    egui::Window::new("Preview")
-        .default_pos(egui::pos2(500.0, 100.0))
-        .default_size(egui::vec2(300.0, 300.0))
+    // 3D Viewport window
+    egui::Window::new("3D Viewport")
+        .default_pos(egui::pos2(270.0, 320.0))
+        .default_size(egui::vec2(400.0, 400.0))
+        .resizable(true)
         .show(ctx, |ui| {
             let available = ui.available_size();
-            let size = available.x.min(available.y).min(280.0);
-            let (rect, _response) =
-                ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::hover());
+            let size = available.x.min(available.y).max(200.0);
+            let (rect, response) =
+                ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::click_and_drag());
 
-            let painter = ui.painter();
+            let painter = ui.painter_at(rect);
+            let center = rect.center();
+            let scale = size / 16.0; // Scale factor for voxels
 
-            // Background
-            painter.rect_filled(rect, egui::CornerRadius::ZERO, egui::Color32::from_gray(30));
+            // Dark background
+            painter.rect_filled(rect, egui::CornerRadius::ZERO, egui::Color32::from_gray(25));
 
-            // Simple top-down view for now
-            let grid_offset = rect.min + egui::vec2(size * 0.1, size * 0.1);
-            let grid_cell = (size * 0.8) / SUB_VOXEL_SIZE as f32;
+            // Handle camera orbit with right-drag
+            if response.dragged_by(egui::PointerButton::Secondary) {
+                let delta = response.drag_delta();
+                editor.orbit_yaw += delta.x * 0.01;
+                editor.orbit_pitch = (editor.orbit_pitch + delta.y * 0.01).clamp(
+                    -std::f32::consts::FRAC_PI_2 + 0.1,
+                    std::f32::consts::FRAC_PI_2 - 0.1,
+                );
+            }
 
-            // Draw from back to front for proper layering
-            for y in (0..SUB_VOXEL_SIZE).rev() {
+            // Handle zoom with scroll
+            let scroll = ui.input(|i| i.raw_scroll_delta.y);
+            if scroll.abs() > 0.1 {
+                editor.orbit_distance = (editor.orbit_distance - scroll * 0.05).clamp(6.0, 24.0);
+            }
+
+            // Use orbit camera angles for projection
+            let cos_yaw = editor.orbit_yaw.cos();
+            let sin_yaw = editor.orbit_yaw.sin();
+            let cos_pitch = editor.orbit_pitch.cos();
+            let sin_pitch = editor.orbit_pitch.sin();
+
+            // Project a 3D point to 2D using current camera orientation
+            let project = |x: f32, y: f32, z: f32| -> egui::Pos2 {
+                // Center the model at origin
+                let cx = x - 4.0;
+                let cy = y - 4.0;
+                let cz = z - 4.0;
+
+                // Rotate around Y axis (yaw)
+                let rx = cx * cos_yaw - cz * sin_yaw;
+                let rz = cx * sin_yaw + cz * cos_yaw;
+
+                // Rotate around X axis (pitch)
+                let ry = cy * cos_pitch - rz * sin_pitch;
+                let _final_z = cy * sin_pitch + rz * cos_pitch;
+
+                // Simple perspective (orthographic for now)
+                let px = rx * scale;
+                let py = -ry * scale; // Flip Y for screen coords
+
+                egui::pos2(center.x + px, center.y + py)
+            };
+
+            // Draw grid floor (Y=0 plane) with lines
+            let grid_color = egui::Color32::from_rgba_unmultiplied(80, 80, 80, 100);
+            for i in 0..=SUB_VOXEL_SIZE {
+                let i_f = i as f32;
+                // X-axis lines
+                let p1 = project(i_f, 0.0, 0.0);
+                let p2 = project(i_f, 0.0, 8.0);
+                painter.line_segment([p1, p2], egui::Stroke::new(0.5, grid_color));
+                // Z-axis lines
+                let p1 = project(0.0, 0.0, i_f);
+                let p2 = project(8.0, 0.0, i_f);
+                painter.line_segment([p1, p2], egui::Stroke::new(0.5, grid_color));
+            }
+
+            // Draw bounding box edges
+            let box_color = egui::Color32::from_rgba_unmultiplied(100, 100, 100, 80);
+            let corners = [
+                (0.0, 0.0, 0.0),
+                (8.0, 0.0, 0.0),
+                (8.0, 8.0, 0.0),
+                (0.0, 8.0, 0.0),
+                (0.0, 0.0, 8.0),
+                (8.0, 0.0, 8.0),
+                (8.0, 8.0, 8.0),
+                (0.0, 8.0, 8.0),
+            ];
+            let edges = [
+                (0, 1),
+                (1, 2),
+                (2, 3),
+                (3, 0), // Front face
+                (4, 5),
+                (5, 6),
+                (6, 7),
+                (7, 4), // Back face
+                (0, 4),
+                (1, 5),
+                (2, 6),
+                (3, 7), // Connecting edges
+            ];
+            for (i, j) in edges {
+                let p1 = project(corners[i].0, corners[i].1, corners[i].2);
+                let p2 = project(corners[j].0, corners[j].1, corners[j].2);
+                painter.line_segment([p1, p2], egui::Stroke::new(0.5, box_color));
+            }
+
+            // Collect voxels with their depths for proper sorting
+            let mut voxels_to_draw: Vec<(f32, usize, usize, usize, u8)> = Vec::new();
+            for y in 0..SUB_VOXEL_SIZE {
                 for z in 0..SUB_VOXEL_SIZE {
                     for x in 0..SUB_VOXEL_SIZE {
                         let idx = editor.scratch_pad.get_voxel(x, y, z);
-                        if idx == 0 {
-                            continue;
+                        if idx != 0 {
+                            // Calculate depth for sorting (further = drawn first)
+                            let cx = x as f32 - 4.0;
+                            let cy = y as f32 - 4.0;
+                            let cz = z as f32 - 4.0;
+                            let rz = cx * sin_yaw + cz * cos_yaw;
+                            let depth = cy * sin_pitch + rz * cos_pitch;
+                            voxels_to_draw.push((depth, x, y, z, idx));
                         }
-
-                        let color = &editor.scratch_pad.palette[idx as usize];
-                        let egui_color = egui::Color32::from_rgba_unmultiplied(
-                            color.r, color.g, color.b, color.a,
-                        );
-
-                        // Simple 3D projection (isometric-like)
-                        let px = grid_offset.x + (x as f32 - z as f32 * 0.3) * grid_cell;
-                        let py = grid_offset.y + (z as f32 * 0.5 - y as f32 * 0.7) * grid_cell;
-
-                        let voxel_rect = egui::Rect::from_min_size(
-                            egui::pos2(px, py),
-                            egui::vec2(grid_cell * 0.9, grid_cell * 0.9),
-                        );
-
-                        painter.rect_filled(voxel_rect, egui::CornerRadius::ZERO, egui_color);
                     }
                 }
             }
 
-            // Draw grid border
-            painter.rect_stroke(
-                rect,
-                egui::CornerRadius::ZERO,
-                egui::Stroke::new(1.0, egui::Color32::from_gray(60)),
-                egui::StrokeKind::Inside,
+            // Sort by depth (furthest first)
+            voxels_to_draw
+                .sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+
+            // Draw voxels
+            let voxel_size = scale * 0.9;
+            for (_depth, x, y, z, idx) in voxels_to_draw {
+                let color = &editor.scratch_pad.palette[idx as usize];
+                let base_color =
+                    egui::Color32::from_rgba_unmultiplied(color.r, color.g, color.b, color.a);
+
+                // Draw as a small square at projected position
+                let p = project(x as f32 + 0.5, y as f32 + 0.5, z as f32 + 0.5);
+                let voxel_rect =
+                    egui::Rect::from_center_size(p, egui::vec2(voxel_size, voxel_size));
+                painter.rect_filled(voxel_rect, egui::CornerRadius::same(1), base_color);
+
+                // Subtle border for depth
+                painter.rect_stroke(
+                    voxel_rect,
+                    egui::CornerRadius::same(1),
+                    egui::Stroke::new(0.5, egui::Color32::from_rgba_unmultiplied(0, 0, 0, 100)),
+                    egui::StrokeKind::Outside,
+                );
+            }
+
+            // Handle mouse interaction for placing/erasing voxels
+            if let Some(pointer_pos) = response.interact_pointer_pos() {
+                // Convert screen position back to approximate voxel position
+                // This is a simplified hit test - find the closest grid cell at Y=0 first
+                let _rel_pos = pointer_pos - center;
+
+                // Reverse the projection (approximate)
+                // For a simpler approach, we'll project all potential voxel positions and find closest
+                let mut best_dist = f32::MAX;
+                let mut best_voxel: Option<(i32, i32, i32)> = None;
+
+                // Check existing voxels first (for erase/pick)
+                for y in 0..SUB_VOXEL_SIZE {
+                    for z in 0..SUB_VOXEL_SIZE {
+                        for x in 0..SUB_VOXEL_SIZE {
+                            let p = project(x as f32 + 0.5, y as f32 + 0.5, z as f32 + 0.5);
+                            let dist = (p - pointer_pos).length();
+                            if dist < best_dist && dist < scale * 1.5 {
+                                best_dist = dist;
+                                best_voxel = Some((x as i32, y as i32, z as i32));
+                            }
+                        }
+                    }
+                }
+
+                // Update hovered voxel
+                if let Some((x, y, z)) = best_voxel {
+                    editor.hovered_voxel = Some(nalgebra::Vector3::new(x, y, z));
+
+                    // Draw hover highlight
+                    let p = project(x as f32 + 0.5, y as f32 + 0.5, z as f32 + 0.5);
+                    let hover_rect = egui::Rect::from_center_size(
+                        p,
+                        egui::vec2(voxel_size * 1.2, voxel_size * 1.2),
+                    );
+                    painter.rect_stroke(
+                        hover_rect,
+                        egui::CornerRadius::same(2),
+                        egui::Stroke::new(2.0, egui::Color32::YELLOW),
+                        egui::StrokeKind::Outside,
+                    );
+                } else {
+                    editor.hovered_voxel = None;
+                }
+
+                // Handle clicks
+                if response.clicked() {
+                    editor.on_left_click();
+                }
+                if response.secondary_clicked() {
+                    editor.on_right_click();
+                }
+                if response.middle_clicked() {
+                    editor.on_middle_click();
+                }
+            } else {
+                editor.hovered_voxel = None;
+            }
+
+            // Draw axis indicators
+            let _axis_len = scale * 2.0;
+            let origin = project(0.0, 0.0, 0.0);
+            let x_end = project(2.0, 0.0, 0.0);
+            let y_end = project(0.0, 2.0, 0.0);
+            let z_end = project(0.0, 0.0, 2.0);
+
+            painter.line_segment([origin, x_end], egui::Stroke::new(2.0, egui::Color32::RED));
+            painter.line_segment(
+                [origin, y_end],
+                egui::Stroke::new(2.0, egui::Color32::GREEN),
+            );
+            painter.line_segment([origin, z_end], egui::Stroke::new(2.0, egui::Color32::BLUE));
+
+            painter.text(
+                x_end,
+                egui::Align2::LEFT_CENTER,
+                "X",
+                egui::FontId::proportional(10.0),
+                egui::Color32::RED,
+            );
+            painter.text(
+                y_end,
+                egui::Align2::CENTER_BOTTOM,
+                "Y",
+                egui::FontId::proportional(10.0),
+                egui::Color32::GREEN,
+            );
+            painter.text(
+                z_end,
+                egui::Align2::RIGHT_CENTER,
+                "Z",
+                egui::FontId::proportional(10.0),
+                egui::Color32::BLUE,
             );
 
-            // Hover info
-            if let Some(voxel) = editor.hovered_voxel {
-                ui.label(format!("Hover: ({}, {}, {})", voxel.x, voxel.y, voxel.z));
-            }
+            // Info panel below viewport
+            ui.separator();
+            ui.horizontal(|ui| {
+                if let Some(voxel) = editor.hovered_voxel {
+                    ui.label(format!("Pos: ({}, {}, {})", voxel.x, voxel.y, voxel.z));
+                    let idx = editor.scratch_pad.get_voxel(
+                        voxel.x as usize,
+                        voxel.y as usize,
+                        voxel.z as usize,
+                    );
+                    if idx > 0 {
+                        ui.label(format!("Color: {}", idx));
+                    } else {
+                        ui.label("(empty)");
+                    }
+                } else {
+                    ui.label("Hover over grid to select voxel");
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("Left: Place | Right: Erase | Middle: Pick | R-Drag: Rotate");
+            });
         });
 }

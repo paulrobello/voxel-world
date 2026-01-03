@@ -60,7 +60,7 @@ pub fn render_hud(
             let _ = library.init(); // Ensure directory exists
 
             draw_editor_ui(&ctx, &mut ui.editor, &library, "Player");
-            draw_model_preview(&ctx, &ui.editor);
+            draw_model_preview(&ctx, &mut ui.editor);
         });
     }
 
