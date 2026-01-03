@@ -9,6 +9,7 @@
 
 #![allow(dead_code)] // Some editor-facing APIs are still planned; rendering/interaction use this today.
 
+use nalgebra::Vector3;
 use std::collections::HashMap;
 
 /// Resolution of sub-voxel models (8×8×8).
@@ -238,6 +239,182 @@ impl SubVoxelModel {
 
         let bit = cx + cy * 4 + cz * 16;
         (self.collision_mask & (1u64 << bit)) != 0
+    }
+
+    /// Performs a DDA-based ray intersection test against this model.
+    ///
+    /// origin: ray origin in block-local coordinates (0-1)
+    /// dir: normalized ray direction
+    /// rotation: 0-3 for Y-axis rotation
+    /// Returns: Some(hit_distance) if hit, None otherwise
+    pub fn ray_intersects(
+        &self,
+        origin: Vector3<f32>,
+        dir: Vector3<f32>,
+        rotation: u8,
+    ) -> Option<(f32, Vector3<i32>)> {
+        fn rotate_pos(pos: Vector3<i32>, rotation: u8) -> Vector3<i32> {
+            let cx = 4;
+            let px = pos.x - cx;
+            let pz = pos.z - cx;
+            match rotation & 3 {
+                1 => Vector3::new(cx - pz - 1, pos.y, cx + px),
+                2 => Vector3::new(cx - px - 1, pos.y, cx - pz - 1),
+                3 => Vector3::new(cx + pz, pos.y, cx - px - 1),
+                _ => pos,
+            }
+        }
+
+        fn inverse_rotate_normal(n: Vector3<i32>, rotation: u8) -> Vector3<i32> {
+            match rotation & 3 {
+                1 => Vector3::new(n.z, n.y, -n.x),
+                2 => Vector3::new(-n.x, n.y, -n.z),
+                3 => Vector3::new(-n.z, n.y, n.x),
+                _ => n,
+            }
+        }
+
+        // Scale to sub-voxel coordinates (0-8)
+        let pos = origin * SUB_VOXEL_SIZE as f32;
+
+        // Avoid division by zero
+        let safe_dir = Vector3::new(
+            if dir.x.abs() < 1e-6 {
+                1e-6 * dir.x.signum()
+            } else {
+                dir.x
+            },
+            if dir.y.abs() < 1e-6 {
+                1e-6 * dir.y.signum()
+            } else {
+                dir.y
+            },
+            if dir.z.abs() < 1e-6 {
+                1e-6 * dir.z.signum()
+            } else {
+                dir.z
+            },
+        );
+        let inv_dir = Vector3::new(1.0 / safe_dir.x, 1.0 / safe_dir.y, 1.0 / safe_dir.z);
+
+        // Calculate entry/exit t for the 0-8 cube
+        let t_min_v = (Vector3::new(-0.001, -0.001, -0.001) - pos).component_mul(&inv_dir);
+        let t_max_v = (Vector3::new(8.001, 8.001, 8.001) - pos).component_mul(&inv_dir);
+
+        let t1 = Vector3::new(
+            t_min_v.x.min(t_max_v.x),
+            t_min_v.y.min(t_max_v.y),
+            t_min_v.z.min(t_max_v.z),
+        );
+        let t2 = Vector3::new(
+            t_min_v.x.max(t_max_v.x),
+            t_min_v.y.max(t_max_v.y),
+            t_min_v.z.max(t_max_v.z),
+        );
+
+        let t_near = t1.x.max(t1.y).max(t1.z);
+        let t_far = t2.x.min(t2.y).min(t2.z);
+
+        if t_near > t_far || t_far < 0.0 {
+            return None;
+        }
+
+        let entry_axis = if t1.x >= t1.y && t1.x >= t1.z {
+            0
+        } else if t1.y >= t1.z {
+            1
+        } else {
+            2
+        };
+
+        let start_t = t_near.max(0.0);
+        let mut current_pos = pos + safe_dir * start_t;
+        current_pos += safe_dir * 0.001; // nudge
+        current_pos = current_pos.map(|v| v.clamp(0.001, 7.999));
+
+        let mut voxel = Vector3::new(
+            current_pos.x.floor() as i32,
+            current_pos.y.floor() as i32,
+            current_pos.z.floor() as i32,
+        );
+        let step = safe_dir.map(|v| if v >= 0.0 { 1 } else { -1 });
+        let t_delta = inv_dir.map(|v| v.abs());
+
+        let mut t_max = Vector3::new(
+            if step.x > 0 {
+                (voxel.x + 1) as f32 - current_pos.x
+            } else {
+                current_pos.x - voxel.x as f32
+            }
+            .abs()
+                * t_delta.x,
+            if step.y > 0 {
+                (voxel.y + 1) as f32 - current_pos.y
+            } else {
+                current_pos.y - voxel.y as f32
+            }
+            .abs()
+                * t_delta.y,
+            if step.z > 0 {
+                (voxel.z + 1) as f32 - current_pos.z
+            } else {
+                current_pos.z - voxel.z as f32
+            }
+            .abs()
+                * t_delta.z,
+        );
+
+        let mut stepped_axis = entry_axis;
+
+        for i in 0..24 {
+            if voxel.x < 0
+                || voxel.x >= 8
+                || voxel.y < 0
+                || voxel.y >= 8
+                || voxel.z < 0
+                || voxel.z >= 8
+            {
+                break;
+            }
+
+            let rotated = rotate_pos(voxel, rotation);
+            if self.get_voxel(rotated.x as usize, rotated.y as usize, rotated.z as usize) != 0 {
+                let hit_axis = if i == 0 { entry_axis } else { stepped_axis };
+                let mut normal = Vector3::zeros();
+                normal[hit_axis] = -step[hit_axis];
+                let world_normal = inverse_rotate_normal(normal, rotation);
+
+                let voxel_dist = if i == 0 {
+                    0.0
+                } else {
+                    t_max[stepped_axis] - t_delta[stepped_axis]
+                };
+                let t = (start_t + voxel_dist) / 8.0;
+                return Some((t, world_normal));
+            }
+
+            if t_max.x < t_max.y {
+                if t_max.x < t_max.z {
+                    voxel.x += step.x;
+                    stepped_axis = 0;
+                    t_max.x += t_delta.x;
+                } else {
+                    voxel.z += step.z;
+                    stepped_axis = 2;
+                    t_max.z += t_delta.z;
+                }
+            } else if t_max.y < t_max.z {
+                voxel.y += step.y;
+                stepped_axis = 1;
+                t_max.y += t_delta.y;
+            } else {
+                voxel.z += step.z;
+                stepped_axis = 2;
+                t_max.z += t_delta.z;
+            }
+        }
+
+        None
     }
 
     /// Packs palette for GPU upload (64 bytes = 16 × RGBA).

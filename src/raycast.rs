@@ -3,6 +3,8 @@
 //! This module provides DDA (Digital Differential Analyzer) based
 //! raycasting to find which block the player is looking at.
 
+use crate::chunk::BlockType;
+use crate::sub_voxel::ModelRegistry;
 use crate::world::World;
 use nalgebra::Vector3;
 
@@ -26,11 +28,13 @@ pub struct RaycastHit {
 ///
 /// # Arguments
 /// * `world` - The voxel world to raycast through
+/// * `model_registry` - Registry to look up sub-voxel models
 /// * `origin` - Starting position of the ray (in world coordinates)
 /// * `direction` - Direction of the ray (will be normalized)
 /// * `max_distance` - Maximum distance to search
 pub fn raycast(
     world: &World,
+    model_registry: &ModelRegistry,
     origin: Vector3<f32>,
     direction: Vector3<f32>,
     max_distance: f32,
@@ -119,11 +123,33 @@ pub fn raycast(
         // Check if current voxel is targetable (includes solid blocks and model blocks)
         if let Some(block) = world.get_block(pos) {
             if block.is_targetable() {
-                return Some(RaycastHit {
-                    block_pos: pos,
-                    normal,
-                    distance,
-                });
+                if block == BlockType::Model {
+                    if let Some(data) = world.get_model_data(pos) {
+                        if let Some(model) = model_registry.get(data.model_id) {
+                            // Calculate entry point into this block
+                            let local_origin = origin + dir * distance - pos.map(|v| v as f32);
+                            // Nudge slightly inside to avoid boundary issues
+                            let nudged_origin = local_origin.map(|v| v.clamp(0.0, 1.0));
+
+                            if let Some((sub_t, sub_normal)) =
+                                model.ray_intersects(nudged_origin, dir, data.rotation)
+                            {
+                                return Some(RaycastHit {
+                                    block_pos: pos,
+                                    normal: sub_normal,
+                                    distance: distance + sub_t,
+                                });
+                            }
+                        }
+                    }
+                    // If no model hit, continue through the block
+                } else {
+                    return Some(RaycastHit {
+                        block_pos: pos,
+                        normal,
+                        distance,
+                    });
+                }
             }
         }
 
@@ -184,12 +210,13 @@ mod tests {
     #[test]
     fn test_raycast_hit_floor() {
         let world = create_test_world();
+        let registry = ModelRegistry::new();
 
         // Cast ray straight down
         let origin = Vector3::new(5.5, 10.0, 5.5);
         let direction = Vector3::new(0.0, -1.0, 0.0);
 
-        let hit = raycast(&world, origin, direction, 20.0);
+        let hit = raycast(&world, &registry, origin, direction, 20.0);
         assert!(hit.is_some());
 
         let hit = hit.unwrap();
@@ -201,12 +228,13 @@ mod tests {
     #[test]
     fn test_raycast_miss() {
         let world = create_test_world();
+        let registry = ModelRegistry::new();
 
         // Cast ray that misses everything
         let origin = Vector3::new(100.0, 100.0, 100.0);
         let direction = Vector3::new(1.0, 0.0, 0.0);
 
-        let hit = raycast(&world, origin, direction, 20.0);
+        let hit = raycast(&world, &registry, origin, direction, 20.0);
         assert!(hit.is_none());
     }
 
@@ -225,12 +253,13 @@ mod tests {
     #[test]
     fn test_raycast_diagonal() {
         let world = create_test_world();
+        let registry = ModelRegistry::new();
 
         // Cast ray diagonally toward the floor
         let origin = Vector3::new(0.5, 5.0, 0.5);
         let direction = Vector3::new(0.1, -1.0, 0.1).normalize();
 
-        let hit = raycast(&world, origin, direction, 20.0);
+        let hit = raycast(&world, &registry, origin, direction, 20.0);
         assert!(hit.is_some());
 
         let hit = hit.unwrap();

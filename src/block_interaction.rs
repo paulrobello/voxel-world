@@ -18,7 +18,13 @@ impl App {
             .cast::<f32>();
         let direction = self.sim.player.camera_direction().cast::<f32>();
 
-        self.ui.current_hit = raycast(&self.sim.world, origin, direction, MAX_RAYCAST_DISTANCE);
+        self.ui.current_hit = raycast(
+            &self.sim.world,
+            &self.sim.model_registry,
+            origin,
+            direction,
+            MAX_RAYCAST_DISTANCE,
+        );
     }
 
     pub fn update_block_breaking(&mut self, delta_time: f32, holding_break: bool) -> bool {
