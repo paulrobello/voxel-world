@@ -1,10 +1,9 @@
 use crate::chunk::{BlockType, CHUNK_SIZE, CHUNK_VOLUME};
 use crate::config::Args;
 use crate::gpu_resources::{
-    create_empty_voxel_texture, get_brick_and_model_set, get_chunk_metadata_set,
+    PushConstants, create_empty_voxel_texture, get_brick_and_model_set, get_chunk_metadata_set,
     get_distance_image_and_set, get_images_and_sets, get_light_set,
     get_particle_and_falling_block_set, load_texture_atlas, save_screenshot, upload_chunks_batched,
-    PushConstants,
 };
 use crate::hot_reload::HotReloadComputePipeline;
 use crate::render_mode::RenderMode;
@@ -15,11 +14,9 @@ use nalgebra::{Matrix4, Vector3};
 use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use vulkano::command_buffer::allocator::StandardCommandBufferAllocator;
-use vulkano::command_buffer::{
-    AutoCommandBufferBuilder, ClearColorImageInfo, CommandBufferUsage,
-};
 use vulkano::command_buffer::PrimaryCommandBufferAbstract;
+use vulkano::command_buffer::allocator::StandardCommandBufferAllocator;
+use vulkano::command_buffer::{AutoCommandBufferBuilder, ClearColorImageInfo, CommandBufferUsage};
 use vulkano::descriptor_set::DescriptorSet;
 use vulkano::device::Queue;
 use vulkano::image::Image;
@@ -140,9 +137,11 @@ pub fn run(_args: &Args, event_loop: &EventLoop<()>) -> Result<(), Box<dyn Error
     }
 
     // Image view needed for saving
-    let render_image_view =
-        ImageView::new(render_image.clone(), ImageViewCreateInfo::from_image(&render_image))
-            .unwrap();
+    let render_image_view = ImageView::new(
+        render_image.clone(),
+        ImageViewCreateInfo::from_image(&render_image),
+    )
+    .unwrap();
 
     let blocks: [BlockType; 15] = [
         BlockType::Stone,
@@ -226,7 +225,7 @@ fn ensure_missing_texture(out_dir: &Path) -> Result<PathBuf, Box<dyn Error>> {
         return Ok(path);
     }
 
-    let size = ICON_SIZE as u32;
+    let size = ICON_SIZE;
     let mut img: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::new(size, size);
     for y in 0..size {
         for x in 0..size {
@@ -313,6 +312,7 @@ fn build_pixel_to_ray(
     m.cast()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_icon(
     target: IconTarget,
     queue: &Arc<Queue>,
@@ -376,14 +376,9 @@ fn render_icon(
 
     // Upload a single-block chunk at origin (small icon world = one chunk)
     let chunk_pos = Vector3::new(0, 0, 0);
-    let local_pos = (
-        (CHUNK_SIZE / 2) as usize,
-        (CHUNK_SIZE / 2) as usize,
-        (CHUNK_SIZE / 2) as usize,
-    );
+    let local_pos = (CHUNK_SIZE / 2, CHUNK_SIZE / 2, CHUNK_SIZE / 2);
     let mut block_buf = vec![0u8; CHUNK_VOLUME];
-    let idx =
-        local_pos.0 + local_pos.1 * CHUNK_SIZE + local_pos.2 * CHUNK_SIZE * CHUNK_SIZE;
+    let idx = local_pos.0 + local_pos.1 * CHUNK_SIZE + local_pos.2 * CHUNK_SIZE * CHUNK_SIZE;
     block_buf[idx] = block_type as u8;
 
     let mut meta_buf = vec![0u8; CHUNK_VOLUME * 2];
@@ -409,8 +404,7 @@ fn render_icon(
     );
     // 3/4 view: camera offset diagonally and above the block.
     let cam_world = block_center + Vector3::new(2.0, 2.0, 2.0);
-    let pixel_to_ray =
-        build_pixel_to_ray(cam_world, block_center, render_extent, 35.0);
+    let pixel_to_ray = build_pixel_to_ray(cam_world, block_center, render_extent, 35.0);
 
     let push_constants = PushConstants {
         pixel_to_ray,
@@ -454,12 +448,17 @@ fn render_icon(
         lod_shadow_distance: 48.0,
         lod_point_light_distance: 20.0,
         falling_block_count: 0,
-        camera_pos: [cam_world.x as f32, cam_world.y as f32, cam_world.z as f32, 0.0],
+        camera_pos: [
+            cam_world.x as f32,
+            cam_world.y as f32,
+            cam_world.z as f32,
+            0.0,
+        ],
     };
 
     // Render
     {
-        let pipeline = Arc::clone(&*render_pipeline);
+        let pipeline = Arc::clone(render_pipeline);
         let mut builder = AutoCommandBufferBuilder::primary(
             command_buffer_allocator.clone(),
             queue.queue_family_index(),
@@ -489,8 +488,8 @@ fn render_icon(
             .unwrap();
         unsafe {
             builder.dispatch([
-                (render_extent[0] + 7) / 8,
-                (render_extent[1] + 7) / 8,
+                render_extent[0].div_ceil(8),
+                render_extent[1].div_ceil(8),
                 1,
             ])?;
         }
@@ -509,7 +508,7 @@ fn render_icon(
     };
     let path = out_dir.join(filename);
     save_screenshot(
-        &queue.device(),
+        queue.device(),
         queue,
         memory_allocator,
         command_buffer_allocator,

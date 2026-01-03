@@ -93,10 +93,10 @@ mod particles;
 mod player;
 mod raycast;
 mod render_mode;
+mod sprite_gen;
 mod sub_voxel;
 mod sub_voxel_builtins;
 mod svt;
-mod sprite_gen;
 mod terrain_gen;
 mod utils;
 mod vulkan_context;
@@ -131,10 +131,10 @@ use crate::utils::{ChunkStats, Profiler};
 use crate::vulkan_context::VulkanContext;
 use crate::water::WaterGrid;
 use crate::world::World;
+use std::process;
 use vulkano::command_buffer::allocator::StandardCommandBufferAllocator;
 use vulkano::descriptor_set::allocator::StandardDescriptorSetAllocator as StdDescriptorSetAllocator;
 use world_streaming::MetadataState;
-use std::process;
 
 // Constants moved to constants.rs
 

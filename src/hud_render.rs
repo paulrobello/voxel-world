@@ -1,7 +1,7 @@
 use crate::block_update::BlockUpdateQueue;
 use crate::chunk::BlockType;
-use crate::gpu_resources::SpriteIcons;
 use crate::config::Settings;
+use crate::gpu_resources::SpriteIcons;
 use crate::hud::Minimap;
 use crate::player::Player;
 use crate::raycast::RaycastHit;
@@ -48,23 +48,12 @@ pub struct HudInputs<'a> {
 pub struct HUDRenderer;
 
 impl HUDRenderer {
-    fn sprite_for_item(
-        item: PaletteItem,
-        icons: Option<&SpriteIcons>,
-    ) -> Option<egui::TextureId> {
+    fn sprite_for_item(item: PaletteItem, icons: Option<&SpriteIcons>) -> Option<egui::TextureId> {
         let set = icons?;
         match item.block {
-            BlockType::Model => set
-                .model
-                .get(&item.model_id)
-                .copied()
-                .or_else(|| Some(set.missing)),
+            BlockType::Model => set.model.get(&item.model_id).copied().or(Some(set.missing)),
             BlockType::Air => None,
-            _ => set
-                .block
-                .get(&item.block)
-                .copied()
-                .or_else(|| Some(set.missing)),
+            _ => set.block.get(&item.block).copied().or(Some(set.missing)),
         }
     }
 
@@ -432,28 +421,26 @@ impl HUDRenderer {
             // Drag preview near cursor
             if let Some(item) = dragging_item.as_ref() {
                 if let Some(pointer_pos) = ctx.input(|i| i.pointer.latest_pos()) {
-                    let (texture_id, uv_rect) =
-                        if let Some(tex) = Self::sprite_for_item(*item, sprite_icons) {
-                            (
-                                tex,
-                                egui::Rect::from_min_max(
-                                    egui::pos2(0.0, 0.0),
-                                    egui::pos2(1.0, 1.0),
-                                ),
-                            )
-                        } else {
-                            const ATLAS_TILE_COUNT: f32 = 19.0;
-                            let block_idx = Self::atlas_tile_for(item.block, item.model_id);
-                            let uv_left = block_idx / ATLAS_TILE_COUNT;
-                            let uv_right = (block_idx + 1.0) / ATLAS_TILE_COUNT;
-                            (
-                                atlas_texture_id,
-                                egui::Rect::from_min_max(
-                                    egui::pos2(uv_left, 0.0),
-                                    egui::pos2(uv_right, 1.0),
-                                ),
-                            )
-                        };
+                    let (texture_id, uv_rect) = if let Some(tex) =
+                        Self::sprite_for_item(*item, sprite_icons)
+                    {
+                        (
+                            tex,
+                            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                        )
+                    } else {
+                        const ATLAS_TILE_COUNT: f32 = 19.0;
+                        let block_idx = Self::atlas_tile_for(item.block, item.model_id);
+                        let uv_left = block_idx / ATLAS_TILE_COUNT;
+                        let uv_right = (block_idx + 1.0) / ATLAS_TILE_COUNT;
+                        (
+                            atlas_texture_id,
+                            egui::Rect::from_min_max(
+                                egui::pos2(uv_left, 0.0),
+                                egui::pos2(uv_right, 1.0),
+                            ),
+                        )
+                    };
 
                     let size = egui::vec2(48.0, 48.0);
                     let rect = egui::Rect::from_min_size(pointer_pos - size * 0.5, size);
@@ -1108,33 +1095,29 @@ impl HUDRenderer {
                                         block,
                                         model_id: hotbar_model_ids[i],
                                     };
-                                    let (texture_id, uv_rect) =
-                                        if let Some(tex) = Self::sprite_for_item(
-                                            palette_item,
-                                            sprite_icons,
-                                        ) {
-                                            (
-                                                tex,
-                                                egui::Rect::from_min_max(
-                                                    egui::pos2(0.0, 0.0),
-                                                    egui::pos2(1.0, 1.0),
-                                                ),
-                                            )
-                                        } else {
-                                            let block_idx = Self::atlas_tile_for(
-                                                block,
-                                                hotbar_model_ids[i],
-                                            );
-                                            let uv_left = block_idx / ATLAS_TILE_COUNT;
-                                            let uv_right = (block_idx + 1.0) / ATLAS_TILE_COUNT;
-                                            (
-                                                atlas_texture_id,
-                                                egui::Rect::from_min_max(
-                                                    egui::pos2(uv_left, 0.0),
-                                                    egui::pos2(uv_right, 1.0),
-                                                ),
-                                            )
-                                        };
+                                    let (texture_id, uv_rect) = if let Some(tex) =
+                                        Self::sprite_for_item(palette_item, sprite_icons)
+                                    {
+                                        (
+                                            tex,
+                                            egui::Rect::from_min_max(
+                                                egui::pos2(0.0, 0.0),
+                                                egui::pos2(1.0, 1.0),
+                                            ),
+                                        )
+                                    } else {
+                                        let block_idx =
+                                            Self::atlas_tile_for(block, hotbar_model_ids[i]);
+                                        let uv_left = block_idx / ATLAS_TILE_COUNT;
+                                        let uv_right = (block_idx + 1.0) / ATLAS_TILE_COUNT;
+                                        (
+                                            atlas_texture_id,
+                                            egui::Rect::from_min_max(
+                                                egui::pos2(uv_left, 0.0),
+                                                egui::pos2(uv_right, 1.0),
+                                            ),
+                                        )
+                                    };
 
                                     // Slot border color
                                     let border_color = if is_selected {

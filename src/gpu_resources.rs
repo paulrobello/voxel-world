@@ -4,7 +4,6 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use image;
 use vulkano::{
     buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer},
     command_buffer::{
@@ -96,22 +95,12 @@ pub struct RenderContext {
 }
 
 /// Sprite icons loaded for blocks and models, kept alive by owning texture handles.
+#[derive(Default)]
 pub struct SpriteIcons {
     pub block: HashMap<BlockType, egui::TextureId>,
     pub model: HashMap<u8, egui::TextureId>,
     pub missing: egui::TextureId,
     handles: Vec<egui::TextureHandle>,
-}
-
-impl Default for SpriteIcons {
-    fn default() -> Self {
-        Self {
-            block: HashMap::new(),
-            model: HashMap::new(),
-            missing: egui::TextureId::default(),
-            handles: Vec::new(),
-        }
-    }
 }
 
 fn load_color_image(path: &Path) -> Option<egui::ColorImage> {
@@ -131,17 +120,18 @@ pub fn load_sprite_icons(gui: &mut Gui) -> SpriteIcons {
     let mut icons = SpriteIcons::default();
 
     // Missing placeholder (required)
-    let missing_handle = load_color_image(&dir.join("missing.png")).map(|image| {
-        ctx.load_texture("sprite_missing", image, egui::TextureOptions::NEAREST)
-    });
+    let missing_handle = load_color_image(&dir.join("missing.png"))
+        .map(|image| ctx.load_texture("sprite_missing", image, egui::TextureOptions::NEAREST));
     if let Some(handle) = missing_handle {
         icons.missing = handle.id();
         icons.handles.push(handle);
     } else {
-        let image =
-            egui::ColorImage::from_rgba_unmultiplied([1, 1], &[255, 0, 255, 255]);
-        let handle =
-            ctx.load_texture("sprite_missing_fallback", image, egui::TextureOptions::NEAREST);
+        let image = egui::ColorImage::from_rgba_unmultiplied([1, 1], &[255, 0, 255, 255]);
+        let handle = ctx.load_texture(
+            "sprite_missing_fallback",
+            image,
+            egui::TextureOptions::NEAREST,
+        );
         icons.missing = handle.id();
         icons.handles.push(handle);
     }
@@ -184,8 +174,10 @@ pub fn load_sprite_icons(gui: &mut Gui) -> SpriteIcons {
             if !name.starts_with("model_") || !name.ends_with(".png") {
                 continue;
             }
-            if let Ok(id) =
-                name.trim_start_matches("model_").trim_end_matches(".png").parse::<u8>()
+            if let Ok(id) = name
+                .trim_start_matches("model_")
+                .trim_end_matches(".png")
+                .parse::<u8>()
             {
                 let path = entry.path();
                 if let Some(image) = load_color_image(&path) {

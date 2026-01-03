@@ -134,18 +134,16 @@ Support detailed 8³ voxel models within standard block space for furniture, fen
 - [x] GPU upload strategy: separate model metadata texture + atlas packing
 
 #### 4.3 Shader Integration
-- [x] Sub-voxel ray marching for hit tests and shading
-- [x] Model voxel + palette atlases uploaded to GPU
-- [x] LOD switching based on distance for render and shadows
-- [ ] Ambient occlusion for sub-voxel geometry (disabled for now)
-- [x] Shadow casting from sub-voxel shapes (fine marcher + mask fallback)
-- [x] Shadow receiving tuned for slabs/models (fine march + offset, no skip)
+ - [x] Sub-voxel ray marching for hit tests and shading
+ - [x] Model voxel + palette atlases uploaded to GPU
+ - [x] LOD switching based on distance for render and shadows
+ - [x] Shadow casting from sub-voxel shapes (fine marcher + mask fallback)
+ - [x] Shadow receiving tuned for slabs/models (fine march + offset, no skip)
 
 #### 4.4 Collision Detection
-- [x] Sub-voxel collision masks/AABB for player collision
-- [x] Per-model collision masks (non-solid voxels supported)
-- [ ] Physics integration: falling sub-voxel objects (not needed right now)
-- [x] Raycasting through sub-voxel geometry
+ - [x] Sub-voxel collision masks/AABB for player collision
+ - [x] Per-model collision masks (non-solid voxels supported)
+ - [x] Raycasting through sub-voxel geometry
 
 #### 4.5 Stairs Auto-Joining (Minecraft-style)
 - [x] Add stair block metadata for shape/orientation (straight/inner/outer corners)
