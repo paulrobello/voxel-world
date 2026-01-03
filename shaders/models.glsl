@@ -62,11 +62,11 @@ vec3 inverseRotateNormal(vec3 n, uint rotation) {
 vec3 inverseRotatePosition(vec3 p, uint rotation) {
     switch (rotation) {
         case 1u: // 90° CW -> rotate 90° CCW around center
-            return vec3(1.0 - p.z, p.y, p.x);
+            return vec3(p.z, p.y, 1.0 - p.x);
         case 2u: // 180°
             return vec3(1.0 - p.x, p.y, 1.0 - p.z);
         case 3u: // 270° CW -> rotate 90° CW
-            return vec3(p.z, p.y, 1.0 - p.x);
+            return vec3(1.0 - p.z, p.y, p.x);
         default:
             return p;
     }
