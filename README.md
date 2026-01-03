@@ -1,4 +1,4 @@
-# Voxel Ray Traversal Engine
+# Voxel World
 
 A GPU-accelerated voxel sandbox using Vulkan compute shaders for real-time ray marching. This is a **creative mode** experience focused on building and exploration—no health, no death, just pure creativity. Features procedural terrain, day/night cycle, swimming, particles, and interactive world editing.
 

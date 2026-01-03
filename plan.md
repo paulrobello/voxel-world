@@ -148,10 +148,10 @@ Support detailed 8³ voxel models within standard block space for furniture, fen
 - [x] Raycasting through sub-voxel geometry
 
 #### 4.5 Stairs Auto-Joining (Minecraft-style)
-- [ ] Add stair block metadata for shape/orientation (straight/inner/outer corners)
-- [ ] Neighbor-aware stair model selection to auto-form corners
-- [ ] Update sub-voxel meshes for stair variants
-- [ ] Ensure collision shapes match visual stair variants
+- [x] Add stair block metadata for shape/orientation (straight/inner/outer corners)
+- [x] Neighbor-aware stair model selection to auto-form corners
+- [x] Update sub-voxel meshes for stair variants
+- [x] Ensure collision shapes match visual stair variants
 
 ### Technical Approach
 

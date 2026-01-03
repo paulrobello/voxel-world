@@ -209,8 +209,14 @@ impl App {
             self.ui.last_place_pos = None;
             self.ui.line_start_pos = None;
             self.ui.line_locked_axis = None;
+            self.ui.place_needs_reclick = false; // Allow block placement on next click
             self.ui.model_needs_reclick = false; // Allow model placement on next click
             self.ui.gate_needs_reclick = false; // Allow gate toggle on next click
+            return;
+        }
+
+        // If instant_place is disabled, require mouse release between placements
+        if self.ui.place_needs_reclick {
             return;
         }
 
@@ -285,8 +291,16 @@ impl App {
                 self.ui.last_place_pos = Some(constrained_pos);
                 self.ui.place_cooldown = self.ui.settings.place_cooldown_duration;
 
+                // Require re-click if instant_place is disabled
+                if !self.ui.settings.instant_place {
+                    self.ui.place_needs_reclick = true;
+                }
+                // Model blocks require re-click, except fences which can be placed rapidly
                 if self.selected_block() == BlockType::Model {
-                    self.ui.model_needs_reclick = true;
+                    let model_id = self.ui.hotbar_model_ids[self.ui.hotbar_index];
+                    if !ModelRegistry::is_fence_model(model_id) {
+                        self.ui.model_needs_reclick = true;
+                    }
                 }
             }
         }

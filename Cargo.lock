@@ -3368,7 +3368,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "voxel_ray_traversal"
+name = "voxel_world"
 version = "0.1.0"
 dependencies = [
  "bytemuck",

@@ -378,6 +378,7 @@ struct UiState {
 
     last_place_pos: Option<Vector3<i32>>,
     place_cooldown: f32,
+    place_needs_reclick: bool,
     model_needs_reclick: bool,
     gate_needs_reclick: bool,
     line_start_pos: Option<Vector3<i32>>,
@@ -702,6 +703,7 @@ impl App {
             skip_break_until_release: false,
             last_place_pos: None,
             place_cooldown: 0.0,
+            place_needs_reclick: false,
             model_needs_reclick: false,
             gate_needs_reclick: false,
             line_start_pos: None,
@@ -1362,7 +1364,7 @@ impl ApplicationHandler for App {
                     Window::default_attributes()
                         .with_inner_size(INITIAL_WINDOW_RESOLUTION)
                         .with_window_icon(Some(load_icon(include_bytes!("../assets/icon.png"))))
-                        .with_title("Voxel Ray Traversal"),
+                        .with_title("Voxel World"),
                 )
                 .unwrap(),
         );

@@ -3,7 +3,7 @@ use winit::dpi::PhysicalSize;
 
 /// Voxel Game Engine - A Minecraft-like voxel game with GPU ray-marching rendering.
 #[derive(Parser, Debug, Clone)]
-#[command(name = "voxel_ray_traversal")]
+#[command(name = "voxel_world")]
 #[command(version, about, long_about = None)]
 pub struct Args {
     /// Spawn X coordinate in world blocks (default: auto-find suitable location)
@@ -63,6 +63,8 @@ pub struct Settings {
     pub show_block_preview: bool,
     pub show_target_outline: bool,
     pub show_compass: bool,
+    pub show_position: bool,
+    pub show_stats: bool,
 
     pub enable_ao: bool,
     pub enable_shadows: bool,
@@ -77,6 +79,7 @@ pub struct Settings {
     pub render_scale: f32,
     pub water_simulation_enabled: bool,
     pub instant_break: bool,
+    pub instant_place: bool,
     pub break_cooldown_duration: f32,
     pub place_cooldown_duration: f32,
 }
@@ -88,6 +91,8 @@ impl Default for Settings {
             show_block_preview: false,
             show_target_outline: true,
             show_compass: true,
+            show_position: true,
+            show_stats: true,
 
             enable_ao: true,
             enable_shadows: true,
@@ -102,6 +107,7 @@ impl Default for Settings {
             render_scale: 1.0,
             water_simulation_enabled: true,
             instant_break: true,
+            instant_place: true,
             break_cooldown_duration: 0.1,
             place_cooldown_duration: 0.1,
         }

@@ -373,8 +373,12 @@ impl HUDRenderer {
         gui.immediate_ui(|gui| {
             let ctx = gui.context();
 
-            Self::draw_stats_overlay(&ctx, fps, chunk_stats);
-            Self::draw_position_overlay(&ctx, player_world_pos);
+            if settings.show_stats {
+                Self::draw_stats_overlay(&ctx, fps, chunk_stats);
+            }
+            if settings.show_position {
+                Self::draw_position_overlay(&ctx, player_world_pos);
+            }
             Self::draw_palette_window(
                 &ctx,
                 atlas_texture_id,
@@ -425,7 +429,7 @@ impl HUDRenderer {
                 }
             }
 
-            egui::Window::new("Voxel Game")
+            egui::Window::new("Settings")
                 .default_open(false)
                 .default_pos(egui::pos2(10.0, 40.0))
                 .show(&ctx, |ui| {
@@ -577,7 +581,7 @@ impl HUDRenderer {
                             }
 
                             ui.separator();
-                            ui.label("Feature Toggles (for FPS profiling):");
+                            ui.label("Feature Toggles:");
                             if ui
                                 .checkbox(&mut settings.enable_ao, "Ambient Occlusion")
                                 .changed()
@@ -683,7 +687,9 @@ impl HUDRenderer {
                             ui.separator();
 
                             // Gameplay options
+                            ui.checkbox(&mut player.auto_jump, "Auto-jump");
                             ui.checkbox(&mut settings.instant_break, "Instant block break");
+                            ui.checkbox(&mut settings.instant_place, "Instant block place");
                             ui.checkbox(
                                 &mut settings.show_block_preview,
                                 "Block placement preview",
@@ -731,9 +737,10 @@ impl HUDRenderer {
 
                             ui.separator();
 
-                            // Movement settings
-                            ui.checkbox(&mut player.auto_jump, "Auto-jump");
+                            // HUD visibility
                             ui.checkbox(&mut settings.show_compass, "Show compass");
+                            ui.checkbox(&mut settings.show_position, "Show position");
+                            ui.checkbox(&mut settings.show_stats, "Show FPS/stats");
 
                             ui.separator();
 
@@ -811,6 +818,16 @@ impl HUDRenderer {
                                 player.camera.position.x,
                                 player.camera.position.y,
                                 player.camera.position.z
+                            ));
+
+                            ui.separator();
+
+                            // Window size
+                            let screen = ui.ctx().screen_rect();
+                            ui.label(format!(
+                                "Window: {}x{}",
+                                screen.width() as u32,
+                                screen.height() as u32
                             ));
                         }); // end ScrollArea
                 });

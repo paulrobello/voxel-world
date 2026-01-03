@@ -1,4 +1,4 @@
-# Voxel Ray Traversal Makefile
+# Voxel World Makefile
 
 # Vulkan environment variables for macOS
 # Keep both the main Homebrew lib dir and the vulkan-loader keg to avoid search misses.
@@ -26,19 +26,19 @@ ARGS ?=
 run: run-release
 
 run-release: build-release
-	./target/release/voxel_ray_traversal $(ARGS)
+	./target/release/voxel_world $(ARGS)
 
 run-debug: build-debug
 	@echo "DYLD_LIBRARY_PATH=$(DYLD_LIBRARY_PATH)"
 	@echo "DYLD_FALLBACK_LIBRARY_PATH=$(DYLD_FALLBACK_LIBRARY_PATH)"
 	@echo "VK_ICD_FILENAMES=$(VK_ICD_FILENAMES)"
-	DYLD_LIBRARY_PATH=$(DYLD_LIBRARY_PATH) DYLD_FALLBACK_LIBRARY_PATH=$(DYLD_FALLBACK_LIBRARY_PATH) VK_ICD_FILENAMES=$(VK_ICD_FILENAMES) RUST_BACKTRACE=1 ./target/debug/voxel_ray_traversal $(ARGS)
+	DYLD_LIBRARY_PATH=$(DYLD_LIBRARY_PATH) DYLD_FALLBACK_LIBRARY_PATH=$(DYLD_FALLBACK_LIBRARY_PATH) VK_ICD_FILENAMES=$(VK_ICD_FILENAMES) RUST_BACKTRACE=1 ./target/debug/voxel_world $(ARGS)
 
 # Profiling target (writes profile.csv in cwd)
 profile: run-profile
 
 run-profile: build-release
-	./target/release/voxel_ray_traversal --verbose --profile-log profile.csv --debug-interval 120 --view-distance 8 --fly-mode $(ARGS)
+	./target/release/voxel_world --verbose --profile-log profile.csv --debug-interval 120 --view-distance 8 --fly-mode $(ARGS)
 
 # Development targets
 clean:

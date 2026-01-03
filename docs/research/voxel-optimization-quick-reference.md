@@ -178,7 +178,7 @@ No LOD             100%      100%
 
 ## Resources
 
-- **Docs**: `/Users/probello/Repos/voxel_ray_traversal/docs/research/infinite-voxel-world-optimization-2025-12-28.md`
+- **Docs**: `/Users/probello/Repos/voxel_world/docs/research/infinite-voxel-world-optimization-2025-12-28.md`
 - **GitHub**: [AdamYuan/SparseVoxelOctree](https://github.com/AdamYuan/SparseVoxelOctree)
 - **Transvoxel**: [transvoxel.org](https://transvoxel.org/)
 - **0fps Blog**: [LOD for Blocky Voxels](https://0fps.net/2018/03/03/a-level-of-detail-method-for-blocky-voxels/)
