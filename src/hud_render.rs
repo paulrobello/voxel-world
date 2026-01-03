@@ -1,7 +1,7 @@
 use crate::block_update::BlockUpdateQueue;
 use crate::chunk::BlockType;
 use crate::config::Settings;
-use crate::editor::{EditorState, draw_editor_ui, draw_model_preview};
+use crate::editor::{EditorAction, EditorState, draw_editor_ui, draw_model_preview};
 use crate::gpu_resources::SpriteIcons;
 use crate::hud::Minimap;
 use crate::player::Player;
@@ -366,7 +366,7 @@ impl HUDRenderer {
             });
     }
 
-    pub fn render(&self, gui: &mut Gui, input: HudInputs<'_>) -> bool {
+    pub fn render(&self, gui: &mut Gui, input: HudInputs<'_>) -> (bool, EditorAction) {
         let HudInputs {
             fps,
             chunk_stats,
@@ -400,6 +400,7 @@ impl HUDRenderer {
             editor,
         } = input;
         let mut scale_changed = false;
+        let mut editor_action = EditorAction::None;
         gui.immediate_ui(|gui| {
             let ctx = gui.context();
 
@@ -1244,10 +1245,10 @@ impl HUDRenderer {
             if editor.active {
                 let library = LibraryManager::new("user_models");
                 let _ = library.init();
-                draw_editor_ui(&ctx, editor, &library, "Player");
+                editor_action = draw_editor_ui(&ctx, editor, &library, "Player");
                 draw_model_preview(&ctx, editor);
             }
         });
-        scale_changed
+        (scale_changed, editor_action)
     }
 }

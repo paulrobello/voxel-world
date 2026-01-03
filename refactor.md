@@ -123,10 +123,14 @@ Utilize `egui_winit_vulkano` for tool windows.
     - Left Click: Place Voxel (Current Color).
     - Right Click: Remove Voxel.
     - Middle Click: Pick Color.
-- *Note: Full mouse interaction with 3D viewport pending - requires render pipeline changes.*
+- *Isometric 3D viewport with proper cube rendering and clickable floor tiles.*
 
-### Step 5: World Integration
-- [ ] "Place in World": When saving/exiting, update the `ModelRegistry` and place the block in the world at the player's previous target.
+### Step 5: World Integration ✅ COMPLETE
+- [x] "Place in World": When saving/exiting, update the `ModelRegistry` and place the block in the world at the player's previous target.
+    - *Added `saved_target_pos` to `EditorState` to track placement location*
+    - *Target position saved when opening editor (based on raycast hit)*
+    - *"Place in World" button registers model in `ModelRegistry` and places block*
+    - *Editor closes automatically after placing*
 
 ## 4. Expansion Hooks
 - **Online Gallery**: `LibraryManager` could eventually fetch `.vxm` from a web API.

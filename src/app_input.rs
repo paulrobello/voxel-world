@@ -1,5 +1,6 @@
 use crate::App;
 use crate::chunk::BlockType;
+use crate::raycast::get_place_position;
 use nalgebra::Vector3;
 use winit::event::MouseButton;
 use winit::keyboard::KeyCode;
@@ -273,6 +274,12 @@ impl App {
             self.input.focused = false;
             self.input.pending_grab = Some(false);
             macos_cursor::release_and_show();
+
+            // Save the target position for placing the model when done
+            if let Some(hit) = &self.ui.current_hit {
+                let place_pos = get_place_position(hit);
+                self.ui.editor.set_target_pos(place_pos);
+            }
             println!("Model editor: ON");
         } else {
             // Closing editor: restore focus if we were focused before

@@ -132,6 +132,23 @@ pub fn draw_editor_ui(
                 }
             });
 
+            // Place in World button
+            let can_place = editor.saved_target_pos.is_some();
+            ui.add_enabled_ui(can_place, |ui| {
+                if ui
+                    .button("📦 Place in World")
+                    .on_hover_text(if can_place {
+                        format!("Place at {:?}", editor.saved_target_pos.unwrap())
+                    } else {
+                        "Look at a block and press N to set placement target".to_string()
+                    })
+                    .clicked()
+                {
+                    editor.finalize_model();
+                    action = EditorAction::PlaceInWorld;
+                }
+            });
+
             // Voxel count
             let voxel_count: usize = editor
                 .scratch_pad
@@ -316,6 +333,8 @@ pub enum EditorAction {
     None,
     ModelSaved,
     ModelLoaded,
+    /// Place the edited model in the world and close the editor.
+    PlaceInWorld,
 }
 
 /// Draws the interactive 3D model editor viewport with isometric cubes.

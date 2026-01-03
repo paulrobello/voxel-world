@@ -1,4 +1,5 @@
 use crate::chunk::BlockType;
+use crate::editor::EditorAction;
 use crate::gpu_resources::RenderContext;
 use crate::hud_render::{HUDRenderer, HudInputs};
 use crate::{UiState, WorldSim};
@@ -15,7 +16,7 @@ pub fn render_hud(
     camera_yaw: f32,
     player_world_pos: Vector3<f64>,
 ) -> bool {
-    HUDRenderer.render(
+    let (scale_changed, editor_action) = HUDRenderer.render(
         &mut rcx.gui,
         HudInputs {
             fps: ui.fps,
@@ -49,5 +50,27 @@ pub fn render_hud(
             model_registry: &sim.model_registry,
             editor: &mut ui.editor,
         },
-    )
+    );
+
+    // Handle editor action
+    if editor_action == EditorAction::PlaceInWorld {
+        if let Some(pos) = ui.editor.saved_target_pos {
+            // Register the model in the world's registry
+            let model_id = sim.model_registry.register(ui.editor.scratch_pad.clone());
+
+            // Place the model block in the world
+            sim.world.set_model_block(pos, model_id, 0, false);
+            sim.world.invalidate_minimap_cache(pos.x, pos.z);
+
+            println!(
+                "[Editor] Placed model '{}' (ID {}) at {:?}",
+                ui.editor.scratch_pad.name, model_id, pos
+            );
+
+            // Close the editor
+            ui.editor.active = false;
+        }
+    }
+
+    scale_changed
 }

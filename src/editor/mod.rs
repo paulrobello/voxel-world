@@ -13,7 +13,7 @@ pub mod ui;
 use crate::sub_voxel::{Color, SUB_VOXEL_SIZE, SubVoxelModel};
 use nalgebra::Vector3;
 
-pub use ui::{draw_editor_ui, draw_model_preview};
+pub use ui::{EditorAction, draw_editor_ui, draw_model_preview};
 
 /// The currently selected editing tool.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -60,6 +60,10 @@ pub struct EditorState {
 
     /// The face normal of the hovered voxel (for placing adjacent).
     pub hovered_normal: Option<Vector3<i32>>,
+
+    /// Saved world position where the model will be placed on save.
+    /// Set when the editor is opened based on player's target.
+    pub saved_target_pos: Option<Vector3<i32>>,
 }
 
 impl Default for EditorState {
@@ -102,6 +106,7 @@ impl EditorState {
             last_mouse_pos: None,
             hovered_voxel: None,
             hovered_normal: None,
+            saved_target_pos: None,
         }
     }
 
@@ -111,7 +116,15 @@ impl EditorState {
         if self.active {
             self.is_dragging = false;
             self.last_mouse_pos = None;
+        } else {
+            // Clear saved position when closing
+            self.saved_target_pos = None;
         }
+    }
+
+    /// Sets the target position where the model will be placed.
+    pub fn set_target_pos(&mut self, pos: Vector3<i32>) {
+        self.saved_target_pos = Some(pos);
     }
 
     /// Resets the scratch pad to a new empty model.
