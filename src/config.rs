@@ -57,6 +57,10 @@ pub struct Args {
     /// Generate hotbar/palette sprites and exit
     #[arg(long)]
     pub generate_sprites: bool,
+
+    /// World name to load or create (default: last loaded or "default")
+    #[arg(long, short = 'w')]
+    pub world: Option<String>,
 }
 
 pub const INITIAL_WINDOW_RESOLUTION: PhysicalSize<u32> = PhysicalSize::new(1200, 1080);

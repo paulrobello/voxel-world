@@ -10,6 +10,7 @@ use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::thread::{self, JoinHandle};
 
 use crate::chunk::Chunk;
+use crate::storage::worker::StorageSystem;
 
 /// Number of worker threads for chunk generation.
 /// Using 4 threads provides good parallelism without overwhelming the CPU.
@@ -55,7 +56,8 @@ impl ChunkLoader {
     /// # Arguments
     /// * `generator` - A function that generates a Chunk from a chunk position.
     ///   This is typically a closure that captures a TerrainGenerator.
-    pub fn new<F>(generator: F) -> Self
+    /// * `storage` - Optional storage system to load chunks from disk.
+    pub fn new<F>(generator: F, storage: Option<Arc<StorageSystem>>) -> Self
     where
         F: Fn(Vector3<i32>) -> Chunk + Send + Sync + 'static,
     {
@@ -79,6 +81,7 @@ impl ChunkLoader {
             let result_tx = result_tx.clone();
             let generator = Arc::clone(&generator);
             let shutdown_rx = Arc::clone(&shutdown_rx);
+            let storage = storage.as_ref().map(Arc::clone);
 
             let handle = thread::Builder::new()
                 .name(format!("chunk-worker-{}", i))
@@ -102,8 +105,39 @@ impl ChunkLoader {
 
                         match request {
                             Ok(req) => {
-                                // Generate the chunk
-                                let chunk = generator(req.position);
+                                // Try to load from disk first
+                                let chunk = if let Some(ref storage) = storage {
+                                    match storage.load_chunk(req.position) {
+                                        Ok(Some(mut chunk)) => {
+                                            chunk.update_metadata();
+                                            // Mark dirty for GPU upload
+                                            chunk.mark_dirty();
+                                            // Loaded from disk, so it's clean for persistence
+                                            chunk.persistence_dirty = false;
+                                            chunk
+                                        }
+                                        Ok(None) => {
+                                            let mut chunk = generator(req.position);
+                                            // New procedural chunk, clean for persistence until modified
+                                            chunk.persistence_dirty = false;
+                                            chunk
+                                        }
+                                        Err(e) => {
+                                            eprintln!(
+                                                "[Storage] Load error for {:?}: {}",
+                                                req.position, e
+                                            );
+                                            let mut chunk = generator(req.position);
+                                            chunk.persistence_dirty = false;
+                                            chunk
+                                        }
+                                    }
+                                } else {
+                                    let mut chunk = generator(req.position);
+                                    chunk.persistence_dirty = false;
+                                    chunk
+                                };
+
                                 let block_data = chunk.to_block_data();
 
                                 // Send result back
@@ -265,7 +299,7 @@ mod tests {
 
     #[test]
     fn test_chunk_loader_basic() {
-        let mut loader = ChunkLoader::new(test_generator);
+        let mut loader = ChunkLoader::new(test_generator, None);
 
         // Request a chunk
         assert!(loader.request_chunk(Vector3::new(0, 0, 0)));
@@ -286,7 +320,7 @@ mod tests {
 
     #[test]
     fn test_chunk_loader_multiple() {
-        let mut loader = ChunkLoader::new(test_generator);
+        let mut loader = ChunkLoader::new(test_generator, None);
 
         // Request multiple chunks
         let positions: Vec<_> = (0..8).map(|i| Vector3::new(i, 0, 0)).collect();
@@ -302,7 +336,7 @@ mod tests {
 
     #[test]
     fn test_chunk_loader_batch_dedupe_and_cap() {
-        let mut loader = ChunkLoader::new(test_generator);
+        let mut loader = ChunkLoader::new(test_generator, None);
 
         // Create a batch with duplicates and over the soft cap
         let mut positions: Vec<_> = (0..300).map(|i| Vector3::new(i / 2, 0, 0)).collect();

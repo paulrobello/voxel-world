@@ -89,11 +89,13 @@ mod gpu_resources;
 mod hot_reload;
 mod hud;
 mod hud_render;
+mod launcher_config;
 mod particles;
 mod player;
 mod raycast;
 mod render_mode;
 mod sprite_gen;
+mod storage;
 mod sub_voxel;
 mod sub_voxel_builtins;
 mod svt;
@@ -122,7 +124,7 @@ use crate::gpu_resources::{
 use crate::hot_reload::HotReloadComputePipeline;
 use crate::hud::Minimap;
 use crate::particles::ParticleSystem;
-use crate::player::{HEAD_BOB_AMPLITUDE, Player};
+use crate::player::{HEAD_BOB_AMPLITUDE, PLAYER_EYE_HEIGHT, Player};
 use crate::raycast::{RaycastHit, get_place_position};
 use crate::render_mode::RenderMode;
 use crate::sub_voxel::ModelRegistry;
@@ -144,8 +146,8 @@ use world_streaming::MetadataState;
 /// Duration of a full day cycle in seconds (real time)
 const DAY_CYCLE_DURATION: f32 = 120.0;
 /// Default time of day (0.0 = 6am, 0.5 = 6pm, formula: hours = (v * 24 + 6) % 24)
-/// 0.583 = 20:00 (8pm)
-const DEFAULT_TIME_OF_DAY: f32 = 0.583;
+/// 0.25 = 12:00 (Noon)
+const DEFAULT_TIME_OF_DAY: f32 = 0.25;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 enum PaletteTab {
@@ -206,7 +208,11 @@ fn find_ground_level(world: &World, world_x: i32, world_z: i32) -> i32 {
 
 /// Creates a world with only chunks near the spawn point loaded.
 /// Additional chunks are loaded dynamically as the player moves.
-fn create_initial_world_with_seed(spawn_chunk: Vector3<i32>, seed: u32) -> World {
+fn create_initial_world_with_seed(
+    spawn_chunk: Vector3<i32>,
+    seed: u32,
+    storage: Option<&storage::worker::StorageSystem>,
+) -> World {
     let mut world = World::new();
     let terrain = TerrainGenerator::new(seed);
 
@@ -227,8 +233,23 @@ fn create_initial_world_with_seed(spawn_chunk: Vector3<i32>, seed: u32) -> World
             // Load ALL Y levels within this horizontal range
             for cy in 0..WORLD_CHUNKS_Y {
                 let chunk_pos = vector![cx, cy, cz];
-                let chunk = generate_chunk_terrain(&terrain, chunk_pos);
-                world.insert_chunk(chunk_pos, chunk);
+
+                // Try to load from storage first
+                let mut loaded = false;
+                if let Some(storage) = storage {
+                    if let Ok(Some(mut chunk)) = storage.load_chunk(chunk_pos) {
+                        chunk.update_metadata();
+                        chunk.mark_dirty();
+                        chunk.persistence_dirty = false;
+                        world.insert_chunk(chunk_pos, chunk);
+                        loaded = true;
+                    }
+                }
+
+                if !loaded {
+                    let chunk = generate_chunk_terrain(&terrain, chunk_pos);
+                    world.insert_chunk(chunk_pos, chunk);
+                }
             }
         }
     }
@@ -329,6 +350,7 @@ struct WorldSim {
     last_player_chunk: Vector3<i32>,
     chunk_stats: ChunkStats,
     chunk_loader: ChunkLoader,
+    storage: Arc<storage::worker::StorageSystem>,
 
     particles: ParticleSystem,
     falling_blocks: FallingBlockSystem,
@@ -347,6 +369,9 @@ struct WorldSim {
     profiler: Profiler,
 
     metadata_state: MetadataState,
+    last_save: Instant,
+    world_dir: PathBuf,
+    seed: u32,
 }
 
 struct UiState {
@@ -424,6 +449,73 @@ struct App {
     input: InputState,
 }
 
+impl WorldSim {
+    pub fn auto_save(&mut self) {
+        let now = Instant::now();
+        if now.duration_since(self.last_save) > Duration::from_secs(30) {
+            self.save_dirty(10);
+            self.save_metadata();
+            // Update last_save even if nothing was saved, to wait for the next interval
+            self.last_save = now;
+        }
+    }
+
+    pub fn save_metadata(&self) {
+        let player_pos = self.player.feet_pos(self.world_extent, self.texture_origin);
+        let yaw = self.player.camera.rotation.y;
+        let pitch = self.player.camera.rotation.x;
+
+        let meta = storage::metadata::WorldMetadata {
+            seed: self.seed,
+            spawn_pos: [player_pos.x, player_pos.y, player_pos.z], // Legacy field, keeping updated
+            version: 1,
+            time_of_day: self.time_of_day,
+            day_cycle_paused: self.day_cycle_paused,
+            player: Some(storage::metadata::PlayerData {
+                position: [player_pos.x, player_pos.y, player_pos.z],
+                yaw: yaw as f32,
+                pitch: pitch as f32,
+            }),
+        };
+
+        if let Err(e) = meta.save(self.world_dir.join("level.dat")) {
+            eprintln!("[Storage] Failed to save metadata: {}", e);
+        }
+    }
+
+    pub fn save_dirty(&mut self, limit: usize) {
+        let mut saved_count = 0;
+        for (pos, chunk) in self.world.chunks_mut() {
+            if chunk.persistence_dirty {
+                let serialized = storage::format::SerializedChunk::from(&*chunk);
+                self.storage.save_chunk(*pos, serialized);
+                chunk.persistence_dirty = false;
+                saved_count += 1;
+                if saved_count >= limit {
+                    break;
+                }
+            }
+        }
+        if saved_count > 0 && limit < 1000 {
+            println!("[Storage] Auto-saved {} chunks", saved_count);
+        }
+    }
+
+    pub fn save_all(&mut self) {
+        let mut saved_count = 0;
+        for (pos, chunk) in self.world.chunks_mut() {
+            if chunk.persistence_dirty {
+                let serialized = storage::format::SerializedChunk::from(&*chunk);
+                self.storage.save_chunk(*pos, serialized);
+                chunk.persistence_dirty = false;
+                saved_count += 1;
+            }
+        }
+        println!("[Storage] Saved {} chunks to disk", saved_count);
+        self.save_metadata();
+    }
+}
+
 impl App {
     /// Returns the currently selected block from the hotbar.
     fn selected_block(&self) -> BlockType {
@@ -485,7 +577,60 @@ impl App {
             }
         }
 
-        let seed = args.seed.unwrap_or(12345);
+        // Determine world name
+        let mut launcher_config = launcher_config::LauncherConfig::load();
+        let world_name = args
+            .world
+            .clone()
+            .or(launcher_config.last_world.clone())
+            .unwrap_or_else(|| "default".to_string());
+
+        println!("[Launcher] Loading world: '{}'", world_name);
+        launcher_config.update_last_world(&world_name);
+
+        let worlds_dir = PathBuf::from("worlds");
+        let world_dir = worlds_dir.join(&world_name);
+
+        // Migration: If 'world' exists but 'worlds/default' doesn't, migrate it
+        if PathBuf::from("world").exists() && !world_dir.exists() && world_name == "default" {
+            println!("[Launcher] Migrating legacy world to 'worlds/default'...");
+            if !worlds_dir.exists() {
+                std::fs::create_dir_all(&worlds_dir).expect("Failed to create worlds directory");
+            }
+            std::fs::rename("world", &world_dir).expect("Failed to migrate legacy world");
+        }
+
+        if !world_dir.exists() {
+            std::fs::create_dir_all(&world_dir).expect("Failed to create world directory");
+        }
+
+        let metadata_path = world_dir.join("level.dat");
+        let mut seed = args.seed.unwrap_or(12345);
+        let mut initial_time_of_day = DEFAULT_TIME_OF_DAY;
+        let mut initial_day_paused = true; // Default
+        let mut initial_player_data = None;
+
+        if metadata_path.exists() {
+            if let Ok(meta) = storage::metadata::WorldMetadata::load(&metadata_path) {
+                println!("[Storage] Loaded world metadata. Seed: {}", meta.seed);
+                seed = meta.seed;
+                initial_time_of_day = meta.time_of_day;
+                initial_day_paused = meta.day_cycle_paused;
+                initial_player_data = meta.player;
+            }
+        } else {
+            let meta = storage::metadata::WorldMetadata {
+                seed,
+                spawn_pos: [0.0, 64.0, 0.0], // Initial guess, will be updated
+                version: 1,
+                time_of_day: DEFAULT_TIME_OF_DAY,
+                day_cycle_paused: true,
+                player: None,
+            };
+            let _ = meta.save(&metadata_path);
+            println!("[Storage] Created new world metadata. Seed: {}", seed);
+        }
+
         let view_distance = args.view_distance.unwrap_or(VIEW_DISTANCE);
         let unload_distance = UNLOAD_DISTANCE;
 
@@ -500,36 +645,25 @@ impl App {
         // Calculate spawn chunk based on CLI args (or default to origin)
         let spawn_block_x = args.spawn_x.unwrap_or(0);
         let spawn_block_z = args.spawn_z.unwrap_or(0);
-        let spawn_chunk = vector![
-            spawn_block_x.div_euclid(CHUNK_SIZE as i32),
-            0,
-            spawn_block_z.div_euclid(CHUNK_SIZE as i32)
-        ];
-
-        if args.verbose {
-            println!(
-                "Spawn at block ({}, {}), chunk ({}, {})",
-                spawn_block_x, spawn_block_z, spawn_chunk.x, spawn_chunk.z
-            );
-        }
 
         // Texture origin: the world position that maps to texture coordinate (0,0,0)
         // For infinite worlds, center the texture on the spawn chunk
+        let spawn_chunk_x = spawn_block_x.div_euclid(CHUNK_SIZE as i32);
+        let spawn_chunk_z = spawn_block_z.div_euclid(CHUNK_SIZE as i32);
+
         let texture_origin = Vector3::new(
-            (spawn_chunk.x - LOADED_CHUNKS_X / 2) * CHUNK_SIZE as i32,
+            (spawn_chunk_x - LOADED_CHUNKS_X / 2) * CHUNK_SIZE as i32,
             0, // Y always starts at 0
-            (spawn_chunk.z - LOADED_CHUNKS_Z / 2) * CHUNK_SIZE as i32,
+            (spawn_chunk_z - LOADED_CHUNKS_Z / 2) * CHUNK_SIZE as i32,
         );
 
-        if args.verbose {
-            println!(
-                "Texture origin: ({}, {}, {})",
-                texture_origin.x, texture_origin.y, texture_origin.z
-            );
-        }
+        // Initialize world
+        let spawn_chunk = vector![spawn_chunk_x, 0, spawn_chunk_z];
 
-        // Create world with only chunks near spawn loaded
-        let world = create_initial_world_with_seed(spawn_chunk, seed);
+        let storage = Arc::new(storage::worker::StorageSystem::new(world_dir.clone()));
+
+        // Create world with only chunks near spawn loaded, checking storage first
+        let world = create_initial_world_with_seed(spawn_chunk, seed, Some(&storage));
 
         // Texture dimensions (not world bounds - world is infinite)
         let world_extent = [
@@ -606,13 +740,27 @@ impl App {
         let input = WinitInputHelper::new();
 
         // Spawn at world origin (0, ground_level, 0) for infinite worlds
-        let spawn_x = 0;
-        let spawn_z = 0;
-        let spawn_y = find_ground_level(&world, spawn_x, spawn_z);
-        let spawn_pos = Vector3::new(spawn_x as f64, spawn_y as f64 + 1.0, spawn_z as f64);
+        let spawn_pos = if let Some(ref player_data) = initial_player_data {
+            Vector3::new(
+                player_data.position[0],
+                player_data.position[1] + PLAYER_EYE_HEIGHT,
+                player_data.position[2],
+            )
+        } else {
+            let spawn_x = 0;
+            let spawn_z = 0;
+            let spawn_y = find_ground_level(&world, spawn_x, spawn_z);
+            Vector3::new(spawn_x as f64, spawn_y as f64 + 1.0, spawn_z as f64)
+        };
 
         let mut player = Player::new(spawn_pos, texture_origin, world_extent, args.fly_mode);
         player.auto_jump = true;
+
+        // Restore rotation if available
+        if let Some(p) = initial_player_data {
+            player.camera.rotation.y = p.yaw as f64;
+            player.camera.rotation.x = p.pitch as f64;
+        }
 
         println!(
             "Voxel Game started! Click to focus, then use WASD to move, mouse to look, left/right click to edit blocks."
@@ -656,17 +804,23 @@ impl App {
             chunk_stats: ChunkStats::default(),
             chunk_loader: {
                 let terrain = TerrainGenerator::new(seed);
-                ChunkLoader::new(move |pos| generate_chunk_terrain(&terrain, pos))
+                let storage_clone = Arc::clone(&storage);
+                ChunkLoader::new(
+                    move |pos| generate_chunk_terrain(&terrain, pos),
+                    Some(storage_clone),
+                )
             },
+            storage,
             particles: ParticleSystem::new(),
             falling_blocks: FallingBlockSystem::new(),
             block_updates: BlockUpdateQueue::new(32),
             water_grid: WaterGrid::new(),
-            time_of_day: args
-                .time_of_day
-                .map(|t| t as f32)
-                .unwrap_or(DEFAULT_TIME_OF_DAY),
-            day_cycle_paused: true,
+            time_of_day: if args.time_of_day.is_some() {
+                args.time_of_day.map(|t| t as f32).unwrap()
+            } else {
+                initial_time_of_day
+            },
+            day_cycle_paused: initial_day_paused,
             atmosphere: atmosphere::AtmosphereSettings::default(),
             animation_time: 0.0,
             render_mode: match args.render_mode.as_deref() {
@@ -681,6 +835,9 @@ impl App {
             unload_distance,
             profiler: Profiler::default(),
             metadata_state: MetadataState::new(texture_origin),
+            last_save: Instant::now(),
+            world_dir: world_dir.clone(),
+            seed,
         };
 
         let start_time = Instant::now();
@@ -813,6 +970,8 @@ impl App {
         self.upload_world_to_gpu();
         self.sim.profiler.gpu_upload_us += t1.elapsed().as_micros() as u64;
 
+        self.sim.auto_save();
+
         // Amortized metadata refresh runs once per frame.
         self.update_metadata_buffers();
 
@@ -821,6 +980,8 @@ impl App {
         };
 
         if self.input.close_requested() {
+            println!("[Storage] Saving world before exit...");
+            self.sim.save_all();
             event_loop.exit();
             return;
         }

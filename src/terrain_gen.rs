@@ -304,5 +304,9 @@ pub fn generate_chunk_terrain(terrain: &TerrainGenerator, chunk_pos: Vector3<i32
             }
         }
     }
+
+    chunk.update_metadata();
+    // Procedurally generated chunk is not dirty for persistence until modified.
+    chunk.persistence_dirty = false;
     chunk
 }

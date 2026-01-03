@@ -228,6 +228,9 @@ pub struct Chunk {
     /// Whether this chunk has been modified since last GPU upload.
     pub dirty: bool,
 
+    /// Whether this chunk has been modified since last save to disk.
+    pub persistence_dirty: bool,
+
     /// Cached GPU texture for this chunk (if uploaded).
     pub gpu_texture: Option<Arc<ImageView>>,
 
@@ -257,6 +260,7 @@ impl Chunk {
             model_metadata_dirty: Cell::new(false),
             light_block_count: 0,
             dirty: true,
+            persistence_dirty: true,
             gpu_texture: None,
             cached_is_empty: true,
             cached_is_fully_solid: false,
@@ -280,6 +284,7 @@ impl Chunk {
             model_metadata_dirty: Cell::new(false),
             light_block_count,
             dirty: true,
+            persistence_dirty: true,
             gpu_texture: None,
             cached_is_empty: is_empty,
             cached_is_fully_solid: is_solid,
@@ -326,6 +331,7 @@ impl Chunk {
 
             self.blocks[idx] = block;
             self.dirty = true;
+            self.persistence_dirty = true;
             self.metadata_dirty = true;
 
             // Clean up model data if block is no longer a Model
@@ -360,6 +366,7 @@ impl Chunk {
             },
         );
         self.dirty = true;
+        self.persistence_dirty = true;
         self.metadata_dirty = true;
         self.model_metadata_dirty.set(true);
     }
@@ -379,6 +386,7 @@ impl Chunk {
         let idx = Self::index(x, y, z);
         self.model_data.insert(idx, data);
         self.dirty = true;
+        self.persistence_dirty = true;
         self.model_metadata_dirty.set(true);
     }
 
