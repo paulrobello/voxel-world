@@ -1,5 +1,6 @@
 pub mod format;
 pub mod metadata;
+pub mod model_format;
 pub mod region;
 pub mod worker;
 

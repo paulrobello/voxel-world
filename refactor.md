@@ -7,126 +7,116 @@
 - Update this checklist with outcomes/notes.
 - Commit all work before moving to the next item.
 
-# Phase 3: World Persistence - Comprehensive Plan
+# Phase 3: World Persistence (Completed)
+*See git history for implementation details. Region-based saving/loading is active.*
+
+# Phase 5: In-Game Model Editor & Shared Library
 
 ## Objectives
-- **Scalability**: Support infinite worlds via region-based storage.
-- **Performance**: Zero frame-drop saving/loading via asynchronous I/O and threading.
-- **Network-Ready**: Data structures designed for direct network streaming (Phase 7).
-- **Extensibility**: Versioned formats to support future features (Entities, AI).
+- **In-Game Creation**: Enable players to design 8x8x8 sub-voxel models without external tools.
+- **Portability**: Save/Load models as individual files (`.vxm`) to share between worlds.
+- **Usability**: Intuitive UI (using `egui`) for palette selection, voxel placement, and library management.
 
-## 1. File Format Specification
+## 1. File Format Specification (`.vxm`)
 
-### 1.1 Region Files (`r.x.z.vxr`)
-We will adopt a region-based approach (similar to Anvil) to minimize file handle overhead and filesystem fragmentation. This format allows fast random access to chunks.
+### 1.1 Purpose
+A portable binary format for a single sub-voxel model, allowing users to build a library of assets ("chairs", "tables", "fences") that can be imported into any world.
 
-- **Region Size**: 32x32 chunks (1024 chunks per file).
-- **Naming**: `r.{region_x}.{region_z}.vxr`, where `region_x = chunk_x >> 5` (floor division).
-- **Location**: stored in `world_name/region/` directory.
-
-### 1.2 Header Structure (8KB)
-The first 8KB of the file is reserved for headers to allow O(1) lookups.
-- **Location Table (0x0000 - 0x0FFF)**: 1024 entries of 4 bytes.
-    - `offset` (3 bytes): Offset in 4KB sectors from start of file.
-    - `sector_count` (1 byte): Number of 4KB sectors occupied by this chunk.
-    - Formula: `index = (chunk_x & 31) + (chunk_z & 31) * 32`.
-- **Timestamp Table (0x1000 - 0x1FFF)**: 1024 entries of 4 bytes (u32 unix timestamp).
-    - Tracks when the chunk was last modified. useful for syncing.
-
-### 1.3 Chunk Data Payload
-Each chunk is stored in a compressed blob starting at the sector offset.
-- **Compression**: **Zstd**. It offers superior decompression speed compared to Gzip/Deflate, which is critical for minimizing latency during network streaming and gameplay.
-- **Serialization**: Binary format (e.g., `bincode`).
-- **Padding**: Payload is padded to the nearest 4KB sector boundary.
-
-### 1.4 Data Schema (Version 1)
-The serialized payload will mirror the runtime structure but optimized for storage/network.
+### 1.2 Format Structure
+**Path**: `user_models/{category}/{model_name}.vxm` (Global Library)
 
 ```rust
-// Pseudo-struct for serialization
-struct SerializedChunk {
-    version: u8,                // Format version (1)
-    flags: u8,                  // Bitmask (is_generated, has_entities, etc.)
-    block_data: Vec<u8>,        // 32^3 bytes (compressed) or Palette+Indices
-    metadata: Vec<BlockMeta>,   // Sparse map: index -> (model_id, rotation)
-    // Future expansion (Phase 6)
-    // entities: Vec<EntitySnapshot>,
-    // tile_entities: Vec<TileEntity>,
+struct VxmFile {
+    magic: [u8; 4],         // "VXM1"
+    version: u16,           // 1
+    name: String,           // UTF-8 Display Name
+    author: String,         // UTF-8 Author Name
+    creation_date: u64,     // Unix timestamp
+    palette: [u32; 16],     // RGBA8888 color palette
+    voxels: [u8; 512],      // 8x8x8 grid (indices into palette, 0=air)
+    properties: ModelProps, // Collision flags, light emission, etc.
 }
 
-struct BlockMeta {
-    index: u16, // flattened index in chunk
-    data: u16,  // packed model_id (8) + rotation (2) + extra (6)
+struct ModelProps {
+    collision_mask: u64,    // 64-bit mask (1 bit per 2x2x2 block? or just solid/pass)
+    is_transparent: bool,
+    light_level: u8,
 }
 ```
 
 ## 2. Systems Architecture
 
-### 2.1 Storage Module (`src/storage/`)
-A new module to handle all persistence logic.
-- **`RegionManager`**: Manages open file handles. Uses an LRU cache (e.g., max 16 open region files) to prevent OS resource exhaustion.
-- **`AsyncIoWorker`**: A background thread (using `std::thread` and channels or `tokio` if we pull that in, but simple threads preferred for now) that handles the actual compression/writing and reading/decompression.
-    - **Read Queue**: High priority (player movement).
-    - **Write Queue**: Low priority (auto-save).
+### 2.1 Model Registry & World Storage
+The world needs its own mapping of `ModelId` to `ModelData` to ensure consistency.
 
-### 2.2 Integration with World
-- **`ChunkLoader`**: Modified to check `Storage` before generating terrain.
-    - Flow: `Request Chunk` -> `Check Disk` -> `(Found) Load & Decompress` -> `Return`.
-    - Fallback: `(Not Found)` -> `Generate Terrain`.
-- **`AutoSaveSystem`**:
-    - Runs every N seconds (e.g., 30s).
-    - Scans `World` for chunks with `is_dirty = true`.
-    - Clones chunk data (snapshot) to send to `AsyncIoWorker` to avoid locking the render thread.
+- **`ModelRegistry`**:
+    - Runtime: `HashMap<u16, SubVoxelModel>`.
+    - Persistence: `worlds/{name}/models.dat` (Mapping `u16` -> `ModelData`).
+    - **Limit**: Expand `BlockType` model ID support from `u8` to `u16` if not already done.
 
-### 2.3 Network Alignment (Future Proofing)
-The serialization format is designed to be the **exact payload** sent over the network.
-- **Streaming**: When a client requests a chunk, the server reads the compressed blob from the region file and sends it directly over the socket. No deserialization/reserialization on the server.
-- **Latency**: Zstd decompression is extremely fast, minimizing client-side hitching.
+- **`LibraryManager`**:
+    - Scans `user_models/` directory on startup.
+    - Provides a list of available "Blueprints".
+    - `import_model(name)`: Loads `.vxm`, registers it in the current world's `ModelRegistry`, returns new `ModelId`.
+
+### 2.2 Editor System (`src/editor/`)
+A new state/system that overrides standard player input.
+
+- **`EditorState`**:
+    - `active: bool`
+    - `target_model_id: Option<u16>` (Editing existing or new?)
+    - `scratch_pad: SubVoxelModel` (The working copy)
+    - `camera_orbit: (f32, f32, f32)` (Orbiting the model being edited)
+
+- **`EditorMode`**:
+    - When active:
+        - Disable Player Physics/Movement.
+        - Switch Camera to "Orbit Mode" around the editing target.
+        - Render the `scratch_pad` model at a fixed position or overlay.
+        - Enable Mouse Cursor (unlock).
+
+### 2.3 UI Layer (`egui`)
+Utilize `egui_winit_vulkano` for tool windows.
+
+- **Panels**:
+    - **Tools**: Pencil, Eraser, Fill, Eyedropper.
+    - **Palette**: Grid of 16 colors. Click to select, Right-click to edit RGBA.
+    - **Library**: List of `.vxm` files. "Import", "Export", "Save".
+    - **Preview**: 2D render of the model (optional, maybe later).
 
 ## 3. Detailed Implementation Plan
 
-### Step 1: Core Data Structures
-- [x] Create `src/storage/mod.rs` and `src/storage/format.rs`.
-- [x] Define the `SerializedChunk` struct and helper methods.
-- [x] Implement conversion traits: `TryFrom<&Chunk> for SerializedChunk` and `TryInto<Chunk> for SerializedChunk`.
-- [x] **Test**: Write a unit test that creates a chunk with random blocks/models, serializes it, deserializes it, and asserts equality.
+### Step 1: Data Structures & IO (`src/storage/model_format.rs`) ✅ COMPLETE
+- [x] Define `VxmFile` struct and serialization (using `bincode`).
+- [x] Create `user_models/` directory creation logic.
+- [x] Implement `save_vxm(path, model)` and `load_vxm(path)`.
+- [x] **Test**: Round-trip serialization test.
 
-### Step 2: Region File Logic
-- [x] Create `src/storage/region.rs`.
-- [x] Implement `RegionFile` struct.
-    - `open(path)`: Opens or creates file, parses header.
-    - `read_chunk(x, z)`: Looks up offset, reads data, returns `Vec<u8>`.
-    - `write_chunk(x, z, data)`: Finds free sector or appends to end, updates header.
-    - **Fragmentation Handling**: If new data > old sector count, mark old sectors free (bitmap) and allocate new ones at end of file. (Simple allocator).
+### Step 2: Model Registry Upgrade
+- [ ] Ensure `Chunk` and `World` use `u16` for Model IDs (currently `u8` in `BlockType`?).
+    - *Check `chunk.rs`: `BlockType` enum might need refactoring if it packs ID tightly.*
+- [ ] Implement `models.dat` saving/loading for the world (persisting the registry).
+- [ ] Add `LibraryManager` to list external `.vxm` files.
 
-### Step 3: Async I/O Layer
-- [x] Create `src/storage/worker.rs`.
-- [x] exact `std::sync::mpsc` channels for communicating between Main Thread and I/O Thread.
-- [x] Implement the command loop: `Load(pos, reply_channel)`, `Save(pos, data)`.
+### Step 3: Editor Logic & Camera (`src/editor/mod.rs`)
+- [ ] Create `EditorSystem` resource.
+- [ ] Implement `OrbitCamera` for inspecting the 8x8x8 grid.
+- [ ] Implement `Raycast` against the 8x8x8 grid (AABB check -> Voxel check).
+    - Needs to map Mouse Screen Pos -> World Ray -> Local Voxel Coordinate.
 
-### Step 4: World Integration
-- [x] Modify `World` struct to hold the `Storage` system.
-- [x] Update `ChunkLoader` to query storage.
-- [x] Implement `is_dirty` tracking in `BlockUpdate` and `BlockModification` logic.
-- [x] Add `world/level.dat` for seed and global metadata.
+### Step 4: UI Implementation
+- [ ] **Main Menu / HUD**: Add button or keybind ('M') to toggle editor.
+- [ ] **Egui Integration**:
+    - Palette Window: Color pickers.
+    - File Window: List box for `user_models`.
+- [ ] **Interaction**:
+    - Left Click: Place Voxel (Current Color).
+    - Right Click: Remove Voxel.
+    - Middle Click: Pick Color.
 
-### Step 5: Safety & Migration
-- [x] **Backups**: On world load, if version < current, backup `level.dat`.
-- [x] **Error Handling**: Corrupt chunk recovery (log error, regenerate chunk). Do not crash.
+### Step 5: World Integration
+- [ ] "Place in World": When saving/exiting, update the `ModelRegistry` and place the block in the world at the player's previous target.
 
 ## 4. Expansion Hooks
-
-### 4.1 Entities
-The `SerializedChunk` struct will have an `entities` field. When Phase 6 arrives, we just populate this vector. The region file format doesn't change.
-
-### 4.2 Multiplayer
-The `block_data` in `SerializedChunk` corresponds to the bulk chunk data packet.
-- **Delta Compression**: For live updates, we will send individual `BlockChange` packets. The full chunk is only sent on load.
-
-### 4.3 Custom Models
-Sub-voxel models are part of the `metadata` field. If the model registry grows, the `model_id` might need to expand from u8 to u16. The `BlockMeta` struct should reserve bits or use a variable-length scheme if strict packing is needed, but currently `u16` data (8 id, 2 rot, 6 reserved) is fine for 256 models.
-
-## 5. Low Latency Considerations
-- **Budgeting**: The `AutoSaveSystem` should limit how many chunks it snapshots per frame to prevent RAM bandwidth spikes.
-- **Zero-Copy**: Use `bytemuck` for casting byte slices to header arrays where safe.
-- **Priority**: Load requests always preempt Save requests in the worker queue.
+- **Online Gallery**: `LibraryManager` could eventually fetch `.vxm` from a web API.
+- **Copy/Paste**: Clipboard support for voxel data.
