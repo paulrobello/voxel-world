@@ -764,9 +764,9 @@ impl World {
         // If the stair behind is facing Right relative to us -> Inner Right
         if let Some(bf) = back_neighbor {
             if bf == left_dir {
-                shape = StairShape::InnerRight;
-            } else if bf == right_dir {
                 shape = StairShape::InnerLeft;
+            } else if bf == right_dir {
+                shape = StairShape::InnerRight;
             }
         }
 
@@ -1045,7 +1045,7 @@ mod tests {
         use crate::sub_voxel::{ModelRegistry, StairShape};
         let mut world = World::new();
 
-        // Case 1: Inner Right Corner (Previously Inner Left)
+        // Case 1: Inner Left Corner (Straight Mapping)
         // Me: Facing North (0 -> -Z) at (0,0,0)
         // Back Neighbor: At (0,0,1) (South), Facing West (3 -> -X)
         let straight_id = ModelRegistry::stairs_model_id(StairShape::Straight, false);
@@ -1055,13 +1055,13 @@ mod tests {
         world.update_stair_shape_at(vector![0, 0, 0]);
 
         let data = world.get_model_data(vector![0, 0, 0]).unwrap();
-        // Expect InnerRight (Left Neighbor -> Turn Left -> Keep Left -> Remove Right -> InnerRight mesh)
-        let expected_shape = StairShape::InnerRight;
+        // Expect InnerLeft (Wiki: Back Neighbor Left -> Inner Left)
+        let expected_shape = StairShape::InnerLeft;
         let expected_id = ModelRegistry::stairs_model_id(expected_shape, false);
 
-        assert_eq!(data.model_id, expected_id, "Should form InnerRight corner");
+        assert_eq!(data.model_id, expected_id, "Should form InnerLeft corner");
 
-        // Case 2: Outer Left Corner (Previously Outer Right)
+        // Case 2: Outer Left Corner (Straight Mapping)
         // Me: Facing North (0 -> -Z) at (10,0,0)
         // Front Neighbor: At (10,0,-1) (North), Facing West (3 -> -X)
         world.set_model_block(vector![10, 0, 0], straight_id, 0); // North
@@ -1070,7 +1070,7 @@ mod tests {
         world.update_stair_shape_at(vector![10, 0, 0]);
 
         let data = world.get_model_data(vector![10, 0, 0]).unwrap();
-        // Expect OuterLeft (Left Neighbor -> Turn Left -> Pointy Left -> OuterLeft mesh)
+        // Expect OuterLeft (Wiki: Front Neighbor Left -> Outer Left)
         let expected_shape = StairShape::OuterLeft;
         let expected_id = ModelRegistry::stairs_model_id(expected_shape, false);
 
