@@ -378,10 +378,9 @@ impl EditorState {
     pub fn on_left_click(&mut self) {
         match self.tool {
             EditorTool::Pencil => {
-                // Place voxel adjacent to hovered face
-                if let (Some(voxel), Some(normal)) = (self.hovered_voxel, self.hovered_normal) {
-                    let place_pos = voxel + normal;
-                    self.place_voxel(place_pos);
+                // In 2D viewport mode, place directly at hovered position
+                if let Some(voxel) = self.hovered_voxel {
+                    self.place_voxel(voxel);
                 }
             }
             EditorTool::Eraser => {
