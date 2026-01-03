@@ -84,6 +84,7 @@ mod chunk;
 mod chunk_loader;
 mod config;
 mod constants;
+mod editor;
 mod falling_block;
 mod gpu_resources;
 mod hot_reload;

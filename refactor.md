@@ -101,11 +101,14 @@ Utilize `egui_winit_vulkano` for tool windows.
 - [x] Add `LibraryManager` to list external `.vxm` files.
     - *Already implemented in Step 1 with `list_models()`, `save_model()`, `load_model()`*
 
-### Step 3: Editor Logic & Camera (`src/editor/mod.rs`)
-- [ ] Create `EditorSystem` resource.
-- [ ] Implement `OrbitCamera` for inspecting the 8x8x8 grid.
-- [ ] Implement `Raycast` against the 8x8x8 grid (AABB check -> Voxel check).
-    - Needs to map Mouse Screen Pos -> World Ray -> Local Voxel Coordinate.
+### Step 3: Editor Logic & Camera (`src/editor/mod.rs`) ✅ COMPLETE
+- [x] Create `EditorSystem` resource.
+    - *Added `EditorState` struct with scratch_pad, palette, tools, orbit camera*
+- [x] Implement `OrbitCamera` for inspecting the 8x8x8 grid.
+    - *`camera_position()`, `camera_target()`, `update_orbit()` methods*
+- [x] Implement `Raycast` against the 8x8x8 grid (AABB check -> Voxel check).
+    - *`raycast_voxel()` method with DDA algorithm*
+    - *Returns voxel position and face normal for placement*
 
 ### Step 4: UI Implementation
 - [ ] **Main Menu / HUD**: Add button or keybind ('M') to toggle editor.
