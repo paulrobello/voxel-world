@@ -4,7 +4,7 @@ use crate::chunk::BlockType;
 use crate::constants::TEXTURE_SIZE_Y;
 use crate::player::{PLAYER_HALF_WIDTH, PLAYER_HEIGHT};
 use crate::raycast::{MAX_RAYCAST_DISTANCE, get_place_position, raycast};
-use crate::sub_voxel::ModelRegistry;
+use crate::sub_voxel::{ModelRegistry, StairShape};
 use nalgebra::Vector3;
 use winit::event::MouseButton;
 
@@ -89,6 +89,10 @@ impl App {
 
                 // Update neighboring fence/gate connections
                 self.sim.world.update_fence_connections(target);
+                // Update neighboring stair shapes (stair neighbors may straighten)
+                self.sim.world.update_adjacent_stair_shapes(target);
+                // Update neighboring stair corner shapes
+                self.sim.world.update_adjacent_stair_shapes(target);
 
                 // Notify water grid that a block was removed (may trigger flow)
                 self.sim.water_grid.on_block_removed(target);
@@ -427,25 +431,27 @@ impl App {
                     .world
                     .set_model_block(place_pos, base_model_id, rotation);
                 return true;
-            } else {
-                if base_model_id == 28 {
-                    // Stairs: face the player's look direction (nearest 90°)
-                    let yaw = self.sim.player.camera.rotation.y as f32;
-                    let rot = (yaw / std::f32::consts::FRAC_PI_2).round() as i32;
-                    rotation = ((rot + 2).rem_euclid(4)) as u8; // 180° so steps face the player
-                }
+            } else if ModelRegistry::is_stairs_model(base_model_id) {
+                // Stairs: determine rotation from player yaw
+                let yaw = self.sim.player.camera.rotation.y as f32;
+                let rot = (yaw / std::f32::consts::FRAC_PI_2).round() as i32;
+                rotation = ((rot + 2).rem_euclid(4)) as u8; // face toward player (default MC placement)
 
-                if base_model_id == 28 {
-                    let mut chosen = base_model_id;
+                // Determine if inverted (ceiling) placement
+                let mut inverted = ModelRegistry::is_stairs_inverted(base_model_id);
+                if !inverted {
                     if let Some(hit) = self.ui.current_hit {
                         if hit.normal.y < 0 {
-                            chosen = ModelRegistry::stairs_inverted_model_id();
+                            inverted = true;
                         }
                     }
-                    chosen
-                } else {
-                    base_model_id
                 }
+
+                let shape =
+                    ModelRegistry::stairs_shape(base_model_id).unwrap_or(StairShape::Straight);
+                ModelRegistry::stairs_model_id(shape, inverted)
+            } else {
+                base_model_id
             };
 
             self.sim
@@ -454,6 +460,9 @@ impl App {
 
             if ModelRegistry::is_fence_or_gate(model_id) {
                 self.sim.world.update_fence_connections(place_pos);
+            } else if ModelRegistry::is_stairs_model(model_id) {
+                // Update placed stair and neighbors to form corners
+                self.sim.world.update_stair_and_neighbors(place_pos);
             }
         } else {
             self.sim.world.set_block(place_pos, block_to_place);

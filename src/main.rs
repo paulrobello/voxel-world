@@ -148,9 +148,9 @@ const DEFAULT_TIME_OF_DAY: f32 = 0.583;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 enum PaletteTab {
     #[default]
+    All,
     Blocks,
     Models,
-    All,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -167,9 +167,9 @@ const DEFAULT_HOTBAR_BLOCKS: [BlockType; 9] = [
     BlockType::Grass,
     BlockType::Sand,
     BlockType::Log,
-    BlockType::Model, // Fence (model_id=4)
-    BlockType::Model, // Gate (model_id=20)
-    BlockType::Model, // Ladder (model_id=29)
+    BlockType::Model, // Stairs
+    BlockType::Model, // Slab bottom
+    BlockType::Model, // Slab top
     BlockType::Model, // Torch model (model_id=1)
 ];
 
@@ -181,9 +181,9 @@ const DEFAULT_HOTBAR_MODEL_IDS: [u8; 9] = [
     0,  // Grass
     0,  // Sand
     0,  // Log
-    4,  // Fence (fence base model_id, connections computed dynamically)
-    20, // Gate closed (gate base model_id, connections computed dynamically)
-    29, // Ladder
+    28, // Stairs (base straight)
+    2,  // Slab bottom
+    3,  // Slab top
     1,  // Torch
 ];
 
