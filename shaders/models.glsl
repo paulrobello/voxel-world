@@ -47,12 +47,12 @@ ivec3 rotateModelPos(ivec3 pos, uint rotation) {
 // Since positions are rotated CW, normals need to be rotated CCW (inverse) to get world-space normal
 vec3 inverseRotateNormal(vec3 n, uint rotation) {
     switch (rotation) {
-        case 1u:  // Position was 90° CW, so normal needs 90° CCW
-            return vec3(n.z, n.y, -n.x);
+        case 1u:  // Inverse of 90° CW is 90° CCW: (x,z) -> (-z, x)
+            return vec3(-n.z, n.y, n.x);
         case 2u:  // 180° inverse is 180°
             return vec3(-n.x, n.y, -n.z);
-        case 3u:  // Position was 270° CW, so normal needs 270° CCW (= 90° CW)
-            return vec3(-n.z, n.y, n.x);
+        case 3u:  // Inverse of 90° CCW is 90° CW: (x,z) -> (z, -x)
+            return vec3(n.z, n.y, -n.x);
         default:  // 0° (no rotation)
             return n;
     }
@@ -61,12 +61,12 @@ vec3 inverseRotateNormal(vec3 n, uint rotation) {
 // Inverse-rotate a block-local position (0-1 range) back to model base orientation
 vec3 inverseRotatePosition(vec3 p, uint rotation) {
     switch (rotation) {
-        case 1u: // 90° CW -> rotate 90° CCW around center
-            return vec3(p.z, p.y, 1.0 - p.x);
+        case 1u: // 90° CW -> rotate 90° CCW: (x,z) -> (1-z, x)
+            return vec3(1.0 - p.z, p.y, p.x);
         case 2u: // 180°
             return vec3(1.0 - p.x, p.y, 1.0 - p.z);
-        case 3u: // 270° CW -> rotate 90° CW
-            return vec3(1.0 - p.z, p.y, p.x);
+        case 3u: // 270° CW -> rotate 90° CW: (x,z) -> (z, 1-x)
+            return vec3(p.z, p.y, 1.0 - p.x);
         default:
             return p;
     }
@@ -75,12 +75,12 @@ vec3 inverseRotatePosition(vec3 p, uint rotation) {
 // Inverse-rotate a direction vector back to model base orientation
 vec3 inverseRotateDirection(vec3 d, uint rotation) {
     switch (rotation) {
-        case 1u:
-            return vec3(d.z, d.y, -d.x);
+        case 1u: // 90° CCW
+            return vec3(-d.z, d.y, d.x);
         case 2u:
             return vec3(-d.x, d.y, -d.z);
-        case 3u:
-            return vec3(-d.z, d.y, d.x);
+        case 3u: // 90° CW
+            return vec3(d.z, d.y, -d.x);
         default:
             return d;
     }
@@ -297,8 +297,6 @@ bool marchSubVoxelModel(
             uint hitAxis = (i == 0) ? entryAxis : stepped_axis;
             out_normal = vec3(0.0);
             out_normal[hitAxis] = -float(step[hitAxis]);
-            // Rotate normal to match model orientation
-            out_normal = inverseRotateNormal(out_normal, rotation);
 
             // Calculate t value (in block-local 0-1 space)
             // Use entry distance to current voxel

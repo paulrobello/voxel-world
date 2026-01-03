@@ -267,9 +267,9 @@ impl SubVoxelModel {
 
         fn inverse_rotate_normal(n: Vector3<i32>, rotation: u8) -> Vector3<i32> {
             match rotation & 3 {
-                1 => Vector3::new(n.z, n.y, -n.x),
+                1 => Vector3::new(-n.z, n.y, n.x),
                 2 => Vector3::new(-n.x, n.y, -n.z),
-                3 => Vector3::new(-n.z, n.y, n.x),
+                3 => Vector3::new(n.z, n.y, -n.x),
                 _ => n,
             }
         }
@@ -382,7 +382,6 @@ impl SubVoxelModel {
                 let hit_axis = if i == 0 { entry_axis } else { stepped_axis };
                 let mut normal = Vector3::zeros();
                 normal[hit_axis] = -step[hit_axis];
-                let world_normal = inverse_rotate_normal(normal, rotation);
 
                 let voxel_dist = if i == 0 {
                     0.0
@@ -390,7 +389,7 @@ impl SubVoxelModel {
                     t_max[stepped_axis] - t_delta[stepped_axis]
                 };
                 let t = (start_t + voxel_dist) / 8.0;
-                return Some((t, world_normal));
+                return Some((t, normal));
             }
 
             if t_max.x < t_max.y {
