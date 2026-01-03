@@ -607,6 +607,14 @@ Maintain 90+ FPS with all features enabled.
 
 ---
 
+## Sprite Icon Generation ✅ COMPLETE (2026-01-03)
+- [x] Added `--generate-sprites` CLI flag and `make sprite-gen` target to render hotbar/palette icons.
+- [x] GPU icon pass renders one block/model in 3/4 view with AO/shadows and saves to `textures/rendered/`.
+- [x] Transparent backgrounds via chroma-key sky; auto-generated `missing.png` placeholder.
+- [x] HUD loads generated sprites when present, with fallback to placeholder.
+
+---
+
 ## Current Work (2026-01-01)
 - Sub-voxel models (ladders/fences/gates) rendering & shadows:
   - Fence self-shadow artifacts resolved; connected fence shadows align without gaps.

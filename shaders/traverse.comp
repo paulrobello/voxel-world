@@ -709,6 +709,11 @@ void main() {
         renderTargetBlockOutline(o, d, color, hitDistance);
         color = applyFog(color, hitDistance, d);
     } else {
+        if (pc.transparent_background != 0u) {
+            // Chroma-key sky for sprite generation: magenta with zero alpha.
+            imageStore(targetImage, pixelCoord, vec4(1.0, 0.0, 1.0, 0.0));
+            return;
+        }
         color = getSkyColor(d);
         float skyDistance = length(vec3(pc.texture_size_x, pc.texture_size_y, pc.texture_size_z)) * 0.5;
         color = applyFog(color, skyDistance, d);
@@ -749,5 +754,5 @@ void main() {
 
     color += vec3(float(brick_masks[0] & 1u), float(brick_distances[0] & 1u), 0.0) * 0.00001;
 
-    imageStore(targetImage, pixelCoord, vec4(color, 1));
+    imageStore(targetImage, pixelCoord, vec4(color, 1.0));
 }

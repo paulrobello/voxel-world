@@ -96,6 +96,7 @@ mod render_mode;
 mod sub_voxel;
 mod sub_voxel_builtins;
 mod svt;
+mod sprite_gen;
 mod terrain_gen;
 mod utils;
 mod vulkan_context;
@@ -133,6 +134,7 @@ use crate::world::World;
 use vulkano::command_buffer::allocator::StandardCommandBufferAllocator;
 use vulkano::descriptor_set::allocator::StandardDescriptorSetAllocator as StdDescriptorSetAllocator;
 use world_streaming::MetadataState;
+use std::process;
 
 // Constants moved to constants.rs
 
@@ -471,6 +473,16 @@ impl App {
 
         if args.verbose {
             println!("CLI Args: {:?}", args);
+        }
+
+        if args.generate_sprites {
+            match sprite_gen::run(&args, event_loop) {
+                Ok(()) => process::exit(0),
+                Err(e) => {
+                    eprintln!("[sprites] failed: {e}");
+                    process::exit(1);
+                }
+            }
         }
 
         let seed = args.seed.unwrap_or(12345);
@@ -1209,12 +1221,12 @@ impl App {
             } else {
                 0
             },
+            transparent_background: 0,
             pass_mode: 0, // Will be set per-pass
             lod_ao_distance: self.ui.settings.lod_ao_distance,
             lod_shadow_distance: self.ui.settings.lod_shadow_distance,
             lod_point_light_distance: self.ui.settings.lod_point_light_distance,
             falling_block_count: self.sim.falling_blocks.count() as u32,
-            _pc_pad_camera: 0,
             camera_pos: {
                 let cam = self
                     .sim
@@ -1419,6 +1431,7 @@ impl ApplicationHandler for App {
                 ..Default::default()
             },
         );
+        let sprite_icons = gpu_resources::load_sprite_icons(&mut gui);
 
         let recreate_swapchain = false;
 
@@ -1437,6 +1450,7 @@ impl ApplicationHandler for App {
 
             gui,
             atlas_texture_id,
+            sprite_icons,
 
             recreate_swapchain,
         });

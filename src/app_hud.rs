@@ -31,6 +31,7 @@ pub fn render_hud(
             hotbar_model_ids: &mut ui.hotbar_model_ids,
             minimap_image,
             atlas_texture_id: rcx.atlas_texture_id,
+            sprite_icons: Some(&rcx.sprite_icons),
             camera_yaw,
             player_world_pos,
             time_of_day: &mut sim.time_of_day,

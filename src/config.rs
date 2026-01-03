@@ -53,6 +53,10 @@ pub struct Args {
     /// Write per-second performance samples to CSV file
     #[arg(long)]
     pub profile_log: Option<String>,
+
+    /// Generate hotbar/palette sprites and exit
+    #[arg(long)]
+    pub generate_sprites: bool,
 }
 
 pub const INITIAL_WINDOW_RESOLUTION: PhysicalSize<u32> = PhysicalSize::new(1200, 1080);

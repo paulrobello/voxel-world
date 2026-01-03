@@ -1,5 +1,6 @@
 use crate::block_update::BlockUpdateQueue;
 use crate::chunk::BlockType;
+use crate::gpu_resources::SpriteIcons;
 use crate::config::Settings;
 use crate::hud::Minimap;
 use crate::player::Player;
@@ -26,6 +27,7 @@ pub struct HudInputs<'a> {
     pub hotbar_model_ids: &'a mut [u8; 9],
     pub minimap_image: Option<egui::ColorImage>,
     pub atlas_texture_id: egui::TextureId,
+    pub sprite_icons: Option<&'a SpriteIcons>,
     pub camera_yaw: f32,
     pub player_world_pos: Vector3<f64>,
     pub time_of_day: &'a mut f32,
@@ -46,6 +48,26 @@ pub struct HudInputs<'a> {
 pub struct HUDRenderer;
 
 impl HUDRenderer {
+    fn sprite_for_item(
+        item: PaletteItem,
+        icons: Option<&SpriteIcons>,
+    ) -> Option<egui::TextureId> {
+        let set = icons?;
+        match item.block {
+            BlockType::Model => set
+                .model
+                .get(&item.model_id)
+                .copied()
+                .or_else(|| Some(set.missing)),
+            BlockType::Air => None,
+            _ => set
+                .block
+                .get(&item.block)
+                .copied()
+                .or_else(|| Some(set.missing)),
+        }
+    }
+
     fn atlas_tile_for(block: BlockType, model_id: u8) -> f32 {
         if block == BlockType::Model {
             match model_id {
@@ -148,6 +170,7 @@ impl HUDRenderer {
     fn draw_palette_item(
         ui: &mut egui::Ui,
         atlas_texture_id: egui::TextureId,
+        sprite_icons: Option<&SpriteIcons>,
         item: PaletteItem,
         label: &str,
         hotbar_blocks: &mut [BlockType; 9],
@@ -160,12 +183,23 @@ impl HUDRenderer {
         let uv_left = block_idx / ATLAS_TILE_COUNT;
         let uv_right = (block_idx + 1.0) / ATLAS_TILE_COUNT;
         let uv_rect = egui::Rect::from_min_max(egui::pos2(uv_left, 0.0), egui::pos2(uv_right, 1.0));
+        let sprite_id = Self::sprite_for_item(item, sprite_icons);
 
         ui.vertical(|ui| {
-            let button = egui::ImageButton::new((atlas_texture_id, egui::vec2(48.0, 48.0)))
-                .uv(uv_rect)
-                .frame(true)
-                .sense(egui::Sense::click_and_drag());
+            let button = if let Some(id) = sprite_id {
+                egui::ImageButton::new((id, egui::vec2(48.0, 48.0)))
+                    .uv(egui::Rect::from_min_max(
+                        egui::pos2(0.0, 0.0),
+                        egui::pos2(1.0, 1.0),
+                    ))
+                    .frame(true)
+                    .sense(egui::Sense::click_and_drag())
+            } else {
+                egui::ImageButton::new((atlas_texture_id, egui::vec2(48.0, 48.0)))
+                    .uv(uv_rect)
+                    .frame(true)
+                    .sense(egui::Sense::click_and_drag())
+            };
             let resp = ui.add(button);
             let clicked = resp.clicked();
             let middle = resp.middle_clicked();
@@ -215,6 +249,7 @@ impl HUDRenderer {
     fn draw_palette_window(
         ctx: &egui::Context,
         atlas_texture_id: egui::TextureId,
+        sprite_icons: Option<&SpriteIcons>,
         palette_open: &mut bool,
         palette_tab: &mut PaletteTab,
         dragging_item: &mut Option<PaletteItem>,
@@ -249,6 +284,7 @@ impl HUDRenderer {
                                     Self::draw_palette_item(
                                         ui,
                                         atlas_texture_id,
+                                        sprite_icons,
                                         *item,
                                         label,
                                         hotbar_blocks,
@@ -353,6 +389,7 @@ impl HUDRenderer {
             hotbar_model_ids,
             minimap_image,
             atlas_texture_id,
+            sprite_icons,
             camera_yaw,
             player_world_pos,
             time_of_day,
@@ -382,6 +419,7 @@ impl HUDRenderer {
             Self::draw_palette_window(
                 &ctx,
                 atlas_texture_id,
+                sprite_icons,
                 palette_open,
                 palette_tab,
                 dragging_item,
@@ -394,14 +432,28 @@ impl HUDRenderer {
             // Drag preview near cursor
             if let Some(item) = dragging_item.as_ref() {
                 if let Some(pointer_pos) = ctx.input(|i| i.pointer.latest_pos()) {
-                    const ATLAS_TILE_COUNT: f32 = 19.0;
-                    let block_idx = Self::atlas_tile_for(item.block, item.model_id);
-                    let uv_left = block_idx / ATLAS_TILE_COUNT;
-                    let uv_right = (block_idx + 1.0) / ATLAS_TILE_COUNT;
-                    let uv_rect = egui::Rect::from_min_max(
-                        egui::pos2(uv_left, 0.0),
-                        egui::pos2(uv_right, 1.0),
-                    );
+                    let (texture_id, uv_rect) =
+                        if let Some(tex) = Self::sprite_for_item(*item, sprite_icons) {
+                            (
+                                tex,
+                                egui::Rect::from_min_max(
+                                    egui::pos2(0.0, 0.0),
+                                    egui::pos2(1.0, 1.0),
+                                ),
+                            )
+                        } else {
+                            const ATLAS_TILE_COUNT: f32 = 19.0;
+                            let block_idx = Self::atlas_tile_for(item.block, item.model_id);
+                            let uv_left = block_idx / ATLAS_TILE_COUNT;
+                            let uv_right = (block_idx + 1.0) / ATLAS_TILE_COUNT;
+                            (
+                                atlas_texture_id,
+                                egui::Rect::from_min_max(
+                                    egui::pos2(uv_left, 0.0),
+                                    egui::pos2(uv_right, 1.0),
+                                ),
+                            )
+                        };
 
                     let size = egui::vec2(48.0, 48.0);
                     let rect = egui::Rect::from_min_size(pointer_pos - size * 0.5, size);
@@ -409,7 +461,7 @@ impl HUDRenderer {
                         egui::Order::Tooltip,
                         egui::Id::new("drag_preview"),
                     ));
-                    painter.image(atlas_texture_id, rect, uv_rect, egui::Color32::WHITE);
+                    painter.image(texture_id, rect, uv_rect, egui::Color32::WHITE);
                     let label = if item.model_id == 2 {
                         "B"
                     } else if item.model_id == 3 {
@@ -509,18 +561,23 @@ impl HUDRenderer {
                             // Day/night cycle controls
                             ui.label("Day/Night Cycle:");
                             ui.checkbox(day_cycle_paused, "Pause cycle");
-                            let time_label = match (*time_of_day * 4.0) as u32 {
-                                0 => "Night",
-                                1 => "Sunrise",
-                                2 => "Day",
-                                3 => "Sunset",
-                                _ => "Day",
+                            let hours = (*time_of_day * 24.0) % 24.0;
+                            let time_label = if hours < 6.0 {
+                                "Night"
+                            } else if hours < 9.0 {
+                                "Sunrise"
+                            } else if hours < 17.0 {
+                                "Day"
+                            } else if hours < 20.0 {
+                                "Sunset"
+                            } else {
+                                "Night"
                             };
                             ui.add(
                                 egui::Slider::new(time_of_day, 0.0..=1.0)
                                     .text(time_label)
                                     .custom_formatter(|v, _| {
-                                        let hours = ((v * 24.0) + 6.0) % 24.0; // 0.0 = 6am, 0.5 = 6pm
+                                        let hours = (v * 24.0) % 24.0; // 0.0 = 00:00, 0.5 = 12:00
                                         let h = hours as u32;
                                         let m = ((hours - h as f64) * 60.0) as u32;
                                         format!("{:02}:{:02}", h, m)
@@ -1046,15 +1103,38 @@ impl HUDRenderer {
                                     let block = hotbar_blocks[i];
                                     let is_selected = i == *hotbar_index;
 
-                                    // Calculate UV for this block
-                                    let block_idx =
-                                        Self::atlas_tile_for(block, hotbar_model_ids[i]);
-                                    let uv_left = block_idx / ATLAS_TILE_COUNT;
-                                    let uv_right = (block_idx + 1.0) / ATLAS_TILE_COUNT;
-                                    let uv_rect = egui::Rect::from_min_max(
-                                        egui::pos2(uv_left, 0.0),
-                                        egui::pos2(uv_right, 1.0),
-                                    );
+                                    // Texture source: prefer generated sprite, fallback to atlas UV.
+                                    let palette_item = PaletteItem {
+                                        block,
+                                        model_id: hotbar_model_ids[i],
+                                    };
+                                    let (texture_id, uv_rect) =
+                                        if let Some(tex) = Self::sprite_for_item(
+                                            palette_item,
+                                            sprite_icons,
+                                        ) {
+                                            (
+                                                tex,
+                                                egui::Rect::from_min_max(
+                                                    egui::pos2(0.0, 0.0),
+                                                    egui::pos2(1.0, 1.0),
+                                                ),
+                                            )
+                                        } else {
+                                            let block_idx = Self::atlas_tile_for(
+                                                block,
+                                                hotbar_model_ids[i],
+                                            );
+                                            let uv_left = block_idx / ATLAS_TILE_COUNT;
+                                            let uv_right = (block_idx + 1.0) / ATLAS_TILE_COUNT;
+                                            (
+                                                atlas_texture_id,
+                                                egui::Rect::from_min_max(
+                                                    egui::pos2(uv_left, 0.0),
+                                                    egui::pos2(uv_right, 1.0),
+                                                ),
+                                            )
+                                        };
 
                                     // Slot border color
                                     let border_color = if is_selected {
@@ -1083,7 +1163,7 @@ impl HUDRenderer {
                                         egui::vec2(SLOT_SIZE, SLOT_SIZE),
                                     );
                                     ui.painter().image(
-                                        atlas_texture_id,
+                                        texture_id,
                                         texture_rect,
                                         uv_rect,
                                         egui::Color32::WHITE,

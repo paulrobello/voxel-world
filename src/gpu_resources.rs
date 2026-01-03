@@ -1,7 +1,10 @@
 use egui_winit_vulkano::{Gui, egui};
 use nalgebra::{Matrix4, Vector3};
 use std::cell::RefCell;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use image;
 use vulkano::{
     buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer},
     command_buffer::{
@@ -26,7 +29,7 @@ use vulkano::{
 };
 use winit::window::{Icon, Window};
 
-use crate::chunk::CHUNK_SIZE;
+use crate::chunk::{BlockType, CHUNK_SIZE};
 use crate::constants::{LOADED_CHUNKS_X, LOADED_CHUNKS_Z, WORLD_CHUNKS_Y};
 use crate::falling_block::{GpuFallingBlock, MAX_FALLING_BLOCKS};
 use crate::particles;
@@ -86,8 +89,119 @@ pub struct RenderContext {
     pub gui: Gui,
     /// Texture ID for the atlas in egui.
     pub atlas_texture_id: egui::TextureId,
+    /// Optional per-block/model sprite textures loaded from disk.
+    pub sprite_icons: SpriteIcons,
 
     pub recreate_swapchain: bool,
+}
+
+/// Sprite icons loaded for blocks and models, kept alive by owning texture handles.
+pub struct SpriteIcons {
+    pub block: HashMap<BlockType, egui::TextureId>,
+    pub model: HashMap<u8, egui::TextureId>,
+    pub missing: egui::TextureId,
+    handles: Vec<egui::TextureHandle>,
+}
+
+impl Default for SpriteIcons {
+    fn default() -> Self {
+        Self {
+            block: HashMap::new(),
+            model: HashMap::new(),
+            missing: egui::TextureId::default(),
+            handles: Vec::new(),
+        }
+    }
+}
+
+fn load_color_image(path: &Path) -> Option<egui::ColorImage> {
+    let img = image::open(path).ok()?.to_rgba8();
+    let (w, h) = img.dimensions();
+    Some(egui::ColorImage::from_rgba_unmultiplied(
+        [w as usize, h as usize],
+        img.as_raw(),
+    ))
+}
+
+pub fn load_sprite_icons(gui: &mut Gui) -> SpriteIcons {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let dir = root.join("textures").join("rendered");
+    let ctx = gui.context();
+
+    let mut icons = SpriteIcons::default();
+
+    // Missing placeholder (required)
+    let missing_handle = load_color_image(&dir.join("missing.png")).map(|image| {
+        ctx.load_texture("sprite_missing", image, egui::TextureOptions::NEAREST)
+    });
+    if let Some(handle) = missing_handle {
+        icons.missing = handle.id();
+        icons.handles.push(handle);
+    } else {
+        let image =
+            egui::ColorImage::from_rgba_unmultiplied([1, 1], &[255, 0, 255, 255]);
+        let handle =
+            ctx.load_texture("sprite_missing_fallback", image, egui::TextureOptions::NEAREST);
+        icons.missing = handle.id();
+        icons.handles.push(handle);
+    }
+
+    const BLOCK_FILES: &[(BlockType, &str)] = &[
+        (BlockType::Stone, "block_stone.png"),
+        (BlockType::Dirt, "block_dirt.png"),
+        (BlockType::Grass, "block_grass.png"),
+        (BlockType::Planks, "block_planks.png"),
+        (BlockType::Leaves, "block_leaves.png"),
+        (BlockType::Sand, "block_sand.png"),
+        (BlockType::Gravel, "block_gravel.png"),
+        (BlockType::Water, "block_water.png"),
+        (BlockType::Glass, "block_glass.png"),
+        (BlockType::Log, "block_log.png"),
+        (BlockType::Brick, "block_brick.png"),
+        (BlockType::Snow, "block_snow.png"),
+        (BlockType::Cobblestone, "block_cobblestone.png"),
+        (BlockType::Iron, "block_iron.png"),
+        (BlockType::Bedrock, "block_bedrock.png"),
+    ];
+
+    for (block, filename) in BLOCK_FILES {
+        let path = dir.join(filename);
+        if let Some(image) = load_color_image(&path) {
+            let handle = ctx.load_texture(
+                format!("sprite_block_{}", filename),
+                image,
+                egui::TextureOptions::NEAREST,
+            );
+            icons.block.insert(*block, handle.id());
+            icons.handles.push(handle);
+        }
+    }
+
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if !name.starts_with("model_") || !name.ends_with(".png") {
+                continue;
+            }
+            if let Ok(id) =
+                name.trim_start_matches("model_").trim_end_matches(".png").parse::<u8>()
+            {
+                let path = entry.path();
+                if let Some(image) = load_color_image(&path) {
+                    let handle = ctx.load_texture(
+                        format!("sprite_model_{}", id),
+                        image,
+                        egui::TextureOptions::NEAREST,
+                    );
+                    icons.model.insert(id, handle.id());
+                    icons.handles.push(handle);
+                }
+            }
+        }
+    }
+
+    icons
 }
 
 #[derive(BufferContents, Clone, Copy)]
@@ -128,12 +242,12 @@ pub struct PushConstants {
     pub enable_shadows: u32,
     pub enable_model_shadows: u32,
     pub enable_point_lights: u32,
+    pub transparent_background: u32,
     pub pass_mode: u32,
     pub lod_ao_distance: f32,
     pub lod_shadow_distance: f32,
     pub lod_point_light_distance: f32,
     pub falling_block_count: u32,
-    pub _pc_pad_camera: u32,
     pub camera_pos: [f32; 4],
 }
 
@@ -178,7 +292,7 @@ pub fn get_render_image(
     let image = Image::new(
         memory_allocator,
         ImageCreateInfo {
-            usage: ImageUsage::STORAGE | ImageUsage::TRANSFER_DST,
+            usage: ImageUsage::STORAGE | ImageUsage::TRANSFER_DST | ImageUsage::TRANSFER_SRC,
             format: Format::R8G8B8A8_UNORM,
             extent: [extent[0], extent[1], 1],
             ..Default::default()
@@ -274,7 +388,7 @@ pub fn get_distance_image_and_set(
         memory_allocator,
         ImageCreateInfo {
             image_type: ImageType::Dim2d,
-            usage: ImageUsage::STORAGE,
+            usage: ImageUsage::STORAGE | ImageUsage::TRANSFER_DST,
             format: Format::R32_SFLOAT,
             extent: [distance_extent[0], distance_extent[1], 1],
             ..Default::default()

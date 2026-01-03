@@ -6,7 +6,7 @@ export DYLD_LIBRARY_PATH := /opt/homebrew/lib:/opt/homebrew/opt/vulkan-loader/li
 export DYLD_FALLBACK_LIBRARY_PATH := /opt/homebrew/lib:/opt/homebrew/opt/vulkan-loader/lib
 export VK_ICD_FILENAMES := /opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json
 
-.PHONY: build build-release build-debug run run-release run-debug profile run-profile clean test check fmt lint checkall
+.PHONY: build build-release build-debug run run-release run-debug profile run-profile clean test check fmt lint checkall sprite-gen
 
 # Default target
 all: build-release
@@ -59,3 +59,7 @@ check:
 
 checkall: fmt lint test
 	@echo "All checks passed!"
+
+# Generate palette/hotbar sprites to textures/rendered/ and exit
+sprite-gen: build-release
+	./target/release/voxel_world --generate-sprites $(ARGS)
