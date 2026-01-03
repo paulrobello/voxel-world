@@ -488,7 +488,7 @@ Implement cellular automata water that flows, fills basins, and responds to terr
 
 ### Deferred Tasks (Future Phases)
 - [ ] Update shader for variable water heights (visual enhancement)
-- [ ] Implement "Waterlogging" mechanics (water flows OUT of models but doesn't wash them away)
+- [x] Implement "Waterlogging" mechanics (water flows OUT of models but doesn't wash them away)
 - [ ] Network sync for multiplayer (requires Phase 7)
 - [ ] Save/load water state in regions (requires Phase 3)
 
@@ -596,7 +596,7 @@ Maintain 90+ FPS with all features enabled.
 
 ### Phase 9: Water ✅ COMPLETE
 - [x] Water flows naturally and fills basins
-- [ ] Water flows around sub-voxel models (deferred to Phase 4)
+- [x] Waterlogged models support (fences, stairs, slabs)
 - [ ] Water state persists and syncs (deferred to Phases 3/7)
 
 ### Phase 10: Performance
@@ -620,6 +620,7 @@ Maintain 90+ FPS with all features enabled.
   - Resolved "missing top faces" issue on tall posts.
   - Remaining minor issue: model normals can be unstable in some views (low priority).
   - Shader changes: shadow ray partial fallback (mask/AABB), sub-voxel normal calc and inverse rotation.
+- Waterlogging: complete support for models coexisting with water sources and flow.
 - UX: default target block outline set **off** (toggled in UI).
 
 ## In Progress
@@ -627,6 +628,9 @@ Maintain 90+ FPS with all features enabled.
 - Preparing for Phase 3 (World Persistence) implementation.
 
 ## Done Recently
+- Implemented Waterlogging mechanics for sub-voxel models.
+- Updated shaders to render water fog/tint inside waterlogged blocks.
+- Modified simulation to allow water to flow through model blocks.
 - Forced shadow rays to skip the originating model voxel to eliminate fence self-shadow artifacts.
 - Restored model shadows without block-sized fallback.
 - Fixed single-post shadow self-intersection.
