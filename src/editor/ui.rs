@@ -318,8 +318,7 @@ pub enum EditorAction {
     ModelLoaded,
 }
 
-/// Draws the interactive 3D model editor viewport.
-/// Supports clicking to place/erase voxels and dragging to rotate view.
+/// Draws the interactive 3D model editor viewport with isometric cubes.
 pub fn draw_model_preview(ctx: &egui::Context, editor: &mut EditorState) {
     if !editor.active {
         return;
@@ -328,217 +327,262 @@ pub fn draw_model_preview(ctx: &egui::Context, editor: &mut EditorState) {
     // 3D Viewport window
     egui::Window::new("3D Viewport")
         .default_pos(egui::pos2(270.0, 320.0))
-        .default_size(egui::vec2(400.0, 400.0))
+        .default_size(egui::vec2(450.0, 500.0))
         .resizable(true)
         .show(ctx, |ui| {
             let available = ui.available_size();
-            let size = available.x.min(available.y).max(200.0);
+            let size = (available.x.min(available.y) - 60.0).max(200.0);
             let (rect, response) =
                 ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::click_and_drag());
 
             let painter = ui.painter_at(rect);
-            let center = rect.center();
-            let scale = size / 16.0; // Scale factor for voxels
+            let center = rect.center() + egui::vec2(0.0, size * 0.1); // Offset down slightly
+
+            // Isometric projection parameters
+            let cell_size = size / 14.0;
+            let iso_x = egui::vec2(cell_size * 0.866, cell_size * 0.5); // cos(30), sin(30)
+            let iso_z = egui::vec2(-cell_size * 0.866, cell_size * 0.5); // -cos(30), sin(30)
+            let iso_y = egui::vec2(0.0, -cell_size); // straight up
 
             // Dark background
-            painter.rect_filled(rect, egui::CornerRadius::ZERO, egui::Color32::from_gray(25));
+            painter.rect_filled(rect, egui::CornerRadius::ZERO, egui::Color32::from_gray(30));
 
-            // Handle camera orbit with right-drag
-            if response.dragged_by(egui::PointerButton::Secondary) {
-                let delta = response.drag_delta();
-                editor.orbit_yaw += delta.x * 0.01;
-                editor.orbit_pitch = (editor.orbit_pitch + delta.y * 0.01).clamp(
-                    -std::f32::consts::FRAC_PI_2 + 0.1,
-                    std::f32::consts::FRAC_PI_2 - 0.1,
-                );
-            }
-
-            // Handle zoom with scroll
-            let scroll = ui.input(|i| i.raw_scroll_delta.y);
-            if scroll.abs() > 0.1 {
-                editor.orbit_distance = (editor.orbit_distance - scroll * 0.05).clamp(6.0, 24.0);
-            }
-
-            // Use orbit camera angles for projection
-            let cos_yaw = editor.orbit_yaw.cos();
-            let sin_yaw = editor.orbit_yaw.sin();
-            let cos_pitch = editor.orbit_pitch.cos();
-            let sin_pitch = editor.orbit_pitch.sin();
-
-            // Project a 3D point to 2D using current camera orientation
+            // Project isometric coordinates to screen
             let project = |x: f32, y: f32, z: f32| -> egui::Pos2 {
-                // Center the model at origin
-                let cx = x - 4.0;
-                let cy = y - 4.0;
-                let cz = z - 4.0;
-
-                // Rotate around Y axis (yaw)
-                let rx = cx * cos_yaw - cz * sin_yaw;
-                let rz = cx * sin_yaw + cz * cos_yaw;
-
-                // Rotate around X axis (pitch)
-                let ry = cy * cos_pitch - rz * sin_pitch;
-                let _final_z = cy * sin_pitch + rz * cos_pitch;
-
-                // Simple perspective (orthographic for now)
-                let px = rx * scale;
-                let py = -ry * scale; // Flip Y for screen coords
-
-                egui::pos2(center.x + px, center.y + py)
+                let offset = iso_x * x + iso_z * z + iso_y * y;
+                center + offset - egui::vec2(0.0, size * 0.25) // Center the grid
             };
 
-            // Draw grid floor (Y=0 plane) with lines
-            let grid_color = egui::Color32::from_rgba_unmultiplied(80, 80, 80, 100);
-            for i in 0..=SUB_VOXEL_SIZE {
-                let i_f = i as f32;
-                // X-axis lines
-                let p1 = project(i_f, 0.0, 0.0);
-                let p2 = project(i_f, 0.0, 8.0);
-                painter.line_segment([p1, p2], egui::Stroke::new(0.5, grid_color));
-                // Z-axis lines
-                let p1 = project(0.0, 0.0, i_f);
-                let p2 = project(8.0, 0.0, i_f);
-                painter.line_segment([p1, p2], egui::Stroke::new(0.5, grid_color));
+            // Draw floor grid (Y=0 plane) - these are clickable cells
+            let floor_color = egui::Color32::from_rgba_unmultiplied(60, 70, 80, 200);
+            let floor_line_color = egui::Color32::from_rgba_unmultiplied(80, 90, 100, 255);
+
+            for z in 0..SUB_VOXEL_SIZE {
+                for x in 0..SUB_VOXEL_SIZE {
+                    let x_f = x as f32;
+                    let z_f = z as f32;
+
+                    // Draw floor tile as a diamond
+                    let p0 = project(x_f, 0.0, z_f);
+                    let p1 = project(x_f + 1.0, 0.0, z_f);
+                    let p2 = project(x_f + 1.0, 0.0, z_f + 1.0);
+                    let p3 = project(x_f, 0.0, z_f + 1.0);
+
+                    // Checkerboard pattern
+                    let checker = if (x + z) % 2 == 0 {
+                        egui::Color32::from_rgba_unmultiplied(50, 55, 65, 180)
+                    } else {
+                        floor_color
+                    };
+
+                    painter.add(egui::Shape::convex_polygon(
+                        vec![p0, p1, p2, p3],
+                        checker,
+                        egui::Stroke::new(0.5, floor_line_color),
+                    ));
+                }
             }
 
-            // Draw bounding box edges
-            let box_color = egui::Color32::from_rgba_unmultiplied(100, 100, 100, 80);
-            let corners = [
-                (0.0, 0.0, 0.0),
-                (8.0, 0.0, 0.0),
-                (8.0, 8.0, 0.0),
-                (0.0, 8.0, 0.0),
-                (0.0, 0.0, 8.0),
-                (8.0, 0.0, 8.0),
-                (8.0, 8.0, 8.0),
-                (0.0, 8.0, 8.0),
-            ];
-            let edges = [
-                (0, 1),
-                (1, 2),
-                (2, 3),
-                (3, 0), // Front face
-                (4, 5),
-                (5, 6),
-                (6, 7),
-                (7, 4), // Back face
-                (0, 4),
-                (1, 5),
-                (2, 6),
-                (3, 7), // Connecting edges
-            ];
-            for (i, j) in edges {
-                let p1 = project(corners[i].0, corners[i].1, corners[i].2);
-                let p2 = project(corners[j].0, corners[j].1, corners[j].2);
-                painter.line_segment([p1, p2], egui::Stroke::new(0.5, box_color));
+            // Collect voxels for depth-sorted rendering
+            struct VoxelDraw {
+                x: usize,
+                y: usize,
+                z: usize,
+                idx: u8,
+                depth: f32,
             }
+            let mut voxels: Vec<VoxelDraw> = Vec::new();
 
-            // Collect voxels with their depths for proper sorting
-            let mut voxels_to_draw: Vec<(f32, usize, usize, usize, u8)> = Vec::new();
             for y in 0..SUB_VOXEL_SIZE {
                 for z in 0..SUB_VOXEL_SIZE {
                     for x in 0..SUB_VOXEL_SIZE {
                         let idx = editor.scratch_pad.get_voxel(x, y, z);
                         if idx != 0 {
-                            // Calculate depth for sorting (further = drawn first)
-                            let cx = x as f32 - 4.0;
-                            let cy = y as f32 - 4.0;
-                            let cz = z as f32 - 4.0;
-                            let rz = cx * sin_yaw + cz * cos_yaw;
-                            let depth = cy * sin_pitch + rz * cos_pitch;
-                            voxels_to_draw.push((depth, x, y, z, idx));
+                            // Depth: further back = drawn first (painter's algorithm)
+                            let depth = -(x as f32) - (z as f32) + (y as f32) * 0.01;
+                            voxels.push(VoxelDraw {
+                                x,
+                                y,
+                                z,
+                                idx,
+                                depth,
+                            });
                         }
                     }
                 }
             }
 
-            // Sort by depth (furthest first)
-            voxels_to_draw
-                .sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+            // Sort by depth (back to front)
+            voxels.sort_by(|a, b| {
+                a.depth
+                    .partial_cmp(&b.depth)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
 
-            // Draw voxels
-            let voxel_size = scale * 0.9;
-            for (_depth, x, y, z, idx) in voxels_to_draw {
-                let color = &editor.scratch_pad.palette[idx as usize];
-                let base_color =
+            // Draw each voxel as an isometric cube with 3 visible faces
+            for voxel in &voxels {
+                let x = voxel.x as f32;
+                let y = voxel.y as f32;
+                let z = voxel.z as f32;
+                let color = &editor.scratch_pad.palette[voxel.idx as usize];
+
+                // Base color and shaded variants
+                let top_color =
                     egui::Color32::from_rgba_unmultiplied(color.r, color.g, color.b, color.a);
-
-                // Draw as a small square at projected position
-                let p = project(x as f32 + 0.5, y as f32 + 0.5, z as f32 + 0.5);
-                let voxel_rect =
-                    egui::Rect::from_center_size(p, egui::vec2(voxel_size, voxel_size));
-                painter.rect_filled(voxel_rect, egui::CornerRadius::same(1), base_color);
-
-                // Subtle border for depth
-                painter.rect_stroke(
-                    voxel_rect,
-                    egui::CornerRadius::same(1),
-                    egui::Stroke::new(0.5, egui::Color32::from_rgba_unmultiplied(0, 0, 0, 100)),
-                    egui::StrokeKind::Outside,
+                let left_color = egui::Color32::from_rgba_unmultiplied(
+                    (color.r as f32 * 0.7) as u8,
+                    (color.g as f32 * 0.7) as u8,
+                    (color.b as f32 * 0.7) as u8,
+                    color.a,
                 );
+                let right_color = egui::Color32::from_rgba_unmultiplied(
+                    (color.r as f32 * 0.85) as u8,
+                    (color.g as f32 * 0.85) as u8,
+                    (color.b as f32 * 0.85) as u8,
+                    color.a,
+                );
+
+                // 8 corners of the cube
+                let p000 = project(x, y, z);
+                let p100 = project(x + 1.0, y, z);
+                let p110 = project(x + 1.0, y + 1.0, z);
+                let p010 = project(x, y + 1.0, z);
+                let p001 = project(x, y, z + 1.0);
+                let p101 = project(x + 1.0, y, z + 1.0);
+                let p111 = project(x + 1.0, y + 1.0, z + 1.0);
+                let p011 = project(x, y + 1.0, z + 1.0);
+
+                let outline =
+                    egui::Stroke::new(0.5, egui::Color32::from_rgba_unmultiplied(0, 0, 0, 100));
+
+                // Top face (brightest)
+                painter.add(egui::Shape::convex_polygon(
+                    vec![p010, p110, p111, p011],
+                    top_color,
+                    outline,
+                ));
+
+                // Left face (darkest)
+                painter.add(egui::Shape::convex_polygon(
+                    vec![p000, p010, p011, p001],
+                    left_color,
+                    outline,
+                ));
+
+                // Right face (medium)
+                painter.add(egui::Shape::convex_polygon(
+                    vec![p100, p101, p111, p110],
+                    right_color,
+                    outline,
+                ));
             }
 
-            // Handle mouse interaction for placing/erasing voxels
-            if let Some(pointer_pos) = response.interact_pointer_pos() {
-                // Convert screen position back to approximate voxel position
-                // This is a simplified hit test - find the closest grid cell at Y=0 first
-                let _rel_pos = pointer_pos - center;
-
-                // Reverse the projection (approximate)
-                // For a simpler approach, we'll project all potential voxel positions and find closest
+            // Handle mouse interaction
+            if let Some(pointer_pos) = response.hover_pos() {
                 let mut best_dist = f32::MAX;
                 let mut best_voxel: Option<(i32, i32, i32)> = None;
+                let mut best_is_floor = false;
 
-                // Check existing voxels first (for erase/pick)
-                for y in 0..SUB_VOXEL_SIZE {
-                    for z in 0..SUB_VOXEL_SIZE {
-                        for x in 0..SUB_VOXEL_SIZE {
-                            let p = project(x as f32 + 0.5, y as f32 + 0.5, z as f32 + 0.5);
-                            let dist = (p - pointer_pos).length();
-                            if dist < best_dist && dist < scale * 1.5 {
-                                best_dist = dist;
-                                best_voxel = Some((x as i32, y as i32, z as i32));
+                // First check existing voxels (prioritize these for erase/pick)
+                for voxel in &voxels {
+                    let x = voxel.x as f32;
+                    let y = voxel.y as f32;
+                    let z = voxel.z as f32;
+
+                    // Check if pointer is inside the top face
+                    let p010 = project(x, y + 1.0, z);
+                    let p110 = project(x + 1.0, y + 1.0, z);
+                    let p111 = project(x + 1.0, y + 1.0, z + 1.0);
+                    let p011 = project(x, y + 1.0, z + 1.0);
+
+                    if point_in_quad(pointer_pos, p010, p110, p111, p011) {
+                        let center_p = project(x + 0.5, y + 0.5, z + 0.5);
+                        let dist = (center_p - pointer_pos).length();
+                        if dist < best_dist {
+                            best_dist = dist;
+                            best_voxel = Some((voxel.x as i32, voxel.y as i32, voxel.z as i32));
+                            best_is_floor = false;
+                        }
+                    }
+                }
+
+                // Then check floor tiles for placing new voxels
+                for z in 0..SUB_VOXEL_SIZE {
+                    for x in 0..SUB_VOXEL_SIZE {
+                        let x_f = x as f32;
+                        let z_f = z as f32;
+
+                        let p0 = project(x_f, 0.0, z_f);
+                        let p1 = project(x_f + 1.0, 0.0, z_f);
+                        let p2 = project(x_f + 1.0, 0.0, z_f + 1.0);
+                        let p3 = project(x_f, 0.0, z_f + 1.0);
+
+                        if point_in_quad(pointer_pos, p0, p1, p2, p3) {
+                            // Only use floor if no voxel is already there
+                            if editor.scratch_pad.get_voxel(x, 0, z) == 0 {
+                                let center_p = project(x_f + 0.5, 0.0, z_f + 0.5);
+                                let dist = (center_p - pointer_pos).length();
+                                if dist < best_dist {
+                                    best_dist = dist;
+                                    best_voxel = Some((x as i32, 0, z as i32));
+                                    best_is_floor = true;
+                                }
                             }
                         }
                     }
                 }
 
-                // Update hovered voxel
+                // Update hovered voxel and draw highlight
                 if let Some((x, y, z)) = best_voxel {
                     editor.hovered_voxel = Some(nalgebra::Vector3::new(x, y, z));
 
-                    // Draw hover highlight
-                    let p = project(x as f32 + 0.5, y as f32 + 0.5, z as f32 + 0.5);
-                    let hover_rect = egui::Rect::from_center_size(
-                        p,
-                        egui::vec2(voxel_size * 1.2, voxel_size * 1.2),
-                    );
-                    painter.rect_stroke(
-                        hover_rect,
-                        egui::CornerRadius::same(2),
-                        egui::Stroke::new(2.0, egui::Color32::YELLOW),
-                        egui::StrokeKind::Outside,
-                    );
+                    // Draw highlight on the hovered cell
+                    let x_f = x as f32;
+                    let y_f = y as f32;
+                    let z_f = z as f32;
+
+                    if best_is_floor {
+                        // Highlight floor tile
+                        let p0 = project(x_f, 0.0, z_f);
+                        let p1 = project(x_f + 1.0, 0.0, z_f);
+                        let p2 = project(x_f + 1.0, 0.0, z_f + 1.0);
+                        let p3 = project(x_f, 0.0, z_f + 1.0);
+                        painter.add(egui::Shape::convex_polygon(
+                            vec![p0, p1, p2, p3],
+                            egui::Color32::from_rgba_unmultiplied(255, 255, 0, 60),
+                            egui::Stroke::new(2.0, egui::Color32::YELLOW),
+                        ));
+                    } else {
+                        // Highlight top of existing voxel
+                        let p010 = project(x_f, y_f + 1.0, z_f);
+                        let p110 = project(x_f + 1.0, y_f + 1.0, z_f);
+                        let p111 = project(x_f + 1.0, y_f + 1.0, z_f + 1.0);
+                        let p011 = project(x_f, y_f + 1.0, z_f + 1.0);
+                        painter.add(egui::Shape::convex_polygon(
+                            vec![p010, p110, p111, p011],
+                            egui::Color32::from_rgba_unmultiplied(255, 255, 0, 80),
+                            egui::Stroke::new(2.0, egui::Color32::YELLOW),
+                        ));
+                    }
                 } else {
                     editor.hovered_voxel = None;
-                }
-
-                // Handle clicks
-                if response.clicked() {
-                    editor.on_left_click();
-                }
-                if response.secondary_clicked() {
-                    editor.on_right_click();
-                }
-                if response.middle_clicked() {
-                    editor.on_middle_click();
                 }
             } else {
                 editor.hovered_voxel = None;
             }
 
-            // Draw axis indicators
-            let _axis_len = scale * 2.0;
+            // Handle clicks
+            if response.clicked() {
+                editor.on_left_click();
+            }
+            if response.secondary_clicked() {
+                editor.on_right_click();
+            }
+            if response.middle_clicked() {
+                editor.on_middle_click();
+            }
+
+            // Draw axis labels
             let origin = project(0.0, 0.0, 0.0);
             let x_end = project(2.0, 0.0, 0.0);
             let y_end = project(0.0, 2.0, 0.0);
@@ -552,28 +596,28 @@ pub fn draw_model_preview(ctx: &egui::Context, editor: &mut EditorState) {
             painter.line_segment([origin, z_end], egui::Stroke::new(2.0, egui::Color32::BLUE));
 
             painter.text(
-                x_end,
+                x_end + egui::vec2(5.0, 0.0),
                 egui::Align2::LEFT_CENTER,
                 "X",
-                egui::FontId::proportional(10.0),
+                egui::FontId::proportional(12.0),
                 egui::Color32::RED,
             );
             painter.text(
-                y_end,
+                y_end + egui::vec2(0.0, -5.0),
                 egui::Align2::CENTER_BOTTOM,
                 "Y",
-                egui::FontId::proportional(10.0),
+                egui::FontId::proportional(12.0),
                 egui::Color32::GREEN,
             );
             painter.text(
-                z_end,
+                z_end + egui::vec2(-5.0, 0.0),
                 egui::Align2::RIGHT_CENTER,
                 "Z",
-                egui::FontId::proportional(10.0),
+                egui::FontId::proportional(12.0),
                 egui::Color32::BLUE,
             );
 
-            // Info panel below viewport
+            // Info panel
             ui.separator();
             ui.horizontal(|ui| {
                 if let Some(voxel) = editor.hovered_voxel {
@@ -584,16 +628,50 @@ pub fn draw_model_preview(ctx: &egui::Context, editor: &mut EditorState) {
                         voxel.z as usize,
                     );
                     if idx > 0 {
-                        ui.label(format!("Color: {}", idx));
+                        ui.label(format!("| Color: {}", idx));
                     } else {
-                        ui.label("(empty)");
+                        ui.label("| (empty - click to place)");
                     }
                 } else {
-                    ui.label("Hover over grid to select voxel");
+                    ui.label("Hover over grid to select");
                 }
             });
-            ui.horizontal(|ui| {
-                ui.label("Left: Place | Right: Erase | Middle: Pick | R-Drag: Rotate");
-            });
+            ui.label("Left: Place | Right: Erase | Middle: Pick Color");
         });
+}
+
+/// Check if a point is inside a quadrilateral (for hit testing).
+fn point_in_quad(
+    p: egui::Pos2,
+    a: egui::Pos2,
+    b: egui::Pos2,
+    c: egui::Pos2,
+    d: egui::Pos2,
+) -> bool {
+    // Use cross product signs to determine if point is on the same side of all edges
+    fn sign(p1: egui::Pos2, p2: egui::Pos2, p3: egui::Pos2) -> f32 {
+        (p1.x - p3.x) * (p2.y - p3.y) - (p2.x - p3.x) * (p1.y - p3.y)
+    }
+
+    // Check if point is in triangle ABC
+    let in_abc = {
+        let d1 = sign(p, a, b);
+        let d2 = sign(p, b, c);
+        let d3 = sign(p, c, a);
+        let has_neg = (d1 < 0.0) || (d2 < 0.0) || (d3 < 0.0);
+        let has_pos = (d1 > 0.0) || (d2 > 0.0) || (d3 > 0.0);
+        !(has_neg && has_pos)
+    };
+
+    // Check if point is in triangle ACD
+    let in_acd = {
+        let d1 = sign(p, a, c);
+        let d2 = sign(p, c, d);
+        let d3 = sign(p, d, a);
+        let has_neg = (d1 < 0.0) || (d2 < 0.0) || (d3 < 0.0);
+        let has_pos = (d1 > 0.0) || (d2 > 0.0) || (d3 > 0.0);
+        !(has_neg && has_pos)
+    };
+
+    in_abc || in_acd
 }
