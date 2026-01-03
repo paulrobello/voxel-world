@@ -657,6 +657,24 @@ impl WaterGrid {
                     world.set_block(pos, BlockType::Air);
                     world.invalidate_minimap_cache(pos.x, pos.z);
                 }
+                (Some(BlockType::Model), true) => {
+                    // Set waterlogged = true
+                    if let Some(mut data) = world.get_model_data(pos) {
+                        if !data.waterlogged {
+                            data.waterlogged = true;
+                            world.set_model_block(pos, data.model_id, data.rotation, true);
+                        }
+                    }
+                }
+                (Some(BlockType::Model), false) => {
+                    // Set waterlogged = false
+                    if let Some(mut data) = world.get_model_data(pos) {
+                        if data.waterlogged {
+                            data.waterlogged = false;
+                            world.set_model_block(pos, data.model_id, data.rotation, false);
+                        }
+                    }
+                }
                 _ => {}
             }
         }

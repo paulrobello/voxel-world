@@ -90,7 +90,21 @@ impl App {
                         .spawn_block_break(target.cast::<f32>(), particle_color);
                 }
 
-                self.sim.world.set_block(target, BlockType::Air);
+                let is_waterlogged = if block_type == BlockType::Model {
+                    self.sim
+                        .world
+                        .get_model_data(target)
+                        .map(|d| d.waterlogged)
+                        .unwrap_or(false)
+                } else {
+                    false
+                };
+
+                if is_waterlogged {
+                    self.sim.world.set_block(target, BlockType::Water);
+                } else {
+                    self.sim.world.set_block(target, BlockType::Air);
+                }
                 self.sim.world.invalidate_minimap_cache(target.x, target.z);
 
                 // Update neighboring fence/gate connections
@@ -197,7 +211,9 @@ impl App {
         };
 
         // Update the gate
-        self.sim.world.set_model_block(pos, new_model_id, rotation);
+        self.sim
+            .world
+            .set_model_block(pos, new_model_id, rotation, model_data.waterlogged);
 
         true
     }
@@ -348,20 +364,20 @@ impl App {
             return false; // Can't place block inside player
         }
 
-        // Check if target position already has a block
-        if let Some(existing) = self.sim.world.get_block(place_pos) {
-            if existing != BlockType::Air {
-                return false; // Can't place on non-air
-            }
-        }
-
         let block_to_place = self.selected_block();
         let existing_block = self.sim.world.get_block(place_pos);
+        let mut waterlogged = false;
 
-        // Prevent placement on occupied blocks.
+        // Check if target position already has a block
         if let Some(existing) = existing_block {
-            if existing != BlockType::Air {
-                return false;
+            if existing == BlockType::Water {
+                // If placing a model in water, it becomes waterlogged
+                if block_to_place == BlockType::Model {
+                    waterlogged = true;
+                }
+                // If placing solid block in water, water is removed (default behavior)
+            } else if existing != BlockType::Air {
+                return false; // Can't place on non-air (unless water)
             }
         }
 
@@ -426,6 +442,7 @@ impl App {
                     place_pos,
                     ModelRegistry::gate_closed_model_id(connections),
                     rotation,
+                    waterlogged,
                 );
 
                 self.sim.world.update_fence_connections(place_pos);
@@ -449,7 +466,7 @@ impl App {
 
                 self.sim
                     .world
-                    .set_model_block(place_pos, base_model_id, rotation);
+                    .set_model_block(place_pos, base_model_id, rotation, waterlogged);
                 return true;
             } else if ModelRegistry::is_stairs_model(base_model_id) {
                 // Stairs: determine rotation from player yaw
@@ -477,7 +494,7 @@ impl App {
 
             self.sim
                 .world
-                .set_model_block(place_pos, model_id, rotation);
+                .set_model_block(place_pos, model_id, rotation, waterlogged);
 
             if ModelRegistry::is_fence_or_gate(model_id) {
                 self.sim.world.update_fence_connections(place_pos);
@@ -498,6 +515,11 @@ impl App {
 
         if block_to_place == BlockType::Water {
             self.sim.water_grid.place_source(place_pos);
+        } else if waterlogged {
+            // Ensure water grid knows about waterlogged block (if not already there)
+            if !self.sim.water_grid.has_water(place_pos) {
+                self.sim.water_grid.place_source(place_pos);
+            }
         } else {
             self.sim.water_grid.on_block_placed(place_pos);
         }

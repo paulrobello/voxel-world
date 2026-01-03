@@ -204,6 +204,20 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
         }
 
         if (blockType == BLOCK_MODEL) {
+            uvec2 metadata = readModelMetadata(ivec3(coord));
+            uint model_id = metadata.r;
+            uint rotation = metadata.g & 3u;
+            bool waterlogged = isModelWaterlogged(metadata.g);
+
+            if (waterlogged && !inWater) {
+                inWater = true;
+                waterEntryT = prevT;
+                waterEntryAxis = stepped_axis;
+                waterSurfaceNormal = vec3(0.0);
+                waterSurfaceNormal[stepped_axis] = -sgn_dir[stepped_axis];
+                waterSurfaceHit = origin + dir * prevT;
+            }
+
             vec3 cameraLocalPos = origin - vec3(coord);
             bool cameraInsideThisBlock =
                 all(greaterThanEqual(cameraLocalPos, vec3(0.0))) &&
@@ -228,10 +242,6 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
                 }
             }
 
-            uvec2 metadata = readModelMetadata(ivec3(coord));
-            uint model_id = metadata.r;
-            uint rotation = metadata.g & 3u;
-
             if (model_id > 0u && distToBlock < SUB_VOXEL_LOD_DISTANCE) {
                 vec3 dirNorm = normalize(dir);
                 // Early out using coarse mask
@@ -244,6 +254,11 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
                         subVoxelColor = subColor;
                         subVoxelNormal = subNormal;
                         subVoxelHitPos = vec3(coord) + localEntry + dirNorm * subT;
+                        
+                        if (inWater) {
+                            float currentT = (tmin + distToBlock / length(dir) + subT);
+                            waterDepth = (currentT - waterEntryT) * length(dir);
+                        }
                         break;
                     }
                 }

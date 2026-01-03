@@ -65,7 +65,7 @@ Save and load worlds using a region-based file format similar to Minecraft's Anv
 
 #### 3.2 Chunk Serialization
 - [ ] Serialize BlockType array (32³ = 32KB uncompressed)
-- [ ] Serialize sub-voxel model references (Phase 5 integration)
+- [ ] Serialize sub-voxel model references (Phase 4 integration)
 - [ ] Serialize entity data within chunk bounds
 - [ ] Add chunk-level metadata (biome, generation flags, timestamps)
 - [ ] Implement dirty chunk tracking for incremental saves
@@ -295,6 +295,7 @@ Dedicated server architecture for collaborative building.
 
 #### 7.1 Network Protocol
 - [ ] Define message types: connect, disconnect, chunk_data, block_change, entity_update
+- [ ] Sync sub-voxel metadata (model_id, rotation) in block_change events
 - [ ] Binary serialization with versioning (bincode or custom)
 - [ ] UDP for position updates, TCP for reliable events
 - [ ] Message compression for chunk data
@@ -487,7 +488,7 @@ Implement cellular automata water that flows, fills basins, and responds to terr
 
 ### Deferred Tasks (Future Phases)
 - [ ] Update shader for variable water heights (visual enhancement)
-- [ ] Interaction with sub-voxel models (requires Phase 4)
+- [ ] Implement "Waterlogging" mechanics (water flows OUT of models but doesn't wash them away)
 - [ ] Network sync for multiplayer (requires Phase 7)
 - [ ] Save/load water state in regions (requires Phase 3)
 
@@ -613,15 +614,17 @@ Maintain 90+ FPS with all features enabled.
 
 ---
 
-## Current Work (2026-01-01)
+## Current Work (2026-01-03)
 - Sub-voxel models (ladders/fences/gates) rendering & shadows:
   - Fence self-shadow artifacts resolved; connected fence shadows align without gaps.
-  - Remaining issues: missing top faces on tall posts; model normals still unstable in some views.
+  - Resolved "missing top faces" issue on tall posts.
+  - Remaining minor issue: model normals can be unstable in some views (low priority).
   - Shader changes: shadow ray partial fallback (mask/AABB), sub-voxel normal calc and inverse rotation.
 - UX: default target block outline set **off** (toggled in UI).
 
 ## In Progress
-- Stabilize sub-voxel face rendering (missing top faces) and normals for models while keeping correct shadows.
+- Finalizing Phase 4 stabilization (normals).
+- Preparing for Phase 3 (World Persistence) implementation.
 
 ## Done Recently
 - Forced shadow rays to skip the originating model voxel to eliminate fence self-shadow artifacts.

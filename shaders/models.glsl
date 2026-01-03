@@ -427,7 +427,14 @@ bool marchSubVoxelShadow(
 }
 
 // Read model metadata at a texture coordinate
-// Returns: model_id in .r, rotation in .g
+// Returns: model_id in .r, rotation and flags in .g
+// Rotation: bits 0-1
+// Waterlogged: bit 2
 uvec2 readModelMetadata(ivec3 texCoord) {
     return imageLoad(modelMetadata, texCoord).rg;
 }
+
+bool isModelWaterlogged(uint metadataGreen) {
+    return (metadataGreen & 4u) != 0u;
+}
+

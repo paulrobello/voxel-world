@@ -55,6 +55,9 @@ pub struct BlockModelData {
 
     /// Rotation around Y axis (0-3 = 0°/90°/180°/270°).
     pub rotation: u8,
+
+    /// Whether this block is waterlogged (contains water in the same space).
+    pub waterlogged: bool,
 }
 
 impl BlockType {
@@ -337,11 +340,25 @@ impl Chunk {
 
     /// Sets a model block with its metadata at the given local coordinates.
     #[inline]
-    pub fn set_model_block(&mut self, x: usize, y: usize, z: usize, model_id: u8, rotation: u8) {
+    pub fn set_model_block(
+        &mut self,
+        x: usize,
+        y: usize,
+        z: usize,
+        model_id: u8,
+        rotation: u8,
+        waterlogged: bool,
+    ) {
         let idx = Self::index(x, y, z);
         self.blocks[idx] = BlockType::Model;
-        self.model_data
-            .insert(idx, BlockModelData { model_id, rotation });
+        self.model_data.insert(
+            idx,
+            BlockModelData {
+                model_id,
+                rotation,
+                waterlogged,
+            },
+        );
         self.dirty = true;
         self.metadata_dirty = true;
         self.model_metadata_dirty.set(true);
@@ -457,7 +474,12 @@ impl Chunk {
                 for (idx, data) in &self.model_data {
                     let offset = idx * 2;
                     buf[offset] = data.model_id;
-                    buf[offset + 1] = data.rotation;
+                    // Pack rotation (bits 0-1) and waterlogged (bit 2)
+                    let mut packed_meta = data.rotation & 0x03;
+                    if data.waterlogged {
+                        packed_meta |= 0x04;
+                    }
+                    buf[offset + 1] = packed_meta;
                 }
             }
             self.model_metadata_dirty.set(false);

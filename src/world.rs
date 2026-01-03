@@ -246,14 +246,20 @@ impl World {
     ///
     /// This sets the block type to Model and stores the model metadata.
     /// If the chunk doesn't exist, it will be created.
-    pub fn set_model_block(&mut self, world_pos: WorldPos, model_id: u8, rotation: u8) {
+    pub fn set_model_block(
+        &mut self,
+        world_pos: WorldPos,
+        model_id: u8,
+        rotation: u8,
+        waterlogged: bool,
+    ) {
         let chunk_pos = Self::world_to_chunk(world_pos);
         let (lx, ly, lz) = Self::world_to_local(world_pos);
 
         let is_new_chunk = !self.chunks.contains_key(&chunk_pos);
         let chunk = self.chunks.entry(chunk_pos).or_default();
         let was_dirty = chunk.dirty;
-        chunk.set_model_block(lx, ly, lz, model_id, rotation);
+        chunk.set_model_block(lx, ly, lz, model_id, rotation, waterlogged);
 
         if is_new_chunk || (chunk.dirty && !was_dirty) {
             self.push_dirty(chunk_pos);
@@ -817,7 +823,7 @@ impl World {
 
         let target_model = ModelRegistry::stairs_model_id(shape, inverted);
         if target_model != data.model_id {
-            self.set_model_block(pos, target_model, rotation);
+            self.set_model_block(pos, target_model, rotation, data.waterlogged);
         }
     }
 
@@ -864,7 +870,7 @@ impl World {
                                 neighbor_pos, new_model_id
                             );
                             // Force rotation 0 for fences as their orientation is in the model_id
-                            self.set_model_block(neighbor_pos, new_model_id, 0);
+                            self.set_model_block(neighbor_pos, new_model_id, 0, data.waterlogged);
                         }
                     } else if ModelRegistry::is_gate_model(data.model_id) {
                         // Update gate connections
@@ -876,7 +882,12 @@ impl World {
                             ModelRegistry::gate_closed_model_id(connections)
                         };
                         if new_model_id != data.model_id {
-                            self.set_model_block(neighbor_pos, new_model_id, data.rotation);
+                            self.set_model_block(
+                                neighbor_pos,
+                                new_model_id,
+                                data.rotation,
+                                data.waterlogged,
+                            );
                         }
                     }
                 }
@@ -1082,8 +1093,8 @@ mod tests {
         // Our stair at (0,0,0): rotation 0 → facing (-Z), left_dir = (-X)
         // Neighbor at (0,0,1): rotation 3 → facing (-X) = our left_dir
         // back_neighbor == left_dir → OuterLeft (elevated at back-left)
-        world.set_model_block(vector![0, 0, 0], straight_id, 0);
-        world.set_model_block(vector![0, 0, 1], straight_id, 3);
+        world.set_model_block(vector![0, 0, 0], straight_id, 0, false);
+        world.set_model_block(vector![0, 0, 1], straight_id, 3, false);
 
         world.update_stair_shape_at(vector![0, 0, 0]);
 
@@ -1098,8 +1109,8 @@ mod tests {
         // Our stair at (10,0,0): rotation 0 → facing (-Z), left_dir = (-X)
         // Neighbor at (10,0,-1): rotation 3 → facing (-X) = our left_dir
         // front_neighbor == left_dir → InnerRight (void at front-right)
-        world.set_model_block(vector![10, 0, 0], straight_id, 0);
-        world.set_model_block(vector![10, 0, -1], straight_id, 3);
+        world.set_model_block(vector![10, 0, 0], straight_id, 0, false);
+        world.set_model_block(vector![10, 0, -1], straight_id, 3, false);
 
         world.update_stair_shape_at(vector![10, 0, 0]);
 
@@ -1114,8 +1125,8 @@ mod tests {
         // Our stair at (20,0,0): rotation 0 → facing (-Z), right_dir = (+X)
         // Neighbor at (20,0,-1): rotation 1 → facing (+X) = our right_dir
         // front_neighbor == right_dir → InnerLeft (void at front-left)
-        world.set_model_block(vector![20, 0, 0], straight_id, 0);
-        world.set_model_block(vector![20, 0, -1], straight_id, 1);
+        world.set_model_block(vector![20, 0, 0], straight_id, 0, false);
+        world.set_model_block(vector![20, 0, -1], straight_id, 1, false);
 
         world.update_stair_shape_at(vector![20, 0, 0]);
 
@@ -1130,8 +1141,8 @@ mod tests {
         // Our stair at (30,0,0): rotation 0 → facing (-Z), right_dir = (+X)
         // Neighbor at (30,0,1): rotation 1 → facing (+X) = our right_dir
         // back_neighbor == right_dir → OuterRight (elevated at back-right)
-        world.set_model_block(vector![30, 0, 0], straight_id, 0);
-        world.set_model_block(vector![30, 0, 1], straight_id, 1);
+        world.set_model_block(vector![30, 0, 0], straight_id, 0, false);
+        world.set_model_block(vector![30, 0, 1], straight_id, 1, false);
 
         world.update_stair_shape_at(vector![30, 0, 0]);
 
@@ -1154,8 +1165,8 @@ mod tests {
         // Our stair at (0,0,0): rotation 0 → facing (-Z), left_dir = (-X), right_dir = (+X)
         // Left neighbor at (-1,0,0): rotation 1 → facing (+X) = our right_dir
         // Left neighbor facing our right_dir → OuterLeft
-        world.set_model_block(vector![0, 0, 0], straight_id, 0);
-        world.set_model_block(vector![-1, 0, 0], straight_id, 1);
+        world.set_model_block(vector![0, 0, 0], straight_id, 0, false);
+        world.set_model_block(vector![-1, 0, 0], straight_id, 1, false);
 
         world.update_stair_shape_at(vector![0, 0, 0]);
 
@@ -1170,8 +1181,8 @@ mod tests {
         // Our stair at (10,0,0): rotation 0 → facing (-Z), left_dir = (-X), right_dir = (+X)
         // Right neighbor at (11,0,0): rotation 3 → facing (-X) = our left_dir
         // Right neighbor facing our left_dir → OuterRight
-        world.set_model_block(vector![10, 0, 0], straight_id, 0);
-        world.set_model_block(vector![11, 0, 0], straight_id, 3);
+        world.set_model_block(vector![10, 0, 0], straight_id, 0, false);
+        world.set_model_block(vector![11, 0, 0], straight_id, 3, false);
 
         world.update_stair_shape_at(vector![10, 0, 0]);
 
@@ -1193,8 +1204,8 @@ mod tests {
         // Two stairs side by side facing the same direction should both stay straight
         // Our stair at (0,0,0): rotation 0 (facing -Z)
         // Neighbor at (1,0,0): rotation 0 (facing -Z) - parallel, not perpendicular
-        world.set_model_block(vector![0, 0, 0], straight_id, 0);
-        world.set_model_block(vector![1, 0, 0], straight_id, 0);
+        world.set_model_block(vector![0, 0, 0], straight_id, 0, false);
+        world.set_model_block(vector![1, 0, 0], straight_id, 0, false);
 
         world.update_stair_shape_at(vector![0, 0, 0]);
 
@@ -1213,9 +1224,9 @@ mod tests {
         );
 
         // Test a row of 3 stairs all facing same direction
-        world.set_model_block(vector![10, 0, 0], straight_id, 0);
-        world.set_model_block(vector![11, 0, 0], straight_id, 0);
-        world.set_model_block(vector![12, 0, 0], straight_id, 0);
+        world.set_model_block(vector![10, 0, 0], straight_id, 0, false);
+        world.set_model_block(vector![11, 0, 0], straight_id, 0, false);
+        world.set_model_block(vector![12, 0, 0], straight_id, 0, false);
 
         world.update_stair_shape_at(vector![11, 0, 0]); // Middle one
         let data = world.get_model_data(vector![11, 0, 0]).unwrap();
@@ -1237,8 +1248,8 @@ mod tests {
         // Neighbor at (0,0,-1): this is at our HIGH/back side (opposite of +Z)
         // Neighbor with rotation 1 → facing (+X) = our left_dir
         // back_neighbor == left_dir → OuterLeft
-        world.set_model_block(vector![0, 0, 0], straight_id, 2);
-        world.set_model_block(vector![0, 0, -1], straight_id, 1);
+        world.set_model_block(vector![0, 0, 0], straight_id, 2, false);
+        world.set_model_block(vector![0, 0, -1], straight_id, 1, false);
 
         world.update_stair_shape_at(vector![0, 0, 0]);
 
@@ -1254,8 +1265,8 @@ mod tests {
         // Neighbor at (9,0,0): this is at our HIGH/back side (opposite of +X)
         // Neighbor with rotation 0 → facing (-Z) = our left_dir
         // back_neighbor == left_dir → OuterLeft
-        world.set_model_block(vector![10, 0, 0], straight_id, 1);
-        world.set_model_block(vector![9, 0, 0], straight_id, 0);
+        world.set_model_block(vector![10, 0, 0], straight_id, 1, false);
+        world.set_model_block(vector![9, 0, 0], straight_id, 0, false);
 
         world.update_stair_shape_at(vector![10, 0, 0]);
 
@@ -1280,9 +1291,9 @@ mod tests {
         // Front neighbor at (0,0,-1): rotation 3 → facing (-X) = left_dir → InnerRight
         // Back neighbor at (0,0,1): rotation 1 → facing (+X) = right_dir → would be OuterRight
         // Inner should win
-        world.set_model_block(vector![0, 0, 0], straight_id, 0);
-        world.set_model_block(vector![0, 0, -1], straight_id, 3); // Front - triggers inner
-        world.set_model_block(vector![0, 0, 1], straight_id, 1); // Back - would trigger outer
+        world.set_model_block(vector![0, 0, 0], straight_id, 0, false);
+        world.set_model_block(vector![0, 0, -1], straight_id, 3, false); // Front - triggers inner
+        world.set_model_block(vector![0, 0, 1], straight_id, 1, false); // Back - would trigger outer
 
         world.update_stair_shape_at(vector![0, 0, 0]);
 
@@ -1304,8 +1315,8 @@ mod tests {
         // Stairs facing opposite directions (180° apart) should not form corners
         // Our stair at (0,0,0): rotation 0 (facing -Z)
         // Neighbor at (0,0,1): rotation 2 (facing +Z) - directly opposite, not perpendicular
-        world.set_model_block(vector![0, 0, 0], straight_id, 0);
-        world.set_model_block(vector![0, 0, 1], straight_id, 2);
+        world.set_model_block(vector![0, 0, 0], straight_id, 0, false);
+        world.set_model_block(vector![0, 0, 1], straight_id, 2, false);
 
         world.update_stair_shape_at(vector![0, 0, 0]);
 
@@ -1316,8 +1327,8 @@ mod tests {
         );
 
         // Same test for front neighbor with opposite facing
-        world.set_model_block(vector![10, 0, 0], straight_id, 0);
-        world.set_model_block(vector![10, 0, -1], straight_id, 2); // Facing toward us
+        world.set_model_block(vector![10, 0, 0], straight_id, 0, false);
+        world.set_model_block(vector![10, 0, -1], straight_id, 2, false); // Facing toward us
 
         world.update_stair_shape_at(vector![10, 0, 0]);
 
