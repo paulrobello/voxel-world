@@ -414,11 +414,8 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
 
     float ao = 1.0;
     if (nearEnoughForAO) {
-        if (!subVoxelHit) {
-            ao = calculateAO(ivec3(coord), normal, uv);
-        } else {
-            ao = 1.0; // Sub-voxels: no AO
-        }
+        // For sub-voxels, use block-level AO as approximation (per-voxel AO too expensive)
+        ao = calculateAO(ivec3(coord), normal, uv);
     }
 
     vec3 sunDir = getCurrentSunDir();
@@ -442,10 +439,14 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
         float shadow = nearEnoughForShadow ? castShadowRayInternal(shadowOrigin, ignoreStartModel, dummyDbg, shadowTint) : 1.0;
         float sunLight = max(0.0, dot(normal, sunDir));
         float baseAmbient = mix(pc.ambient_light, pc.ambient_light + 0.25, daylight);
-        float minAmbient = max(0.02, pc.ambient_light * 0.5);
-        // Keep daytime ambient from creating a second "top-down" shadow; only lightly gate by sky exposure.
-        float ambientExposure = (pc.enable_shadows != 0 && daylight > 0.1) ? mix(1.0, skyExposure, 0.2) : skyExposure;
-        float ambient = mix(minAmbient, baseAmbient, ambientExposure);
+        // Allow true darkness when ambient_light is 0; otherwise use half ambient as floor
+        float minAmbient = pc.ambient_light * 0.5;
+        // Sky exposure is only used to detect enclosed spaces (caves, rooms).
+        // It should NOT cast a visible shadow - only the sun/moon shadow does that.
+        // When sky AND sun are both blocked (enclosed), reduce ambient to darkness.
+        // When sun can reach OR sky is visible, use full ambient (no sky shadow).
+        bool isEnclosed = (skyExposure < 0.1) && (shadow < 0.1);
+        float ambient = isEnclosed ? minAmbient : baseAmbient;
         // Direct sun should only be reduced by actual blockers along the sun ray.
         // Tying it to vertical sky exposure caused a second "top-down" shadow overlay
         // when the sky above was occluded even though the sun was visible at an angle.

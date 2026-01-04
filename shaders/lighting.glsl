@@ -67,6 +67,9 @@ float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFl
     vec3 inv_dir = clamp(1.0 / dir, vec3(-FLT_MAX), vec3(FLT_MAX));
     bool allowSkip = SHADOW_SKIP && (pc.enable_model_shadows == 0u);
 
+    // Track accumulated shadow from partial blockers - only applies if ray reaches sky
+    float accumulatedPartialShadow = 1.0;
+
     vec3 rayPos = origin;
     ivec3 pos = ivec3(floor(rayPos));
     ivec3 startPos = pos;
@@ -140,7 +143,7 @@ float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFl
         bool oob = !isInTextureBounds(pos);
         if (oob) {
             debugFlag = 7u; // out of loaded area = sky
-            return 1.0;
+            return accumulatedPartialShadow;  // Apply partial blockers if ray escaped
         }
         uint blockType = readBlockTypeAtTexCoord(pos);
 
@@ -163,52 +166,56 @@ float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFl
                     uint rotation = meta.g & 3u;
                     const float MODEL_PARTIAL_SHADOW = 0.4;
                     if (model_id == 0u) {
-                        return MODEL_PARTIAL_SHADOW;
-                    }
-                    ModelProperties props = model_properties[model_id];
-
-                    bool forceFine = (model_id == 2u || model_id == 3u); // slabs need fine shadowing even far
-                    if (camDist > pc.lod_model_distance && !forceFine) {
-                        // Far: skip fine march but still honor coarse light-blocking flags.
-                        if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u) {
-                            debugFlag = 5u;
-                            return 0.0;
-                        }
-                        if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
-                            debugFlag = 5u;
-                            return MODEL_PARTIAL_SHADOW;
-                        }
+                        // Invalid model - accumulate partial shadow and continue to check for full blockers
+                        accumulatedPartialShadow *= MODEL_PARTIAL_SHADOW;
                     } else {
-                        if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u ||
-                            (props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
-                            vec3 modelTint;
-                            float transmission = modelBlocksRay(blockOrigin, dir, pos, model_id, rotation, modelTint);
-                            bool hitGeo = (transmission < 1.0);
-                            if (hitGeo) {
-                                // Accumulate model tint for translucent sub-voxels
-                                shadowTint *= modelTint;
-                                if (transmission < 0.05) {
-                                    // Nearly opaque hit
-                                    if (model_id == 2u || model_id == 3u) {
-                                        debugFlag = 2u;
-                                        return 0.0; // slabs: block fully where geometry exists
-                                    }
-                                    if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
-                                        debugFlag = 3u;
-                                        return MODEL_PARTIAL_SHADOW;
-                                    } else {
-                                        debugFlag = 2u;
-                                        return 0.0;
-                                    }
-                                }
-                                // Partial transmission through translucent sub-voxels - continue ray
-                            }
-                            // For full blockers, conservative: still block if not hit due to precision.
-                            if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u && transmission >= 1.0) {
-                                debugFlag = 4u;
+                        ModelProperties props = model_properties[model_id];
+
+                        bool forceFine = (model_id == 2u || model_id == 3u); // slabs need fine shadowing even far
+                        if (camDist > pc.lod_model_distance && !forceFine) {
+                            // Far: skip fine march but still honor coarse light-blocking flags.
+                            if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u) {
+                                debugFlag = 5u;
                                 return 0.0;
                             }
-                            // For partial blockers, only geometry should occlude; skip coarse mask fallback to avoid over-occluding thin models (e.g., ladders).
+                            if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
+                                // Accumulate partial shadow and continue - don't return early
+                                debugFlag = 5u;
+                                accumulatedPartialShadow *= MODEL_PARTIAL_SHADOW;
+                            }
+                        } else {
+                            if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u ||
+                                (props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
+                                vec3 modelTint;
+                                float transmission = modelBlocksRay(blockOrigin, dir, pos, model_id, rotation, modelTint);
+                                bool hitGeo = (transmission < 1.0);
+                                if (hitGeo) {
+                                    // Accumulate model tint for translucent sub-voxels
+                                    shadowTint *= modelTint;
+                                    if (transmission < 0.05) {
+                                        // Nearly opaque hit
+                                        if (model_id == 2u || model_id == 3u) {
+                                            debugFlag = 2u;
+                                            return 0.0; // slabs: block fully where geometry exists
+                                        }
+                                        if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
+                                            // Accumulate partial shadow and continue to check for full blockers behind
+                                            debugFlag = 3u;
+                                            accumulatedPartialShadow *= MODEL_PARTIAL_SHADOW;
+                                        } else {
+                                            debugFlag = 2u;
+                                            return 0.0;
+                                        }
+                                    }
+                                    // Partial transmission through translucent sub-voxels - continue ray
+                                }
+                                // For full blockers, conservative: still block if not hit due to precision.
+                                if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u && transmission >= 1.0) {
+                                    debugFlag = 4u;
+                                    return 0.0;
+                                }
+                                // For partial blockers, only geometry should occlude; skip coarse mask fallback to avoid over-occluding thin models (e.g., ladders).
+                            }
                         }
                     }
                 }
@@ -245,11 +252,11 @@ float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFl
 
         if (totalDist > MAX_SHADOW_DIST) {
             debugFlag = 8u;
-            return 1.0;
+            return accumulatedPartialShadow;  // Apply partial blockers if ray reached max distance
         }
     }
 
-    return 1.0;
+    return accumulatedPartialShadow;  // Apply partial blockers only if ray escaped to sky
 }
 
 float castShadowRay(vec3 origin) {
@@ -276,9 +283,13 @@ float getSkyExposure(vec3 origin) {
     vec3 tDelta = vec3(1e30);
     tDelta.y = 1.0;
 
+    // Track accumulated exposure from partial blockers - only applies if ray reaches sky
+    float accumulatedPartialExposure = 1.0;
+    const float MODEL_PARTIAL_EXPOSURE = 0.4;
+
     for (int i = 0; i < 128; i++) {
         if (!isInTextureBounds(pos)) {
-            return 1.0;
+            return accumulatedPartialExposure;  // Apply partial blockers if ray escaped
         }
 
         vec3 blockOrigin = rayPos + dir * 0.01;
@@ -286,7 +297,6 @@ float getSkyExposure(vec3 origin) {
         bool skipSelf = all(equal(pos, startPos));
 
         if (!skipSelf) {
-            const float MODEL_PARTIAL_EXPOSURE = 0.4;
             if (blockType == BLOCK_MODEL) {
                 if (pc.enable_model_shadows == 0u) {
                     // Treat model as non-blocking for sky when disabled
@@ -295,37 +305,38 @@ float getSkyExposure(vec3 origin) {
                     uint model_id = meta.r;
                     uint rotation = meta.g & 3u;
                     if (model_id == 0u) {
-                        return MODEL_PARTIAL_EXPOSURE;
-                    }
-                    ModelProperties props = model_properties[model_id];
+                        // Invalid model - accumulate partial exposure and continue
+                        accumulatedPartialExposure *= MODEL_PARTIAL_EXPOSURE;
+                    } else {
+                        ModelProperties props = model_properties[model_id];
 
-                    float transmission = 1.0;
-                    if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u ||
-                        (props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
-                        vec3 dummyTint;
-                        transmission = modelBlocksRay(blockOrigin, dir, pos, model_id, rotation, dummyTint);
-                    }
-                    bool blocksRay = (transmission < 1.0);
+                        float transmission = 1.0;
+                        if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u ||
+                            (props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
+                            vec3 dummyTint;
+                            transmission = modelBlocksRay(blockOrigin, dir, pos, model_id, rotation, dummyTint);
+                        }
+                        bool blocksRay = (transmission < 1.0);
 
-                    if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u ||
-                        (props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
-                        if (blocksRay && transmission < 0.05) {
-                            // Nearly opaque hit
-                            if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u) {
-                                return 0.0;
-                            }
-                            if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
-                                return MODEL_PARTIAL_EXPOSURE;
-                            }
-                        } else if (blocksRay) {
-                            // Partial transmission - return remaining light
-                            return transmission;
-                        } else {
-                            if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u) {
-                                return 0.0;
-                            }
-                            if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
-                                return 1.0;
+                        if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u ||
+                            (props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
+                            if (blocksRay && transmission < 0.05) {
+                                // Nearly opaque hit
+                                if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u) {
+                                    return 0.0;
+                                }
+                                if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
+                                    // Accumulate and continue to check for full blockers behind
+                                    accumulatedPartialExposure *= MODEL_PARTIAL_EXPOSURE;
+                                }
+                            } else if (blocksRay) {
+                                // Partial transmission - accumulate and continue
+                                accumulatedPartialExposure *= transmission;
+                            } else {
+                                if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u) {
+                                    return 0.0;
+                                }
+                                // For partial blockers that don't block this ray, continue without penalty
                             }
                         }
                     }
@@ -336,7 +347,8 @@ float getSkyExposure(vec3 origin) {
             }
 
             if (blockType == BLOCK_LEAVES) {
-                return 0.4;
+                // Leaves accumulate partial exposure and continue
+                accumulatedPartialExposure *= 0.4;
             }
         }
         else {
@@ -346,9 +358,13 @@ float getSkyExposure(vec3 origin) {
             continue;
         }
 
+        // Advance ray for transparent blocks (AIR, WATER, GLASS, TINTED_GLASS)
+        int stepAxis;
+        float stepDist;
+        ddaAdvance(pos, rayPos, tMax, tDelta, stepDir, dir, stepAxis, stepDist);
     }
 
-    return 1.0;
+    return accumulatedPartialExposure;  // Apply partial blockers if ray completed without full block
 }
 
 // Point light accumulation
