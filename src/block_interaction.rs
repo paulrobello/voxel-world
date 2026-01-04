@@ -536,7 +536,24 @@ impl App {
                 if !inverted {
                     if let Some(hit) = self.ui.current_hit {
                         if hit.normal.y < 0 {
+                            // Clicking on bottom face of block above -> inverted
                             inverted = true;
+                        } else if hit.normal.y == 0 {
+                            // Clicking on side face: check if upper or lower half
+                            // Compute hit point to determine vertical position on face
+                            let origin = self
+                                .sim
+                                .player
+                                .camera_world_pos(self.sim.world_extent, self.sim.texture_origin)
+                                .cast::<f32>();
+                            let direction = self.sim.player.camera_direction().cast::<f32>();
+                            let hit_point = origin + direction * hit.distance;
+                            // Get fractional Y within the block (0.0 to 1.0)
+                            let local_y = hit_point.y - hit_point.y.floor();
+                            // Upper half -> inverted stair
+                            if local_y >= 0.5 {
+                                inverted = true;
+                            }
                         }
                     }
                 }
