@@ -131,7 +131,7 @@ use crate::raycast::{RaycastHit, get_place_position};
 use crate::render_mode::RenderMode;
 use crate::sub_voxel::ModelRegistry;
 use crate::terrain_gen::{TerrainGenerator, generate_chunk_terrain};
-use crate::user_prefs::UserPreferences;
+use crate::user_prefs::{UserPreferences, profiles_dir, set_data_dir, user_models_dir, worlds_dir};
 use crate::utils::{ChunkStats, Profiler};
 use crate::vulkan_context::VulkanContext;
 use crate::water::WaterGrid;
@@ -557,6 +557,16 @@ impl App {
             }
         }
 
+        // Set data directory if specified (must happen before any data access)
+        if let Some(ref data_dir) = args.data_dir {
+            let path = PathBuf::from(data_dir);
+            if !path.exists() {
+                std::fs::create_dir_all(&path).expect("Failed to create data directory");
+            }
+            set_data_dir(&path);
+            println!("[Launcher] Using data directory: {}", path.display());
+        }
+
         // Load user preferences from disk (needed for world selection and player data)
         let mut prefs = UserPreferences::load();
 
@@ -570,14 +580,15 @@ impl App {
         println!("[Launcher] Loading world: '{}'", world_name);
         prefs.update_last_world(&world_name);
 
-        let worlds_dir = PathBuf::from("worlds");
-        let world_dir = worlds_dir.join(&world_name);
+        let worlds_directory = worlds_dir();
+        let world_dir = worlds_directory.join(&world_name);
 
         // Migration: If 'world' exists but 'worlds/default' doesn't, migrate it
         if PathBuf::from("world").exists() && !world_dir.exists() && world_name == "default" {
             println!("[Launcher] Migrating legacy world to 'worlds/default'...");
-            if !worlds_dir.exists() {
-                std::fs::create_dir_all(&worlds_dir).expect("Failed to create worlds directory");
+            if !worlds_directory.exists() {
+                std::fs::create_dir_all(&worlds_directory)
+                    .expect("Failed to create worlds directory");
             }
             std::fs::rename("world", &world_dir).expect("Failed to migrate legacy world");
         }
@@ -702,8 +713,8 @@ impl App {
 
         // Create model registry with built-in models and load library models
         let mut model_registry = ModelRegistry::new();
-        let library_path = std::path::Path::new("user_models");
-        match model_registry.load_library_models(library_path) {
+        let library_path = user_models_dir();
+        match model_registry.load_library_models(&library_path) {
             Ok(count) if count > 0 => {
                 println!("Loaded {} custom models from library", count);
             }
@@ -854,8 +865,8 @@ impl App {
             start_time,
             profile_log_path: if args.profile {
                 // Create profiles directory and generate timestamped filename
-                let profiles_dir = std::path::Path::new("profiles");
-                std::fs::create_dir_all(profiles_dir).ok();
+                let profiles_directory = profiles_dir();
+                std::fs::create_dir_all(&profiles_directory).ok();
                 let timestamp = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|d| d.as_secs())
@@ -875,10 +886,16 @@ impl App {
                 let day_of_year = days_since_epoch % 365;
                 let month = day_of_year / 30 + 1;
                 let day = day_of_year % 30 + 1;
-                Some(format!(
-                    "profiles/profile_{:04}{:02}{:02}_{:02}{:02}{:02}.csv",
+                let filename = format!(
+                    "profile_{:04}{:02}{:02}_{:02}{:02}{:02}.csv",
                     year, month, day, hours, mins, secs
-                ))
+                );
+                Some(
+                    profiles_directory
+                        .join(filename)
+                        .to_string_lossy()
+                        .into_owned(),
+                )
             } else {
                 None
             },

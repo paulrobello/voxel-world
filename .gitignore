@@ -6,6 +6,10 @@
 # Local profiling output
 profiles/
 
+# Multi-instance data directories
+data_p1/
+data_p2/
+
 # Python / virtualenvs
 .venv/
 venv/

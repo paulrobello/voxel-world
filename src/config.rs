@@ -76,6 +76,10 @@ pub struct Args {
     /// World name to load or create (default: last loaded or "default")
     #[arg(long, short = 'w')]
     pub world: Option<String>,
+
+    /// Data directory for worlds, preferences, and models (default: current directory)
+    #[arg(long, short = 'D')]
+    pub data_dir: Option<String>,
 }
 
 pub const INITIAL_WINDOW_RESOLUTION: PhysicalSize<u32> = PhysicalSize::new(1200, 1080);

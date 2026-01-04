@@ -8,10 +8,43 @@ use crate::config::Settings;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 /// Default preferences file name.
 const PREFS_FILE_NAME: &str = "user_prefs.json";
+
+/// Global data directory (set once at startup).
+static DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
+
+/// Sets the data directory for all game data (worlds, preferences, models).
+/// Must be called once at startup before any data access.
+pub fn set_data_dir(dir: &Path) {
+    let _ = DATA_DIR.set(dir.to_path_buf());
+}
+
+/// Returns the data directory (defaults to current directory if not set).
+pub fn get_data_dir() -> PathBuf {
+    DATA_DIR
+        .get()
+        .cloned()
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
+/// Returns the path to the worlds directory.
+pub fn worlds_dir() -> PathBuf {
+    get_data_dir().join("worlds")
+}
+
+/// Returns the path to the user models directory.
+pub fn user_models_dir() -> PathBuf {
+    get_data_dir().join("user_models")
+}
+
+/// Returns the path to the profiles directory.
+pub fn profiles_dir() -> PathBuf {
+    get_data_dir().join("profiles")
+}
 
 /// Player-specific data for a world (position, rotation).
 /// Stored per-user rather than per-world for co-op/networked support.
@@ -127,8 +160,7 @@ impl UserPreferences {
 impl UserPreferences {
     /// Returns the path to the preferences file.
     fn prefs_path() -> PathBuf {
-        // Store preferences in the current working directory
-        PathBuf::from(PREFS_FILE_NAME)
+        get_data_dir().join(PREFS_FILE_NAME)
     }
 
     /// Loads user preferences from the JSON file.

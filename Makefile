@@ -7,7 +7,7 @@ export DYLD_FALLBACK_LIBRARY_PATH := /opt/homebrew/lib:/opt/homebrew/opt/vulkan-
 export VK_ICD_FILENAMES := /opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json
 export CMAKE_POLICY_VERSION_MINIMUM := 3.5
 
-.PHONY: build build-release build-debug run run-release run-debug profile run-profile clean test check fmt lint checkall sprite-gen
+.PHONY: build build-release build-debug run run-release run-debug profile run-profile clean test check fmt lint checkall sprite-gen run-p1 run-p2 reset-p1 reset-p2
 
 # Default target
 all: build-release
@@ -35,11 +35,11 @@ run-debug: build-debug
 	@echo "VK_ICD_FILENAMES=$(VK_ICD_FILENAMES)"
 	DYLD_LIBRARY_PATH=$(DYLD_LIBRARY_PATH) DYLD_FALLBACK_LIBRARY_PATH=$(DYLD_FALLBACK_LIBRARY_PATH) VK_ICD_FILENAMES=$(VK_ICD_FILENAMES) RUST_BACKTRACE=1 ./target/debug/voxel_world $(ARGS)
 
-# Profiling target (writes profile.csv in cwd)
+# Profiling target (writes timestamped csv to profiles/)
 profile: run-profile
 
 run-profile: build-release
-	./target/release/voxel_world --verbose --profile-log profile.csv --debug-interval 120 --view-distance 8 --fly-mode $(ARGS)
+	./target/release/voxel_world --verbose --profile --debug-interval 120 --view-distance 8 --fly-mode $(ARGS)
 
 # Development targets
 clean:
@@ -64,3 +64,16 @@ checkall: fmt lint test
 # Generate palette/hotbar sprites to textures/rendered/ and exit
 sprite-gen: build-release
 	./target/release/voxel_world --generate-sprites $(ARGS)
+
+# Multi-instance targets (isolated data directories)
+run-p1: build-release
+	./target/release/voxel_world --data-dir data_p1 $(ARGS)
+
+run-p2: build-release
+	./target/release/voxel_world --data-dir data_p2 $(ARGS)
+
+reset-p1:
+	rm -rf data_p1
+
+reset-p2:
+	rm -rf data_p2
