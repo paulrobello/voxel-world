@@ -288,7 +288,7 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
                 }
             }
 
-            if (model_id > 0u && distToBlock < SUB_VOXEL_LOD_DISTANCE) {
+            if (model_id > 0u && distToBlock < pc.lod_model_distance) {
                 vec3 dirNorm = normalize(dir);
                 // Early out using coarse mask
                 if (modelMaskBlocksRay(localEntry, dirNorm, model_id, rotation)) {

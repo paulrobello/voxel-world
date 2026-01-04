@@ -260,8 +260,9 @@ pub struct PushConstants {
     pub lod_ao_distance: f32,
     pub lod_shadow_distance: f32,
     pub lod_point_light_distance: f32,
+    pub lod_model_distance: f32,
     pub falling_block_count: u32,
-    pub _padding: [u32; 3], // Align camera_pos to 16 bytes for GLSL std430
+    pub _padding: [u32; 2], // Align camera_pos to 16 bytes for GLSL std430
     pub camera_pos: [f32; 4],
 }
 

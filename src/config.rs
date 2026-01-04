@@ -86,6 +86,7 @@ pub struct Settings {
     pub lod_ao_distance: f32,
     pub lod_shadow_distance: f32,
     pub lod_point_light_distance: f32,
+    pub lod_model_distance: f32,
 
     pub max_ray_steps: u32,
     pub render_scale: f32,
@@ -115,6 +116,7 @@ impl Default for Settings {
             lod_ao_distance: 64.0,
             lod_shadow_distance: 48.0,
             lod_point_light_distance: 20.0,
+            lod_model_distance: 32.0,
 
             max_ray_steps: 256,
             render_scale: 1.0,

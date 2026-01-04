@@ -163,7 +163,7 @@ float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFl
                     ModelProperties props = model_properties[model_id];
 
                     bool forceFine = (model_id == 2u || model_id == 3u); // slabs need fine shadowing even far
-                    if (camDist > SUB_VOXEL_LOD_DISTANCE && !forceFine) {
+                    if (camDist > pc.lod_model_distance && !forceFine) {
                         // Far: skip fine march but still honor coarse light-blocking flags.
                         if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u) {
                             debugFlag = 5u;

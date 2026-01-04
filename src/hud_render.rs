@@ -808,6 +808,22 @@ impl HUDRenderer {
                                     }
                                 );
                             }
+                            if ui
+                                .checkbox(
+                                    &mut settings.water_simulation_enabled,
+                                    "Water Flow Simulation",
+                                )
+                                .changed()
+                            {
+                                println!(
+                                    "[TOGGLE] Water Flow Simulation: {}",
+                                    if settings.water_simulation_enabled {
+                                        "ON"
+                                    } else {
+                                        "OFF"
+                                    }
+                                );
+                            }
 
                             ui.separator();
                             ui.label("LOD Distances (lower = faster):");
@@ -859,6 +875,24 @@ impl HUDRenderer {
                                     println!(
                                         "[LOD] Point light distance: {:.0}",
                                         settings.lod_point_light_distance
+                                    );
+                                }
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label("Models:");
+                                if ui
+                                    .add(
+                                        egui::Slider::new(
+                                            &mut settings.lod_model_distance,
+                                            8.0..=64.0,
+                                        )
+                                        .suffix(" blocks"),
+                                    )
+                                    .changed()
+                                {
+                                    println!(
+                                        "[LOD] Model detail distance: {:.0}",
+                                        settings.lod_model_distance
                                     );
                                 }
                             });

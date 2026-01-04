@@ -123,10 +123,10 @@ layout(push_constant) uniform PushConstants {
     float lod_ao_distance;
     float lod_shadow_distance;
     float lod_point_light_distance;
+    float lod_model_distance;
     uint falling_block_count;
     uint _padding0; // Align camera_pos to 16 bytes
     uint _padding1;
-    uint _padding2;
     vec4 camera_pos; // world-space camera position
 } pc;
 
