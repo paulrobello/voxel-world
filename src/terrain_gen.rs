@@ -1,4 +1,5 @@
 use crate::chunk::{BlockType, CHUNK_SIZE, Chunk};
+use crate::config::WorldGenType;
 use nalgebra::Vector3;
 use noise::{Fbm, MultiFractal, NoiseFn, Perlin, RidgedMulti};
 
@@ -174,7 +175,70 @@ impl TerrainGenerator {
 }
 
 /// Generates terrain for a single chunk at the given position.
-pub fn generate_chunk_terrain(terrain: &TerrainGenerator, chunk_pos: Vector3<i32>) -> Chunk {
+pub fn generate_chunk_terrain(
+    terrain: &TerrainGenerator,
+    chunk_pos: Vector3<i32>,
+    world_gen_type: WorldGenType,
+) -> Chunk {
+    match world_gen_type {
+        WorldGenType::Normal => generate_normal_chunk(terrain, chunk_pos),
+        WorldGenType::Flat => generate_flat_chunk(chunk_pos),
+    }
+}
+
+/// Generates a flat world chunk (2 chunks = 64 blocks high).
+/// Layers from top to bottom: grass (1), dirt (7), stone (55), bedrock (1)
+fn generate_flat_chunk(chunk_pos: Vector3<i32>) -> Chunk {
+    let mut chunk = Chunk::new();
+    let chunk_world_y = chunk_pos.y * CHUNK_SIZE as i32;
+
+    // Flat world height constants (2 chunks = 64 blocks, Y=0 to Y=63)
+    const FLAT_HEIGHT: i32 = 63; // Top surface at Y=63
+    const GRASS_LAYERS: i32 = 1; // 1 layer of grass (Y=63)
+    const DIRT_LAYERS: i32 = 7; // 7 layers of dirt (Y=56-62)
+
+    // Only generate blocks in first two chunk layers (Y=0 and Y=1)
+    if chunk_pos.y >= 2 {
+        // Above flat world - all air (chunk is already air by default)
+        chunk.update_metadata();
+        chunk.persistence_dirty = false;
+        return chunk;
+    }
+
+    for lx in 0..CHUNK_SIZE {
+        for lz in 0..CHUNK_SIZE {
+            for ly in 0..CHUNK_SIZE {
+                let world_y = chunk_world_y + ly as i32;
+
+                let block_type = if world_y > FLAT_HEIGHT {
+                    // Above surface
+                    BlockType::Air
+                } else if world_y == 0 {
+                    // Bedrock floor
+                    BlockType::Bedrock
+                } else if world_y == FLAT_HEIGHT {
+                    // Top surface - grass
+                    BlockType::Grass
+                } else if world_y > FLAT_HEIGHT - GRASS_LAYERS - DIRT_LAYERS {
+                    // Dirt layers (Y=56 to Y=62)
+                    BlockType::Dirt
+                } else {
+                    // Stone (Y=1 to Y=55)
+                    BlockType::Stone
+                };
+
+                chunk.set_block(lx, ly, lz, block_type);
+            }
+        }
+    }
+
+    chunk.update_metadata();
+    chunk.persistence_dirty = false;
+    chunk
+}
+
+/// Generates normal terrain with biomes, caves, and trees.
+fn generate_normal_chunk(terrain: &TerrainGenerator, chunk_pos: Vector3<i32>) -> Chunk {
     let mut chunk = Chunk::new();
     let chunk_world_x = chunk_pos.x * CHUNK_SIZE as i32;
     let chunk_world_y = chunk_pos.y * CHUNK_SIZE as i32;

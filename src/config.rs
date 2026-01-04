@@ -1,6 +1,16 @@
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use serde::{Deserialize, Serialize};
 use winit::dpi::PhysicalSize;
+
+/// World generation type
+#[derive(Debug, Clone, Copy, Default, ValueEnum)]
+pub enum WorldGenType {
+    /// Normal terrain with biomes, caves, mountains, and trees
+    #[default]
+    Normal,
+    /// Flat world: 2 chunks thick with grass/dirt/stone layers
+    Flat,
+}
 
 /// Voxel Game Engine - A Minecraft-like voxel game with GPU ray-marching rendering.
 #[derive(Parser, Debug, Clone)]
@@ -42,6 +52,10 @@ pub struct Args {
     /// Seed for terrain generation (default: 12345)
     #[arg(long, short = 'S')]
     pub seed: Option<u32>,
+
+    /// World generation type: normal or flat (default: normal)
+    #[arg(long, short = 'g', value_enum, default_value_t = WorldGenType::Normal)]
+    pub world_gen: WorldGenType,
 
     /// Start in render mode: textured, normal, coord, steps, uv, depth (default: textured)
     #[arg(long, short = 'r')]

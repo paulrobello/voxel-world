@@ -110,7 +110,7 @@ mod world_streaming;
 use crate::block_update::BlockUpdateQueue;
 use crate::chunk::{BlockType, CHUNK_SIZE};
 use crate::chunk_loader::ChunkLoader;
-use crate::config::{Args, INITIAL_WINDOW_RESOLUTION, Settings};
+use crate::config::{Args, INITIAL_WINDOW_RESOLUTION, Settings, WorldGenType};
 use crate::constants::{
     LOADED_CHUNKS_X, LOADED_CHUNKS_Z, TEXTURE_SIZE_X, TEXTURE_SIZE_Y, TEXTURE_SIZE_Z,
     UNLOAD_DISTANCE, VIEW_DISTANCE, WORLD_CHUNKS_Y,
@@ -189,6 +189,7 @@ fn find_ground_level(world: &World, world_x: i32, world_z: i32) -> i32 {
 fn create_initial_world_with_seed(
     spawn_chunk: Vector3<i32>,
     seed: u32,
+    world_gen_type: WorldGenType,
     storage: Option<&storage::worker::StorageSystem>,
 ) -> World {
     let mut world = World::new();
@@ -225,7 +226,7 @@ fn create_initial_world_with_seed(
                 }
 
                 if !loaded {
-                    let chunk = generate_chunk_terrain(&terrain, chunk_pos);
+                    let chunk = generate_chunk_terrain(&terrain, chunk_pos, world_gen_type);
                     world.insert_chunk(chunk_pos, chunk);
                 }
             }
@@ -247,7 +248,7 @@ fn create_game_world_full() -> World {
         for cy in 0..WORLD_CHUNKS_Y {
             for cz in 0..LOADED_CHUNKS_Z {
                 let chunk_pos = vector![cx, cy, cz];
-                let chunk = generate_chunk_terrain(&terrain, chunk_pos);
+                let chunk = generate_chunk_terrain(&terrain, chunk_pos, WorldGenType::Normal);
                 world.insert_chunk(chunk_pos, chunk);
             }
         }
@@ -644,7 +645,8 @@ impl App {
         let storage = Arc::new(storage::worker::StorageSystem::new(world_dir.clone()));
 
         // Create world with only chunks near spawn loaded, checking storage first
-        let world = create_initial_world_with_seed(spawn_chunk, seed, Some(&storage));
+        let world =
+            create_initial_world_with_seed(spawn_chunk, seed, args.world_gen, Some(&storage));
 
         // Texture dimensions (not world bounds - world is infinite)
         let world_extent = [
@@ -800,8 +802,9 @@ impl App {
             chunk_loader: {
                 let terrain = TerrainGenerator::new(seed);
                 let storage_clone = Arc::clone(&storage);
+                let world_gen_type = args.world_gen;
                 ChunkLoader::new(
-                    move |pos| generate_chunk_terrain(&terrain, pos),
+                    move |pos| generate_chunk_terrain(&terrain, pos, world_gen_type),
                     Some(storage_clone),
                 )
             },
