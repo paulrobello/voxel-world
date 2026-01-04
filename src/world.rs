@@ -847,13 +847,14 @@ impl World {
             }
         }
 
-        // For inverted (ceiling) stairs, swap Inner↔Outer since geometry is flipped
+        // For inverted (ceiling) stairs, swap both Inner↔Outer AND Left↔Right
+        // since geometry is flipped vertically, changing both relationships
         if inverted && shape != StairShape::Straight {
             shape = match shape {
-                StairShape::InnerLeft => StairShape::OuterLeft,
-                StairShape::InnerRight => StairShape::OuterRight,
-                StairShape::OuterLeft => StairShape::InnerLeft,
-                StairShape::OuterRight => StairShape::InnerRight,
+                StairShape::InnerLeft => StairShape::OuterRight,
+                StairShape::InnerRight => StairShape::OuterLeft,
+                StairShape::OuterLeft => StairShape::InnerRight,
+                StairShape::OuterRight => StairShape::InnerLeft,
                 StairShape::Straight => StairShape::Straight,
             };
         }
@@ -1409,31 +1410,31 @@ mod tests {
         let straight_inverted = ModelRegistry::stairs_model_id(StairShape::Straight, true);
 
         // Inverted stairs should also form corners with other inverted stairs
-        // For inverted stairs, Inner↔Outer is flipped compared to normal stairs
-        // Case 1: Back neighbor → OuterRight (inverted) - would be InnerRight if not inverted
+        // For inverted stairs, both Inner↔Outer AND Left↔Right are flipped
+        // Case 1: Back neighbor → OuterLeft (inverted) - would be InnerRight if not inverted
         world.set_model_block(vector![0, 0, 0], straight_inverted, 0, false);
         world.set_model_block(vector![0, 0, 1], straight_inverted, 3, false);
 
         world.update_stair_shape_at(vector![0, 0, 0]);
 
         let data = world.get_model_data(vector![0, 0, 0]).unwrap();
-        let expected_id = ModelRegistry::stairs_model_id(StairShape::OuterRight, true);
+        let expected_id = ModelRegistry::stairs_model_id(StairShape::OuterLeft, true);
         assert_eq!(
             data.model_id, expected_id,
-            "Inverted: back neighbor facing left → OuterRight (flipped from InnerRight)"
+            "Inverted: back neighbor facing left → OuterLeft (flipped from InnerRight)"
         );
 
-        // Case 2: Front neighbor → InnerLeft (inverted) - would be OuterLeft if not inverted
+        // Case 2: Front neighbor → InnerRight (inverted) - would be OuterLeft if not inverted
         world.set_model_block(vector![10, 0, 0], straight_inverted, 0, false);
         world.set_model_block(vector![10, 0, -1], straight_inverted, 3, false);
 
         world.update_stair_shape_at(vector![10, 0, 0]);
 
         let data = world.get_model_data(vector![10, 0, 0]).unwrap();
-        let expected_id = ModelRegistry::stairs_model_id(StairShape::InnerLeft, true);
+        let expected_id = ModelRegistry::stairs_model_id(StairShape::InnerRight, true);
         assert_eq!(
             data.model_id, expected_id,
-            "Inverted: front neighbor facing left → InnerLeft (flipped from OuterLeft)"
+            "Inverted: front neighbor facing left → InnerRight (flipped from OuterLeft)"
         );
 
         // Case 3: Inverted stair should NOT form corner with non-inverted stair
