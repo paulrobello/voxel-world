@@ -126,6 +126,7 @@ Support detailed 8³ voxel models within standard block space for furniture, fen
 - [x] Model registry: HashMap<ModelId, SubVoxelModel> with name lookups
 - [x] Built-in models: torch, slabs, fences/gates (connection variants), stairs, ladder (chair/table/picture_frame TBD)
 - [x] Model LOD: full detail within LOD radius, culled beyond
+- [x] Translucency support: palette alpha < 1.0 renders as translucent with colored shadows
 
 #### 4.2 Block Metadata System
 - [x] Extend block storage: BlockType::Model + optional metadata
@@ -619,9 +620,16 @@ Maintain 90+ FPS with all features enabled.
 ---
 
 ## Current Work (2026-01-03)
-- Phase 5 (In-Game Model Editor) complete.
+- All planned phases complete. Looking for new features to implement.
 
 ## Done Recently
+- **Tinted Glass & Sub-voxel Translucency** (2026-01-03):
+  - `TintedGlass` block type with 32-color tint palette stored in metadata
+  - Tinted shadows: light passing through tinted glass gets colored
+  - Settings toggle for tinted shadows
+  - Sub-voxel translucency: palette colors with alpha < 1.0 render as translucent
+  - Internal face artifact elimination for smooth translucent volumes
+  - Colored shadows from translucent sub-voxels
 - **Phase 5: In-Game Model Editor** - Complete implementation:
   - `.vxm` file format for portable model storage
   - `LibraryManager` for saving/loading models from `user_models/` directory
