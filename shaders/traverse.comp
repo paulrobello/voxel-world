@@ -295,12 +295,17 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
                     vec3 subColor;
                     vec3 subNormal;
                     float subT;
-                    if (marchSubVoxelModel(localEntry, dirNorm, model_id, rotation, subColor, subNormal, subT)) {
+                    float subAlpha;
+                    if (marchSubVoxelModel(localEntry, dirNorm, model_id, rotation, subColor, subNormal, subT, subAlpha)) {
                         subVoxelHit = true;
                         subVoxelColor = subColor;
                         subVoxelNormal = subNormal;
                         subVoxelHitPos = vec3(coord) + localEntry + dirNorm * subT;
-                        
+
+                        // If model is partially transparent, we might need to continue
+                        // For now, treat any hit as solid for lighting purposes
+                        // TODO: blend with background for partial transparency
+
                         if (inWater) {
                             float currentT = (tmin + distToBlock / length(dir) + subT);
                             waterDepth = (currentT - waterEntryT) * length(dir);

@@ -4,12 +4,13 @@
 const bool SHADOW_SKIP = true;
 
 // Helper: test whether a ray segment through a model block hits its sub-voxel geometry
-bool modelBlocksRay(vec3 rayOrigin, vec3 dir, ivec3 blockPos, uint model_id, uint rotation) {
+// Returns transmission factor (0 = full block, 1 = no block) and accumulated tint from translucent voxels
+float modelBlocksRay(vec3 rayOrigin, vec3 dir, ivec3 blockPos, uint model_id, uint rotation, out vec3 modelTint) {
     vec3 localOrigin = clamp(rayOrigin - vec3(blockPos), vec3(SUB_VOXEL_EPS), vec3(1.0 - SUB_VOXEL_EPS));
     // Shadow path: cheaper, capped marcher—only cares if any occupied voxel blocks light.
     // Limit steps to reduce worst-case cost through thin models; still covers the 8^3 grid.
     const int SHADOW_MODEL_MAX_STEPS = 16;
-    return marchSubVoxelShadow(localOrigin, dir, model_id, rotation, SHADOW_MODEL_MAX_STEPS);
+    return marchSubVoxelShadow(localOrigin, dir, model_id, rotation, SHADOW_MODEL_MAX_STEPS, modelTint);
 }
 
 // Advance a DDA to the next voxel along the ray.
@@ -175,22 +176,30 @@ float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFl
                     } else {
                         if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u ||
                             (props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
-                            bool hitGeo = modelBlocksRay(blockOrigin, dir, pos, model_id, rotation);
+                            vec3 modelTint;
+                            float transmission = modelBlocksRay(blockOrigin, dir, pos, model_id, rotation, modelTint);
+                            bool hitGeo = (transmission < 1.0);
                             if (hitGeo) {
-                                if (model_id == 2u || model_id == 3u) {
-                                    debugFlag = 2u;
-                                    return 0.0; // slabs: block fully where geometry exists
+                                // Accumulate model tint for translucent sub-voxels
+                                shadowTint *= modelTint;
+                                if (transmission < 0.05) {
+                                    // Nearly opaque hit
+                                    if (model_id == 2u || model_id == 3u) {
+                                        debugFlag = 2u;
+                                        return 0.0; // slabs: block fully where geometry exists
+                                    }
+                                    if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
+                                        debugFlag = 3u;
+                                        return MODEL_PARTIAL_SHADOW;
+                                    } else {
+                                        debugFlag = 2u;
+                                        return 0.0;
+                                    }
                                 }
-                                if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
-                                    debugFlag = 3u;
-                                    return MODEL_PARTIAL_SHADOW;
-                                } else {
-                                    debugFlag = 2u;
-                                    return 0.0;
-                                }
+                                // Partial transmission through translucent sub-voxels - continue ray
                             }
                             // For full blockers, conservative: still block if not hit due to precision.
-                            if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u) {
+                            if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u && transmission >= 1.0) {
                                 debugFlag = 4u;
                                 return 0.0;
                             }
@@ -285,21 +294,27 @@ float getSkyExposure(vec3 origin) {
                     }
                     ModelProperties props = model_properties[model_id];
 
-                    bool blocksRay = false;
+                    float transmission = 1.0;
                     if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u ||
                         (props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
-                        blocksRay = modelBlocksRay(blockOrigin, dir, pos, model_id, rotation);
+                        vec3 dummyTint;
+                        transmission = modelBlocksRay(blockOrigin, dir, pos, model_id, rotation, dummyTint);
                     }
+                    bool blocksRay = (transmission < 1.0);
 
                     if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u ||
                         (props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
-                        if (blocksRay) {
+                        if (blocksRay && transmission < 0.05) {
+                            // Nearly opaque hit
                             if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u) {
                                 return 0.0;
                             }
                             if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
                                 return MODEL_PARTIAL_EXPOSURE;
                             }
+                        } else if (blocksRay) {
+                            // Partial transmission - return remaining light
+                            return transmission;
                         } else {
                             if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u) {
                                 return 0.0;

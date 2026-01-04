@@ -201,8 +201,13 @@ bool marchSubVoxelModel(
     uint rotation,
     out vec3 out_color,
     out vec3 out_normal,
-    out float out_t
+    out float out_t,
+    out float out_alpha
 ) {
+    // Initialize alpha for translucency accumulation
+    out_alpha = 0.0;
+    vec3 accumulatedColor = vec3(0.0);
+    float accumulatedAlpha = 0.0;
     // Scale to sub-voxel coordinates (0-8)
     vec3 pos = origin * float(SUB_VOXEL_SIZE);
 
@@ -285,26 +290,57 @@ bool marchSubVoxelModel(
         if (palette_idx != 0u) {
             // Get color from palette
             vec4 paletteColor = getModelPaletteColor(model_id, palette_idx);
-            out_color = paletteColor.rgb;
+            vec3 voxelColor = paletteColor.rgb;
 
             // Add emission glow if model has emission (e.g., torch flame)
             ModelProperties props = model_properties[model_id];
             if (props.emission.a > 0.0) {
-                out_color += props.emission.rgb * props.emission.a * 0.5;
+                voxelColor += props.emission.rgb * props.emission.a * 0.5;
             }
 
-            // Surface normal: use stepped axis after the first move; first voxel picks entry axis
+            // Calculate surface info for this voxel
             uint hitAxis = (i == 0) ? entryAxis : stepped_axis;
-            out_normal = vec3(0.0);
-            out_normal[hitAxis] = -float(step[hitAxis]);
-
-            // Calculate t value (in block-local 0-1 space)
-            // Use entry distance to current voxel
+            vec3 hitNormal = vec3(0.0);
+            hitNormal[hitAxis] = -float(step[hitAxis]);
             float voxelDist = (i == 0) ? 0.0 : (tMaxAxis[stepped_axis] - tDelta[stepped_axis]);
-            float t = startT + voxelDist;
-            out_t = t / float(SUB_VOXEL_SIZE);
+            float hitT = (startT + voxelDist) / float(SUB_VOXEL_SIZE);
 
-            return true;
+            // Check if this voxel is translucent (alpha < 1.0)
+            if (paletteColor.a < 0.99) {
+                // Translucent voxel: blend and continue
+                float remainingAlpha = 1.0 - accumulatedAlpha;
+                float contribution = paletteColor.a * remainingAlpha;
+                accumulatedColor += voxelColor * contribution;
+                accumulatedAlpha += contribution;
+
+                // Record first hit surface info
+                if (out_alpha == 0.0) {
+                    out_normal = hitNormal;
+                    out_t = hitT;
+                }
+
+                // Early out if nearly opaque
+                if (accumulatedAlpha > 0.99) {
+                    out_color = accumulatedColor;
+                    out_alpha = accumulatedAlpha;
+                    return true;
+                }
+                // Continue marching through translucent voxels
+            } else {
+                // Opaque voxel: final hit
+                // Blend opaque color behind any accumulated translucency
+                float remainingAlpha = 1.0 - accumulatedAlpha;
+                out_color = accumulatedColor + voxelColor * remainingAlpha;
+                out_alpha = 1.0;
+
+                // Use first hit surface if we accumulated translucency, else this hit
+                if (accumulatedAlpha == 0.0) {
+                    out_normal = hitNormal;
+                    out_t = hitT;
+                }
+
+                return true;
+            }
         }
 
         // Step to next sub-voxel
@@ -331,25 +367,39 @@ bool marchSubVoxelModel(
         }
     }
 
+    // If we accumulated any translucent voxels, return that
+    if (accumulatedAlpha > 0.0) {
+        out_color = accumulatedColor;
+        out_alpha = accumulatedAlpha;
+        return true;
+    }
+
     return false;  // Ray passed through without hitting
 }
 
-// Shadow-only sub-voxel march: returns true on any occupancy hit.
-// Uses a capped number of steps since we only need to know whether the model blocks light.
-bool marchSubVoxelShadow(
+// Shadow-only sub-voxel march: returns transmission factor (0 = full block, 1 = no block).
+// Accumulates alpha and tint from translucent voxels for colored shadows.
+// Uses a capped number of steps since we only need to know how much the model blocks light.
+float marchSubVoxelShadow(
     vec3 origin,
     vec3 dir,
     uint model_id,
     uint rotation,
-    int maxSteps
+    int maxSteps,
+    out vec3 accumulatedTint
 ) {
+    accumulatedTint = vec3(1.0);
+
     // Early out using coarse mask
     if (!modelMaskBlocksRay(origin, dir, model_id, rotation)) {
-        return false;
+        return 1.0; // No blocking
     }
 
     // Clamp step budget to the maximum possible voxels we could traverse in 8^3 grid.
     int stepsLeft = clamp(maxSteps, 1, 24);
+
+    // Track accumulated transmission (starts at 1.0 = full light)
+    float transmission = 1.0;
 
     // Scale to sub-voxel coordinates (0-8)
     vec3 pos = origin * float(SUB_VOXEL_SIZE);
@@ -367,7 +417,7 @@ bool marchSubVoxelShadow(
     float tNear = max(max(t1.x, t1.y), t1.z);
     float tFar = min(min(t2.x, t2.y), t2.z);
     if (tNear > tFar || tFar < 0.0) {
-        return false;
+        return 1.0; // No blocking
     }
 
     float startT = max(tNear, 0.0);
@@ -400,7 +450,20 @@ bool marchSubVoxelShadow(
         rotatedPos = clamp(rotatedPos, ivec3(0), ivec3(int(SUB_VOXEL_SIZE) - 1));
         uint palette_idx = sampleModelVoxel(model_id, rotatedPos);
         if (palette_idx != 0u) {
-            return true;
+            // Get color and alpha from palette for translucency
+            vec4 paletteColor = getModelPaletteColor(model_id, palette_idx);
+            if (paletteColor.a >= 0.99) {
+                // Opaque voxel: full shadow
+                return 0.0;
+            }
+            // Translucent voxel: reduce transmission and accumulate tint
+            float absorbed = paletteColor.a;
+            transmission *= (1.0 - absorbed);
+            // Blend voxel color into tint based on how much light it absorbs
+            accumulatedTint *= mix(vec3(1.0), paletteColor.rgb, absorbed);
+            if (transmission < 0.05) {
+                return 0.0; // Early out when nearly opaque
+            }
         }
 
         // Step to next sub-voxel
@@ -423,7 +486,7 @@ bool marchSubVoxelShadow(
         }
     }
 
-    return false;
+    return transmission;
 }
 
 // Read model metadata at a texture coordinate
