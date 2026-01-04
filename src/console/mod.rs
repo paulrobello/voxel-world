@@ -6,6 +6,8 @@
 
 pub mod commands;
 
+use crate::chunk::CHUNK_SIZE;
+use crate::constants::WORLD_CHUNKS_Y;
 use crate::world::World;
 use egui_winit_vulkano::egui;
 use nalgebra::Vector3;
@@ -15,6 +17,9 @@ const MAX_OUTPUT_LINES: usize = 100;
 
 /// Volume threshold requiring confirmation before execution.
 const VOLUME_CONFIRM_THRESHOLD: u64 = 100_000;
+
+/// Maximum Y coordinate (world height).
+const MAX_Y: i32 = WORLD_CHUNKS_Y * CHUNK_SIZE as i32 - 1;
 
 /// Entry type for console output with color coding.
 #[derive(Clone)]
@@ -59,6 +64,8 @@ pub enum CommandResult {
     Error(String),
     /// Command needs user confirmation before execution.
     NeedsConfirmation { message: String, command: String },
+    /// Teleport player to coordinates.
+    Teleport { x: f64, y: f64, z: f64 },
 }
 
 /// Pending command awaiting confirmation.
@@ -66,6 +73,17 @@ pub enum CommandResult {
 pub struct PendingCommand {
     /// The original command string.
     pub command: String,
+}
+
+/// Pending teleport coordinates.
+#[derive(Clone, Copy)]
+pub struct PendingTeleport {
+    /// Target X coordinate.
+    pub x: f64,
+    /// Target Y coordinate.
+    pub y: f64,
+    /// Target Z coordinate.
+    pub z: f64,
 }
 
 /// Console state for the in-game command system.
@@ -87,6 +105,8 @@ pub struct ConsoleState {
     pub pending_confirm: Option<PendingCommand>,
     /// Whether the text input should request focus.
     pub request_focus: bool,
+    /// Pending teleport to be handled by game loop.
+    pub pending_teleport: Option<PendingTeleport>,
 }
 
 impl ConsoleState {
@@ -101,6 +121,7 @@ impl ConsoleState {
             output: Vec::new(),
             pending_confirm: None,
             request_focus: false,
+            pending_teleport: None,
         }
     }
 
@@ -242,6 +263,10 @@ impl ConsoleState {
                 self.info("Type 'y' or 'yes' to confirm, anything else to cancel.");
                 self.pending_confirm = Some(PendingCommand { command });
             }
+            CommandResult::Teleport { x, y, z } => {
+                self.success(format!("Teleporting to ({:.1}, {:.1}, {:.1})", x, y, z));
+                self.pending_teleport = Some(PendingTeleport { x, y, z });
+            }
         }
     }
 
@@ -264,6 +289,7 @@ impl ConsoleState {
         match cmd.as_str() {
             "help" | "?" => commands::help(),
             "fill" => commands::fill(args, world, player_pos, confirmed),
+            "tp" | "teleport" => commands::tp(args, player_pos),
             "clear" => {
                 self.output.clear();
                 CommandResult::Success("Console cleared.".to_string())
@@ -298,4 +324,19 @@ pub fn parse_coordinate(s: &str, player_coord: i32) -> Result<i32, String> {
 /// Volume threshold for confirmation.
 pub fn volume_confirm_threshold() -> u64 {
     VOLUME_CONFIRM_THRESHOLD
+}
+
+/// Validate Y coordinate is within world bounds.
+/// Returns an error message if out of bounds, None if valid.
+pub fn validate_y_bounds(y: i32) -> Option<String> {
+    if y < 0 {
+        Some(format!("Y coordinate {} is below world (min: 0)", y))
+    } else if y > MAX_Y {
+        Some(format!(
+            "Y coordinate {} is above world (max: {})",
+            y, MAX_Y
+        ))
+    } else {
+        None
+    }
 }

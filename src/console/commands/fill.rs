@@ -3,7 +3,9 @@
 //! Fills a rectangular region with the specified block type.
 
 use crate::chunk::BlockType;
-use crate::console::{CommandResult, parse_coordinate, volume_confirm_threshold};
+use crate::console::{
+    CommandResult, parse_coordinate, validate_y_bounds, volume_confirm_threshold,
+};
 use crate::world::World;
 use nalgebra::Vector3;
 
@@ -71,6 +73,14 @@ pub fn fill(
     let max_y = y1.max(y2);
     let min_z = z1.min(z2);
     let max_z = z1.max(z2);
+
+    // Validate Y bounds
+    if let Some(error) = validate_y_bounds(min_y) {
+        return CommandResult::Error(error);
+    }
+    if let Some(error) = validate_y_bounds(max_y) {
+        return CommandResult::Error(error);
+    }
 
     // Calculate volume
     let width = (max_x - min_x + 1) as u64;

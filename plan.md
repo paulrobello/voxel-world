@@ -551,14 +551,14 @@ In-game command console for world editing, debugging, and administration.
 - [x] `help` and `clear` commands
 
 #### 11.2 World Editing Commands
-- [x] `fill <block> <x1> <y1> <z1> <x2> <y2> <z2> [hollow]` - Fill region with blocks
+- [x] `fill <block> <x1> <y1> <z1> <x2> <y2> <z2> [hollow]` - Fill region with blocks (Y bounds validated: 0-255)
 - [ ] `replace <from_block> <to_block> <x1> <y1> <z1> <x2> <y2> <z2>` - Replace blocks in region
 - [ ] `copy <x1> <y1> <z1> <x2> <y2> <z2>` - Copy region to clipboard
 - [ ] `paste [x] [y] [z]` - Paste clipboard at position
 - [ ] `undo` / `redo` - Undo/redo world edits
 
 #### 11.3 Teleportation & Movement
-- [ ] `tp <x> <y> <z>` - Teleport player to coordinates
+- [x] `tp <x> <y> <z>` - Teleport player to coordinates (Y bounds validated: 0-255)
 - [ ] `tp <player>` - Teleport to another player (multiplayer)
 - [ ] `spawn` - Teleport to world spawn point
 - [ ] `home` - Teleport to saved home position
@@ -672,10 +672,10 @@ In-game command console for world editing, debugging, and administration.
 ---
 
 ## Current Work (2026-01-04)
-- Console command system complete. Looking for new features to implement.
+- Console command system expanded. Looking for new features to implement.
 
 ## Done Recently
-- **Phase 11: Command Console System** (2026-01-04): Console framework and `fill` command complete
+- **Phase 11: Command Console System** (2026-01-04): Console framework, `fill` and `tp` commands with Y bounds validation
 - **Mirror Mode for Model Editor** (2026-01-04):
   - X/Y/Z axis toggle buttons in editor UI
   - Multiple axes can be enabled simultaneously (2x/4x/8x placements)

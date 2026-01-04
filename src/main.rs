@@ -1333,6 +1333,16 @@ impl App {
             );
         }
 
+        // Handle pending teleport from console
+        if let Some(tp) = self.ui.console.pending_teleport.take() {
+            let feet_pos = Vector3::new(tp.x, tp.y, tp.z);
+            self.sim
+                .player
+                .set_feet_pos(feet_pos, self.sim.world_extent, self.sim.texture_origin);
+            // Reset velocity to prevent continued movement
+            self.sim.player.velocity = Vector3::zeros();
+        }
+
         let render_extent = rcx.render_image.extent();
         let resample_extent = rcx.resample_image.extent();
         self.sim.player.camera.extent = [render_extent[0] as f64, render_extent[1] as f64];
