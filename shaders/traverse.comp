@@ -744,11 +744,14 @@ void main() {
             return;
         }
         color = getSkyColor(d);
-        float skyDistance = length(vec3(pc.texture_size_x, pc.texture_size_y, pc.texture_size_z)) * 0.5;
-        color = applyFog(color, skyDistance, d);
-        // Apply tinted glass effect to sky
+        // Apply tinted glass effect to sky (before fog so fog doesn't undo the tint)
         if (passedTintedGlass) {
             color *= accumulatedTint;
+        } else {
+            // Only apply fog when not looking through tinted glass
+            // (tinted glass already provides the "distant" color effect)
+            float skyDistance = length(vec3(pc.texture_size_x, pc.texture_size_y, pc.texture_size_z)) * 0.5;
+            color = applyFog(color, skyDistance, d);
         }
     }
 
