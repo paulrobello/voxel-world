@@ -673,9 +673,10 @@ In-game command console for world editing, debugging, and administration.
 ---
 
 ## Current Work (2026-01-04)
-- Console command system expanded. Looking for new features to implement.
+- Console command system expanded with world generation commands.
 
 ## Done Recently
+- **Sphere Console Command** (2026-01-04): `sphere <block> <cx> <cy> <cz> <radius> [hollow]` for creating solid/hollow spheres with relative coordinates and Y bounds validation
 - **Phase 11: Command Console System** (2026-01-04): Console framework, `fill` and `tp` commands with Y bounds validation
 - **Mirror Mode for Model Editor** (2026-01-04):
   - X/Y/Z axis toggle buttons in editor UI
