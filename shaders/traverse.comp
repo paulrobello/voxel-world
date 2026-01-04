@@ -413,8 +413,8 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
     bool nearEnoughForSkyExposure = hitDistance < skyExposureDistance;
 
     float ao = 1.0;
-    if (nearEnoughForAO) {
-        // For sub-voxels, use block-level AO as approximation (per-voxel AO too expensive)
+    if (nearEnoughForAO && !subVoxelHit) {
+        // Only apply block-level AO to full blocks, not sub-voxels (thin geometry looks wrong with block AO)
         ao = calculateAO(ivec3(coord), normal, uv);
     }
 
