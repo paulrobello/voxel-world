@@ -248,6 +248,26 @@ impl App {
             self.toggle_editor_panel();
         }
 
+        // Editor undo/redo shortcuts (Cmd+Z/Ctrl+Z and Cmd+Shift+Z/Ctrl+Shift+Z)
+        if self.ui.editor.active {
+            let cmd_or_ctrl_held = self.input.key_held(KeyCode::SuperLeft)
+                || self.input.key_held(KeyCode::SuperRight)
+                || self.input.key_held(KeyCode::ControlLeft)
+                || self.input.key_held(KeyCode::ControlRight);
+            let shift_held =
+                self.input.key_held(KeyCode::ShiftLeft) || self.input.key_held(KeyCode::ShiftRight);
+
+            if cmd_or_ctrl_held && self.input.key_pressed(KeyCode::KeyZ) {
+                if shift_held {
+                    // Cmd/Ctrl+Shift+Z = Redo
+                    self.ui.editor.redo();
+                } else {
+                    // Cmd/Ctrl+Z = Undo
+                    self.ui.editor.undo();
+                }
+            }
+        }
+
         // Allow scrolling hotbar while palette is open (focus may be released)
         if self.ui.palette_open {
             let ds = self.input.scroll_diff();

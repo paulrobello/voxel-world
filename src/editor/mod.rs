@@ -5,6 +5,7 @@
 //! - Switches to an orbit camera around the model being edited
 //! - Shows egui panels for tools, palette, and library
 //! - Allows placing/removing voxels with mouse clicks
+//! - Supports undo/redo for all editing operations
 
 #![allow(dead_code)] // WIP: Full integration pending
 
@@ -15,6 +16,110 @@ use crate::sub_voxel::{Color, SUB_VOXEL_SIZE, SubVoxelModel};
 use nalgebra::Vector3;
 
 pub use ui::{EditorAction, draw_editor_ui, draw_model_preview};
+
+/// Maximum number of undo states to keep per stack.
+const MAX_UNDO_HISTORY: usize = 100;
+
+/// Type alias for voxel state snapshot.
+type VoxelSnapshot = [u8; SUB_VOXEL_SIZE * SUB_VOXEL_SIZE * SUB_VOXEL_SIZE];
+
+/// Manages undo/redo history for the model editor.
+///
+/// Uses a dual-stack approach with separate undo and redo stacks.
+/// Each stack stores full voxel array snapshots (512 bytes each).
+#[derive(Debug, Clone)]
+pub struct UndoHistory {
+    /// Stack of states you can undo to.
+    undo_stack: Vec<VoxelSnapshot>,
+    /// Stack of states you can redo to.
+    redo_stack: Vec<VoxelSnapshot>,
+}
+
+impl Default for UndoHistory {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl UndoHistory {
+    /// Creates a new empty undo history.
+    pub fn new() -> Self {
+        Self {
+            undo_stack: Vec::with_capacity(MAX_UNDO_HISTORY),
+            redo_stack: Vec::with_capacity(MAX_UNDO_HISTORY / 2),
+        }
+    }
+
+    /// Saves the current state before a modification.
+    ///
+    /// This clears the redo stack since we're branching from this point.
+    pub fn save(&mut self, current_voxels: VoxelSnapshot) {
+        // Clear redo stack - we're branching
+        self.redo_stack.clear();
+
+        // Add to undo stack
+        self.undo_stack.push(current_voxels);
+
+        // Trim oldest states if we exceed max
+        if self.undo_stack.len() > MAX_UNDO_HISTORY {
+            self.undo_stack.remove(0);
+        }
+    }
+
+    /// Performs an undo operation.
+    ///
+    /// Takes the current state and returns the previous state to restore.
+    /// Returns `None` if there's nothing to undo.
+    pub fn undo(&mut self, current_voxels: VoxelSnapshot) -> Option<VoxelSnapshot> {
+        if let Some(previous) = self.undo_stack.pop() {
+            // Save current for redo
+            self.redo_stack.push(current_voxels);
+            Some(previous)
+        } else {
+            None
+        }
+    }
+
+    /// Performs a redo operation.
+    ///
+    /// Takes the current state and returns the next state to restore.
+    /// Returns `None` if there's nothing to redo.
+    pub fn redo(&mut self, current_voxels: VoxelSnapshot) -> Option<VoxelSnapshot> {
+        if let Some(next) = self.redo_stack.pop() {
+            // Save current for undo
+            self.undo_stack.push(current_voxels);
+            Some(next)
+        } else {
+            None
+        }
+    }
+
+    /// Returns true if undo is available.
+    pub fn can_undo(&self) -> bool {
+        !self.undo_stack.is_empty()
+    }
+
+    /// Returns true if redo is available.
+    pub fn can_redo(&self) -> bool {
+        !self.redo_stack.is_empty()
+    }
+
+    /// Clears all history.
+    pub fn clear(&mut self) {
+        self.undo_stack.clear();
+        self.redo_stack.clear();
+    }
+
+    /// Returns the number of undo steps available.
+    pub fn undo_count(&self) -> usize {
+        self.undo_stack.len()
+    }
+
+    /// Returns the number of redo steps available.
+    pub fn redo_count(&self) -> usize {
+        self.redo_stack.len()
+    }
+}
 
 /// The currently selected editing tool.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -68,6 +173,9 @@ pub struct EditorState {
 
     /// Whether to show the overwrite confirmation dialog.
     pub show_overwrite_confirm: bool,
+
+    /// Undo/redo history for voxel operations.
+    pub history: UndoHistory,
 }
 
 impl Default for EditorState {
@@ -112,6 +220,7 @@ impl EditorState {
             hovered_normal: None,
             saved_target_pos: None,
             show_overwrite_confirm: false,
+            history: UndoHistory::new(),
         }
     }
 
@@ -138,12 +247,55 @@ impl EditorState {
         self.scratch_pad = SubVoxelModel::new(name);
         self.scratch_pad.palette = palette;
         self.hovered_voxel = None;
+        self.history.clear();
     }
 
     /// Loads a model into the scratch pad for editing.
     pub fn load_model(&mut self, model: &SubVoxelModel) {
         self.scratch_pad = model.clone();
         self.hovered_voxel = None;
+        self.history.clear();
+    }
+
+    /// Saves the current voxel state to the undo history.
+    ///
+    /// Call this before making any modifications to the model.
+    pub fn save_state(&mut self) {
+        self.history.save(self.scratch_pad.voxels);
+    }
+
+    /// Undoes the last voxel operation.
+    ///
+    /// Returns true if an undo was performed.
+    pub fn undo(&mut self) -> bool {
+        if let Some(previous) = self.history.undo(self.scratch_pad.voxels) {
+            self.scratch_pad.voxels = previous;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Redoes the last undone operation.
+    ///
+    /// Returns true if a redo was performed.
+    pub fn redo(&mut self) -> bool {
+        if let Some(next) = self.history.redo(self.scratch_pad.voxels) {
+            self.scratch_pad.voxels = next;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Returns true if undo is available.
+    pub fn can_undo(&self) -> bool {
+        self.history.can_undo()
+    }
+
+    /// Returns true if redo is available.
+    pub fn can_redo(&self) -> bool {
+        self.history.can_redo()
     }
 
     /// Calculates the orbit camera position.
@@ -343,6 +495,8 @@ impl EditorState {
     }
 
     /// Places a voxel at the given position with the current palette index.
+    ///
+    /// Saves state to undo history if the voxel value actually changes.
     pub fn place_voxel(&mut self, pos: Vector3<i32>) {
         if pos.x >= 0
             && pos.x < SUB_VOXEL_SIZE as i32
@@ -351,16 +505,25 @@ impl EditorState {
             && pos.z >= 0
             && pos.z < SUB_VOXEL_SIZE as i32
         {
-            self.scratch_pad.set_voxel(
-                pos.x as usize,
-                pos.y as usize,
-                pos.z as usize,
-                self.selected_palette_index,
-            );
+            let current =
+                self.scratch_pad
+                    .get_voxel(pos.x as usize, pos.y as usize, pos.z as usize);
+            // Only save state if actually changing the voxel
+            if current != self.selected_palette_index {
+                self.save_state();
+                self.scratch_pad.set_voxel(
+                    pos.x as usize,
+                    pos.y as usize,
+                    pos.z as usize,
+                    self.selected_palette_index,
+                );
+            }
         }
     }
 
     /// Removes a voxel at the given position.
+    ///
+    /// Saves state to undo history if there was a voxel to remove.
     pub fn erase_voxel(&mut self, pos: Vector3<i32>) {
         if pos.x >= 0
             && pos.x < SUB_VOXEL_SIZE as i32
@@ -369,8 +532,15 @@ impl EditorState {
             && pos.z >= 0
             && pos.z < SUB_VOXEL_SIZE as i32
         {
-            self.scratch_pad
-                .set_voxel(pos.x as usize, pos.y as usize, pos.z as usize, 0);
+            let current =
+                self.scratch_pad
+                    .get_voxel(pos.x as usize, pos.y as usize, pos.z as usize);
+            // Only save state if there's actually something to erase
+            if current != 0 {
+                self.save_state();
+                self.scratch_pad
+                    .set_voxel(pos.x as usize, pos.y as usize, pos.z as usize, 0);
+            }
         }
     }
 
@@ -458,7 +628,10 @@ impl EditorState {
     /// Rotates the entire model 90 degrees clockwise around the Y axis.
     ///
     /// Transformation: (x, y, z) -> (SIZE-1-z, y, x)
+    /// Saves state to undo history before rotating.
     pub fn rotate_model_y90(&mut self) {
+        self.save_state();
+
         let mut new_voxels = [0u8; SUB_VOXEL_SIZE * SUB_VOXEL_SIZE * SUB_VOXEL_SIZE];
 
         for z in 0..SUB_VOXEL_SIZE {
@@ -479,6 +652,18 @@ impl EditorState {
         }
 
         self.scratch_pad.voxels = new_voxels;
+    }
+
+    /// Clears all voxels in the model.
+    ///
+    /// Saves state to undo history before clearing (if there are any voxels).
+    pub fn clear_voxels(&mut self) {
+        // Check if there's anything to clear
+        let has_voxels = self.scratch_pad.voxels.iter().any(|&v| v != 0);
+        if has_voxels {
+            self.save_state();
+            self.scratch_pad.voxels = [0; SUB_VOXEL_SIZE * SUB_VOXEL_SIZE * SUB_VOXEL_SIZE];
+        }
     }
 
     /// Finalizes the model by computing collision mask.
@@ -581,5 +766,204 @@ mod tests {
         let (voxel, normal) = result.unwrap();
         assert_eq!(voxel, Vector3::new(4, 4, 4));
         assert_eq!(normal, Vector3::new(-1, 0, 0)); // Hit from -X side
+    }
+
+    #[test]
+    fn test_undo_history_basic() {
+        let mut history = UndoHistory::new();
+        let state1 = [1u8; 512];
+        let state2 = [2u8; 512];
+        let current = [3u8; 512];
+
+        // Initially empty
+        assert!(!history.can_undo());
+        assert!(!history.can_redo());
+
+        // Save a state
+        history.save(state1);
+        assert!(history.can_undo());
+        assert!(!history.can_redo());
+        assert_eq!(history.undo_count(), 1);
+
+        // Save another state
+        history.save(state2);
+        assert_eq!(history.undo_count(), 2);
+
+        // Undo once
+        let restored = history.undo(current);
+        assert!(restored.is_some());
+        assert_eq!(restored.unwrap(), state2);
+        assert!(history.can_undo());
+        assert!(history.can_redo());
+        assert_eq!(history.undo_count(), 1);
+        assert_eq!(history.redo_count(), 1);
+
+        // Undo again
+        let restored = history.undo([3u8; 512]);
+        assert!(restored.is_some());
+        assert_eq!(restored.unwrap(), state1);
+        assert!(!history.can_undo());
+        assert!(history.can_redo());
+
+        // Redo
+        let restored = history.redo([1u8; 512]);
+        assert!(restored.is_some());
+        assert!(history.can_undo());
+    }
+
+    #[test]
+    fn test_undo_redo_truncates_on_new_action() {
+        let mut history = UndoHistory::new();
+        let state1 = [1u8; 512];
+        let state2 = [2u8; 512];
+        let state3 = [3u8; 512];
+        let current = [4u8; 512];
+
+        // Build up some history
+        history.save(state1);
+        history.save(state2);
+        history.save(state3);
+        assert_eq!(history.undo_count(), 3);
+
+        // Undo twice
+        history.undo(current);
+        history.undo([3u8; 512]);
+        assert_eq!(history.redo_count(), 2);
+
+        // Save a new state - should clear redo stack
+        history.save([5u8; 512]);
+        assert!(!history.can_redo());
+        assert_eq!(history.redo_count(), 0);
+    }
+
+    #[test]
+    fn test_editor_undo_place() {
+        let mut editor = EditorState::new();
+        let pos = Vector3::new(3, 3, 3);
+
+        // Initially empty, no undo available
+        assert!(!editor.can_undo());
+        assert_eq!(editor.scratch_pad.get_voxel(3, 3, 3), 0);
+
+        // Place a voxel
+        editor.place_voxel(pos);
+        assert_eq!(editor.scratch_pad.get_voxel(3, 3, 3), 1);
+        assert!(editor.can_undo());
+
+        // Undo
+        let undone = editor.undo();
+        assert!(undone);
+        assert_eq!(editor.scratch_pad.get_voxel(3, 3, 3), 0);
+        assert!(editor.can_redo());
+
+        // Redo
+        let redone = editor.redo();
+        assert!(redone);
+        assert_eq!(editor.scratch_pad.get_voxel(3, 3, 3), 1);
+    }
+
+    #[test]
+    fn test_editor_undo_erase() {
+        let mut editor = EditorState::new();
+        let pos = Vector3::new(4, 4, 4);
+
+        // Place a voxel first (don't count this in our test)
+        editor.place_voxel(pos);
+        assert_eq!(editor.scratch_pad.get_voxel(4, 4, 4), 1);
+
+        // Clear undo history for clean test
+        editor.history.clear();
+        assert!(!editor.can_undo());
+
+        // Erase the voxel
+        editor.erase_voxel(pos);
+        assert_eq!(editor.scratch_pad.get_voxel(4, 4, 4), 0);
+        assert!(editor.can_undo());
+
+        // Undo the erase
+        editor.undo();
+        assert_eq!(editor.scratch_pad.get_voxel(4, 4, 4), 1);
+    }
+
+    #[test]
+    fn test_editor_undo_rotate() {
+        let mut editor = EditorState::new();
+
+        // Place a voxel at corner
+        editor.place_voxel(Vector3::new(0, 0, 0));
+        assert_eq!(editor.scratch_pad.get_voxel(0, 0, 0), 1);
+
+        // Clear history
+        editor.history.clear();
+
+        // Rotate - voxel should move from (0,0,0) to (7,0,0) after 90° CW rotation
+        editor.rotate_model_y90();
+        assert_eq!(editor.scratch_pad.get_voxel(0, 0, 0), 0);
+        assert_eq!(editor.scratch_pad.get_voxel(7, 0, 0), 1);
+        assert!(editor.can_undo());
+
+        // Undo rotation
+        editor.undo();
+        assert_eq!(editor.scratch_pad.get_voxel(0, 0, 0), 1);
+        assert_eq!(editor.scratch_pad.get_voxel(7, 0, 0), 0);
+    }
+
+    #[test]
+    fn test_editor_undo_clear() {
+        let mut editor = EditorState::new();
+
+        // Place some voxels
+        editor.place_voxel(Vector3::new(1, 1, 1));
+        editor.place_voxel(Vector3::new(2, 2, 2));
+        editor.place_voxel(Vector3::new(3, 3, 3));
+
+        // Clear history and then clear voxels
+        editor.history.clear();
+        editor.clear_voxels();
+
+        // All voxels should be gone
+        assert_eq!(editor.scratch_pad.get_voxel(1, 1, 1), 0);
+        assert_eq!(editor.scratch_pad.get_voxel(2, 2, 2), 0);
+        assert_eq!(editor.scratch_pad.get_voxel(3, 3, 3), 0);
+        assert!(editor.can_undo());
+
+        // Undo clear
+        editor.undo();
+        assert_eq!(editor.scratch_pad.get_voxel(1, 1, 1), 1);
+        assert_eq!(editor.scratch_pad.get_voxel(2, 2, 2), 1);
+        assert_eq!(editor.scratch_pad.get_voxel(3, 3, 3), 1);
+    }
+
+    #[test]
+    fn test_editor_no_duplicate_undo_entries() {
+        let mut editor = EditorState::new();
+        let pos = Vector3::new(3, 3, 3);
+
+        // Place a voxel
+        editor.place_voxel(pos);
+        assert_eq!(editor.history.undo_count(), 1);
+
+        // Try to place same voxel with same color - should not create new undo entry
+        editor.place_voxel(pos);
+        assert_eq!(editor.history.undo_count(), 1);
+
+        // Try to erase from empty position - should not create new undo entry
+        editor.erase_voxel(Vector3::new(5, 5, 5));
+        assert_eq!(editor.history.undo_count(), 1);
+    }
+
+    #[test]
+    fn test_new_model_clears_history() {
+        let mut editor = EditorState::new();
+
+        // Build up some history
+        editor.place_voxel(Vector3::new(1, 1, 1));
+        editor.place_voxel(Vector3::new(2, 2, 2));
+        assert!(editor.can_undo());
+
+        // Create new model
+        editor.new_model("test");
+        assert!(!editor.can_undo());
+        assert!(!editor.can_redo());
     }
 }

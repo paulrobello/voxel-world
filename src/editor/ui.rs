@@ -3,7 +3,7 @@
 use super::rasterizer::render_model;
 use super::{EditorState, EditorTool};
 use crate::storage::model_format::LibraryManager;
-use crate::sub_voxel::{Color, PALETTE_SIZE, SUB_VOXEL_SIZE};
+use crate::sub_voxel::{Color, PALETTE_SIZE};
 use egui_winit_vulkano::egui;
 
 /// Draws all editor UI panels.
@@ -65,6 +65,8 @@ pub fn draw_editor_ui(
             ui.label("  Middle Click: Pick Color");
             ui.label("  Drag: Rotate View");
             ui.label("  Scroll: Zoom");
+            ui.label("  Cmd/Ctrl+Z: Undo");
+            ui.label("  Cmd/Ctrl+Shift+Z: Redo");
             ui.label("  N or Esc: Close Editor");
 
             ui.separator();
@@ -108,13 +110,35 @@ pub fn draw_editor_ui(
             ui.separator();
 
             // Actions
+            // Undo/Redo buttons
+            ui.horizontal(|ui| {
+                let undo_label = format!("↩ Undo ({})", editor.history.undo_count());
+                if ui
+                    .add_enabled(editor.can_undo(), egui::Button::new(&undo_label))
+                    .on_hover_text("Undo last change (Cmd+Z / Ctrl+Z)")
+                    .clicked()
+                {
+                    editor.undo();
+                }
+                let redo_label = format!("↪ Redo ({})", editor.history.redo_count());
+                if ui
+                    .add_enabled(editor.can_redo(), egui::Button::new(&redo_label))
+                    .on_hover_text("Redo last undone change (Cmd+Shift+Z / Ctrl+Shift+Z)")
+                    .clicked()
+                {
+                    editor.redo();
+                }
+            });
+
+            ui.separator();
+
+            // Actions
             ui.horizontal(|ui| {
                 if ui.button("New").clicked() {
                     editor.new_model("untitled");
                 }
                 if ui.button("Clear").clicked() {
-                    editor.scratch_pad.voxels =
-                        [0; SUB_VOXEL_SIZE * SUB_VOXEL_SIZE * SUB_VOXEL_SIZE];
+                    editor.clear_voxels();
                 }
                 if ui
                     .button("⟳ Rotate")

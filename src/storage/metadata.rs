@@ -1,10 +1,12 @@
+use crate::config::WorldGenType;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
 
+/// Default time of day for backwards compatibility (14:00 / 2pm).
 fn default_time() -> f32 {
-    0.25
+    14.0 / 24.0
 }
 
 /// World-level metadata stored in level.dat.
@@ -18,6 +20,10 @@ pub struct WorldMetadata {
     pub time_of_day: f32,
     #[serde(default)]
     pub day_cycle_paused: bool,
+    /// World generation type (normal terrain or flat).
+    /// Defaults to Normal for backwards compatibility with old worlds.
+    #[serde(default)]
+    pub world_gen: WorldGenType,
 }
 
 impl WorldMetadata {

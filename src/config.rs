@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use winit::dpi::PhysicalSize;
 
 /// World generation type
-#[derive(Debug, Clone, Copy, Default, ValueEnum)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, ValueEnum, Serialize, Deserialize)]
 pub enum WorldGenType {
     /// Normal terrain with biomes, caves, mountains, and trees
     #[default]

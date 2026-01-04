@@ -148,9 +148,9 @@ use world_streaming::MetadataState;
 // Day/night cycle constants
 /// Duration of a full day cycle in seconds (real time)
 const DAY_CYCLE_DURATION: f32 = 120.0;
-/// Default time of day (0.0 = 6am, 0.5 = 6pm, formula: hours = (v * 24 + 6) % 24)
-/// 7/24 ≈ 0.2917 = 13:00 (1pm)
-const DEFAULT_TIME_OF_DAY: f32 = 7.0 / 24.0;
+/// Default time of day (0.0 = midnight, 0.5 = noon, formula: hours = v * 24)
+/// 14/24 ≈ 0.5833 = 14:00 (2pm)
+const DEFAULT_TIME_OF_DAY: f32 = 14.0 / 24.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 enum PaletteTab {
@@ -353,6 +353,7 @@ struct WorldSim {
     world_dir: PathBuf,
     world_name: String,
     seed: u32,
+    world_gen: WorldGenType,
 }
 
 struct UiState {
@@ -458,6 +459,7 @@ impl WorldSim {
             version: 1,
             time_of_day: self.time_of_day,
             day_cycle_paused: self.day_cycle_paused,
+            world_gen: self.world_gen,
         };
 
         if let Err(e) = meta.save(self.world_dir.join("level.dat")) {
@@ -601,13 +603,19 @@ impl App {
         let mut seed = args.seed.unwrap_or(12345);
         let mut initial_time_of_day = DEFAULT_TIME_OF_DAY;
         let mut initial_day_paused = true; // Default
+        let mut world_gen = args.world_gen; // Default to CLI arg
 
         if metadata_path.exists() {
             if let Ok(meta) = storage::metadata::WorldMetadata::load(&metadata_path) {
-                println!("[Storage] Loaded world metadata. Seed: {}", meta.seed);
+                println!(
+                    "[Storage] Loaded world metadata. Seed: {}, WorldGen: {:?}",
+                    meta.seed, meta.world_gen
+                );
                 seed = meta.seed;
                 initial_time_of_day = meta.time_of_day;
                 initial_day_paused = meta.day_cycle_paused;
+                // Use persisted world_gen, not CLI arg (existing world takes precedence)
+                world_gen = meta.world_gen;
             }
         } else {
             let meta = storage::metadata::WorldMetadata {
@@ -616,9 +624,13 @@ impl App {
                 version: 1,
                 time_of_day: DEFAULT_TIME_OF_DAY,
                 day_cycle_paused: true,
+                world_gen,
             };
             let _ = meta.save(&metadata_path);
-            println!("[Storage] Created new world metadata. Seed: {}", seed);
+            println!(
+                "[Storage] Created new world metadata. Seed: {}, WorldGen: {:?}",
+                seed, world_gen
+            );
         }
 
         // Load player data from user preferences (per-world)
@@ -656,8 +668,7 @@ impl App {
         let storage = Arc::new(storage::worker::StorageSystem::new(world_dir.clone()));
 
         // Create world with only chunks near spawn loaded, checking storage first
-        let world =
-            create_initial_world_with_seed(spawn_chunk, seed, args.world_gen, Some(&storage));
+        let world = create_initial_world_with_seed(spawn_chunk, seed, world_gen, Some(&storage));
 
         // Texture dimensions (not world bounds - world is infinite)
         let world_extent = [
@@ -813,9 +824,8 @@ impl App {
             chunk_loader: {
                 let terrain = TerrainGenerator::new(seed);
                 let storage_clone = Arc::clone(&storage);
-                let world_gen_type = args.world_gen;
                 ChunkLoader::new(
-                    move |pos| generate_chunk_terrain(&terrain, pos, world_gen_type),
+                    move |pos| generate_chunk_terrain(&terrain, pos, world_gen),
                     Some(storage_clone),
                 )
             },
@@ -848,6 +858,7 @@ impl App {
             world_dir: world_dir.clone(),
             world_name: world_name.clone(),
             seed,
+            world_gen,
         };
 
         let start_time = Instant::now();
