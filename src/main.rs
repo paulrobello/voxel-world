@@ -849,7 +849,36 @@ impl App {
             },
             window_size: INITIAL_WINDOW_RESOLUTION.into(),
             start_time,
-            profile_log_path: args.profile_log.clone(),
+            profile_log_path: if args.profile {
+                // Create profiles directory and generate timestamped filename
+                let profiles_dir = std::path::Path::new("profiles");
+                std::fs::create_dir_all(profiles_dir).ok();
+                let timestamp = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                // Convert to readable format: YYYYMMDD_HHMMSS
+                let secs_per_day = 86400u64;
+                let secs_per_hour = 3600u64;
+                let secs_per_min = 60u64;
+                let days_since_epoch = timestamp / secs_per_day;
+                let time_of_day = timestamp % secs_per_day;
+                let hours = time_of_day / secs_per_hour;
+                let mins = (time_of_day % secs_per_hour) / secs_per_min;
+                let secs = time_of_day % secs_per_min;
+                // Approximate year/month/day (good enough for filenames)
+                let years = days_since_epoch / 365;
+                let year = 1970 + years;
+                let day_of_year = days_since_epoch % 365;
+                let month = day_of_year / 30 + 1;
+                let day = day_of_year % 30 + 1;
+                Some(format!(
+                    "profiles/profile_{:04}{:02}{:02}_{:02}{:02}{:02}.csv",
+                    year, month, day, hours, mins, secs
+                ))
+            } else {
+                None
+            },
             profile_log_header_written: false,
             show_minimap: prefs.show_minimap,
             minimap: Minimap::new(),

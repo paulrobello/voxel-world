@@ -4,7 +4,7 @@
 .gemini-clipboard/
 
 # Local profiling output
-profile.csv
+profiles/
 
 # Python / virtualenvs
 .venv/

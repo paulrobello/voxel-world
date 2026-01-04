@@ -51,9 +51,9 @@ pub struct Args {
     #[arg(long)]
     pub verbose: bool,
 
-    /// Write per-second performance samples to CSV file
-    #[arg(long)]
-    pub profile_log: Option<String>,
+    /// Enable profiling - writes per-second performance samples to profiles/ folder
+    #[arg(long, short = 'p')]
+    pub profile: bool,
 
     /// Generate hotbar/palette sprites and exit
     #[arg(long)]

@@ -70,16 +70,20 @@ pub fn print_stats(ui: &mut UiState, sim: &mut WorldSim, verbose: bool) {
             (0.0, 0.0, 0.0, 0.0, 0)
         };
 
-        if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
+        // Each session creates a new timestamped file, so we create/truncate on first write
+        let file_result = if !ui.profile_log_header_written {
+            std::fs::File::create(path)
+        } else {
+            OpenOptions::new().append(true).open(path)
+        };
+        if let Ok(mut file) = file_result {
             if !ui.profile_log_header_written {
-                // Only write the header if the file is empty
-                if file.metadata().map(|m| m.len()).unwrap_or(1) == 0 {
-                    let _ = writeln!(
-                        file,
-                        "time_s,fps,frame_ms,win_w,win_h,render_w,render_h,chunks_loaded,chunks_dirty,chunks_inflight,pos_x,pos_y,pos_z,chunk_x,chunk_y,chunk_z,tex_x,tex_z,chunkload_ms,upload_ms,chunks_uploaded,metadata_ms,render_ms"
-                    );
-                }
+                let _ = writeln!(
+                    file,
+                    "time_s,fps,frame_ms,win_w,win_h,render_w,render_h,chunks_loaded,chunks_dirty,chunks_inflight,pos_x,pos_y,pos_z,chunk_x,chunk_y,chunk_z,tex_x,tex_z,chunkload_ms,upload_ms,chunks_uploaded,metadata_ms,render_ms"
+                );
                 ui.profile_log_header_written = true;
+                println!("[PROFILE] Writing to: {}", path);
             }
 
             let elapsed = ui.start_time.elapsed().as_secs_f64();
