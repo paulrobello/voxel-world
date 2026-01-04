@@ -149,8 +149,8 @@ use world_streaming::MetadataState;
 /// Duration of a full day cycle in seconds (real time)
 const DAY_CYCLE_DURATION: f32 = 120.0;
 /// Default time of day (0.0 = 6am, 0.5 = 6pm, formula: hours = (v * 24 + 6) % 24)
-/// 0.25 = 12:00 (Noon)
-const DEFAULT_TIME_OF_DAY: f32 = 0.25;
+/// 7/24 ≈ 0.2917 = 13:00 (1pm)
+const DEFAULT_TIME_OF_DAY: f32 = 7.0 / 24.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 enum PaletteTab {
