@@ -572,7 +572,6 @@ In-game command console for world editing, debugging, and administration.
 #### 11.5 Debug & Admin Commands
 - [ ] `give <block> [count]` - Add blocks to hotbar
 - [ ] `fly` - Toggle fly mode
-- [ ] `god` - Toggle invincibility (future)
 - [ ] `reload` - Hot reload shaders/configs
 
 ### Technical Details
