@@ -1431,6 +1431,7 @@ impl App {
             lod_shadow_distance: self.ui.settings.lod_shadow_distance,
             lod_point_light_distance: self.ui.settings.lod_point_light_distance,
             falling_block_count: self.sim.falling_blocks.count() as u32,
+            _padding: [0, 0, 0],
             camera_pos: {
                 let cam = self
                     .sim

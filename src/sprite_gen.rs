@@ -476,6 +476,7 @@ fn render_icon(
         lod_shadow_distance: 48.0,
         lod_point_light_distance: 20.0,
         falling_block_count: 0,
+        _padding: [0, 0, 0],
         camera_pos: [
             cam_world.x as f32,
             cam_world.y as f32,
