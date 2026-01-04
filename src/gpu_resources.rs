@@ -247,6 +247,7 @@ pub struct PushConstants {
     pub target_block_y: i32,
     pub target_block_z: i32,
     pub max_ray_steps: u32,
+    pub shadow_max_steps: u32,
     pub texture_origin_x: i32,
     pub texture_origin_y: i32,
     pub texture_origin_z: i32,
@@ -262,7 +263,7 @@ pub struct PushConstants {
     pub lod_point_light_distance: f32,
     pub lod_model_distance: f32,
     pub falling_block_count: u32,
-    pub _padding: [u32; 2], // Align camera_pos to 16 bytes for GLSL std430
+    pub _padding: u32, // Align camera_pos to 16 bytes for GLSL std430
     pub camera_pos: [f32; 4],
 }
 

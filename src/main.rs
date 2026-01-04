@@ -1411,6 +1411,7 @@ impl App {
             target_block_y: target_y,
             target_block_z: target_z,
             max_ray_steps: self.ui.settings.max_ray_steps,
+            shadow_max_steps: self.ui.settings.shadow_max_steps,
             texture_origin_x: self.sim.texture_origin.x,
             texture_origin_y: self.sim.texture_origin.y,
             texture_origin_z: self.sim.texture_origin.z,
@@ -1442,7 +1443,7 @@ impl App {
             lod_point_light_distance: self.ui.settings.lod_point_light_distance,
             lod_model_distance: self.ui.settings.lod_model_distance,
             falling_block_count: self.sim.falling_blocks.count() as u32,
-            _padding: [0, 0],
+            _padding: 0,
             camera_pos: {
                 let cam = self
                     .sim

@@ -110,6 +110,7 @@ layout(push_constant) uniform PushConstants {
     int target_block_y;
     int target_block_z;
     uint max_ray_steps;
+    uint shadow_max_steps;
     int texture_origin_x;
     int texture_origin_y;
     int texture_origin_z;
@@ -126,7 +127,6 @@ layout(push_constant) uniform PushConstants {
     float lod_model_distance;
     uint falling_block_count;
     uint _padding0; // Align camera_pos to 16 bytes
-    uint _padding1;
     vec4 camera_pos; // world-space camera position
 } pc;
 

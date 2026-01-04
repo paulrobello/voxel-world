@@ -89,6 +89,7 @@ pub struct Settings {
     pub lod_model_distance: f32,
 
     pub max_ray_steps: u32,
+    pub shadow_max_steps: u32,
     pub render_scale: f32,
     pub water_simulation_enabled: bool,
     pub instant_break: bool,
@@ -119,6 +120,7 @@ impl Default for Settings {
             lod_model_distance: 32.0,
 
             max_ray_steps: 256,
+            shadow_max_steps: 128,
             render_scale: 1.0,
             water_simulation_enabled: true,
             instant_break: true,

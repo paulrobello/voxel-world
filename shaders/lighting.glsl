@@ -94,7 +94,12 @@ float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFl
                           step(vec3(0.0), dir));
     float exitDist = min(min(tExitWorld.x, tExitWorld.y), tExitWorld.z);
     float maxTravel = min(MAX_SHADOW_DIST, max(exitDist, 0.0));
-    int maxSteps = int(clamp(maxTravel * maxAbsDir + 4.0, 96.0, 256.0)); // 96–256 depending on sun elevation/world headroom
+
+    // Distance-based step reduction: fewer steps for shadows far from camera
+    float camDist = length(origin + textureOrigin() - pc.camera_pos.xyz);
+    float distanceFactor = clamp(1.0 - (camDist - 16.0) / 64.0, 0.4, 1.0); // 100% at <16, 40% at >80
+    float baseSteps = float(pc.shadow_max_steps) * distanceFactor;
+    int maxSteps = int(clamp(min(maxTravel * maxAbsDir + 4.0, baseSteps), 32.0, float(pc.shadow_max_steps)));
 
     for (int i = 0; i < maxSteps; i++) {
         // Optional coarse skipping: empty chunks/bricks

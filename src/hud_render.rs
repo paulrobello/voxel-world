@@ -720,6 +720,15 @@ impl HUDRenderer {
                                 println!("[SETTING] Ray Steps: {}", settings.max_ray_steps);
                             }
                             if ui
+                                .add(
+                                    egui::Slider::new(&mut settings.shadow_max_steps, 64..=256)
+                                        .text("Shadow Steps"),
+                                )
+                                .changed()
+                            {
+                                println!("[SETTING] Shadow Steps: {}", settings.shadow_max_steps);
+                            }
+                            if ui
                                 .add(egui::Slider::new(view_distance, 2..=10).text("View Distance"))
                                 .changed()
                             {
