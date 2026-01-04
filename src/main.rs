@@ -101,6 +101,7 @@ mod sub_voxel;
 mod sub_voxel_builtins;
 mod svt;
 mod terrain_gen;
+mod user_prefs;
 mod utils;
 mod vulkan_context;
 mod water;
@@ -131,6 +132,7 @@ use crate::raycast::{RaycastHit, get_place_position};
 use crate::render_mode::RenderMode;
 use crate::sub_voxel::ModelRegistry;
 use crate::terrain_gen::{TerrainGenerator, generate_chunk_terrain};
+use crate::user_prefs::UserPreferences;
 use crate::utils::{ChunkStats, Profiler};
 use crate::vulkan_context::VulkanContext;
 use crate::water::WaterGrid;
@@ -167,37 +169,6 @@ struct PaletteItem {
     /// For TintedGlass blocks, the tint color index (0-31). Ignored for other block types.
     tint_index: u8,
 }
-
-/// Default blocks available in the hotbar (9 slots, keys 1-9)
-const DEFAULT_HOTBAR_BLOCKS: [BlockType; 9] = [
-    BlockType::Stone,
-    BlockType::Dirt,
-    BlockType::Grass,
-    BlockType::Sand,
-    BlockType::Log,
-    BlockType::Model, // Stairs
-    BlockType::Model, // Slab bottom
-    BlockType::Model, // Slab top
-    BlockType::Model, // Torch model (model_id=1)
-];
-
-/// Default model IDs for Model blocks in hotbar.
-/// 0 means the slot is not a Model block, non-zero is the model_id.
-const DEFAULT_HOTBAR_MODEL_IDS: [u8; 9] = [
-    0,  // Stone
-    0,  // Dirt
-    0,  // Grass
-    0,  // Sand
-    0,  // Log
-    28, // Stairs (base straight)
-    2,  // Slab bottom
-    3,  // Slab top
-    1,  // Torch
-];
-
-/// Default tint indices for TintedGlass blocks in hotbar.
-/// Only used when the block type is TintedGlass.
-const DEFAULT_HOTBAR_TINT_INDICES: [u8; 9] = [0; 9];
 
 /// Finds the ground level (highest non-air block) at the given world coordinates.
 fn find_ground_level(world: &World, world_x: i32, world_z: i32) -> i32 {
@@ -463,6 +434,7 @@ struct App {
     sim: WorldSim,
     ui: UiState,
     input: InputState,
+    prefs: UserPreferences,
 }
 
 impl WorldSim {
@@ -870,17 +842,23 @@ impl App {
 
         let start_time = Instant::now();
 
+        // Load user preferences from disk
+        let prefs = UserPreferences::load();
+
         let ui = UiState {
-            settings: Settings {
-                show_chunk_boundaries: args.show_chunk_boundaries,
-                render_scale: 0.75,
-                ..Settings::default()
+            settings: {
+                let mut s = prefs.settings.clone();
+                // Apply CLI overrides
+                if args.show_chunk_boundaries {
+                    s.show_chunk_boundaries = true;
+                }
+                s
             },
             window_size: INITIAL_WINDOW_RESOLUTION.into(),
             start_time,
             profile_log_path: args.profile_log.clone(),
             profile_log_header_written: false,
-            show_minimap: false,
+            show_minimap: prefs.show_minimap,
             minimap: Minimap::new(),
             minimap_cached_image: None,
             minimap_last_pos: Vector3::new(i32::MAX, 0, i32::MAX),
@@ -890,10 +868,10 @@ impl App {
             palette_tab: PaletteTab::default(),
             palette_previously_focused: false,
             dragging_item: None,
-            hotbar_index: 0,
-            hotbar_blocks: DEFAULT_HOTBAR_BLOCKS,
-            hotbar_model_ids: DEFAULT_HOTBAR_MODEL_IDS,
-            hotbar_tint_indices: DEFAULT_HOTBAR_TINT_INDICES,
+            hotbar_index: prefs.hotbar_index,
+            hotbar_blocks: prefs.get_hotbar_blocks(),
+            hotbar_model_ids: prefs.hotbar_model_ids,
+            hotbar_tint_indices: prefs.hotbar_tint_indices,
             current_hit: None,
             breaking_block: None,
             break_progress: 0.0,
@@ -929,7 +907,19 @@ impl App {
             sim,
             ui,
             input,
+            prefs,
         }
+    }
+
+    /// Saves user preferences to disk.
+    fn save_preferences(&mut self) {
+        self.prefs.settings = self.ui.settings.clone();
+        self.prefs.hotbar_index = self.ui.hotbar_index;
+        self.prefs.set_hotbar_blocks(&self.ui.hotbar_blocks);
+        self.prefs.hotbar_model_ids = self.ui.hotbar_model_ids;
+        self.prefs.hotbar_tint_indices = self.ui.hotbar_tint_indices;
+        self.prefs.show_minimap = self.ui.show_minimap;
+        self.prefs.save();
     }
 
     /// Checks if texture origin needs to shift and handles re-upload if necessary.
@@ -1028,6 +1018,8 @@ impl App {
         if self.input.close_requested() {
             println!("[Storage] Saving world before exit...");
             self.sim.save_all();
+            println!("[Prefs] Saving user preferences...");
+            self.save_preferences();
             event_loop.exit();
             return;
         }

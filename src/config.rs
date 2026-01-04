@@ -1,4 +1,5 @@
 use clap::Parser;
+use serde::{Deserialize, Serialize};
 use winit::dpi::PhysicalSize;
 
 /// Voxel Game Engine - A Minecraft-like voxel game with GPU ray-marching rendering.
@@ -66,6 +67,8 @@ pub struct Args {
 pub const INITIAL_WINDOW_RESOLUTION: PhysicalSize<u32> = PhysicalSize::new(1200, 1080);
 
 /// Gameplay and performance settings.
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(default)]
 pub struct Settings {
     pub show_chunk_boundaries: bool,
     pub show_block_preview: bool,
