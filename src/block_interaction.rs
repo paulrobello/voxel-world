@@ -535,12 +535,8 @@ impl App {
                 let mut inverted = ModelRegistry::is_stairs_inverted(base_model_id);
                 if !inverted {
                     if let Some(hit) = self.ui.current_hit {
-                        if hit.normal.y < 0 {
-                            // Clicking on bottom face of block above -> inverted
-                            inverted = true;
-                        } else if hit.normal.y == 0 {
-                            // Clicking on side face: check if upper or lower half
-                            // Compute hit point to determine vertical position on face
+                        // Compute local Y for wall placement detection
+                        let local_y = if hit.normal.y == 0 {
                             let origin = self
                                 .sim
                                 .player
@@ -548,13 +544,11 @@ impl App {
                                 .cast::<f32>();
                             let direction = self.sim.player.camera_direction().cast::<f32>();
                             let hit_point = origin + direction * hit.distance;
-                            // Get fractional Y within the block (0.0 to 1.0)
-                            let local_y = hit_point.y - hit_point.y.floor();
-                            // Upper half -> inverted stair
-                            if local_y >= 0.5 {
-                                inverted = true;
-                            }
-                        }
+                            hit_point.y - hit_point.y.floor()
+                        } else {
+                            0.0
+                        };
+                        inverted = should_place_inverted_stair(hit.normal.y, local_y);
                     }
                 }
 
@@ -646,5 +640,71 @@ impl App {
                 }
             }
         }
+    }
+}
+
+/// Determines if a stair should be placed inverted based on hit information.
+///
+/// # Arguments
+/// * `hit_normal_y` - The Y component of the hit normal (-1, 0, or 1)
+/// * `local_y` - The fractional Y position within the hit block (0.0 to 1.0)
+///
+/// # Returns
+/// `true` if the stair should be inverted (ceiling placement)
+pub fn should_place_inverted_stair(hit_normal_y: i32, local_y: f32) -> bool {
+    if hit_normal_y < 0 {
+        // Clicking on bottom face of block above -> inverted
+        true
+    } else if hit_normal_y == 0 {
+        // Clicking on side face: upper half -> inverted
+        local_y >= 0.5
+    } else {
+        // Clicking on top face -> normal (not inverted)
+        false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_wall_placement_lower_half() {
+        // Clicking lower half of wall (Y < 0.5) -> normal stair
+        assert!(!should_place_inverted_stair(0, 0.0));
+        assert!(!should_place_inverted_stair(0, 0.25));
+        assert!(!should_place_inverted_stair(0, 0.49));
+    }
+
+    #[test]
+    fn test_wall_placement_upper_half() {
+        // Clicking upper half of wall (Y >= 0.5) -> inverted stair
+        assert!(should_place_inverted_stair(0, 0.5));
+        assert!(should_place_inverted_stair(0, 0.75));
+        assert!(should_place_inverted_stair(0, 0.99));
+    }
+
+    #[test]
+    fn test_floor_placement() {
+        // Clicking on top face of block (normal_y = 1) -> normal stair
+        assert!(!should_place_inverted_stair(1, 0.0));
+        assert!(!should_place_inverted_stair(1, 0.5));
+        assert!(!should_place_inverted_stair(1, 1.0));
+    }
+
+    #[test]
+    fn test_ceiling_placement() {
+        // Clicking on bottom face of block (normal_y = -1) -> inverted stair
+        assert!(should_place_inverted_stair(-1, 0.0));
+        assert!(should_place_inverted_stair(-1, 0.5));
+        assert!(should_place_inverted_stair(-1, 1.0));
+    }
+
+    #[test]
+    fn test_wall_placement_boundary() {
+        // Test exact boundary at 0.5
+        assert!(should_place_inverted_stair(0, 0.5));
+        // Just below boundary
+        assert!(!should_place_inverted_stair(0, 0.4999));
     }
 }

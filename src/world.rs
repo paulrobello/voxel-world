@@ -1675,4 +1675,231 @@ mod tests {
             "Should reset to Straight after neighbor removal"
         );
     }
+
+    /// Test ceiling (inverted) stairs form correct outer corners at all rotations.
+    /// For inverted stairs, the shape mapping is flipped: InnerLeft↔OuterRight, InnerRight↔OuterLeft
+    #[test]
+    fn test_ceiling_stair_shapes_all_rotations_outer_corners() {
+        use crate::sub_voxel::{ModelRegistry, StairShape};
+        let mut world = World::new();
+
+        let straight_inv = ModelRegistry::stairs_model_id(StairShape::Straight, true);
+
+        // Test configurations: (main_rotation, neighbor_rotation, neighbor_offset, expected_shape)
+        // For inverted stairs, OuterLeft/OuterRight are produced where floor stairs would get InnerRight/InnerLeft
+        let test_cases = [
+            // Rotation 0: faces -Z. Front neighbor at -Z facing perpendicular creates outer corner
+            // Floor: front neighbor facing left (rot 3) → OuterLeft
+            // Ceiling: flipped → InnerRight
+            (
+                0u8,
+                3u8,
+                vector![0i32, 0, -1],
+                StairShape::InnerRight,
+                "rot0 front-left",
+            ),
+            (
+                0,
+                1,
+                vector![0, 0, -1],
+                StairShape::InnerLeft,
+                "rot0 front-right",
+            ),
+            // Rotation 1: faces +X
+            (
+                1,
+                0,
+                vector![1, 0, 0],
+                StairShape::InnerRight,
+                "rot1 front-left",
+            ),
+            (
+                1,
+                2,
+                vector![1, 0, 0],
+                StairShape::InnerLeft,
+                "rot1 front-right",
+            ),
+            // Rotation 2: faces +Z
+            (
+                2,
+                1,
+                vector![0, 0, 1],
+                StairShape::InnerRight,
+                "rot2 front-left",
+            ),
+            (
+                2,
+                3,
+                vector![0, 0, 1],
+                StairShape::InnerLeft,
+                "rot2 front-right",
+            ),
+            // Rotation 3: faces -X
+            (
+                3,
+                2,
+                vector![-1, 0, 0],
+                StairShape::InnerRight,
+                "rot3 front-left",
+            ),
+            (
+                3,
+                0,
+                vector![-1, 0, 0],
+                StairShape::InnerLeft,
+                "rot3 front-right",
+            ),
+        ];
+
+        for (i, (main_rot, neighbor_rot, offset, expected_shape, desc)) in
+            test_cases.iter().enumerate()
+        {
+            let base = vector![i as i32 * 10, 0, 0];
+            let neighbor_pos = base + offset;
+
+            world.set_model_block(base, straight_inv, *main_rot, false);
+            world.set_model_block(neighbor_pos, straight_inv, *neighbor_rot, false);
+
+            world.update_stair_shape_at(base);
+
+            let data = world.get_model_data(base).unwrap();
+            let expected_id = ModelRegistry::stairs_model_id(*expected_shape, true);
+            assert_eq!(
+                data.model_id, expected_id,
+                "Ceiling outer corner {}: expected {:?}",
+                desc, expected_shape
+            );
+        }
+    }
+
+    /// Test ceiling (inverted) stairs form correct inner corners at all rotations.
+    #[test]
+    fn test_ceiling_stair_shapes_all_rotations_inner_corners() {
+        use crate::sub_voxel::{ModelRegistry, StairShape};
+        let mut world = World::new();
+
+        let straight_inv = ModelRegistry::stairs_model_id(StairShape::Straight, true);
+
+        // Test configurations for inner corners (back neighbor creates inner corner)
+        // For inverted stairs, InnerLeft/InnerRight are produced where floor stairs would get OuterRight/OuterLeft
+        let test_cases = [
+            // Rotation 0: faces -Z. Back neighbor at +Z facing perpendicular creates inner corner
+            // Floor: back neighbor facing left (rot 3) → InnerRight
+            // Ceiling: flipped → OuterLeft
+            (
+                0u8,
+                3u8,
+                vector![0i32, 0, 1],
+                StairShape::OuterLeft,
+                "rot0 back-left",
+            ),
+            (
+                0,
+                1,
+                vector![0, 0, 1],
+                StairShape::OuterRight,
+                "rot0 back-right",
+            ),
+            // Rotation 1: faces +X
+            (
+                1,
+                0,
+                vector![-1, 0, 0],
+                StairShape::OuterLeft,
+                "rot1 back-left",
+            ),
+            (
+                1,
+                2,
+                vector![-1, 0, 0],
+                StairShape::OuterRight,
+                "rot1 back-right",
+            ),
+            // Rotation 2: faces +Z
+            (
+                2,
+                1,
+                vector![0, 0, -1],
+                StairShape::OuterLeft,
+                "rot2 back-left",
+            ),
+            (
+                2,
+                3,
+                vector![0, 0, -1],
+                StairShape::OuterRight,
+                "rot2 back-right",
+            ),
+            // Rotation 3: faces -X
+            (
+                3,
+                2,
+                vector![1, 0, 0],
+                StairShape::OuterLeft,
+                "rot3 back-left",
+            ),
+            (
+                3,
+                0,
+                vector![1, 0, 0],
+                StairShape::OuterRight,
+                "rot3 back-right",
+            ),
+        ];
+
+        for (i, (main_rot, neighbor_rot, offset, expected_shape, desc)) in
+            test_cases.iter().enumerate()
+        {
+            let base = vector![i as i32 * 10, 0, 0];
+            let neighbor_pos = base + offset;
+
+            world.set_model_block(base, straight_inv, *main_rot, false);
+            world.set_model_block(neighbor_pos, straight_inv, *neighbor_rot, false);
+
+            world.update_stair_shape_at(base);
+
+            let data = world.get_model_data(base).unwrap();
+            let expected_id = ModelRegistry::stairs_model_id(*expected_shape, true);
+            assert_eq!(
+                data.model_id, expected_id,
+                "Ceiling inner corner {}: expected {:?}",
+                desc, expected_shape
+            );
+        }
+    }
+
+    /// Test that floor and ceiling stairs don't form corners with each other
+    #[test]
+    fn test_floor_ceiling_stairs_dont_mix() {
+        use crate::sub_voxel::{ModelRegistry, StairShape};
+        let mut world = World::new();
+
+        let straight_floor = ModelRegistry::stairs_model_id(StairShape::Straight, false);
+        let straight_ceiling = ModelRegistry::stairs_model_id(StairShape::Straight, true);
+
+        // Place floor stair with ceiling neighbor that would form corner if same type
+        world.set_model_block(vector![0, 0, 0], straight_floor, 0, false);
+        world.set_model_block(vector![0, 0, -1], straight_ceiling, 3, false);
+
+        world.update_stair_shape_at(vector![0, 0, 0]);
+
+        let data = world.get_model_data(vector![0, 0, 0]).unwrap();
+        assert_eq!(
+            data.model_id, straight_floor,
+            "Floor stair should stay straight when neighbor is ceiling stair"
+        );
+
+        // Place ceiling stair with floor neighbor
+        world.set_model_block(vector![10, 0, 0], straight_ceiling, 0, false);
+        world.set_model_block(vector![10, 0, -1], straight_floor, 3, false);
+
+        world.update_stair_shape_at(vector![10, 0, 0]);
+
+        let data = world.get_model_data(vector![10, 0, 0]).unwrap();
+        assert_eq!(
+            data.model_id, straight_ceiling,
+            "Ceiling stair should stay straight when neighbor is floor stair"
+        );
+    }
 }
