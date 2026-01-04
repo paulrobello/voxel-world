@@ -210,7 +210,7 @@ Create and edit sub-voxel models without leaving the game.
 - [x] Overwrite confirmation for existing models
 - [x] Runtime sprite generation for palette icons
 - [x] GPU buffer refresh when models updated
-- [ ] Share models in multiplayer (sync to server) - *requires Phase 7*
+- [ ] Share models in multiplayer (sync to server) - *requires Phase 8*
 
 #### 5.4 In-World Placement
 - [x] Custom models appear in E-key palette
@@ -220,7 +220,128 @@ Create and edit sub-voxel models without leaving the game.
 
 ---
 
-## Phase 6: Entity System
+## Phase 6: Interactive Block Types
+
+### Goal
+Add multi-state and multi-block structures: doors, trap doors, windows, and other interactive blocks that respond to player input.
+
+### Why Separate Phase?
+- **State management**: Open/closed states need metadata storage and GPU sync
+- **Multi-block logic**: Doors span 2 blocks vertically, need coordinated placement/breaking
+- **Interaction system**: Right-click to toggle states, distinct from block placement
+- **Animation potential**: Door swing, trapdoor flip animations
+- **Sub-voxel integration**: These use the Phase 4 model system with dynamic variants
+
+### Implementation Tasks
+
+#### 6.1 Enhanced Block Metadata
+- [ ] Extend metadata to store open/closed state (1 bit)
+- [ ] Add hinge position for doors (left/right, 1 bit)
+- [ ] Store facing direction (4 directions, 2 bits)
+- [ ] Multi-block linking: upper/lower door halves reference each other
+- [ ] GPU metadata buffer updates for state changes
+
+#### 6.2 Door System
+- [ ] `Door` block type with open/closed sub-voxel models
+- [ ] Two-block placement: place bottom, auto-create top with linked metadata
+- [ ] Breaking either half breaks entire door
+- [ ] Hinge placement based on adjacent blocks (auto-detect or manual)
+- [ ] Right-click to toggle open/closed state
+- [ ] 4 rotation variants × 2 hinge positions × 2 states = 16 model variants
+- [ ] Material variants: wood, iron (iron requires redstone - future)
+
+#### 6.3 Trap Door System
+- [ ] `TrapDoor` block type (single block, horizontal)
+- [ ] Open state: vertical (flush with wall), Closed state: horizontal (floor/ceiling)
+- [ ] Attach to top or bottom of block space
+- [ ] Right-click to toggle
+- [ ] 4 rotation variants × 2 attach positions × 2 states = 16 model variants
+
+#### 6.4 Window System
+- [ ] `Window` block type with frame and glass panes
+- [ ] Optional: openable windows (like trap doors but vertical)
+- [ ] Connection logic: windows connect horizontally like fences
+- [ ] Thin collision (like fences, not full block)
+- [ ] Tinted window variants (reuse TintedGlass palette)
+
+#### 6.5 Interaction System
+- [ ] Right-click detection on interactive blocks
+- [ ] State toggle with immediate GPU buffer update
+- [ ] Sound effects placeholder hooks (no audio system yet)
+- [ ] Chunk dirty marking for persistence
+
+#### 6.6 Shader Updates
+- [ ] Dynamic model selection based on block state metadata
+- [ ] State-dependent collision shapes
+- [ ] Proper lighting through open doors/windows
+
+### Technical Approach
+
+**Metadata Layout (8 bits total):**
+```
+Bits 0-1: Rotation (0-3, facing direction)
+Bits 2-3: Model variant index (for stairs: shape)
+Bit 4:    Open/closed state
+Bit 5:    Hinge position (left/right) or attach position (top/bottom)
+Bits 6-7: Reserved (multi-block link type, material variant)
+```
+
+**Door Placement Logic:**
+```rust
+fn place_door(world: &mut World, pos: BlockPos, facing: u8, hinge: HingePos) {
+    // Check space for both blocks
+    let upper = pos.offset_y(1);
+    if !world.is_air(pos) || !world.is_air(upper) {
+        return; // Can't place
+    }
+
+    // Place lower half (stores full metadata)
+    let lower_meta = DoorMetadata::new(facing, hinge, DoorHalf::Lower, false);
+    world.set_block(pos, BlockType::Door, Some(lower_meta));
+
+    // Place upper half (links to lower)
+    let upper_meta = DoorMetadata::new(facing, hinge, DoorHalf::Upper, false);
+    world.set_block(upper, BlockType::Door, Some(upper_meta));
+}
+
+fn toggle_door(world: &mut World, pos: BlockPos) {
+    let (lower_pos, upper_pos) = get_door_positions(world, pos);
+    let new_state = !world.get_door_state(lower_pos);
+
+    // Update both halves
+    world.set_door_state(lower_pos, new_state);
+    world.set_door_state(upper_pos, new_state);
+}
+```
+
+**Model Registry Structure:**
+```rust
+// Pre-register all door variants
+for facing in 0..4 {
+    for hinge in [HingePos::Left, HingePos::Right] {
+        for open in [false, true] {
+            for half in [DoorHalf::Lower, DoorHalf::Upper] {
+                let model = generate_door_model(facing, hinge, open, half);
+                let id = format!("door_{}_{}_{}_{}", facing, hinge, open, half);
+                registry.register(id, model);
+            }
+        }
+    }
+}
+```
+
+### Success Criteria
+- [ ] Doors place as 2-block structures
+- [ ] Right-click toggles door open/closed with visual change
+- [ ] Breaking one half of door breaks entire door
+- [ ] Trap doors toggle between horizontal and vertical
+- [ ] Windows connect like fences
+- [ ] All interactive blocks persist state across save/load
+- [ ] Collision shapes update with open/closed state
+
+---
+
+## Phase 7: Entity System
 
 ### Goal
 Unified entity framework for animals, items, and physics objects.
@@ -241,7 +362,7 @@ Unified entity framework for animals, items, and physics objects.
 
 #### 6.2 Entity Types
 - [ ] ItemEntity: dropped items with physics
-- [ ] AnimalEntity: critters with AI (Phase 8)
+- [ ] AnimalEntity: critters with AI (Phase 9)
 - [ ] ModelEntity: placed sub-voxel objects with physics
 - [ ] FallingBlockEntity: refactor existing falling blocks
 
@@ -281,7 +402,7 @@ enum EntityType {
 
 ---
 
-## Phase 7: Multiplayer Networking
+## Phase 8: Multiplayer Networking
 
 ### Goal
 Dedicated server architecture for collaborative building.
@@ -367,7 +488,7 @@ enum ClientMessage {
 
 ---
 
-## Phase 8: AI and Scripting
+## Phase 9: AI and Scripting
 
 ### Goal
 Scriptable animal behaviors via TypeScript/Python SDK compiled to WASM.
@@ -470,7 +591,7 @@ fn get_entities_in_radius(x: f32, y: f32, z: f32, radius: f32,
 
 ---
 
-## Phase 9: Water Flow Simulation ✅ COMPLETE
+## Phase 10: Water Flow Simulation ✅ COMPLETE
 
 ### Goal
 Implement cellular automata water that flows, fills basins, and responds to terrain changes.
@@ -490,7 +611,7 @@ Implement cellular automata water that flows, fills basins, and responds to terr
 ### Deferred Tasks (Future Phases)
 - [ ] Update shader for variable water heights (visual enhancement)
 - [x] Implement "Waterlogging" mechanics (water flows OUT of models but doesn't wash them away)
-- [ ] Network sync for multiplayer (requires Phase 7)
+- [ ] Network sync for multiplayer (requires Phase 8)
 - [ ] Save/load water state in regions (requires Phase 3)
 
 ### Technical Details
@@ -502,7 +623,7 @@ Implement cellular automata water that flows, fills basins, and responds to terr
 
 ---
 
-## Phase 10: Performance Optimization
+## Phase 11: Performance Optimization
 
 ### Goal
 Maintain 90+ FPS with all features enabled.
@@ -535,7 +656,7 @@ Maintain 90+ FPS with all features enabled.
 
 ---
 
-## Phase 11: Command Console System ✅ PARTIAL
+## Phase 12: Command Console System ✅ PARTIAL
 
 ### Goal
 In-game command console for world editing, debugging, and administration.
@@ -590,18 +711,19 @@ In-game command console for world editing, debugging, and administration.
 
 ### Core Features (Build On Foundation)
 3. **Phase 5**: In-Game Editor - Makes sub-voxel models usable
-4. **Phase 6**: Entity System - Required for animals and physics objects
-5. **Phase 9**: Water Flow ✅ - Core simulation complete, sub-voxel interaction deferred
+4. **Phase 6**: Interactive Blocks - Doors, trap doors, windows with state
+5. **Phase 7**: Entity System - Required for animals and physics objects
+6. **Phase 10**: Water Flow ✅ - Core simulation complete, sub-voxel interaction deferred
 
 ### Multiplayer (After Single-Player Works)
-6. **Phase 7**: Networking - Build on solid single-player foundation
+7. **Phase 8**: Networking - Build on solid single-player foundation
 
 ### Polish (Final Phase)
-7. **Phase 8**: AI/Scripting - Animals need stable entity system
-8. **Phase 10**: Optimization - Profile with full feature set
+8. **Phase 9**: AI/Scripting - Animals need stable entity system
+9. **Phase 11**: Optimization - Profile with full feature set
 
 ### Utility (Any Time)
-9. **Phase 11**: Command Console ✅ - World editing and debug commands
+10. **Phase 12**: Command Console ✅ - World editing and debug commands
 
 ---
 
@@ -630,32 +752,39 @@ In-game command console for world editing, debugging, and administration.
 - [x] Save model to library
 - [x] Place custom model in world
 
-### Phase 6: Entities
+### Phase 6: Interactive Blocks
+- [ ] Doors place as 2-block structures
+- [ ] Right-click toggles door open/closed
+- [ ] Trap doors toggle between horizontal/vertical
+- [ ] Windows connect like fences
+- [ ] State persists across save/load
+
+### Phase 7: Entities
 - [ ] Animals spawn and move in world
 - [ ] Dropped items have physics
 - [ ] Entity persistence across save/load
 
-### Phase 7: Multiplayer
+### Phase 8: Multiplayer
 - [ ] Two players in same world simultaneously
 - [ ] Block changes sync within 100ms
 - [ ] Player positions interpolate smoothly
 
-### Phase 8: Scripting
+### Phase 9: Scripting
 - [ ] Chicken AI runs from TypeScript
 - [ ] Hot reload script without restart
 - [ ] Scripts can't crash game
 
-### Phase 9: Water ✅ COMPLETE
+### Phase 10: Water ✅ COMPLETE
 - [x] Water flows naturally and fills basins
 - [x] Waterlogged models support (fences, stairs, slabs)
-- [ ] Water state persists and syncs (deferred to Phases 3/7)
+- [ ] Water state persists and syncs (deferred to Phases 3/8)
 
-### Phase 10: Performance
+### Phase 11: Performance
 - [ ] 90+ FPS with 1000 entities
 - [ ] 60+ FPS in multiplayer with 4 players
 - [ ] Sub-100ms world load time
 
-### Phase 11: Command Console ✅ PARTIAL
+### Phase 12: Command Console ✅ PARTIAL
 - [x] Console opens/closes with `/` key
 - [x] Fill command works with relative coordinates
 - [x] Command history navigable with arrows

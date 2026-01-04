@@ -109,6 +109,20 @@ impl App {
                     false
                 };
 
+                // Check if breaking a door - need to break both halves
+                let mut other_door_half: Option<Vector3<i32>> = None;
+                if block_type == BlockType::Model {
+                    if let Some(model_data) = self.sim.world.get_model_data(target) {
+                        if ModelRegistry::is_door_model(model_data.model_id) {
+                            other_door_half = if ModelRegistry::is_door_upper(model_data.model_id) {
+                                Some(target + Vector3::new(0, -1, 0))
+                            } else {
+                                Some(target + Vector3::new(0, 1, 0))
+                            };
+                        }
+                    }
+                }
+
                 if is_waterlogged {
                     self.sim.world.set_block(target, BlockType::Water);
                 } else {
@@ -116,8 +130,30 @@ impl App {
                 }
                 self.sim.world.invalidate_minimap_cache(target.x, target.z);
 
+                // Break other door half if present
+                if let Some(other_pos) = other_door_half {
+                    if other_pos.y >= 0 && other_pos.y < TEXTURE_SIZE_Y as i32 {
+                        if let Some(BlockType::Model) = self.sim.world.get_block(other_pos) {
+                            if let Some(other_data) = self.sim.world.get_model_data(other_pos) {
+                                if ModelRegistry::is_door_model(other_data.model_id) {
+                                    if other_data.waterlogged {
+                                        self.sim.world.set_block(other_pos, BlockType::Water);
+                                    } else {
+                                        self.sim.world.set_block(other_pos, BlockType::Air);
+                                    }
+                                    self.sim
+                                        .world
+                                        .invalidate_minimap_cache(other_pos.x, other_pos.z);
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // Update neighboring fence/gate connections
                 self.sim.world.update_fence_connections(target);
+                // Update neighboring window connections
+                self.sim.world.update_window_connections(target);
                 // Update neighboring stair shapes (stair neighbors may straighten)
                 self.sim.world.update_adjacent_stair_shapes(target);
                 // Update neighboring stair corner shapes
@@ -227,6 +263,87 @@ impl App {
         true
     }
 
+    /// Toggles a door open/closed. Returns true if door was toggled.
+    pub fn toggle_door_at(&mut self, pos: Vector3<i32>) -> bool {
+        // Check if target is a Model block
+        let Some(BlockType::Model) = self.sim.world.get_block(pos) else {
+            return false;
+        };
+
+        // Get model data
+        let Some(model_data) = self.sim.world.get_model_data(pos) else {
+            return false;
+        };
+
+        let model_id = model_data.model_id;
+        let rotation = model_data.rotation;
+
+        // Check if it's a door
+        if !ModelRegistry::is_door_model(model_id) {
+            return false;
+        }
+
+        // Find the other half of the door
+        let other_pos = if ModelRegistry::is_door_upper(model_id) {
+            pos + Vector3::new(0, -1, 0) // Upper -> Lower
+        } else {
+            pos + Vector3::new(0, 1, 0) // Lower -> Upper
+        };
+
+        // Get other half's data
+        let other_model_data = self.sim.world.get_model_data(other_pos);
+
+        // Toggle this half
+        let new_model_id = ModelRegistry::door_toggled(model_id);
+        self.sim
+            .world
+            .set_model_block(pos, new_model_id, rotation, model_data.waterlogged);
+
+        // Toggle other half
+        if let Some(other_data) = other_model_data {
+            if ModelRegistry::is_door_model(other_data.model_id) {
+                let new_other_id = ModelRegistry::door_toggled(other_data.model_id);
+                self.sim.world.set_model_block(
+                    other_pos,
+                    new_other_id,
+                    other_data.rotation,
+                    other_data.waterlogged,
+                );
+            }
+        }
+
+        true
+    }
+
+    /// Toggles a trapdoor open/closed. Returns true if trapdoor was toggled.
+    pub fn toggle_trapdoor_at(&mut self, pos: Vector3<i32>) -> bool {
+        // Check if target is a Model block
+        let Some(BlockType::Model) = self.sim.world.get_block(pos) else {
+            return false;
+        };
+
+        // Get model data
+        let Some(model_data) = self.sim.world.get_model_data(pos) else {
+            return false;
+        };
+
+        let model_id = model_data.model_id;
+        let rotation = model_data.rotation;
+
+        // Check if it's a trapdoor
+        if !ModelRegistry::is_trapdoor_model(model_id) {
+            return false;
+        }
+
+        // Toggle the trapdoor
+        let new_model_id = ModelRegistry::trapdoor_toggled(model_id);
+        self.sim
+            .world
+            .set_model_block(pos, new_model_id, rotation, model_data.waterlogged);
+
+        true
+    }
+
     /// Rotates a custom model 90 degrees around Y axis. Returns true if rotated.
     fn rotate_custom_model_at(&mut self, pos: Vector3<i32>) -> bool {
         // Check if there's a model block at this position
@@ -304,13 +421,25 @@ impl App {
                 return;
             }
 
-            // Priority 2: Toggle existing gate
+            // Priority 2: Toggle existing door
+            if !self.ui.gate_needs_reclick && self.toggle_door_at(hit.block_pos) {
+                self.ui.gate_needs_reclick = true;
+                return;
+            }
+
+            // Priority 3: Toggle existing trapdoor
+            if !self.ui.gate_needs_reclick && self.toggle_trapdoor_at(hit.block_pos) {
+                self.ui.gate_needs_reclick = true;
+                return;
+            }
+
+            // Priority 4: Toggle existing gate
             if !self.ui.gate_needs_reclick && self.toggle_gate_at(hit.block_pos) {
                 self.ui.gate_needs_reclick = true;
                 return;
             }
 
-            // Priority 3: Place new block
+            // Priority 5: Place new block
             let place_pos = get_place_position(&hit);
 
             // Handle model blocks - require re-click to place multiple
@@ -555,6 +684,106 @@ impl App {
                 let shape =
                     ModelRegistry::stairs_shape(base_model_id).unwrap_or(StairShape::Straight);
                 ModelRegistry::stairs_model_id(shape, inverted)
+            } else if ModelRegistry::is_door_model(base_model_id) {
+                // Doors: two-block placement
+                let upper_pos = place_pos + Vector3::new(0, 1, 0);
+
+                // Check upper position is valid and empty
+                if upper_pos.y >= TEXTURE_SIZE_Y as i32 {
+                    return false; // No room for upper half
+                }
+                let upper_block = self.sim.world.get_block(upper_pos);
+                if let Some(b) = upper_block {
+                    if b != BlockType::Air && b != BlockType::Water {
+                        return false; // Upper position blocked
+                    }
+                }
+
+                // Determine rotation from player yaw (door faces player)
+                let yaw = self.sim.player.camera.rotation.y as f32;
+                let rot = (yaw / std::f32::consts::FRAC_PI_2).round() as i32;
+                rotation = rot.rem_euclid(4) as u8;
+
+                // Determine hinge side based on adjacent blocks
+                // Check blocks to the left and right of the door (based on rotation)
+                let (left_offset, right_offset) = match rotation {
+                    0 => (Vector3::new(-1, 0, 0), Vector3::new(1, 0, 0)), // Facing +Z
+                    1 => (Vector3::new(0, 0, -1), Vector3::new(0, 0, 1)), // Facing -X
+                    2 => (Vector3::new(1, 0, 0), Vector3::new(-1, 0, 0)), // Facing -Z
+                    _ => (Vector3::new(0, 0, 1), Vector3::new(0, 0, -1)), // Facing +X
+                };
+
+                let left_solid = self
+                    .sim
+                    .world
+                    .get_block(place_pos + left_offset)
+                    .map(|b| b.is_solid())
+                    .unwrap_or(false);
+                let right_solid = self
+                    .sim
+                    .world
+                    .get_block(place_pos + right_offset)
+                    .map(|b| b.is_solid())
+                    .unwrap_or(false);
+
+                // Prefer hinge on solid side, default to left
+                let hinge_left = !right_solid || left_solid;
+
+                // Place lower half
+                let lower_model = ModelRegistry::door_model_id(false, hinge_left, false);
+                self.sim
+                    .world
+                    .set_model_block(place_pos, lower_model, rotation, waterlogged);
+
+                // Place upper half
+                let upper_model = ModelRegistry::door_model_id(true, hinge_left, false);
+                let upper_waterlogged = upper_block == Some(BlockType::Water);
+                self.sim
+                    .world
+                    .set_model_block(upper_pos, upper_model, rotation, upper_waterlogged);
+
+                return true;
+            } else if ModelRegistry::is_trapdoor_model(base_model_id) {
+                // Trapdoors: determine ceiling vs floor placement
+                let yaw = self.sim.player.camera.rotation.y as f32;
+                let rot = (yaw / std::f32::consts::FRAC_PI_2).round() as i32;
+                rotation = rot.rem_euclid(4) as u8;
+
+                let is_ceiling = if let Some(hit) = self.ui.current_hit {
+                    // Ceiling if clicking bottom face or upper half of side
+                    if hit.normal.y < 0 {
+                        true
+                    } else if hit.normal.y == 0 {
+                        let origin = self
+                            .sim
+                            .player
+                            .camera_world_pos(self.sim.world_extent, self.sim.texture_origin)
+                            .cast::<f32>();
+                        let direction = self.sim.player.camera_direction().cast::<f32>();
+                        let hit_point = origin + direction * hit.distance;
+                        let local_y = hit_point.y - hit_point.y.floor();
+                        local_y >= 0.5
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                };
+
+                let model_id = ModelRegistry::trapdoor_model_id(is_ceiling, false);
+                self.sim
+                    .world
+                    .set_model_block(place_pos, model_id, rotation, waterlogged);
+                return true;
+            } else if ModelRegistry::is_window_model(base_model_id) {
+                // Windows: calculate connections like fences
+                let connections = self.sim.world.calculate_window_connections(place_pos);
+                let model_id = ModelRegistry::window_model_id(connections);
+                self.sim
+                    .world
+                    .set_model_block(place_pos, model_id, 0, waterlogged);
+                self.sim.world.update_window_connections(place_pos);
+                return true;
             } else if base_model_id >= FIRST_CUSTOM_MODEL_ID {
                 // Custom models: auto-rotate to face player
                 let yaw = self.sim.player.camera.rotation.y as f32;

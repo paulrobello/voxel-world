@@ -26,7 +26,7 @@ pub const MAX_MODELS: usize = 256;
 pub const PALETTE_SIZE: usize = 16;
 
 /// First model ID available for custom/user models.
-/// Built-in models use IDs 0-38:
+/// Built-in models use IDs 0-66:
 /// - 0: Empty
 /// - 1: Torch
 /// - 2-3: Slabs
@@ -36,7 +36,10 @@ pub const PALETTE_SIZE: usize = 16;
 /// - 29: Ladder
 /// - 30: Inverted stairs
 /// - 31-38: Corner stairs (8 variants)
-pub const FIRST_CUSTOM_MODEL_ID: u8 = 39;
+/// - 39-46: Doors (8 variants: lower/upper × hinge left/right × closed/open)
+/// - 47-50: Trapdoors (4 variants: floor/ceiling × closed/open)
+/// - 51-66: Windows (16 connection variants)
+pub const FIRST_CUSTOM_MODEL_ID: u8 = 67;
 
 /// RGBA color for sub-voxel palette.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -477,7 +480,20 @@ impl ModelRegistry {
 
     /// Registers built-in models.
     fn register_builtins(&mut self) {
-        use crate::sub_voxel_builtins::*;
+        use crate::sub_voxel_builtins::{
+            create_door_lower_closed_left, create_door_lower_closed_right,
+            create_door_lower_open_left, create_door_lower_open_right,
+            create_door_upper_closed_left, create_door_upper_closed_right,
+            create_door_upper_open_left, create_door_upper_open_right, create_empty, create_fence,
+            create_gate_closed, create_gate_open, create_ladder, create_slab_bottom,
+            create_slab_top, create_stairs_inner_left, create_stairs_inner_left_inverted,
+            create_stairs_inner_right, create_stairs_inner_right_inverted, create_stairs_north,
+            create_stairs_north_inverted, create_stairs_outer_left,
+            create_stairs_outer_left_inverted, create_stairs_outer_right,
+            create_stairs_outer_right_inverted, create_torch, create_trapdoor_ceiling_closed,
+            create_trapdoor_ceiling_open, create_trapdoor_floor_closed, create_trapdoor_floor_open,
+            create_window,
+        };
 
         // ID 0: Empty/placeholder (no model)
         self.register(create_empty());
@@ -526,6 +542,29 @@ impl ModelRegistry {
         self.register(create_stairs_inner_right_inverted());
         self.register(create_stairs_outer_left_inverted());
         self.register(create_stairs_outer_right_inverted());
+
+        // ID 39-46: Doors (8 variants)
+        // Order: lower closed left, lower closed right, upper closed left, upper closed right,
+        //        lower open left, lower open right, upper open left, upper open right
+        self.register(create_door_lower_closed_left());
+        self.register(create_door_lower_closed_right());
+        self.register(create_door_upper_closed_left());
+        self.register(create_door_upper_closed_right());
+        self.register(create_door_lower_open_left());
+        self.register(create_door_lower_open_right());
+        self.register(create_door_upper_open_left());
+        self.register(create_door_upper_open_right());
+
+        // ID 47-50: Trapdoors (4 variants)
+        self.register(create_trapdoor_floor_closed());
+        self.register(create_trapdoor_ceiling_closed());
+        self.register(create_trapdoor_floor_open());
+        self.register(create_trapdoor_ceiling_open());
+
+        // ID 51-66: Windows (16 connection variants)
+        for connections in 0..16u8 {
+            self.register(create_window(connections));
+        }
     }
 
     /// Gets the model ID for a fence with the given connections.
@@ -642,6 +681,153 @@ impl ModelRegistry {
             (StairShape::OuterRight, false) => 34,
             (StairShape::OuterRight, true) => 38,
         }
+    }
+
+    // ========================================================================
+    // DOOR HELPERS
+    // ========================================================================
+
+    /// Returns the model ID for a door.
+    /// - `is_upper`: true for upper half, false for lower half
+    /// - `hinge_left`: true for left hinge, false for right hinge
+    /// - `is_open`: true for open, false for closed
+    pub fn door_model_id(is_upper: bool, hinge_left: bool, is_open: bool) -> u8 {
+        // Base: 39 (lower closed left)
+        // Order: lower closed left (39), lower closed right (40),
+        //        upper closed left (41), upper closed right (42),
+        //        lower open left (43), lower open right (44),
+        //        upper open left (45), upper open right (46)
+        let mut id = 39u8;
+        if is_upper {
+            id += 2;
+        }
+        if !hinge_left {
+            id += 1;
+        }
+        if is_open {
+            id += 4;
+        }
+        id
+    }
+
+    /// Checks if a model ID is any door variant (IDs 39-46).
+    pub fn is_door_model(model_id: u8) -> bool {
+        (39..=46).contains(&model_id)
+    }
+
+    /// Checks if a door model is the upper half.
+    pub fn is_door_upper(model_id: u8) -> bool {
+        matches!(model_id, 41 | 42 | 45 | 46)
+    }
+
+    /// Checks if a door model is open.
+    pub fn is_door_open(model_id: u8) -> bool {
+        (43..=46).contains(&model_id)
+    }
+
+    /// Checks if a door model has left hinge.
+    pub fn is_door_hinge_left(model_id: u8) -> bool {
+        matches!(model_id, 39 | 41 | 43 | 45)
+    }
+
+    /// Returns the toggled (open/closed) version of a door model.
+    pub fn door_toggled(model_id: u8) -> u8 {
+        if !Self::is_door_model(model_id) {
+            return model_id;
+        }
+        if Self::is_door_open(model_id) {
+            model_id - 4 // Open -> Closed
+        } else {
+            model_id + 4 // Closed -> Open
+        }
+    }
+
+    /// Returns the corresponding upper or lower door half model.
+    pub fn door_other_half(model_id: u8) -> u8 {
+        if !Self::is_door_model(model_id) {
+            return model_id;
+        }
+        if Self::is_door_upper(model_id) {
+            model_id - 2 // Upper -> Lower
+        } else {
+            model_id + 2 // Lower -> Upper
+        }
+    }
+
+    // ========================================================================
+    // TRAPDOOR HELPERS
+    // ========================================================================
+
+    /// Returns the model ID for a trapdoor.
+    /// - `is_ceiling`: true for ceiling-attached, false for floor-attached
+    /// - `is_open`: true for open, false for closed
+    pub fn trapdoor_model_id(is_ceiling: bool, is_open: bool) -> u8 {
+        // Base: 47 (floor closed)
+        // Order: floor closed (47), ceiling closed (48), floor open (49), ceiling open (50)
+        let mut id = 47u8;
+        if is_ceiling {
+            id += 1;
+        }
+        if is_open {
+            id += 2;
+        }
+        id
+    }
+
+    /// Checks if a model ID is any trapdoor variant (IDs 47-50).
+    pub fn is_trapdoor_model(model_id: u8) -> bool {
+        (47..=50).contains(&model_id)
+    }
+
+    /// Checks if a trapdoor model is open.
+    pub fn is_trapdoor_open(model_id: u8) -> bool {
+        matches!(model_id, 49 | 50)
+    }
+
+    /// Checks if a trapdoor is ceiling-attached.
+    pub fn is_trapdoor_ceiling(model_id: u8) -> bool {
+        matches!(model_id, 48 | 50)
+    }
+
+    /// Returns the toggled (open/closed) version of a trapdoor model.
+    pub fn trapdoor_toggled(model_id: u8) -> u8 {
+        if !Self::is_trapdoor_model(model_id) {
+            return model_id;
+        }
+        if Self::is_trapdoor_open(model_id) {
+            model_id - 2 // Open -> Closed
+        } else {
+            model_id + 2 // Closed -> Open
+        }
+    }
+
+    // ========================================================================
+    // WINDOW HELPERS
+    // ========================================================================
+
+    /// Returns the model ID for a window with the given connections.
+    /// Connection bitmask: N=1, S=2, E=4, W=8 (same as fences).
+    pub fn window_model_id(connections: u8) -> u8 {
+        51 + (connections & 0x0F)
+    }
+
+    /// Checks if a model ID is any window variant (IDs 51-66).
+    pub fn is_window_model(model_id: u8) -> bool {
+        (51..=66).contains(&model_id)
+    }
+
+    /// Gets the connection mask from a window model ID.
+    pub fn window_connections(model_id: u8) -> Option<u8> {
+        if Self::is_window_model(model_id) {
+            Some(model_id - 51)
+        } else {
+            None
+        }
+    }
+
+    /// Checks if a model is a window or fence (connectable thin blocks).
+    pub fn is_window_connectable(model_id: u8) -> bool {
+        Self::is_window_model(model_id)
     }
 
     /// Checks if a model requires ground support (breaks if block below removed).
@@ -934,8 +1120,8 @@ impl ModelRegistry {
     /// Returns the number of built-in models.
     /// Custom models start at this ID.
     pub fn builtin_count(&self) -> u8 {
-        // Built-in models are IDs 0-38 (39 total)
-        39
+        // Built-in models are IDs 0-66 (67 total)
+        FIRST_CUSTOM_MODEL_ID
     }
 
     /// Loads custom models from a WorldModelStore.
