@@ -141,6 +141,12 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
                 hitDistance = waterEntryT * length(dir);
                 return true;
             }
+            // If we passed through tinted glass, apply tint to sky
+            if (passedTintedGlass) {
+                color = getSkyColor(dir) * accumulatedTint;
+                hitDistance = FLT_MAX;
+                return true;
+            }
             return false;
         }
 
@@ -342,6 +348,12 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
             float depthFactor = 1.0 - exp(-waterDepth / WATER_CLARITY);
             color = mix(WATER_COLOR, WATER_DEEP_COLOR, depthFactor);
             hitDistance = waterEntryT * length(dir);
+            return true;
+        }
+        // If we passed through tinted glass, apply tint to sky
+        if (passedTintedGlass) {
+            color = getSkyColor(dir) * accumulatedTint;
+            hitDistance = FLT_MAX;
             return true;
         }
         return false;
