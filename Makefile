@@ -7,7 +7,7 @@ export DYLD_FALLBACK_LIBRARY_PATH := /opt/homebrew/lib:/opt/homebrew/opt/vulkan-
 export VK_ICD_FILENAMES := /opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json
 export CMAKE_POLICY_VERSION_MINIMUM := 3.5
 
-.PHONY: build build-release build-debug run run-release run-debug profile run-profile clean test check fmt lint checkall sprite-gen run-p1 run-p2 reset-p1 reset-p2
+.PHONY: build build-release build-debug run run-release run-debug profile run-profile clean test check fmt lint checkall sprite-gen run-p1 run-p2 reset reset-p1 reset-p2
 
 # Default target
 all: build-release
@@ -64,6 +64,10 @@ checkall: fmt lint test
 # Generate palette/hotbar sprites to textures/rendered/ and exit
 sprite-gen: build-release
 	./target/release/voxel_world --generate-sprites $(ARGS)
+
+# Reset default data (worlds, prefs, profiles)
+reset:
+	rm -rf worlds user_prefs.json profiles
 
 # Multi-instance targets (isolated data directories)
 run-p1: build-release
