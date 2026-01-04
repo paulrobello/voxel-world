@@ -107,7 +107,7 @@ Chunk Data (variable):
 
 ---
 
-## Phase 4: Sub-Voxel Model System
+## Phase 4: Sub-Voxel Model System ✅ COMPLETE
 
 ### Goal
 Support detailed 8³ voxel models within standard block space for furniture, fences, decorations.
@@ -196,16 +196,14 @@ Create and edit sub-voxel models without leaving the game.
 - [x] 3D voxel canvas with orbit rotation controls
 - [x] Tool palette: pencil, eraser, bucket fill, eyedropper
 - [x] Color palette with RGBA picker
-- [ ] Undo/redo stack (50 states) - *deferred*
+- [x] Undo/redo stack (50 states)
 
 #### 5.2 Editing Tools
 - [x] Single voxel place/remove
 - [x] Rotate model 90° around Y axis
+- [x] Mirror mode (X, Y, Z axis) with visual plane indicators
 - [ ] Line drawing (shift-click) - *deferred*
 - [ ] Box fill (drag selection) - *deferred*
-- [ ] Mirror mode (X, Y, Z axis) - *deferred*
-- [ ] Copy/paste regions - *deferred*
-- [ ] Import PNG as palette/texture - *deferred*
 
 #### 5.3 Model Management
 - [x] Save model to library (name, author, thumbnail)
@@ -574,10 +572,10 @@ Maintain 90+ FPS with all features enabled.
 - [x] World loads from region files on start
 - [x] Incremental saves don't cause stutter
 
-### Phase 4: Sub-Voxels
-- [ ] Place and break 8³ models (torch, fence, chair)
-- [ ] Sub-voxel collision works correctly
-- [ ] No FPS drop with 100+ sub-voxel models visible
+### Phase 4: Sub-Voxels ✅ COMPLETE
+- [x] Place and break 8³ models (torch, fence, chair)
+- [x] Sub-voxel collision works correctly
+- [x] No FPS drop with 100+ sub-voxel models visible
 
 ### Phase 5: Editor ✅ COMPLETE
 - [x] Create custom model in under 2 minutes
@@ -623,6 +621,9 @@ Maintain 90+ FPS with all features enabled.
 - All planned phases complete. Looking for new features to implement.
 
 ## Done Recently
+- **Mirror Mode for Model Editor** (2026-01-04): X/Y/Z axis mirroring with visual plane indicators
+- **Phase 4: Sub-Voxel Model System** (2026-01-04): Marked complete - all sub-voxel features implemented
+- **Phase 5: Editor Undo/Redo** (2026-01-04): 50-state undo/redo stack for voxel editor
 - **Tinted Glass & Sub-voxel Translucency** (2026-01-03):
   - `TintedGlass` block type with 32-color tint palette stored in metadata
   - Tinted shadows: light passing through tinted glass gets colored

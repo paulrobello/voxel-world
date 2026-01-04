@@ -217,6 +217,7 @@ pub fn render_model(
     orbit_yaw: f32,
     hovered_voxel: Option<[i32; 3]>,
     hovered_normal: Option<[i32; 3]>,
+    mirror_axes: [bool; 3],
 ) -> RenderResult {
     let mut rasterizer = Rasterizer::new(width, height);
     let mut hit_map_builder = HitMapBuilder::new(width, height);
@@ -308,6 +309,58 @@ pub fn render_model(
                 );
             }
         }
+    }
+
+    // Draw mirror plane indicators (wireframe only)
+    let mirror_center = 4.0; // Center of 8x8x8 grid
+    let mirror_size = 8.0;
+
+    // X mirror plane (YZ plane at x=4) - Red wireframe
+    if mirror_axes[0] {
+        let line_color = [255, 80, 80, 255];
+        let l0 = make_vertex(mirror_center, 0.0, 0.0, line_color);
+        let l1 = make_vertex(mirror_center, mirror_size, 0.0, line_color);
+        let l2 = make_vertex(mirror_center, mirror_size, mirror_size, line_color);
+        let l3 = make_vertex(mirror_center, 0.0, mirror_size, line_color);
+        rasterizer.draw_line(l0, l1);
+        rasterizer.draw_line(l1, l2);
+        rasterizer.draw_line(l2, l3);
+        rasterizer.draw_line(l3, l0);
+        // Cross lines for visibility
+        rasterizer.draw_line(l0, l2);
+        rasterizer.draw_line(l1, l3);
+    }
+
+    // Y mirror plane (XZ plane at y=4) - Green wireframe
+    if mirror_axes[1] {
+        let line_color = [80, 255, 80, 255];
+        let l0 = make_vertex(0.0, mirror_center, 0.0, line_color);
+        let l1 = make_vertex(mirror_size, mirror_center, 0.0, line_color);
+        let l2 = make_vertex(mirror_size, mirror_center, mirror_size, line_color);
+        let l3 = make_vertex(0.0, mirror_center, mirror_size, line_color);
+        rasterizer.draw_line(l0, l1);
+        rasterizer.draw_line(l1, l2);
+        rasterizer.draw_line(l2, l3);
+        rasterizer.draw_line(l3, l0);
+        // Cross lines for visibility
+        rasterizer.draw_line(l0, l2);
+        rasterizer.draw_line(l1, l3);
+    }
+
+    // Z mirror plane (XY plane at z=4) - Blue wireframe
+    if mirror_axes[2] {
+        let line_color = [80, 80, 255, 255];
+        let l0 = make_vertex(0.0, 0.0, mirror_center, line_color);
+        let l1 = make_vertex(mirror_size, 0.0, mirror_center, line_color);
+        let l2 = make_vertex(mirror_size, mirror_size, mirror_center, line_color);
+        let l3 = make_vertex(0.0, mirror_size, mirror_center, line_color);
+        rasterizer.draw_line(l0, l1);
+        rasterizer.draw_line(l1, l2);
+        rasterizer.draw_line(l2, l3);
+        rasterizer.draw_line(l3, l0);
+        // Cross lines for visibility
+        rasterizer.draw_line(l0, l2);
+        rasterizer.draw_line(l1, l3);
     }
 
     // Draw axis lines

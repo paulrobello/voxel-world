@@ -1,7 +1,7 @@
 //! Egui UI for the in-game model editor.
 
 use super::rasterizer::render_model;
-use super::{EditorState, EditorTool};
+use super::{EditorState, EditorTool, MirrorAxis};
 use crate::storage::model_format::LibraryManager;
 use crate::sub_voxel::{Color, PALETTE_SIZE};
 use egui_winit_vulkano::egui;
@@ -53,6 +53,39 @@ pub fn draw_editor_ui(
                     .clicked()
                 {
                     editor.tool = EditorTool::Eyedropper;
+                }
+            });
+
+            ui.separator();
+
+            // Mirror mode toggles
+            ui.label("Mirror Mode:");
+            ui.horizontal(|ui| {
+                if ui
+                    .selectable_label(editor.mirror_axes[0], "X")
+                    .on_hover_text("Mirror edits across X axis (left/right)")
+                    .clicked()
+                {
+                    editor.toggle_mirror(MirrorAxis::X);
+                }
+                if ui
+                    .selectable_label(editor.mirror_axes[1], "Y")
+                    .on_hover_text("Mirror edits across Y axis (up/down)")
+                    .clicked()
+                {
+                    editor.toggle_mirror(MirrorAxis::Y);
+                }
+                if ui
+                    .selectable_label(editor.mirror_axes[2], "Z")
+                    .on_hover_text("Mirror edits across Z axis (front/back)")
+                    .clicked()
+                {
+                    editor.toggle_mirror(MirrorAxis::Z);
+                }
+                // Show count when mirroring is active
+                if editor.is_mirror_enabled() {
+                    let count = 1 << editor.mirror_axes.iter().filter(|&&x| x).count();
+                    ui.label(format!("({}x)", count));
                 }
             });
 
@@ -430,6 +463,7 @@ pub fn draw_model_preview(ctx: &egui::Context, editor: &mut EditorState) {
                 editor.orbit_yaw,
                 hovered_voxel,
                 hovered_normal,
+                editor.mirror_axes,
             );
 
             // Create texture from rendered image

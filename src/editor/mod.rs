@@ -131,6 +131,14 @@ pub enum EditorTool {
     Eyedropper,
 }
 
+/// Mirror axis for symmetrical editing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MirrorAxis {
+    X,
+    Y,
+    Z,
+}
+
 /// State for the in-game model editor.
 #[derive(Debug)]
 pub struct EditorState {
@@ -145,6 +153,9 @@ pub struct EditorState {
 
     /// Current editing tool.
     pub tool: EditorTool,
+
+    /// Mirror mode axes (X, Y, Z) - when enabled, edits are mirrored across the center.
+    pub mirror_axes: [bool; 3],
 
     /// Orbit camera yaw angle (radians).
     pub orbit_yaw: f32,
@@ -211,6 +222,7 @@ impl EditorState {
             scratch_pad,
             selected_palette_index: 1,
             tool: EditorTool::default(),
+            mirror_axes: [false, false, false],
             orbit_yaw: std::f32::consts::FRAC_PI_4,
             orbit_pitch: std::f32::consts::FRAC_PI_6,
             orbit_distance: 12.0,
@@ -494,29 +506,113 @@ impl EditorState {
         None
     }
 
+    /// Computes all positions affected by the current mirror settings.
+    ///
+    /// For an 8x8x8 grid, mirroring across axis A means: `mirrored = 7 - original`
+    /// Returns up to 8 positions when all three axes are mirrored.
+    fn get_mirrored_positions(&self, pos: Vector3<i32>) -> Vec<Vector3<i32>> {
+        let mut positions = vec![pos];
+        let max_idx = (SUB_VOXEL_SIZE - 1) as i32;
+
+        // X mirror
+        if self.mirror_axes[0] {
+            let len = positions.len();
+            for i in 0..len {
+                let p = positions[i];
+                let mirrored = Vector3::new(max_idx - p.x, p.y, p.z);
+                if !positions.contains(&mirrored) {
+                    positions.push(mirrored);
+                }
+            }
+        }
+
+        // Y mirror
+        if self.mirror_axes[1] {
+            let len = positions.len();
+            for i in 0..len {
+                let p = positions[i];
+                let mirrored = Vector3::new(p.x, max_idx - p.y, p.z);
+                if !positions.contains(&mirrored) {
+                    positions.push(mirrored);
+                }
+            }
+        }
+
+        // Z mirror
+        if self.mirror_axes[2] {
+            let len = positions.len();
+            for i in 0..len {
+                let p = positions[i];
+                let mirrored = Vector3::new(p.x, p.y, max_idx - p.z);
+                if !positions.contains(&mirrored) {
+                    positions.push(mirrored);
+                }
+            }
+        }
+
+        positions
+    }
+
+    /// Returns true if any mirror axis is enabled.
+    pub fn is_mirror_enabled(&self) -> bool {
+        self.mirror_axes[0] || self.mirror_axes[1] || self.mirror_axes[2]
+    }
+
+    /// Toggles mirror mode for the given axis.
+    pub fn toggle_mirror(&mut self, axis: MirrorAxis) {
+        let idx = match axis {
+            MirrorAxis::X => 0,
+            MirrorAxis::Y => 1,
+            MirrorAxis::Z => 2,
+        };
+        self.mirror_axes[idx] = !self.mirror_axes[idx];
+    }
+
     /// Places a voxel at the given position with the current palette index.
     ///
-    /// Saves state to undo history if the voxel value actually changes.
+    /// Saves state to undo history if any voxel value actually changes.
+    /// When mirror mode is enabled, places at all mirrored positions.
     pub fn place_voxel(&mut self, pos: Vector3<i32>) {
-        if pos.x >= 0
-            && pos.x < SUB_VOXEL_SIZE as i32
-            && pos.y >= 0
-            && pos.y < SUB_VOXEL_SIZE as i32
-            && pos.z >= 0
-            && pos.z < SUB_VOXEL_SIZE as i32
-        {
-            let current =
-                self.scratch_pad
-                    .get_voxel(pos.x as usize, pos.y as usize, pos.z as usize);
-            // Only save state if actually changing the voxel
-            if current != self.selected_palette_index {
-                self.save_state();
-                self.scratch_pad.set_voxel(
-                    pos.x as usize,
-                    pos.y as usize,
-                    pos.z as usize,
-                    self.selected_palette_index,
-                );
+        let positions = self.get_mirrored_positions(pos);
+
+        // Check if any position will actually change
+        let mut any_change = false;
+        for p in &positions {
+            if p.x >= 0
+                && p.x < SUB_VOXEL_SIZE as i32
+                && p.y >= 0
+                && p.y < SUB_VOXEL_SIZE as i32
+                && p.z >= 0
+                && p.z < SUB_VOXEL_SIZE as i32
+            {
+                let current = self
+                    .scratch_pad
+                    .get_voxel(p.x as usize, p.y as usize, p.z as usize);
+                if current != self.selected_palette_index {
+                    any_change = true;
+                    break;
+                }
+            }
+        }
+
+        // Only save state and apply if something actually changes
+        if any_change {
+            self.save_state();
+            for p in positions {
+                if p.x >= 0
+                    && p.x < SUB_VOXEL_SIZE as i32
+                    && p.y >= 0
+                    && p.y < SUB_VOXEL_SIZE as i32
+                    && p.z >= 0
+                    && p.z < SUB_VOXEL_SIZE as i32
+                {
+                    self.scratch_pad.set_voxel(
+                        p.x as usize,
+                        p.y as usize,
+                        p.z as usize,
+                        self.selected_palette_index,
+                    );
+                }
             }
         }
     }
@@ -524,22 +620,44 @@ impl EditorState {
     /// Removes a voxel at the given position.
     ///
     /// Saves state to undo history if there was a voxel to remove.
+    /// When mirror mode is enabled, erases at all mirrored positions.
     pub fn erase_voxel(&mut self, pos: Vector3<i32>) {
-        if pos.x >= 0
-            && pos.x < SUB_VOXEL_SIZE as i32
-            && pos.y >= 0
-            && pos.y < SUB_VOXEL_SIZE as i32
-            && pos.z >= 0
-            && pos.z < SUB_VOXEL_SIZE as i32
-        {
-            let current =
-                self.scratch_pad
-                    .get_voxel(pos.x as usize, pos.y as usize, pos.z as usize);
-            // Only save state if there's actually something to erase
-            if current != 0 {
-                self.save_state();
-                self.scratch_pad
-                    .set_voxel(pos.x as usize, pos.y as usize, pos.z as usize, 0);
+        let positions = self.get_mirrored_positions(pos);
+
+        // Check if any position has something to erase
+        let mut any_change = false;
+        for p in &positions {
+            if p.x >= 0
+                && p.x < SUB_VOXEL_SIZE as i32
+                && p.y >= 0
+                && p.y < SUB_VOXEL_SIZE as i32
+                && p.z >= 0
+                && p.z < SUB_VOXEL_SIZE as i32
+            {
+                let current = self
+                    .scratch_pad
+                    .get_voxel(p.x as usize, p.y as usize, p.z as usize);
+                if current != 0 {
+                    any_change = true;
+                    break;
+                }
+            }
+        }
+
+        // Only save state and apply if something actually changes
+        if any_change {
+            self.save_state();
+            for p in positions {
+                if p.x >= 0
+                    && p.x < SUB_VOXEL_SIZE as i32
+                    && p.y >= 0
+                    && p.y < SUB_VOXEL_SIZE as i32
+                    && p.z >= 0
+                    && p.z < SUB_VOXEL_SIZE as i32
+                {
+                    self.scratch_pad
+                        .set_voxel(p.x as usize, p.y as usize, p.z as usize, 0);
+                }
             }
         }
     }
@@ -965,5 +1083,145 @@ mod tests {
         editor.new_model("test");
         assert!(!editor.can_undo());
         assert!(!editor.can_redo());
+    }
+
+    #[test]
+    fn test_mirror_x_axis() {
+        let mut editor = EditorState::new();
+
+        // Enable X mirroring
+        editor.toggle_mirror(super::MirrorAxis::X);
+        assert!(editor.mirror_axes[0]);
+        assert!(editor.is_mirror_enabled());
+
+        // Place voxel at (1, 2, 3) - should also place at (6, 2, 3)
+        editor.place_voxel(Vector3::new(1, 2, 3));
+        assert_eq!(editor.scratch_pad.get_voxel(1, 2, 3), 1);
+        assert_eq!(editor.scratch_pad.get_voxel(6, 2, 3), 1); // 7 - 1 = 6
+
+        // Erase should also be mirrored
+        editor.erase_voxel(Vector3::new(1, 2, 3));
+        assert_eq!(editor.scratch_pad.get_voxel(1, 2, 3), 0);
+        assert_eq!(editor.scratch_pad.get_voxel(6, 2, 3), 0);
+    }
+
+    #[test]
+    fn test_mirror_y_axis() {
+        let mut editor = EditorState::new();
+
+        // Enable Y mirroring
+        editor.toggle_mirror(super::MirrorAxis::Y);
+        assert!(editor.mirror_axes[1]);
+
+        // Place voxel at (2, 1, 3) - should also place at (2, 6, 3)
+        editor.place_voxel(Vector3::new(2, 1, 3));
+        assert_eq!(editor.scratch_pad.get_voxel(2, 1, 3), 1);
+        assert_eq!(editor.scratch_pad.get_voxel(2, 6, 3), 1); // 7 - 1 = 6
+    }
+
+    #[test]
+    fn test_mirror_z_axis() {
+        let mut editor = EditorState::new();
+
+        // Enable Z mirroring
+        editor.toggle_mirror(super::MirrorAxis::Z);
+        assert!(editor.mirror_axes[2]);
+
+        // Place voxel at (2, 3, 1) - should also place at (2, 3, 6)
+        editor.place_voxel(Vector3::new(2, 3, 1));
+        assert_eq!(editor.scratch_pad.get_voxel(2, 3, 1), 1);
+        assert_eq!(editor.scratch_pad.get_voxel(2, 3, 6), 1); // 7 - 1 = 6
+    }
+
+    #[test]
+    fn test_mirror_multiple_axes() {
+        let mut editor = EditorState::new();
+
+        // Enable X and Y mirroring (should place 4 voxels)
+        editor.toggle_mirror(super::MirrorAxis::X);
+        editor.toggle_mirror(super::MirrorAxis::Y);
+
+        // Place voxel at (1, 1, 3)
+        editor.place_voxel(Vector3::new(1, 1, 3));
+
+        // Should have 4 voxels: original + X mirror + Y mirror + XY mirror
+        assert_eq!(editor.scratch_pad.get_voxel(1, 1, 3), 1); // Original
+        assert_eq!(editor.scratch_pad.get_voxel(6, 1, 3), 1); // X mirror
+        assert_eq!(editor.scratch_pad.get_voxel(1, 6, 3), 1); // Y mirror
+        assert_eq!(editor.scratch_pad.get_voxel(6, 6, 3), 1); // XY mirror
+    }
+
+    #[test]
+    fn test_mirror_all_axes() {
+        let mut editor = EditorState::new();
+
+        // Enable all three axes (should place 8 voxels)
+        editor.toggle_mirror(super::MirrorAxis::X);
+        editor.toggle_mirror(super::MirrorAxis::Y);
+        editor.toggle_mirror(super::MirrorAxis::Z);
+
+        // Place voxel at (1, 1, 1)
+        editor.place_voxel(Vector3::new(1, 1, 1));
+
+        // Should have 8 voxels (2^3)
+        assert_eq!(editor.scratch_pad.get_voxel(1, 1, 1), 1); // Original
+        assert_eq!(editor.scratch_pad.get_voxel(6, 1, 1), 1); // X
+        assert_eq!(editor.scratch_pad.get_voxel(1, 6, 1), 1); // Y
+        assert_eq!(editor.scratch_pad.get_voxel(1, 1, 6), 1); // Z
+        assert_eq!(editor.scratch_pad.get_voxel(6, 6, 1), 1); // XY
+        assert_eq!(editor.scratch_pad.get_voxel(6, 1, 6), 1); // XZ
+        assert_eq!(editor.scratch_pad.get_voxel(1, 6, 6), 1); // YZ
+        assert_eq!(editor.scratch_pad.get_voxel(6, 6, 6), 1); // XYZ
+    }
+
+    #[test]
+    fn test_mirror_center_voxel() {
+        let mut editor = EditorState::new();
+
+        // Enable X mirroring
+        editor.toggle_mirror(super::MirrorAxis::X);
+
+        // Place voxel at center X (3 or 4) - mirror should be at same position
+        // Since we use 7 - x, position 3 mirrors to 4 and vice versa
+        editor.place_voxel(Vector3::new(3, 3, 3));
+        assert_eq!(editor.scratch_pad.get_voxel(3, 3, 3), 1);
+        assert_eq!(editor.scratch_pad.get_voxel(4, 3, 3), 1); // 7 - 3 = 4
+    }
+
+    #[test]
+    fn test_mirror_toggle() {
+        let mut editor = EditorState::new();
+
+        // Initially all disabled
+        assert!(!editor.is_mirror_enabled());
+
+        // Toggle X on
+        editor.toggle_mirror(super::MirrorAxis::X);
+        assert!(editor.mirror_axes[0]);
+        assert!(editor.is_mirror_enabled());
+
+        // Toggle X off
+        editor.toggle_mirror(super::MirrorAxis::X);
+        assert!(!editor.mirror_axes[0]);
+        assert!(!editor.is_mirror_enabled());
+    }
+
+    #[test]
+    fn test_mirror_undo_all_placements() {
+        let mut editor = EditorState::new();
+
+        // Enable X mirroring
+        editor.toggle_mirror(super::MirrorAxis::X);
+
+        // Place voxel (should create 2 voxels)
+        editor.place_voxel(Vector3::new(1, 2, 3));
+        assert_eq!(editor.scratch_pad.get_voxel(1, 2, 3), 1);
+        assert_eq!(editor.scratch_pad.get_voxel(6, 2, 3), 1);
+        assert_eq!(editor.history.undo_count(), 1); // Only one undo entry
+
+        // Undo should remove both voxels
+        editor.undo();
+        assert_eq!(editor.scratch_pad.get_voxel(1, 2, 3), 0);
+        assert_eq!(editor.scratch_pad.get_voxel(6, 2, 3), 0);
     }
 }
