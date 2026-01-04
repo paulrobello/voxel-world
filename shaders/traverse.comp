@@ -19,8 +19,10 @@ bool isBreakingBlock(ivec3 blockPos) {
            blockPos.z == pc.break_block_z;
 }
 
-bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out float hitDistance) {
+bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out float hitDistance, out bool outPassedTintedGlass, out vec3 outAccumulatedTint) {
     hitDistance = FLT_MAX;
+    outPassedTintedGlass = false;
+    outAccumulatedTint = vec3(1.0);
 
     vec3 inv_dir = 1. / dir;
     vec3 sgn_dir = sign(inv_dir);
@@ -141,12 +143,9 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
                 hitDistance = waterEntryT * length(dir);
                 return true;
             }
-            // If we passed through tinted glass, apply tint to sky
-            if (passedTintedGlass) {
-                color = getSkyColor(dir) * accumulatedTint;
-                hitDistance = FLT_MAX;
-                return true;
-            }
+            // Pass tint state back to caller
+            outPassedTintedGlass = passedTintedGlass;
+            outAccumulatedTint = accumulatedTint;
             return false;
         }
 
@@ -350,12 +349,9 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
             hitDistance = waterEntryT * length(dir);
             return true;
         }
-        // If we passed through tinted glass, apply tint to sky
-        if (passedTintedGlass) {
-            color = getSkyColor(dir) * accumulatedTint;
-            hitDistance = FLT_MAX;
-            return true;
-        }
+        // Pass tint state back to caller
+        outPassedTintedGlass = passedTintedGlass;
+        outAccumulatedTint = accumulatedTint;
         return false;
     }
 
@@ -678,6 +674,9 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
         }
     }
 
+    // Pass tint state back to caller
+    outPassedTintedGlass = passedTintedGlass;
+    outAccumulatedTint = accumulatedTint;
     return true;
 }
 
@@ -723,8 +722,10 @@ void main() {
     vec3 color;
     uint steps = 0;
     float hitDistance;
+    bool passedTintedGlass;
+    vec3 accumulatedTint;
 
-    bool hit = traversal(o, d, color, steps, hitDistance);
+    bool hit = traversal(o, d, color, steps, hitDistance, passedTintedGlass, accumulatedTint);
 
     bool underwater = pc.player_in_water != 0;
 
@@ -743,6 +744,10 @@ void main() {
         color = getSkyColor(d);
         float skyDistance = length(vec3(pc.texture_size_x, pc.texture_size_y, pc.texture_size_z)) * 0.5;
         color = applyFog(color, skyDistance, d);
+        // Apply tinted glass effect to sky
+        if (passedTintedGlass) {
+            color *= accumulatedTint;
+        }
     }
 
     if (pc.particle_count > 0 && pc.render_mode != STEPS) {
