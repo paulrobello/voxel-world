@@ -1420,6 +1420,11 @@ impl App {
             } else {
                 0
             },
+            enable_tinted_shadows: if self.ui.settings.enable_tinted_shadows {
+                1
+            } else {
+                0
+            },
             transparent_background: 0,
             pass_mode: 0, // Will be set per-pass
             lod_ao_distance: self.ui.settings.lod_ao_distance,

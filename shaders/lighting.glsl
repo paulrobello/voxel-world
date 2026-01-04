@@ -51,8 +51,11 @@ void ddaAdvance(
 }
 
 // Cast shadow ray from a point toward the sun
-float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFlag) {
+// Returns shadow factor (0 = full shadow, 1 = no shadow)
+// shadowTint returns the accumulated tint from tinted glass (or 1.0 if none)
+float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFlag, out vec3 shadowTint) {
     debugFlag = 0u;
+    shadowTint = vec3(1.0);
     vec3 sunDir = getCurrentSunDir();
 
     if (sunDir.y < 0.0) {
@@ -195,9 +198,16 @@ float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFl
                         }
                     }
                 }
-            } else if (blockType != BLOCK_AIR && blockType != BLOCK_LEAVES && blockType != BLOCK_GLASS && blockType != BLOCK_WATER) {
+            } else if (blockType != BLOCK_AIR && blockType != BLOCK_LEAVES && blockType != BLOCK_GLASS && blockType != BLOCK_TINTED_GLASS && blockType != BLOCK_WATER) {
                 debugFlag = 1u;
                 return 0.0;
+            }
+
+            // Accumulate tint from tinted glass for colored shadows
+            if (blockType == BLOCK_TINTED_GLASS && pc.enable_tinted_shadows != 0u) {
+                uvec2 meta = readModelMetadata(pos);
+                uint tintIndex = meta.g & 0x1Fu;
+                shadowTint *= TINT_PALETTE[tintIndex] * 0.85; // Slight attenuation
             }
 
             if (blockType == BLOCK_LEAVES) {
@@ -230,7 +240,14 @@ float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFl
 
 float castShadowRay(vec3 origin) {
     uint dbg;
-    return castShadowRayInternal(origin, false, dbg);
+    vec3 tint;
+    return castShadowRayInternal(origin, false, dbg, tint);
+}
+
+// Cast shadow ray and return tint for colored shadows
+float castShadowRayWithTint(vec3 origin, out vec3 shadowTint) {
+    uint dbg;
+    return castShadowRayInternal(origin, false, dbg, shadowTint);
 }
 
 // Sky exposure for ambient light
@@ -294,7 +311,7 @@ float getSkyExposure(vec3 origin) {
                     }
                 }
             } else if (blockType != BLOCK_AIR && blockType != BLOCK_WATER &&
-                       blockType != BLOCK_GLASS && blockType != BLOCK_LEAVES) {
+                       blockType != BLOCK_GLASS && blockType != BLOCK_TINTED_GLASS && blockType != BLOCK_LEAVES) {
                 return 0.0;
             }
 

@@ -157,7 +157,7 @@ pub fn run(_args: &Args, event_loop: &EventLoop<()>) -> Result<(), Box<dyn Error
     )
     .unwrap();
 
-    let blocks: [BlockType; 15] = [
+    let blocks: [BlockType; 16] = [
         BlockType::Stone,
         BlockType::Dirt,
         BlockType::Grass,
@@ -167,6 +167,7 @@ pub fn run(_args: &Args, event_loop: &EventLoop<()>) -> Result<(), Box<dyn Error
         BlockType::Gravel,
         BlockType::Water,
         BlockType::Glass,
+        BlockType::TintedGlass,
         BlockType::Log,
         BlockType::Brick,
         BlockType::Snow,
@@ -395,10 +396,22 @@ fn render_icon(
     let idx = local_pos.0 + local_pos.1 * CHUNK_SIZE + local_pos.2 * CHUNK_SIZE * CHUNK_SIZE;
     block_buf[idx] = block_type as u8;
 
+    // For glass blocks, add a backing block behind to make transparency visible
+    // Camera is at block_center + (2, 2, 2), so backing is at (-1, -1, -1) offset
+    if matches!(block_type, BlockType::Glass | BlockType::TintedGlass) {
+        let back_pos = (local_pos.0 - 1, local_pos.1 - 1, local_pos.2 - 1);
+        let back_idx = back_pos.0 + back_pos.1 * CHUNK_SIZE + back_pos.2 * CHUNK_SIZE * CHUNK_SIZE;
+        block_buf[back_idx] = BlockType::Stone as u8;
+    }
+
     let mut meta_buf = vec![0u8; CHUNK_VOLUME * 2];
     if let Some(id) = model_id {
         meta_buf[idx * 2] = id;
         meta_buf[idx * 2 + 1] = 0; // rotation 0
+    }
+    // For tinted glass, set a visible tint index (e.g., red = 0)
+    if block_type == BlockType::TintedGlass {
+        meta_buf[idx * 2 + 1] = 0; // tint index 0 = red
     }
 
     upload_chunks_batched(
@@ -456,6 +469,7 @@ fn render_icon(
         enable_shadows: 1,
         enable_model_shadows: 1,
         enable_point_lights: 0,
+        enable_tinted_shadows: 0,
         transparent_background: 1,
         pass_mode: 0,
         lod_ao_distance: 64.0,

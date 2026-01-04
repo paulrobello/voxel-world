@@ -81,8 +81,16 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
     ivec3 firstGlassCoord = ivec3(-1);
     vec3 firstGlassLocalHit = vec3(0.0);
 
+    // Tinted glass state
+    bool passedTintedGlass = false;
+    vec3 accumulatedTint = vec3(1.0);
+    vec3 tintedGlassSurfaceNormal = vec3(0.0);
+    vec3 tintedGlassSurfaceHit = vec3(0.0);
+    ivec3 firstTintedGlassCoord = ivec3(-1);
+    vec3 firstTintedGlassLocalHit = vec3(0.0);
+
     uint blockType = readBlockTypeAtTexCoord(ivec3(coord));
-    bool instantHit = (blockType != BLOCK_AIR && blockType != BLOCK_WATER && blockType != BLOCK_GLASS && blockType != BLOCK_MODEL);
+    bool instantHit = (blockType != BLOCK_AIR && blockType != BLOCK_WATER && blockType != BLOCK_GLASS && blockType != BLOCK_TINTED_GLASS && blockType != BLOCK_MODEL);
 
     if (blockType == BLOCK_WATER) {
         inWater = true;
@@ -100,6 +108,18 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
         glassSurfaceHit = origin;
         firstGlassCoord = ivec3(coord);
         firstGlassLocalHit = origin - vec3(coord);
+    }
+
+    if (blockType == BLOCK_TINTED_GLASS) {
+        passedTintedGlass = true;
+        tintedGlassSurfaceNormal = vec3(0.0, 1.0, 0.0);
+        tintedGlassSurfaceHit = origin;
+        firstTintedGlassCoord = ivec3(coord);
+        firstTintedGlassLocalHit = origin - vec3(coord);
+        // Read tint index from metadata
+        uvec2 metadata = readModelMetadata(ivec3(coord));
+        uint tintIndex = metadata.g & 0x1Fu;
+        accumulatedTint *= TINT_PALETTE[tintIndex];
     }
 
     float prevT = 0.0;
@@ -203,6 +223,27 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
             glassDepth += 1.0;
         }
 
+        if (blockType == BLOCK_TINTED_GLASS) {
+            if (!passedTintedGlass) {
+                passedTintedGlass = true;
+                tintedGlassSurfaceNormal = vec3(0.0);
+                tintedGlassSurfaceNormal[stepped_axis] = -sgn_dir[stepped_axis];
+                tintedGlassSurfaceHit = origin + dir * prevT;
+                firstTintedGlassCoord = ivec3(coord);
+                firstTintedGlassLocalHit = tintedGlassSurfaceHit - vec3(coord);
+            }
+            // Read and accumulate tint
+            uvec2 metadata = readModelMetadata(ivec3(coord));
+            uint tintIndex = metadata.g & 0x1Fu;
+            accumulatedTint *= TINT_PALETTE[tintIndex];
+
+            // Early cutoff if tint absorbs too much light
+            if (max(accumulatedTint.r, max(accumulatedTint.g, accumulatedTint.b)) < 0.01) {
+                color = vec3(0.0);
+                return true;
+            }
+        }
+
         if (blockType == BLOCK_MODEL) {
             uvec2 metadata = readModelMetadata(ivec3(coord));
             uint model_id = metadata.r;
@@ -265,7 +306,7 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
             }
         }
 
-        if (blockType != BLOCK_AIR && blockType != BLOCK_WATER && blockType != BLOCK_GLASS && blockType != BLOCK_MODEL)
+        if (blockType != BLOCK_AIR && blockType != BLOCK_WATER && blockType != BLOCK_GLASS && blockType != BLOCK_TINTED_GLASS && blockType != BLOCK_MODEL)
             break;
 
         prevT = min(min(t.x, t.y), t.z);
@@ -382,27 +423,34 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
         float skyExposure = nearEnoughForSkyExposure ? getSkyExposure(lightingHit + shadowOffset) : 1.0;
         vec3 shadowOrigin = lightingHit + shadowOffset;
         uint dummyDbg;
+        vec3 shadowTint = vec3(1.0);
         // Let slabs/models receive shadows; offset origin prevents self-occlusion so we don't need to skip start.
         bool ignoreStartModel = false;
-        float shadow = nearEnoughForShadow ? castShadowRayInternal(shadowOrigin, ignoreStartModel, dummyDbg) : 1.0;
+        float shadow = nearEnoughForShadow ? castShadowRayInternal(shadowOrigin, ignoreStartModel, dummyDbg, shadowTint) : 1.0;
         float sunLight = max(0.0, dot(normal, sunDir));
         float baseAmbient = mix(pc.ambient_light, pc.ambient_light + 0.25, daylight);
         float minAmbient = max(0.02, pc.ambient_light * 0.5);
-        // Keep daytime ambient from creating a second “top-down” shadow; only lightly gate by sky exposure.
+        // Keep daytime ambient from creating a second "top-down" shadow; only lightly gate by sky exposure.
         float ambientExposure = (pc.enable_shadows != 0 && daylight > 0.1) ? mix(1.0, skyExposure, 0.2) : skyExposure;
         float ambient = mix(minAmbient, baseAmbient, ambientExposure);
         // Direct sun should only be reduced by actual blockers along the sun ray.
-        // Tying it to vertical sky exposure caused a second “top-down” shadow overlay
+        // Tying it to vertical sky exposure caused a second "top-down" shadow overlay
         // when the sky above was occluded even though the sun was visible at an angle.
         float direct = mix(0.2, 0.65, daylight) * sunLight * shadow;
         float lighting = ambient + direct;
+
+        // Apply tinted shadow to direct lighting color
+        vec3 sunColor = getSunColor() * shadowTint;
 
         vec3 pointLightContrib = vec3(0.0);
         if (pc.light_count > 0 && nearEnoughForPointLights) {
             pointLightContrib = calculatePointLights(lightingHit, normal);
         }
 
-        color = blockColor * lighting * ao + blockColor * pointLightContrib * (0.7 + 0.3 * ao);
+        // Blend ambient (white) with direct (sun color with tint)
+        vec3 ambientColor = blockColor * ambient * ao;
+        vec3 directColor = blockColor * sunColor * direct * ao;
+        color = ambientColor + directColor + blockColor * pointLightContrib * (0.7 + 0.3 * ao);
         }
         break;
         case SHADOW_DEBUG:
@@ -412,8 +460,9 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
         float receiverOffset = subVoxelHit ? 0.003 : 0.01;
         vec3 shadowOrigin = lightingHit + normal * receiverOffset + sunDir * 0.002;
         uint dbgFlag;
+        vec3 dbgTint;
         bool ignoreStartModel = false;
-        float shadow = castShadowRayInternal(shadowOrigin, ignoreStartModel, dbgFlag);
+        float shadow = castShadowRayInternal(shadowOrigin, ignoreStartModel, dbgFlag, dbgTint);
         if (dbgFlag == 0u) color = vec3(0.0, 1.0, 0.0);
         else if (dbgFlag == 1u) color = vec3(0.0, 0.0, 1.0);
         else if (dbgFlag == 2u) color = vec3(1.0, 0.0, 0.0);
@@ -552,6 +601,62 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
             ivec3 targetPos = ivec3(pc.target_block_x, pc.target_block_y, pc.target_block_z);
             if (firstGlassCoord == targetPos) {
                 float wireframe = getWireframeFactor(firstGlassLocalHit, glassSurfaceNormal);
+                if (wireframe > 0.1) {
+                    vec3 outlineColor = vec3(0.0, 1.0, 1.0);
+                    float outlineAlpha = wireframe * 0.9;
+                    color = mix(color, outlineColor, outlineAlpha);
+                }
+            }
+        }
+    }
+
+    // Apply tinted glass effect
+    if (passedTintedGlass) {
+        vec3 localPos = firstTintedGlassLocalHit;
+
+        vec2 faceUV;
+        if (abs(tintedGlassSurfaceNormal.x) > 0.5) {
+            faceUV = localPos.yz;
+        } else if (abs(tintedGlassSurfaceNormal.y) > 0.5) {
+            faceUV = localPos.xz;
+        } else {
+            faceUV = localPos.xy;
+        }
+
+        // Thin edge highlight similar to regular glass
+        float frameWidth = 0.012;
+        float innerFrameWidth = 0.03;
+
+        float distFromEdgeX = min(faceUV.x, 1.0 - faceUV.x);
+        float distFromEdgeY = min(faceUV.y, 1.0 - faceUV.y);
+        float distFromEdge = min(distFromEdgeX, distFromEdgeY);
+
+        float outerFrame = 1.0 - smoothstep(0.0, frameWidth * 0.8, distFromEdge);
+        float innerFrame = smoothstep(frameWidth * 0.7, innerFrameWidth, distFromEdge) *
+                          (1.0 - smoothstep(innerFrameWidth, innerFrameWidth + 0.01, distFromEdge));
+
+        // Use tint color for frame
+        vec3 frameColor = accumulatedTint * 0.8;
+        vec3 highlightColor = mix(accumulatedTint, vec3(1.0), 0.5);
+
+        color = mix(color, frameColor, outerFrame * 0.35);
+        color = mix(color, highlightColor, innerFrame * 0.22);
+
+        // Fresnel reflection
+        float viewDotNormal = abs(dot(normalize(dir), tintedGlassSurfaceNormal));
+        float fresnel = 0.05 + 0.15 * pow(1.0 - viewDotNormal, 2.0);
+        vec3 reflectDir = reflect(normalize(dir), tintedGlassSurfaceNormal);
+        vec3 reflectionColor = getSkyColor(reflectDir) * accumulatedTint;
+        color = mix(color, reflectionColor, fresnel);
+
+        // Apply accumulated tint to color
+        color *= accumulatedTint;
+
+        // Target block outline
+        if (hasTargetBlock()) {
+            ivec3 targetPos = ivec3(pc.target_block_x, pc.target_block_y, pc.target_block_z);
+            if (firstTintedGlassCoord == targetPos) {
+                float wireframe = getWireframeFactor(firstTintedGlassLocalHit, tintedGlassSurfaceNormal);
                 if (wireframe > 0.1) {
                     vec3 outlineColor = vec3(0.0, 1.0, 1.0);
                     float outlineAlpha = wireframe * 0.9;

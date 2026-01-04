@@ -106,7 +106,7 @@ impl HUDRenderer {
         tab: PaletteTab,
         registry: &ModelRegistry,
     ) -> Vec<(PaletteItem, String)> {
-        const BLOCK_PALETTE: [BlockType; 15] = [
+        const BLOCK_PALETTE: [BlockType; 16] = [
             BlockType::Stone,
             BlockType::Dirt,
             BlockType::Grass,
@@ -116,6 +116,7 @@ impl HUDRenderer {
             BlockType::Gravel,
             BlockType::Water,
             BlockType::Glass,
+            BlockType::TintedGlass,
             BlockType::Log,
             BlockType::Brick,
             BlockType::Snow,
@@ -683,6 +684,22 @@ impl HUDRenderer {
                                 println!(
                                     "[TOGGLE] Point Lights: {}",
                                     if settings.enable_point_lights {
+                                        "ON"
+                                    } else {
+                                        "OFF"
+                                    }
+                                );
+                            }
+                            if ui
+                                .checkbox(
+                                    &mut settings.enable_tinted_shadows,
+                                    "Tinted Glass Shadows",
+                                )
+                                .changed()
+                            {
+                                println!(
+                                    "[TOGGLE] Tinted Glass Shadows: {}",
+                                    if settings.enable_tinted_shadows {
                                         "ON"
                                     } else {
                                         "OFF"

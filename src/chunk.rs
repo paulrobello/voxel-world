@@ -43,6 +43,8 @@ pub enum BlockType {
     Cobblestone = 14,
     Iron = 15,
     Bedrock = 16,
+    /// Tinted glass block. Use tint_data to get color index (0-31).
+    TintedGlass = 17,
 }
 
 /// Metadata for a block that uses a sub-voxel model.
@@ -61,11 +63,18 @@ pub struct BlockModelData {
 }
 
 impl BlockType {
-    /// Returns true if this block type is solid (not air, water, or model blocks).
+    /// Returns true if this block type is solid (not air, water, glass, or model blocks).
     /// Note: Model blocks may have sub-voxel collision, but are not solid at block level.
     #[inline]
     pub fn is_solid(self) -> bool {
-        !matches!(self, BlockType::Air | BlockType::Water | BlockType::Model)
+        !matches!(
+            self,
+            BlockType::Air
+                | BlockType::Water
+                | BlockType::Model
+                | BlockType::Glass
+                | BlockType::TintedGlass
+        )
     }
 
     /// Returns true if this block can be targeted by raycast for breaking/interaction.
@@ -101,6 +110,7 @@ impl BlockType {
             BlockType::Air
                 | BlockType::Water
                 | BlockType::Glass
+                | BlockType::TintedGlass
                 | BlockType::Leaves
                 | BlockType::Model
         )
@@ -145,6 +155,7 @@ impl BlockType {
             BlockType::Cobblestone => [0.45, 0.45, 0.45],
             BlockType::Iron => [0.75, 0.75, 0.78],
             BlockType::Bedrock => [0.2, 0.2, 0.2], // Dark gray, nearly black
+            BlockType::TintedGlass => [0.7, 0.8, 0.9], // Light blue-gray base
         }
     }
 
@@ -159,7 +170,11 @@ impl BlockType {
             // Fast
             BlockType::Dirt | BlockType::Sand | BlockType::Gravel | BlockType::Snow => 0.3,
             // Normal
-            BlockType::Grass | BlockType::Planks | BlockType::Log | BlockType::Glass => 0.5,
+            BlockType::Grass
+            | BlockType::Planks
+            | BlockType::Log
+            | BlockType::Glass
+            | BlockType::TintedGlass => 0.5,
             // Slow
             BlockType::Stone | BlockType::Cobblestone | BlockType::Brick => 0.8,
             // Very slow
@@ -198,6 +213,7 @@ impl From<u8> for BlockType {
             14 => BlockType::Cobblestone,
             15 => BlockType::Iron,
             16 => BlockType::Bedrock,
+            17 => BlockType::TintedGlass,
             _ => BlockType::Air,
         }
     }
@@ -216,6 +232,11 @@ pub struct Chunk {
     /// Only blocks of type `Model` have entries here.
     /// Key: block index, Value: model_id and rotation.
     model_data: HashMap<usize, BlockModelData>,
+
+    /// Sparse storage for tinted glass color indices.
+    /// Only blocks of type `TintedGlass` have entries here.
+    /// Key: block index, Value: color index (0-31).
+    tint_data: HashMap<usize, u8>,
 
     /// Reusable RG8 buffer for model metadata uploads (len = CHUNK_VOLUME * 2).
     model_metadata_buf: RefCell<Vec<u8>>,
@@ -256,6 +277,7 @@ impl Chunk {
         Self {
             blocks: Box::new([BlockType::Air; CHUNK_VOLUME]),
             model_data: HashMap::new(),
+            tint_data: HashMap::new(),
             model_metadata_buf: RefCell::new(vec![0u8; CHUNK_VOLUME * 2]),
             model_metadata_dirty: Cell::new(false),
             light_block_count: 0,
@@ -280,6 +302,7 @@ impl Chunk {
         Self {
             blocks: Box::new([block_type; CHUNK_VOLUME]),
             model_data: HashMap::new(),
+            tint_data: HashMap::new(),
             model_metadata_buf: RefCell::new(vec![0u8; CHUNK_VOLUME * 2]),
             model_metadata_dirty: Cell::new(false),
             light_block_count,
@@ -339,6 +362,11 @@ impl Chunk {
                 self.model_data.remove(&idx);
                 self.model_metadata_dirty.set(true);
             }
+            // Clean up tint data if block is no longer TintedGlass
+            if block != BlockType::TintedGlass {
+                self.tint_data.remove(&idx);
+                self.model_metadata_dirty.set(true);
+            }
         } else if block.is_light_source() {
             // No change, keep counts stable
         }
@@ -388,6 +416,26 @@ impl Chunk {
         self.dirty = true;
         self.persistence_dirty = true;
         self.model_metadata_dirty.set(true);
+    }
+
+    /// Sets a tinted glass block with its color index at the given local coordinates.
+    #[inline]
+    pub fn set_tinted_glass_block(&mut self, x: usize, y: usize, z: usize, tint_index: u8) {
+        let idx = Self::index(x, y, z);
+        self.blocks[idx] = BlockType::TintedGlass;
+        self.tint_data.insert(idx, tint_index & 0x1F); // Clamp to 0-31
+        self.dirty = true;
+        self.persistence_dirty = true;
+        self.metadata_dirty = true;
+        self.model_metadata_dirty.set(true);
+    }
+
+    /// Gets the tint color index for a tinted glass block at the given local coordinates.
+    /// Returns None if the block is not a TintedGlass type.
+    #[inline]
+    pub fn get_tint_index(&self, x: usize, y: usize, z: usize) -> Option<u8> {
+        let idx = Self::index(x, y, z);
+        self.tint_data.get(&idx).copied()
     }
 
     /// Returns the number of model blocks in this chunk.
@@ -472,13 +520,18 @@ impl Chunk {
     }
 
     /// Returns a cached RG8 view of the model metadata (2 bytes per voxel).
-    /// The buffer is rebuilt only when model data changes.
+    /// The buffer is rebuilt only when model or tint data changes.
+    ///
+    /// Layout:
+    /// - For Model blocks: R = model_id, G = rotation (bits 0-1) | waterlogged (bit 2)
+    /// - For TintedGlass blocks: R = 0, G = tint_index (bits 0-4)
     #[inline]
     pub fn model_metadata_bytes(&self) -> Ref<'_, [u8]> {
         if self.model_metadata_dirty.get() {
             {
                 let mut buf = self.model_metadata_buf.borrow_mut();
                 buf.fill(0);
+                // Pack model data
                 for (idx, data) in &self.model_data {
                     let offset = idx * 2;
                     buf[offset] = data.model_id;
@@ -488,6 +541,12 @@ impl Chunk {
                         packed_meta |= 0x04;
                     }
                     buf[offset + 1] = packed_meta;
+                }
+                // Pack tint data for TintedGlass blocks
+                for (idx, &tint_index) in &self.tint_data {
+                    let offset = idx * 2;
+                    buf[offset] = 0; // R = 0 (no model_id)
+                    buf[offset + 1] = tint_index & 0x1F; // G = tint_index (bits 0-4)
                 }
             }
             self.model_metadata_dirty.set(false);

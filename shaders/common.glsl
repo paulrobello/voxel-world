@@ -28,6 +28,43 @@ const uint BLOCK_SNOW = 13;
 const uint BLOCK_COBBLESTONE = 14;
 const uint BLOCK_IRON = 15;
 const uint BLOCK_BEDROCK = 16;
+const uint BLOCK_TINTED_GLASS = 17;
+
+// Tint palette for tinted glass (32 colors)
+const vec3 TINT_PALETTE[32] = vec3[32](
+    vec3(1.0, 0.2, 0.2),   // 0: Red
+    vec3(1.0, 0.5, 0.2),   // 1: Orange
+    vec3(1.0, 1.0, 0.2),   // 2: Yellow
+    vec3(0.5, 1.0, 0.2),   // 3: Lime
+    vec3(0.2, 1.0, 0.2),   // 4: Green
+    vec3(0.2, 1.0, 0.5),   // 5: Teal
+    vec3(0.2, 1.0, 1.0),   // 6: Cyan
+    vec3(0.2, 0.5, 1.0),   // 7: Sky blue
+    vec3(0.2, 0.2, 1.0),   // 8: Blue
+    vec3(0.5, 0.2, 1.0),   // 9: Purple
+    vec3(1.0, 0.2, 1.0),   // 10: Magenta
+    vec3(1.0, 0.2, 0.5),   // 11: Pink
+    vec3(0.95, 0.95, 0.95),// 12: White
+    vec3(0.6, 0.6, 0.6),   // 13: Light gray
+    vec3(0.3, 0.3, 0.3),   // 14: Dark gray
+    vec3(0.4, 0.25, 0.1),  // 15: Brown
+    vec3(0.8, 0.4, 0.4),   // 16: Light red
+    vec3(0.8, 0.6, 0.4),   // 17: Peach
+    vec3(0.8, 0.8, 0.4),   // 18: Light yellow
+    vec3(0.6, 0.8, 0.4),   // 19: Light lime
+    vec3(0.4, 0.8, 0.4),   // 20: Light green
+    vec3(0.4, 0.8, 0.6),   // 21: Light teal
+    vec3(0.4, 0.8, 0.8),   // 22: Light cyan
+    vec3(0.4, 0.6, 0.8),   // 23: Light sky
+    vec3(0.4, 0.4, 0.8),   // 24: Light blue
+    vec3(0.6, 0.4, 0.8),   // 25: Light purple
+    vec3(0.8, 0.4, 0.8),   // 26: Light magenta
+    vec3(0.8, 0.4, 0.6),   // 27: Light pink
+    vec3(0.2, 0.15, 0.1),  // 28: Dark brown
+    vec3(0.1, 0.2, 0.1),   // 29: Dark green
+    vec3(0.1, 0.1, 0.2),   // 30: Dark blue
+    vec3(0.2, 0.1, 0.2)    // 31: Dark purple
+);
 
 // World/chunk sizes (must mirror Rust)
 const uint CHUNK_SIZE = 32;
@@ -80,6 +117,7 @@ layout(push_constant) uniform PushConstants {
     uint enable_shadows;
     uint enable_model_shadows;
     uint enable_point_lights;
+    uint enable_tinted_shadows;
     uint transparent_background;
     uint pass_mode;
     float lod_ao_distance;
