@@ -16,6 +16,10 @@ worlds/
 # User preferences
 user_prefs.json
 
+# User data
+user_models/
+profile.csv
+
 # Python / virtualenvs
 .venv/
 venv/
