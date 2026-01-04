@@ -52,6 +52,7 @@ pub fn render_hud(
             dragging_item: &mut ui.dragging_item,
             model_registry: &sim.model_registry,
             editor: &mut ui.editor,
+            console: &mut ui.console,
         },
     );
 

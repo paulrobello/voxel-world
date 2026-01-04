@@ -222,6 +222,32 @@ impl BlockType {
     pub fn is_model(self) -> bool {
         matches!(self, BlockType::Model)
     }
+
+    /// Parse a block type from its name (case-insensitive).
+    ///
+    /// Returns `None` for unrecognized names.
+    /// Note: Does not include Model or TintedGlass as they require additional metadata.
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name.to_lowercase().as_str() {
+            "air" => Some(BlockType::Air),
+            "stone" => Some(BlockType::Stone),
+            "dirt" => Some(BlockType::Dirt),
+            "grass" => Some(BlockType::Grass),
+            "planks" | "wood" => Some(BlockType::Planks),
+            "leaves" => Some(BlockType::Leaves),
+            "sand" => Some(BlockType::Sand),
+            "gravel" => Some(BlockType::Gravel),
+            "water" => Some(BlockType::Water),
+            "glass" => Some(BlockType::Glass),
+            "log" => Some(BlockType::Log),
+            "brick" | "bricks" => Some(BlockType::Brick),
+            "snow" => Some(BlockType::Snow),
+            "cobblestone" | "cobble" => Some(BlockType::Cobblestone),
+            "iron" => Some(BlockType::Iron),
+            "bedrock" => Some(BlockType::Bedrock),
+            _ => None,
+        }
+    }
 }
 
 impl From<u8> for BlockType {

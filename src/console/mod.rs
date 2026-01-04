@@ -1,0 +1,301 @@
+//! In-game command console for world editing operations.
+//!
+//! Toggle the console with `/` key. Supports commands like:
+//! - `fill <block> <x1> <y1> <z1> <x2> <y2> <z2> [hollow]`
+//! - `help` - List available commands
+
+pub mod commands;
+
+use crate::world::World;
+use egui_winit_vulkano::egui;
+use nalgebra::Vector3;
+
+/// Maximum number of output lines to keep in history.
+const MAX_OUTPUT_LINES: usize = 100;
+
+/// Volume threshold requiring confirmation before execution.
+const VOLUME_CONFIRM_THRESHOLD: u64 = 100_000;
+
+/// Entry type for console output with color coding.
+#[derive(Clone)]
+pub enum ConsoleEntry {
+    /// Informational message (gray).
+    Info(String),
+    /// Success message (green).
+    Success(String),
+    /// Error message (red).
+    Error(String),
+    /// Warning message (yellow).
+    Warning(String),
+}
+
+impl ConsoleEntry {
+    /// Returns the text content of this entry.
+    pub fn text(&self) -> &str {
+        match self {
+            ConsoleEntry::Info(s)
+            | ConsoleEntry::Success(s)
+            | ConsoleEntry::Error(s)
+            | ConsoleEntry::Warning(s) => s,
+        }
+    }
+
+    /// Returns the color for this entry type.
+    pub fn color(&self) -> egui::Color32 {
+        match self {
+            ConsoleEntry::Info(_) => egui::Color32::from_gray(180),
+            ConsoleEntry::Success(_) => egui::Color32::from_rgb(100, 255, 100),
+            ConsoleEntry::Error(_) => egui::Color32::from_rgb(255, 100, 100),
+            ConsoleEntry::Warning(_) => egui::Color32::from_rgb(255, 200, 100),
+        }
+    }
+}
+
+/// Result of command execution.
+pub enum CommandResult {
+    /// Command executed successfully.
+    Success(String),
+    /// Command failed with error message.
+    Error(String),
+    /// Command needs user confirmation before execution.
+    NeedsConfirmation { message: String, command: String },
+}
+
+/// Pending command awaiting confirmation.
+#[derive(Clone)]
+pub struct PendingCommand {
+    /// The original command string.
+    pub command: String,
+}
+
+/// Console state for the in-game command system.
+#[derive(Default)]
+pub struct ConsoleState {
+    /// Whether the console is currently visible.
+    pub active: bool,
+    /// Current input text.
+    pub input: String,
+    /// Command history (most recent last).
+    pub history: Vec<String>,
+    /// Current position in history navigation (None = not navigating).
+    history_index: Option<usize>,
+    /// Saved input when navigating history.
+    saved_input: String,
+    /// Output log entries.
+    pub output: Vec<ConsoleEntry>,
+    /// Command pending confirmation.
+    pub pending_confirm: Option<PendingCommand>,
+    /// Whether the text input should request focus.
+    pub request_focus: bool,
+}
+
+impl ConsoleState {
+    /// Creates a new console state.
+    pub fn new() -> Self {
+        Self {
+            active: false,
+            input: String::new(),
+            history: Vec::new(),
+            history_index: None,
+            saved_input: String::new(),
+            output: Vec::new(),
+            pending_confirm: None,
+            request_focus: false,
+        }
+    }
+
+    /// Toggles console visibility.
+    pub fn toggle(&mut self) {
+        self.active = !self.active;
+        if self.active {
+            self.request_focus = true;
+        }
+    }
+
+    /// Closes the console.
+    pub fn close(&mut self) {
+        self.active = false;
+        self.pending_confirm = None;
+    }
+
+    /// Adds an output entry to the console.
+    pub fn add_output(&mut self, entry: ConsoleEntry) {
+        self.output.push(entry);
+        // Trim old entries if needed
+        while self.output.len() > MAX_OUTPUT_LINES {
+            self.output.remove(0);
+        }
+    }
+
+    /// Adds an info message to output.
+    pub fn info(&mut self, msg: impl Into<String>) {
+        self.add_output(ConsoleEntry::Info(msg.into()));
+    }
+
+    /// Adds a success message to output.
+    pub fn success(&mut self, msg: impl Into<String>) {
+        self.add_output(ConsoleEntry::Success(msg.into()));
+    }
+
+    /// Adds an error message to output.
+    pub fn error(&mut self, msg: impl Into<String>) {
+        self.add_output(ConsoleEntry::Error(msg.into()));
+    }
+
+    /// Adds a warning message to output.
+    pub fn warning(&mut self, msg: impl Into<String>) {
+        self.add_output(ConsoleEntry::Warning(msg.into()));
+    }
+
+    /// Navigate up in command history.
+    pub fn history_up(&mut self) {
+        if self.history.is_empty() {
+            return;
+        }
+        match self.history_index {
+            None => {
+                // Start navigating from the end
+                self.saved_input = self.input.clone();
+                self.history_index = Some(self.history.len() - 1);
+                self.input = self.history[self.history.len() - 1].clone();
+            }
+            Some(idx) if idx > 0 => {
+                self.history_index = Some(idx - 1);
+                self.input = self.history[idx - 1].clone();
+            }
+            _ => {}
+        }
+    }
+
+    /// Navigate down in command history.
+    pub fn history_down(&mut self) {
+        if let Some(idx) = self.history_index {
+            if idx + 1 < self.history.len() {
+                self.history_index = Some(idx + 1);
+                self.input = self.history[idx + 1].clone();
+            } else {
+                // Back to original input
+                self.history_index = None;
+                self.input = self.saved_input.clone();
+            }
+        }
+    }
+
+    /// Submit the current input for execution.
+    pub fn submit(&mut self, world: &mut World, player_pos: Vector3<i32>) {
+        let input = self.input.trim().to_string();
+        if input.is_empty() {
+            return;
+        }
+
+        // Add to history (avoid duplicates at end)
+        if self.history.last() != Some(&input) {
+            self.history.push(input.clone());
+        }
+
+        // Reset history navigation
+        self.history_index = None;
+        self.saved_input.clear();
+
+        // Clear input
+        self.input.clear();
+
+        // Execute command
+        self.execute(&input, world, player_pos);
+    }
+
+    /// Execute a command string.
+    fn execute(&mut self, input: &str, world: &mut World, player_pos: Vector3<i32>) {
+        // Echo the command
+        self.info(format!("> {}", input));
+
+        // Handle confirmation response
+        if let Some(pending) = self.pending_confirm.take() {
+            let response = input.to_lowercase();
+            if response == "y" || response == "yes" {
+                // Re-execute the original command with confirmation bypass
+                self.execute_confirmed(&pending.command, world, player_pos);
+            } else {
+                self.info("Command cancelled.");
+            }
+            return;
+        }
+
+        // Parse and execute command
+        let result = self.parse_and_execute(input, world, player_pos, false);
+        self.handle_result(result);
+    }
+
+    /// Execute a confirmed command (bypass volume check).
+    fn execute_confirmed(&mut self, input: &str, world: &mut World, player_pos: Vector3<i32>) {
+        let result = self.parse_and_execute(input, world, player_pos, true);
+        self.handle_result(result);
+    }
+
+    /// Handle command result.
+    fn handle_result(&mut self, result: CommandResult) {
+        match result {
+            CommandResult::Success(msg) => self.success(msg),
+            CommandResult::Error(msg) => self.error(msg),
+            CommandResult::NeedsConfirmation { message, command } => {
+                self.warning(&message);
+                self.info("Type 'y' or 'yes' to confirm, anything else to cancel.");
+                self.pending_confirm = Some(PendingCommand { command });
+            }
+        }
+    }
+
+    /// Parse and execute a command.
+    fn parse_and_execute(
+        &mut self,
+        input: &str,
+        world: &mut World,
+        player_pos: Vector3<i32>,
+        confirmed: bool,
+    ) -> CommandResult {
+        let parts: Vec<&str> = input.split_whitespace().collect();
+        if parts.is_empty() {
+            return CommandResult::Error("Empty command".to_string());
+        }
+
+        let cmd = parts[0].to_lowercase();
+        let args = &parts[1..];
+
+        match cmd.as_str() {
+            "help" | "?" => commands::help(),
+            "fill" => commands::fill(args, world, player_pos, confirmed),
+            "clear" => {
+                self.output.clear();
+                CommandResult::Success("Console cleared.".to_string())
+            }
+            _ => CommandResult::Error(format!(
+                "Unknown command: '{}'. Type 'help' for commands.",
+                cmd
+            )),
+        }
+    }
+}
+
+/// Parse a coordinate value that may be relative (~).
+/// `~` means player position, `~5` means player + 5, `~-5` means player - 5.
+pub fn parse_coordinate(s: &str, player_coord: i32) -> Result<i32, String> {
+    let s = s.trim();
+    if let Some(offset_str) = s.strip_prefix('~') {
+        if offset_str.is_empty() {
+            Ok(player_coord)
+        } else {
+            offset_str
+                .parse::<i32>()
+                .map(|offset| player_coord + offset)
+                .map_err(|_| format!("Invalid relative coordinate: '{}'", s))
+        }
+    } else {
+        s.parse::<i32>()
+            .map_err(|_| format!("Invalid coordinate: '{}'", s))
+    }
+}
+
+/// Volume threshold for confirmation.
+pub fn volume_confirm_threshold() -> u64 {
+    VOLUME_CONFIRM_THRESHOLD
+}

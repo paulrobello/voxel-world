@@ -83,6 +83,7 @@ mod camera;
 mod chunk;
 mod chunk_loader;
 mod config;
+mod console;
 mod constants;
 mod editor;
 mod falling_block;
@@ -111,6 +112,7 @@ use crate::block_update::BlockUpdateQueue;
 use crate::chunk::{BlockType, CHUNK_SIZE};
 use crate::chunk_loader::ChunkLoader;
 use crate::config::{Args, INITIAL_WINDOW_RESOLUTION, Settings, WorldGenType};
+use crate::console::ConsoleState;
 use crate::constants::{
     LOADED_CHUNKS_X, LOADED_CHUNKS_Z, TEXTURE_SIZE_X, TEXTURE_SIZE_Y, TEXTURE_SIZE_Z,
     UNLOAD_DISTANCE, VIEW_DISTANCE, WORLD_CHUNKS_Y,
@@ -405,6 +407,11 @@ struct UiState {
     editor: EditorState,
     /// Whether we were focused before opening the editor.
     editor_previously_focused: bool,
+
+    /// In-game command console state.
+    console: ConsoleState,
+    /// Whether we were focused before opening the console.
+    console_previously_focused: bool,
 }
 
 struct InputState {
@@ -945,6 +952,8 @@ impl App {
             screenshot_taken: false,
             editor: EditorState::new(),
             editor_previously_focused: false,
+            console: ConsoleState::new(),
+            console_previously_focused: false,
         };
 
         let input = InputState {

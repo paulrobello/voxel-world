@@ -32,6 +32,17 @@ impl App {
             return true;
         }
 
+        // Close console with Escape (restores focus if it was focused before opening)
+        if self.input.key_pressed(KeyCode::Escape) && self.ui.console.active {
+            self.ui.console.close();
+            if self.ui.console_previously_focused {
+                self.input.focused = true;
+                self.input.pending_grab = Some(true);
+                self.ui.console_previously_focused = false;
+            }
+            return true;
+        }
+
         // Handle escape to unfocus
         if self.input.key_pressed(KeyCode::Escape) && self.input.focused {
             self.input.focused = false;
@@ -239,6 +250,11 @@ impl App {
 
     /// Hotkeys that should work even when gameplay focus is released.
     pub fn handle_global_shortcuts(&mut self) {
+        // Don't process shortcuts if console is active (it captures text input)
+        if self.ui.console.active {
+            return;
+        }
+
         if self.input.key_pressed(KeyCode::KeyE) {
             self.toggle_palette_panel();
         }
@@ -246,6 +262,11 @@ impl App {
         // Toggle model editor (N key)
         if self.input.key_pressed(KeyCode::KeyN) {
             self.toggle_editor_panel();
+        }
+
+        // Toggle console (/ key)
+        if self.input.key_pressed(KeyCode::Slash) {
+            self.toggle_console();
         }
 
         // Editor undo/redo shortcuts (Cmd+Z/Ctrl+Z and Cmd+Shift+Z/Ctrl+Shift+Z)
@@ -305,6 +326,24 @@ impl App {
                 self.ui.editor_previously_focused = false;
             }
             println!("Model editor: OFF");
+        }
+    }
+
+    /// Toggles the command console on/off.
+    fn toggle_console(&mut self) {
+        self.ui.console.toggle();
+        if self.ui.console.active {
+            // Opening console: release cursor, store previous focus
+            self.ui.console_previously_focused = self.input.focused;
+            self.input.focused = false;
+            self.input.pending_grab = Some(false);
+        } else {
+            // Closing console: restore focus if we were focused before
+            if self.ui.console_previously_focused {
+                self.input.focused = true;
+                self.input.pending_grab = Some(true);
+                self.ui.console_previously_focused = false;
+            }
         }
     }
 }

@@ -616,9 +616,18 @@ Maintain 90+ FPS with all features enabled.
 ---
 
 ## Current Work (2026-01-04)
-- All planned phases complete. Looking for new features to implement.
+- Console command system complete. Looking for new features to implement.
 
 ## Done Recently
+- **Command Console System** (2026-01-04):
+  - Toggle with `/` key, close with Escape
+  - `fill <block> <x1> <y1> <z1> <x2> <y2> <z2> [hollow]` command
+  - Relative coordinates with `~` syntax (e.g., `~5` = player pos + 5)
+  - Volume confirmation for operations > 100k blocks
+  - `hollow` flag creates shell with air interior
+  - Command history navigation (up/down arrows)
+  - Color-coded output (success=green, error=red, warning=yellow)
+  - `help` and `clear` commands
 - **Mirror Mode for Model Editor** (2026-01-04):
   - X/Y/Z axis toggle buttons in editor UI
   - Multiple axes can be enabled simultaneously (2x/4x/8x placements)
