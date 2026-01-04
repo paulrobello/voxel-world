@@ -31,3 +31,4 @@ __pycache__/
 *.pyd
 .python-version
 .pytest_cache/
+.idea/
