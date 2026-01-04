@@ -451,6 +451,9 @@ float marchSubVoxelShadow(
                               : (step.z < 0) ? (startPos.z - float(voxel.z)) * (-invDir.z)
                                              : 1e30;
 
+    // Track previous palette index to avoid internal face artifacts
+    uint prev_palette_idx = 0u;
+
     for (int i = 0; i < stepsLeft; i++) {
         if (any(lessThan(voxel, ivec3(0))) || any(greaterThanEqual(voxel, ivec3(int(SUB_VOXEL_SIZE))))) {
             break;
@@ -466,15 +469,21 @@ float marchSubVoxelShadow(
                 // Opaque voxel: full shadow
                 return 0.0;
             }
-            // Translucent voxel: reduce transmission and accumulate tint
-            float absorbed = paletteColor.a;
-            transmission *= (1.0 - absorbed);
-            // Blend voxel color into tint based on how much light it absorbs
-            accumulatedTint *= mix(vec3(1.0), paletteColor.rgb, absorbed);
-            if (transmission < 0.05) {
-                return 0.0; // Early out when nearly opaque
+            // Only accumulate at surface boundaries, not internal faces
+            bool isInternalFace = (palette_idx == prev_palette_idx);
+            if (!isInternalFace) {
+                // Translucent voxel: reduce transmission and accumulate tint
+                float absorbed = paletteColor.a;
+                transmission *= (1.0 - absorbed);
+                // Blend voxel color into tint based on how much light it absorbs
+                accumulatedTint *= mix(vec3(1.0), paletteColor.rgb, absorbed);
+                if (transmission < 0.05) {
+                    return 0.0; // Early out when nearly opaque
+                }
             }
         }
+
+        prev_palette_idx = palette_idx;
 
         // Step to next sub-voxel
         if (tMaxAxis.x < tMaxAxis.y) {
