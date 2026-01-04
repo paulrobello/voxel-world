@@ -164,6 +164,8 @@ struct PaletteItem {
     block: BlockType,
     /// For non-Model blocks this is 0; for Model blocks this is the registry model_id.
     model_id: u8,
+    /// For TintedGlass blocks, the tint color index (0-31). Ignored for other block types.
+    tint_index: u8,
 }
 
 /// Default blocks available in the hotbar (9 slots, keys 1-9)
@@ -192,6 +194,10 @@ const DEFAULT_HOTBAR_MODEL_IDS: [u8; 9] = [
     3,  // Slab top
     1,  // Torch
 ];
+
+/// Default tint indices for TintedGlass blocks in hotbar.
+/// Only used when the block type is TintedGlass.
+const DEFAULT_HOTBAR_TINT_INDICES: [u8; 9] = [0; 9];
 
 /// Finds the ground level (highest non-air block) at the given world coordinates.
 fn find_ground_level(world: &World, world_x: i32, world_z: i32) -> i32 {
@@ -399,6 +405,7 @@ struct UiState {
     hotbar_index: usize,
     hotbar_blocks: [BlockType; 9],
     hotbar_model_ids: [u8; 9],
+    hotbar_tint_indices: [u8; 9],
     current_hit: Option<RaycastHit>,
 
     breaking_block: Option<Vector3<i32>>,
@@ -886,6 +893,7 @@ impl App {
             hotbar_index: 0,
             hotbar_blocks: DEFAULT_HOTBAR_BLOCKS,
             hotbar_model_ids: DEFAULT_HOTBAR_MODEL_IDS,
+            hotbar_tint_indices: DEFAULT_HOTBAR_TINT_INDICES,
             current_hit: None,
             breaking_block: None,
             break_progress: 0.0,

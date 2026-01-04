@@ -27,6 +27,7 @@ pub struct HudInputs<'a> {
     pub hotbar_index: &'a mut usize,
     pub hotbar_blocks: &'a mut [BlockType; 9],
     pub hotbar_model_ids: &'a mut [u8; 9],
+    pub hotbar_tint_indices: &'a mut [u8; 9],
     pub minimap_image: Option<egui::ColorImage>,
     pub atlas_texture_id: egui::TextureId,
     pub sprite_icons: Option<&'a SpriteIcons>,
@@ -51,6 +52,30 @@ pub struct HudInputs<'a> {
 pub struct HUDRenderer;
 
 impl HUDRenderer {
+    /// Convert tint_index to egui::Color32 for UI display.
+    /// Matches TINT_PALETTE in shaders/common.glsl.
+    fn tint_color(tint_index: u8) -> egui::Color32 {
+        match tint_index {
+            0 => egui::Color32::from_rgb(255, 51, 51),    // Red
+            1 => egui::Color32::from_rgb(255, 128, 51),   // Orange
+            2 => egui::Color32::from_rgb(255, 255, 51),   // Yellow
+            3 => egui::Color32::from_rgb(128, 255, 51),   // Lime
+            4 => egui::Color32::from_rgb(51, 255, 51),    // Green
+            5 => egui::Color32::from_rgb(51, 255, 128),   // Teal
+            6 => egui::Color32::from_rgb(51, 255, 255),   // Cyan
+            7 => egui::Color32::from_rgb(51, 128, 255),   // Sky blue
+            8 => egui::Color32::from_rgb(51, 51, 255),    // Blue
+            9 => egui::Color32::from_rgb(128, 51, 255),   // Purple
+            10 => egui::Color32::from_rgb(255, 51, 255),  // Magenta
+            11 => egui::Color32::from_rgb(255, 51, 128),  // Pink
+            12 => egui::Color32::from_rgb(242, 242, 242), // White
+            13 => egui::Color32::from_rgb(153, 153, 153), // Light gray
+            14 => egui::Color32::from_rgb(77, 77, 77),    // Dark gray
+            15 => egui::Color32::from_rgb(102, 64, 26),   // Brown
+            _ => egui::Color32::from_rgb(200, 200, 200),  // Default gray
+        }
+    }
+
     fn sprite_for_item(item: PaletteItem, icons: Option<&SpriteIcons>) -> Option<egui::TextureId> {
         let set = icons?;
         match item.block {
@@ -78,10 +103,16 @@ impl HUDRenderer {
         slot: usize,
         hotbar_blocks: &mut [BlockType; 9],
         hotbar_model_ids: &mut [u8; 9],
+        hotbar_tint_indices: &mut [u8; 9],
     ) {
         hotbar_blocks[slot] = item.block;
         hotbar_model_ids[slot] = if item.block == BlockType::Model {
             item.model_id
+        } else {
+            0
+        };
+        hotbar_tint_indices[slot] = if item.block == BlockType::TintedGlass {
+            item.tint_index
         } else {
             0
         };
@@ -91,14 +122,27 @@ impl HUDRenderer {
         item: PaletteItem,
         hotbar_blocks: &mut [BlockType; 9],
         hotbar_model_ids: &mut [u8; 9],
+        hotbar_tint_indices: &mut [u8; 9],
         hotbar_index: &mut usize,
     ) {
         if let Some(empty_slot) = hotbar_blocks.iter().position(|b| *b == BlockType::Air) {
-            Self::apply_item_to_slot(item, empty_slot, hotbar_blocks, hotbar_model_ids);
+            Self::apply_item_to_slot(
+                item,
+                empty_slot,
+                hotbar_blocks,
+                hotbar_model_ids,
+                hotbar_tint_indices,
+            );
             *hotbar_index = empty_slot;
         } else {
             let idx = *hotbar_index;
-            Self::apply_item_to_slot(item, idx, hotbar_blocks, hotbar_model_ids);
+            Self::apply_item_to_slot(
+                item,
+                idx,
+                hotbar_blocks,
+                hotbar_model_ids,
+                hotbar_tint_indices,
+            );
         }
     }
 
@@ -106,7 +150,8 @@ impl HUDRenderer {
         tab: PaletteTab,
         registry: &ModelRegistry,
     ) -> Vec<(PaletteItem, String)> {
-        const BLOCK_PALETTE: [BlockType; 16] = [
+        // Regular blocks (excluding TintedGlass which has separate color entries)
+        const BLOCK_PALETTE: [BlockType; 15] = [
             BlockType::Stone,
             BlockType::Dirt,
             BlockType::Grass,
@@ -116,7 +161,6 @@ impl HUDRenderer {
             BlockType::Gravel,
             BlockType::Water,
             BlockType::Glass,
-            BlockType::TintedGlass,
             BlockType::Log,
             BlockType::Brick,
             BlockType::Snow,
@@ -125,11 +169,40 @@ impl HUDRenderer {
             BlockType::Bedrock,
         ];
 
+        // Tinted glass colors: (tint_index, name)
+        const TINTED_GLASS_COLORS: [(u8, &str); 7] = [
+            (0, "Red Glass"),
+            (4, "Green Glass"),
+            (8, "Blue Glass"),
+            (6, "Cyan Glass"),
+            (2, "Yellow Glass"),
+            (1, "Orange Glass"),
+            (9, "Purple Glass"),
+        ];
+
         let mut items = Vec::new();
 
         if matches!(tab, PaletteTab::Blocks | PaletteTab::All) {
             for &block in BLOCK_PALETTE.iter() {
-                items.push((PaletteItem { block, model_id: 0 }, format!("{:?}", block)));
+                items.push((
+                    PaletteItem {
+                        block,
+                        model_id: 0,
+                        tint_index: 0,
+                    },
+                    format!("{:?}", block),
+                ));
+            }
+            // Add tinted glass colors
+            for &(tint_index, name) in TINTED_GLASS_COLORS.iter() {
+                items.push((
+                    PaletteItem {
+                        block: BlockType::TintedGlass,
+                        model_id: 0,
+                        tint_index,
+                    },
+                    name.to_string(),
+                ));
             }
         }
 
@@ -140,6 +213,7 @@ impl HUDRenderer {
                         PaletteItem {
                             block: BlockType::Model,
                             model_id: id,
+                            tint_index: 0,
                         },
                         label.to_string(),
                     ));
@@ -161,6 +235,7 @@ impl HUDRenderer {
                     PaletteItem {
                         block: BlockType::Model,
                         model_id: model.id,
+                        tint_index: 0,
                     },
                     model.name.clone(),
                 ));
@@ -179,6 +254,7 @@ impl HUDRenderer {
         label: &str,
         hotbar_blocks: &mut [BlockType; 9],
         hotbar_model_ids: &mut [u8; 9],
+        hotbar_tint_indices: &mut [u8; 9],
         hotbar_index: &mut usize,
         dragging_item: &mut Option<PaletteItem>,
     ) {
@@ -213,10 +289,22 @@ impl HUDRenderer {
                 *dragging_item = Some(item);
             }
             if clicked {
-                Self::apply_item_to_slot(item, *hotbar_index, hotbar_blocks, hotbar_model_ids);
+                Self::apply_item_to_slot(
+                    item,
+                    *hotbar_index,
+                    hotbar_blocks,
+                    hotbar_model_ids,
+                    hotbar_tint_indices,
+                );
             }
             if middle {
-                Self::fill_or_replace_hotbar(item, hotbar_blocks, hotbar_model_ids, hotbar_index);
+                Self::fill_or_replace_hotbar(
+                    item,
+                    hotbar_blocks,
+                    hotbar_model_ids,
+                    hotbar_tint_indices,
+                    hotbar_index,
+                );
             }
 
             let hover_rect = resp.rect;
@@ -236,6 +324,16 @@ impl HUDRenderer {
                     "T",
                     egui::FontId::proportional(12.0),
                     egui::Color32::YELLOW,
+                );
+            }
+            // Draw colored border for TintedGlass items
+            if item.block == BlockType::TintedGlass {
+                let tint_color = Self::tint_color(item.tint_index);
+                ui.painter().rect_stroke(
+                    hover_rect.shrink(2.0),
+                    egui::CornerRadius::same(3),
+                    egui::Stroke::new(3.0, tint_color),
+                    egui::StrokeKind::Inside,
                 );
             }
             ui.add(
@@ -260,6 +358,7 @@ impl HUDRenderer {
         model_registry: &ModelRegistry,
         hotbar_blocks: &mut [BlockType; 9],
         hotbar_model_ids: &mut [u8; 9],
+        hotbar_tint_indices: &mut [u8; 9],
         hotbar_index: &mut usize,
     ) {
         if !*palette_open {
@@ -293,6 +392,7 @@ impl HUDRenderer {
                                         label,
                                         hotbar_blocks,
                                         hotbar_model_ids,
+                                        hotbar_tint_indices,
                                         hotbar_index,
                                         dragging_item,
                                     );
@@ -391,6 +491,7 @@ impl HUDRenderer {
             hotbar_index,
             hotbar_blocks,
             hotbar_model_ids,
+            hotbar_tint_indices,
             minimap_image,
             atlas_texture_id,
             sprite_icons,
@@ -432,6 +533,7 @@ impl HUDRenderer {
                 model_registry,
                 hotbar_blocks,
                 hotbar_model_ids,
+                hotbar_tint_indices,
                 hotbar_index,
             );
 
@@ -1129,6 +1231,7 @@ impl HUDRenderer {
                                     let palette_item = PaletteItem {
                                         block,
                                         model_id: hotbar_model_ids[i],
+                                        tint_index: hotbar_tint_indices[i],
                                     };
                                     let (texture_id, uv_rect) = if let Some(tex) =
                                         Self::sprite_for_item(palette_item, sprite_icons)
@@ -1203,6 +1306,16 @@ impl HUDRenderer {
                                             egui::Color32::YELLOW,
                                         );
                                     }
+                                    // Draw colored inner border for TintedGlass
+                                    if block == BlockType::TintedGlass {
+                                        let tint_color = Self::tint_color(hotbar_tint_indices[i]);
+                                        ui.painter().rect_stroke(
+                                            texture_rect.shrink(1.0),
+                                            egui::CornerRadius::same(2),
+                                            egui::Stroke::new(2.0, tint_color),
+                                            egui::StrokeKind::Inside,
+                                        );
+                                    }
 
                                     // Draw border
                                     ui.painter().rect_stroke(
@@ -1233,6 +1346,7 @@ impl HUDRenderer {
                                                 i,
                                                 hotbar_blocks,
                                                 hotbar_model_ids,
+                                                hotbar_tint_indices,
                                             );
                                             *hotbar_index = i;
                                         }

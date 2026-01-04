@@ -20,6 +20,37 @@ pub const CHUNK_SIZE: usize = 32;
 /// Total number of blocks in a chunk.
 pub const CHUNK_VOLUME: usize = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
 
+/// Tint color palette matching TINT_PALETTE in shaders/common.glsl.
+/// RGB values for 16 commonly used tint colors (indices 0-15).
+pub const TINT_PALETTE: [[f32; 3]; 16] = [
+    [1.0, 0.2, 0.2],    // 0: Red
+    [1.0, 0.5, 0.2],    // 1: Orange
+    [1.0, 1.0, 0.2],    // 2: Yellow
+    [0.5, 1.0, 0.2],    // 3: Lime
+    [0.2, 1.0, 0.2],    // 4: Green
+    [0.2, 1.0, 0.5],    // 5: Teal
+    [0.2, 1.0, 1.0],    // 6: Cyan
+    [0.2, 0.5, 1.0],    // 7: Sky blue
+    [0.2, 0.2, 1.0],    // 8: Blue
+    [0.5, 0.2, 1.0],    // 9: Purple
+    [1.0, 0.2, 1.0],    // 10: Magenta
+    [1.0, 0.2, 0.5],    // 11: Pink
+    [0.95, 0.95, 0.95], // 12: White
+    [0.6, 0.6, 0.6],    // 13: Light gray
+    [0.3, 0.3, 0.3],    // 14: Dark gray
+    [0.4, 0.25, 0.1],   // 15: Brown
+];
+
+/// Returns the RGB tint color for a given tint index.
+/// Returns a default gray for indices >= 16.
+pub fn tint_color(tint_index: u8) -> [f32; 3] {
+    if (tint_index as usize) < TINT_PALETTE.len() {
+        TINT_PALETTE[tint_index as usize]
+    } else {
+        [0.5, 0.5, 0.5]
+    }
+}
+
 /// Block types that can exist in the world.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
 #[repr(u8)]

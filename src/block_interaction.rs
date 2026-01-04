@@ -84,7 +84,16 @@ impl App {
                 // Get block color for particles before breaking
                 if let Some(block_type) = self.sim.world.get_block(target) {
                     let color = block_type.color();
-                    let particle_color = nalgebra::Vector3::new(color[0], color[1], color[2]);
+                    let mut particle_color = nalgebra::Vector3::new(color[0], color[1], color[2]);
+
+                    // Apply tint color for TintedGlass blocks
+                    if block_type == BlockType::TintedGlass {
+                        if let Some(tint_index) = self.sim.world.get_tint_index(target) {
+                            let tint = crate::chunk::tint_color(tint_index);
+                            particle_color = nalgebra::Vector3::new(tint[0], tint[1], tint[2]);
+                        }
+                    }
+
                     self.sim
                         .particles
                         .spawn_block_break(target.cast::<f32>(), particle_color);
@@ -555,6 +564,10 @@ impl App {
                 // Update placed stair and neighbors to form corners
                 self.sim.world.update_stair_and_neighbors(place_pos);
             }
+        } else if block_to_place == BlockType::TintedGlass {
+            // TintedGlass needs the tint_index from the hotbar
+            let tint_index = self.ui.hotbar_tint_indices[self.ui.hotbar_index];
+            self.sim.world.set_tinted_glass_block(place_pos, tint_index);
         } else {
             self.sim.world.set_block(place_pos, block_to_place);
 
