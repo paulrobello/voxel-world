@@ -121,7 +121,7 @@ use crate::gpu_resources::{
     GpuLight, PushConstants, create_empty_voxel_texture, get_brick_and_model_set,
     get_chunk_metadata_set, get_distance_image_and_set, get_images_and_sets, get_light_set,
     get_particle_and_falling_block_set, get_swapchain_images, load_icon, load_texture_atlas,
-    save_screenshot,
+    save_screenshot, upload_model_registry,
 };
 use crate::hot_reload::HotReloadComputePipeline;
 use crate::hud::Minimap;
@@ -336,9 +336,10 @@ struct Graphics {
     brick_and_model_set: Arc<DescriptorSet>,
     falling_block_buffer: Subbuffer<[GpuFallingBlock]>,
     voxel_image: Arc<Image>,
-    #[allow(dead_code)] // Held for GPU lifetime
     model_atlas: Arc<Image>,
+    model_palettes: Arc<Image>,
     model_metadata: Arc<Image>,
+    model_properties_buffer: Subbuffer<[gpu_resources::GpuModelProperties]>,
 
     rcx: Option<gpu_resources::RenderContext>,
 }
@@ -410,6 +411,7 @@ struct UiState {
     place_needs_reclick: bool,
     model_needs_reclick: bool,
     gate_needs_reclick: bool,
+    custom_rotate_needs_reclick: bool,
     line_start_pos: Option<Vector3<i32>>,
     line_locked_axis: Option<u8>,
 
@@ -556,12 +558,10 @@ impl App {
             self.ui.palette_previously_focused = self.input.focused;
             self.input.focused = false;
             self.input.pending_grab = Some(false);
-            macos_cursor::release_and_show();
             self.ui.dragging_item = None;
         } else if self.ui.palette_previously_focused {
             self.input.focused = true;
             self.input.pending_grab = Some(true);
-            macos_cursor::grab_and_hide();
             self.ui.palette_previously_focused = false;
         }
     }
@@ -724,15 +724,27 @@ impl App {
             &render_pipeline,
         );
 
-        // Create model registry with built-in models
-        let model_registry = ModelRegistry::new();
+        // Create model registry with built-in models and load library models
+        let mut model_registry = ModelRegistry::new();
+        let library_path = std::path::Path::new("user_models");
+        match model_registry.load_library_models(library_path) {
+            Ok(count) if count > 0 => {
+                println!("Loaded {} custom models from library", count);
+            }
+            Err(e) => {
+                eprintln!("Warning: Failed to load library models: {}", e);
+            }
+            _ => {}
+        }
 
         // Create combined brick metadata and model resources (set 7)
         let (
             brick_mask_buffer,
             brick_dist_buffer,
             model_atlas,
+            model_palettes,
             model_metadata,
+            model_properties_buffer,
             brick_and_model_set,
         ) = get_brick_and_model_set(
             vk.memory_allocator.clone(),
@@ -797,7 +809,9 @@ impl App {
             falling_block_buffer,
             voxel_image,
             model_atlas,
+            model_palettes,
             model_metadata,
+            model_properties_buffer,
             rcx: None,
         };
 
@@ -882,6 +896,7 @@ impl App {
             place_needs_reclick: false,
             model_needs_reclick: false,
             gate_needs_reclick: false,
+            custom_rotate_needs_reclick: false,
             line_start_pos: None,
             line_locked_axis: None,
             last_second: Instant::now(),
@@ -978,6 +993,20 @@ impl App {
         let t1 = Instant::now();
         self.upload_world_to_gpu();
         self.sim.profiler.gpu_upload_us += t1.elapsed().as_micros() as u64;
+
+        // Refresh model GPU data if models were updated (e.g., after editing in model editor)
+        if self.sim.model_registry.is_gpu_dirty() {
+            upload_model_registry(
+                self.graphics.memory_allocator.clone(),
+                self.graphics.command_buffer_allocator.clone(),
+                &self.graphics.queue,
+                &self.sim.model_registry,
+                &self.graphics.model_atlas,
+                &self.graphics.model_palettes,
+                &self.graphics.model_properties_buffer,
+            );
+            self.sim.model_registry.clear_gpu_dirty();
+        }
 
         self.sim.auto_save();
 

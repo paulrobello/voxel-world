@@ -204,6 +204,23 @@ impl LibraryManager {
         }
         Ok(names)
     }
+
+    /// Checks if a model with the given name exists in the library.
+    pub fn model_exists(&self, name: &str) -> bool {
+        // Sanitize the name the same way save_model does
+        let safe_name: String = name
+            .chars()
+            .map(|c| {
+                if c.is_alphanumeric() || c == '_' || c == '-' {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        let path = self.root_path.join(format!("{}.vxm", safe_name));
+        path.exists()
+    }
 }
 
 /// Persisted model registry for a world.

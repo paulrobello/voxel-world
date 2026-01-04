@@ -153,6 +153,17 @@ impl HUDRenderer {
             push_if(20, "Gate");
             push_if(28, "Stairs");
             push_if(29, "Ladder");
+
+            // Add custom/user models from the registry
+            for model in registry.iter_custom_models() {
+                items.push((
+                    PaletteItem {
+                        block: BlockType::Model,
+                        model_id: model.id,
+                    },
+                    model.name.clone(),
+                ));
+            }
         }
 
         items

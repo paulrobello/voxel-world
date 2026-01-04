@@ -26,7 +26,6 @@ impl App {
             if self.ui.editor_previously_focused {
                 self.input.focused = true;
                 self.input.pending_grab = Some(true);
-                macos_cursor::grab_and_hide();
                 self.ui.editor_previously_focused = false;
             }
             println!("Model editor: OFF");
@@ -37,7 +36,6 @@ impl App {
         if self.input.key_pressed(KeyCode::Escape) && self.input.focused {
             self.input.focused = false;
             self.input.pending_grab = Some(false);
-            macos_cursor::release_and_show();
             println!("Unfocused - cursor will be released");
         }
 
@@ -46,7 +44,6 @@ impl App {
             println!("Focus click...");
             self.input.focused = true;
             self.input.pending_grab = Some(true);
-            macos_cursor::grab_and_hide();
             // Skip block breaking until mouse is released to avoid breaking on focus click
             self.ui.skip_break_until_release = true;
             println!("Focus complete - cursor will be grabbed");
@@ -273,7 +270,6 @@ impl App {
             self.ui.editor_previously_focused = self.input.focused;
             self.input.focused = false;
             self.input.pending_grab = Some(false);
-            macos_cursor::release_and_show();
 
             // Save the target position for placing the model when done
             if let Some(hit) = &self.ui.current_hit {
@@ -286,11 +282,9 @@ impl App {
             if self.ui.editor_previously_focused {
                 self.input.focused = true;
                 self.input.pending_grab = Some(true);
-                macos_cursor::grab_and_hide();
                 self.ui.editor_previously_focused = false;
             }
             println!("Model editor: OFF");
         }
     }
 }
-use crate::macos_cursor;

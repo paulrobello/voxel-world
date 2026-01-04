@@ -103,6 +103,25 @@ pub struct SpriteIcons {
     handles: Vec<egui::TextureHandle>,
 }
 
+impl SpriteIcons {
+    /// Reloads or adds a single model sprite from the given path.
+    /// Returns true if the sprite was successfully loaded.
+    pub fn reload_model_sprite(&mut self, ctx: &egui::Context, model_id: u8, path: &Path) -> bool {
+        if let Some(image) = load_color_image(path) {
+            let handle = ctx.load_texture(
+                format!("sprite_model_{}", model_id),
+                image,
+                egui::TextureOptions::NEAREST,
+            );
+            self.model.insert(model_id, handle.id());
+            self.handles.push(handle);
+            true
+        } else {
+            false
+        }
+    }
+}
+
 fn load_color_image(path: &Path) -> Option<egui::ColorImage> {
     let img = image::open(path).ok()?.to_rgba8();
     let (w, h) = img.dimensions();
@@ -705,11 +724,13 @@ pub fn get_brick_and_model_set(
     world_extent: [u32; 3],
     model_registry: &ModelRegistry,
 ) -> (
-    Subbuffer<[u32]>,   // brick_mask_buffer
-    Subbuffer<[u32]>,   // brick_dist_buffer
-    Arc<Image>,         // model_atlas
-    Arc<Image>,         // model_metadata
-    Arc<DescriptorSet>, // combined set 7
+    Subbuffer<[u32]>,                // brick_mask_buffer
+    Subbuffer<[u32]>,                // brick_dist_buffer
+    Arc<Image>,                      // model_atlas
+    Arc<Image>,                      // model_palettes
+    Arc<Image>,                      // model_metadata
+    Subbuffer<[GpuModelProperties]>, // model_properties_buffer
+    Arc<DescriptorSet>,              // combined set 7
 ) {
     // === Brick metadata resources (bindings 0-1) ===
 
@@ -856,7 +877,7 @@ pub fn get_brick_and_model_set(
             WriteDescriptorSet::image_view(2, atlas_view),
             WriteDescriptorSet::image_view_sampler(3, palette_view, palette_sampler),
             WriteDescriptorSet::image_view(4, metadata_view),
-            WriteDescriptorSet::buffer(5, model_properties_buffer),
+            WriteDescriptorSet::buffer(5, model_properties_buffer.clone()),
         ],
     );
 
@@ -864,7 +885,9 @@ pub fn get_brick_and_model_set(
         brick_mask_buffer,
         brick_dist_buffer,
         model_atlas,
+        model_palettes,
         model_metadata,
+        model_properties_buffer,
         descriptor_set,
     )
 }

@@ -11,6 +11,7 @@
 
 use nalgebra::Vector3;
 use std::collections::HashMap;
+use std::path::Path;
 
 /// Resolution of sub-voxel models (8×8×8).
 pub const SUB_VOXEL_SIZE: usize = 8;
@@ -23,6 +24,19 @@ pub const MAX_MODELS: usize = 256;
 
 /// Colors per model palette.
 pub const PALETTE_SIZE: usize = 16;
+
+/// First model ID available for custom/user models.
+/// Built-in models use IDs 0-38:
+/// - 0: Empty
+/// - 1: Torch
+/// - 2-3: Slabs
+/// - 4-19: Fences (16 variants)
+/// - 20-27: Gates (8 variants)
+/// - 28: Stairs
+/// - 29: Ladder
+/// - 30: Inverted stairs
+/// - 31-38: Corner stairs (8 variants)
+pub const FIRST_CUSTOM_MODEL_ID: u8 = 39;
 
 /// RGBA color for sub-voxel palette.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -671,6 +685,76 @@ impl ModelRegistry {
     /// Returns true if registry is empty.
     pub fn is_empty(&self) -> bool {
         self.models.is_empty()
+    }
+
+    /// Checks if a model ID is a custom (user-created) model.
+    pub fn is_custom_model(model_id: u8) -> bool {
+        model_id >= FIRST_CUSTOM_MODEL_ID
+    }
+
+    /// Returns an iterator over custom (user-created) models.
+    ///
+    /// Custom models have IDs >= FIRST_CUSTOM_MODEL_ID (39+).
+    pub fn iter_custom_models(&self) -> impl Iterator<Item = &SubVoxelModel> {
+        let start_id = FIRST_CUSTOM_MODEL_ID as usize;
+        self.models.iter().skip(start_id)
+    }
+
+    /// Returns the number of custom models registered.
+    pub fn custom_model_count(&self) -> usize {
+        let start_id = FIRST_CUSTOM_MODEL_ID as usize;
+        if self.models.len() > start_id {
+            self.models.len() - start_id
+        } else {
+            0
+        }
+    }
+
+    /// Updates an existing model by name, or registers it as new.
+    ///
+    /// Returns the model ID (existing or newly assigned).
+    pub fn update_or_register(&mut self, model: SubVoxelModel) -> u8 {
+        if let Some(&existing_id) = self.name_to_id.get(&model.name) {
+            // Update existing model
+            let mut updated = model;
+            updated.id = existing_id;
+            self.models[existing_id as usize] = updated;
+            self.gpu_dirty = true;
+            existing_id
+        } else {
+            // Register as new
+            self.register(model)
+        }
+    }
+
+    /// Loads all models from a library directory into the registry.
+    ///
+    /// Returns the number of models loaded, or an error if the directory
+    /// cannot be read. Individual file errors are logged but don't stop loading.
+    pub fn load_library_models(&mut self, library_path: &Path) -> std::io::Result<usize> {
+        use crate::storage::model_format::LibraryManager;
+
+        if !library_path.exists() {
+            return Ok(0);
+        }
+
+        let library = LibraryManager::new(library_path);
+        let model_names = library.list_models()?;
+        let mut loaded = 0;
+
+        for name in model_names {
+            match library.load_model(&name) {
+                Ok(model) => {
+                    self.register(model);
+                    loaded += 1;
+                }
+                Err(e) => {
+                    eprintln!("Warning: Failed to load library model '{}': {}", name, e);
+                }
+            }
+        }
+
+        Ok(loaded)
     }
 
     /// Returns true if GPU data needs update.

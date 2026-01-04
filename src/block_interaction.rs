@@ -4,7 +4,7 @@ use crate::chunk::BlockType;
 use crate::constants::TEXTURE_SIZE_Y;
 use crate::player::{PLAYER_HALF_WIDTH, PLAYER_HEIGHT};
 use crate::raycast::{MAX_RAYCAST_DISTANCE, get_place_position, raycast};
-use crate::sub_voxel::{ModelRegistry, StairShape};
+use crate::sub_voxel::{FIRST_CUSTOM_MODEL_ID, ModelRegistry, StairShape};
 use nalgebra::Vector3;
 use winit::event::MouseButton;
 
@@ -218,6 +218,41 @@ impl App {
         true
     }
 
+    /// Rotates a custom model 90 degrees around Y axis. Returns true if rotated.
+    fn rotate_custom_model_at(&mut self, pos: Vector3<i32>) -> bool {
+        // Check if there's a model block at this position
+        let Some(block) = self.sim.world.get_block(pos) else {
+            return false;
+        };
+
+        if block != BlockType::Model {
+            return false;
+        }
+
+        // Get model data
+        let Some(model_data) = self.sim.world.get_model_data(pos) else {
+            return false;
+        };
+
+        // Only rotate custom models (ID >= FIRST_CUSTOM_MODEL_ID)
+        if model_data.model_id < FIRST_CUSTOM_MODEL_ID {
+            return false;
+        }
+
+        // Rotate 90 degrees (increment rotation mod 4)
+        let new_rotation = (model_data.rotation + 1) % 4;
+
+        // Update the model with new rotation
+        self.sim.world.set_model_block(
+            pos,
+            model_data.model_id,
+            new_rotation,
+            model_data.waterlogged,
+        );
+
+        true
+    }
+
     pub fn update_block_placing(&mut self, delta_time: f32) {
         // Decrease cooldown
         if self.ui.place_cooldown > 0.0 {
@@ -234,6 +269,7 @@ impl App {
             self.ui.place_needs_reclick = false; // Allow block placement on next click
             self.ui.model_needs_reclick = false; // Allow model placement on next click
             self.ui.gate_needs_reclick = false; // Allow gate toggle on next click
+            self.ui.custom_rotate_needs_reclick = false; // Allow custom model rotation on next click
             return;
         }
 
@@ -247,14 +283,25 @@ impl App {
             return;
         }
 
+        // If we just rotated a custom model, require a release before rotating again.
+        if self.ui.custom_rotate_needs_reclick {
+            return;
+        }
+
         if let Some(hit) = self.ui.current_hit {
-            // Priority 1: Toggle existing gate
+            // Priority 1: Rotate existing custom model
+            if self.rotate_custom_model_at(hit.block_pos) {
+                self.ui.custom_rotate_needs_reclick = true;
+                return;
+            }
+
+            // Priority 2: Toggle existing gate
             if !self.ui.gate_needs_reclick && self.toggle_gate_at(hit.block_pos) {
                 self.ui.gate_needs_reclick = true;
                 return;
             }
 
-            // Priority 2: Place new block
+            // Priority 3: Place new block
             let place_pos = get_place_position(&hit);
 
             // Handle model blocks - require re-click to place multiple
@@ -488,6 +535,12 @@ impl App {
                 let shape =
                     ModelRegistry::stairs_shape(base_model_id).unwrap_or(StairShape::Straight);
                 ModelRegistry::stairs_model_id(shape, inverted)
+            } else if base_model_id >= FIRST_CUSTOM_MODEL_ID {
+                // Custom models: auto-rotate to face player
+                let yaw = self.sim.player.camera.rotation.y as f32;
+                let rot = (yaw / std::f32::consts::FRAC_PI_2).round() as i32;
+                rotation = rot.rem_euclid(4) as u8;
+                base_model_id
             } else {
                 base_model_id
             };

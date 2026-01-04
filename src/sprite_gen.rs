@@ -114,12 +114,26 @@ pub fn run(_args: &Args, event_loop: &EventLoop<()>) -> Result<(), Box<dyn Error
         }
     }
 
-    let model_registry = ModelRegistry::new();
+    // Create model registry and load custom models from library
+    let mut model_registry = ModelRegistry::new();
+    let library_path = std::path::Path::new("user_models");
+    match model_registry.load_library_models(library_path) {
+        Ok(count) if count > 0 => {
+            println!("[sprites] Loaded {} custom models from library", count);
+        }
+        Err(e) => {
+            eprintln!("[sprites] Warning: Failed to load library models: {}", e);
+        }
+        _ => {}
+    }
+
     let (
         brick_mask_buffer,
         _brick_dist_buffer,
         _model_atlas,
+        _model_palettes,
         model_metadata_image,
+        _model_properties_buffer,
         brick_and_model_set,
     ) = get_brick_and_model_set(
         memory_allocator.clone(),

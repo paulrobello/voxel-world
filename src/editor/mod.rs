@@ -8,6 +8,7 @@
 
 #![allow(dead_code)] // WIP: Full integration pending
 
+pub mod rasterizer;
 pub mod ui;
 
 use crate::sub_voxel::{Color, SUB_VOXEL_SIZE, SubVoxelModel};
@@ -64,6 +65,9 @@ pub struct EditorState {
     /// Saved world position where the model will be placed on save.
     /// Set when the editor is opened based on player's target.
     pub saved_target_pos: Option<Vector3<i32>>,
+
+    /// Whether to show the overwrite confirmation dialog.
+    pub show_overwrite_confirm: bool,
 }
 
 impl Default for EditorState {
@@ -107,6 +111,7 @@ impl EditorState {
             hovered_voxel: None,
             hovered_normal: None,
             saved_target_pos: None,
+            show_overwrite_confirm: false,
         }
     }
 
@@ -391,9 +396,32 @@ impl EditorState {
     pub fn on_left_click(&mut self) {
         match self.tool {
             EditorTool::Pencil => {
-                // In 2D viewport mode, place directly at hovered position
                 if let Some(voxel) = self.hovered_voxel {
-                    self.place_voxel(voxel);
+                    // Check if there's already a voxel at this position
+                    let existing = self.scratch_pad.get_voxel(
+                        voxel.x as usize,
+                        voxel.y as usize,
+                        voxel.z as usize,
+                    );
+                    if existing != 0 {
+                        // Place adjacent to existing voxel based on hovered face normal
+                        if let Some(normal) = self.hovered_normal {
+                            let place_pos = voxel + normal;
+                            // Check bounds
+                            if place_pos.x >= 0
+                                && (place_pos.x as usize) < SUB_VOXEL_SIZE
+                                && place_pos.y >= 0
+                                && (place_pos.y as usize) < SUB_VOXEL_SIZE
+                                && place_pos.z >= 0
+                                && (place_pos.z as usize) < SUB_VOXEL_SIZE
+                            {
+                                self.place_voxel(place_pos);
+                            }
+                        }
+                    } else {
+                        // Place at empty/floor position
+                        self.place_voxel(voxel);
+                    }
                 }
             }
             EditorTool::Eraser => {
@@ -425,6 +453,32 @@ impl EditorState {
         if let Some(voxel) = self.hovered_voxel {
             self.pick_color(voxel);
         }
+    }
+
+    /// Rotates the entire model 90 degrees clockwise around the Y axis.
+    ///
+    /// Transformation: (x, y, z) -> (SIZE-1-z, y, x)
+    pub fn rotate_model_y90(&mut self) {
+        let mut new_voxels = [0u8; SUB_VOXEL_SIZE * SUB_VOXEL_SIZE * SUB_VOXEL_SIZE];
+
+        for z in 0..SUB_VOXEL_SIZE {
+            for y in 0..SUB_VOXEL_SIZE {
+                for x in 0..SUB_VOXEL_SIZE {
+                    let old_idx = x + y * SUB_VOXEL_SIZE + z * SUB_VOXEL_SIZE * SUB_VOXEL_SIZE;
+                    let voxel = self.scratch_pad.voxels[old_idx];
+
+                    // Rotate 90° CW around Y: (x, y, z) -> (SIZE-1-z, y, x)
+                    let new_x = SUB_VOXEL_SIZE - 1 - z;
+                    let new_z = x;
+                    let new_idx =
+                        new_x + y * SUB_VOXEL_SIZE + new_z * SUB_VOXEL_SIZE * SUB_VOXEL_SIZE;
+
+                    new_voxels[new_idx] = voxel;
+                }
+            }
+        }
+
+        self.scratch_pad.voxels = new_voxels;
     }
 
     /// Finalizes the model by computing collision mask.
