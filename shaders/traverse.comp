@@ -428,14 +428,15 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
         {
         float daylight = getDaylightFactor(pc.time_of_day);
         vec3 lightingHit = subVoxelHit ? subVoxelHitPos : hit;
-        float receiverOffset = subVoxelHit ? 0.003 : 0.01;
-        vec3 shadowOffset = normal * receiverOffset + sunDir * 0.002;
+        // Sub-voxels need larger offset to clear geometry and avoid self-occlusion
+        float receiverOffset = subVoxelHit ? 0.02 : 0.01;
+        vec3 shadowOffset = normal * receiverOffset + sunDir * (subVoxelHit ? 0.01 : 0.002);
         float skyExposure = nearEnoughForSkyExposure ? getSkyExposure(lightingHit + shadowOffset) : 1.0;
         vec3 shadowOrigin = lightingHit + shadowOffset;
         uint dummyDbg;
         vec3 shadowTint = vec3(1.0);
-        // Let slabs/models receive shadows; offset origin prevents self-occlusion so we don't need to skip start.
-        bool ignoreStartModel = false;
+        // Skip starting block for sub-voxel origins to avoid self-occlusion artifacts
+        bool ignoreStartModel = subVoxelHit;
         float shadow = nearEnoughForShadow ? castShadowRayInternal(shadowOrigin, ignoreStartModel, dummyDbg, shadowTint) : 1.0;
         float sunLight = max(0.0, dot(normal, sunDir));
         float baseAmbient = mix(pc.ambient_light, pc.ambient_light + 0.25, daylight);
@@ -471,11 +472,11 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
         {
         vec3 lightingHit = subVoxelHit ? subVoxelHitPos : hit;
         vec3 sunDir = getCurrentSunDir();
-        float receiverOffset = subVoxelHit ? 0.003 : 0.01;
-        vec3 shadowOrigin = lightingHit + normal * receiverOffset + sunDir * 0.002;
+        float receiverOffset = subVoxelHit ? 0.02 : 0.01;
+        vec3 shadowOrigin = lightingHit + normal * receiverOffset + sunDir * (subVoxelHit ? 0.01 : 0.002);
         uint dbgFlag;
         vec3 dbgTint;
-        bool ignoreStartModel = false;
+        bool ignoreStartModel = subVoxelHit;
         float shadow = castShadowRayInternal(shadowOrigin, ignoreStartModel, dbgFlag, dbgTint);
         if (dbgFlag == 0u) color = vec3(0.0, 1.0, 0.0);
         else if (dbgFlag == 1u) color = vec3(0.0, 0.0, 1.0);

@@ -6,7 +6,27 @@ const bool SHADOW_SKIP = true;
 // Helper: test whether a ray segment through a model block hits its sub-voxel geometry
 // Returns transmission factor (0 = full block, 1 = no block) and accumulated tint from translucent voxels
 float modelBlocksRay(vec3 rayOrigin, vec3 dir, ivec3 blockPos, uint model_id, uint rotation, out vec3 modelTint) {
-    vec3 localOrigin = clamp(rayOrigin - vec3(blockPos), vec3(SUB_VOXEL_EPS), vec3(1.0 - SUB_VOXEL_EPS));
+    vec3 localOrigin = rayOrigin - vec3(blockPos);
+    vec3 safeDir = makeSafeDir(dir);
+
+    // If origin is outside block, compute proper entry point via ray-box intersection
+    // This avoids aggressive clamping that can cause inconsistencies at block boundaries
+    if (any(lessThan(localOrigin, vec3(0.0))) || any(greaterThan(localOrigin, vec3(1.0)))) {
+        vec3 t1 = -localOrigin / safeDir;
+        vec3 t2 = (vec3(1.0) - localOrigin) / safeDir;
+        vec3 tNear = min(t1, t2);
+        vec3 tFar = max(t1, t2);
+        float tEntry = max(max(tNear.x, tNear.y), tNear.z);
+        float tExit = min(min(tFar.x, tFar.y), tFar.z);
+
+        if (tEntry > tExit || tExit < 0.0) {
+            modelTint = vec3(1.0);
+            return 1.0;  // Ray misses block entirely
+        }
+        localOrigin = localOrigin + safeDir * max(0.0, tEntry + SUB_VOXEL_EPS * 0.1);
+    }
+
+    localOrigin = clamp(localOrigin, vec3(SUB_VOXEL_EPS), vec3(1.0 - SUB_VOXEL_EPS));
     // Shadow path: cheaper, capped marcher—only cares if any occupied voxel blocks light.
     // Limit steps to reduce worst-case cost through thin models; still covers the 8^3 grid.
     const int SHADOW_MODEL_MAX_STEPS = 16;
