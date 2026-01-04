@@ -273,6 +273,8 @@ bool marchSubVoxelModel(
 
     // Track which axis was last crossed (for normal calculation)
     uint stepped_axis = 0u;
+    // Track previous palette index to avoid internal face artifacts in translucent volumes
+    uint prev_palette_idx = 0u;
 
     // March through sub-voxels
     for (int i = 0; i < 24; i++) {  // 8*3 max steps
@@ -307,23 +309,29 @@ bool marchSubVoxelModel(
 
             // Check if this voxel is translucent (alpha < 1.0)
             if (paletteColor.a < 0.99) {
-                // Translucent voxel: blend and continue
-                float remainingAlpha = 1.0 - accumulatedAlpha;
-                float contribution = paletteColor.a * remainingAlpha;
-                accumulatedColor += voxelColor * contribution;
-                accumulatedAlpha += contribution;
+                // Only accumulate at surface boundaries, not internal faces
+                // Internal face = same translucent material as previous voxel
+                bool isInternalFace = (palette_idx == prev_palette_idx);
 
-                // Record first hit surface info
-                if (out_alpha == 0.0) {
-                    out_normal = hitNormal;
-                    out_t = hitT;
-                }
+                if (!isInternalFace) {
+                    // Entering new translucent region: blend and continue
+                    float remainingAlpha = 1.0 - accumulatedAlpha;
+                    float contribution = paletteColor.a * remainingAlpha;
+                    accumulatedColor += voxelColor * contribution;
+                    accumulatedAlpha += contribution;
 
-                // Early out if nearly opaque
-                if (accumulatedAlpha > 0.99) {
-                    out_color = accumulatedColor;
-                    out_alpha = accumulatedAlpha;
-                    return true;
+                    // Record first hit surface info
+                    if (out_alpha == 0.0) {
+                        out_normal = hitNormal;
+                        out_t = hitT;
+                    }
+
+                    // Early out if nearly opaque
+                    if (accumulatedAlpha > 0.99) {
+                        out_color = accumulatedColor;
+                        out_alpha = accumulatedAlpha;
+                        return true;
+                    }
                 }
                 // Continue marching through translucent voxels
             } else {
@@ -342,6 +350,8 @@ bool marchSubVoxelModel(
                 return true;
             }
         }
+
+        prev_palette_idx = palette_idx;
 
         // Step to next sub-voxel
         if (tMaxAxis.x < tMaxAxis.y) {
