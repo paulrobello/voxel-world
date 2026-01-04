@@ -82,6 +82,11 @@ impl HUDRenderer {
         let set = icons?;
         match item.block {
             BlockType::Model => set.model.get(&item.model_id).copied().or(Some(set.missing)),
+            BlockType::TintedGlass => set
+                .tinted_glass
+                .get(&item.tint_index)
+                .copied()
+                .or(Some(set.missing)),
             BlockType::Air => None,
             _ => set.block.get(&item.block).copied().or(Some(set.missing)),
         }

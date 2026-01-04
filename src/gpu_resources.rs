@@ -98,6 +98,7 @@ pub struct RenderContext {
 #[derive(Default)]
 pub struct SpriteIcons {
     pub block: HashMap<BlockType, egui::TextureId>,
+    pub tinted_glass: HashMap<u8, egui::TextureId>, // tint_index -> texture
     pub model: HashMap<u8, egui::TextureId>,
     pub missing: egui::TextureId,
     handles: Vec<egui::TextureHandle>,
@@ -165,7 +166,7 @@ pub fn load_sprite_icons(gui: &mut Gui) -> SpriteIcons {
         (BlockType::Gravel, "block_gravel.png"),
         (BlockType::Water, "block_water.png"),
         (BlockType::Glass, "block_glass.png"),
-        (BlockType::TintedGlass, "block_tintedglass.png"),
+        // TintedGlass is loaded separately per tint color
         (BlockType::Log, "block_log.png"),
         (BlockType::Brick, "block_brick.png"),
         (BlockType::Snow, "block_snow.png"),
@@ -173,6 +174,9 @@ pub fn load_sprite_icons(gui: &mut Gui) -> SpriteIcons {
         (BlockType::Iron, "block_iron.png"),
         (BlockType::Bedrock, "block_bedrock.png"),
     ];
+
+    // Tint indices used in the palette (from hud_render.rs TINTED_GLASS_COLORS)
+    const TINTED_GLASS_INDICES: [u8; 7] = [0, 1, 2, 4, 6, 8, 9];
 
     for (block, filename) in BLOCK_FILES {
         let path = dir.join(filename);
@@ -183,6 +187,21 @@ pub fn load_sprite_icons(gui: &mut Gui) -> SpriteIcons {
                 egui::TextureOptions::NEAREST,
             );
             icons.block.insert(*block, handle.id());
+            icons.handles.push(handle);
+        }
+    }
+
+    // Load tinted glass sprites
+    for tint_idx in TINTED_GLASS_INDICES {
+        let filename = format!("block_tintedglass_{}.png", tint_idx);
+        let path = dir.join(&filename);
+        if let Some(image) = load_color_image(&path) {
+            let handle = ctx.load_texture(
+                format!("sprite_tintedglass_{}", tint_idx),
+                image,
+                egui::TextureOptions::NEAREST,
+            );
+            icons.tinted_glass.insert(tint_idx, handle.id());
             icons.handles.push(handle);
         }
     }
