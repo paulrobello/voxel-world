@@ -7,7 +7,7 @@ export DYLD_FALLBACK_LIBRARY_PATH := /opt/homebrew/lib:/opt/homebrew/opt/vulkan-
 export VK_ICD_FILENAMES := /opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json
 export CMAKE_POLICY_VERSION_MINIMUM := 3.5
 
-.PHONY: build build-release build-debug run run-release run-debug profile run-profile clean test check fmt lint checkall sprite-gen run-p1 run-p2 reset reset-p1 reset-p2
+.PHONY: build build-release build-debug run run-release run-debug profile run-profile clean test check fmt lint checkall sprite-gen run-p1 run-p2 reset reset-p1 reset-p2 new-flat
 
 # Default target
 all: build-release
@@ -68,6 +68,10 @@ sprite-gen: build-release
 # Reset default data (worlds, prefs, profiles)
 reset:
 	rm -rf worlds user_prefs.json profiles
+
+# Create fresh flat world
+new-flat: reset build-release
+	./target/release/voxel_world --world-gen flat $(ARGS)
 
 # Multi-instance targets (isolated data directories)
 run-p1: build-release
