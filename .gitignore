@@ -10,6 +10,12 @@ profiles/
 data_p1/
 data_p2/
 
+# World save data
+worlds/
+
+# User preferences
+user_prefs.json
+
 # Python / virtualenvs
 .venv/
 venv/
