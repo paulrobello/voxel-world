@@ -202,8 +202,6 @@ Create and edit sub-voxel models without leaving the game.
 - [x] Single voxel place/remove
 - [x] Rotate model 90° around Y axis
 - [x] Mirror mode (X, Y, Z axis) with visual plane indicators
-- [ ] Line drawing (shift-click) - *deferred*
-- [ ] Box fill (drag selection) - *deferred*
 
 #### 5.3 Model Management
 - [x] Save model to library (name, author, thumbnail)
