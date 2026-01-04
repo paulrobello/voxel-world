@@ -552,6 +552,7 @@ In-game command console for world editing, debugging, and administration.
 
 #### 11.2 World Editing Commands
 - [x] `fill <block> <x1> <y1> <z1> <x2> <y2> <z2> [hollow]` - Fill region with blocks (Y bounds validated: 0-255)
+- [x] `sphere <block> <cx> <cy> <cz> <radius> [hollow]` - Create sphere of blocks at center (Y bounds validated)
 - [ ] `replace <from_block> <to_block> <x1> <y1> <z1> <x2> <y2> <z2>` - Replace blocks in region
 - [ ] `copy <x1> <y1> <z1> <x2> <y2> <z2>` - Copy region to clipboard
 - [ ] `paste [x] [y] [z]` - Paste clipboard at position

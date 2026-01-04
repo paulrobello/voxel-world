@@ -289,6 +289,7 @@ impl ConsoleState {
         match cmd.as_str() {
             "help" | "?" => commands::help(),
             "fill" => commands::fill(args, world, player_pos, confirmed),
+            "sphere" => commands::sphere(args, world, player_pos, confirmed),
             "tp" | "teleport" => commands::tp(args, player_pos),
             "clear" => {
                 self.output.clear();

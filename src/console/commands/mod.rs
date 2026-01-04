@@ -3,9 +3,11 @@
 //! Each command function takes arguments and returns a `CommandResult`.
 
 mod fill;
+mod sphere;
 mod tp;
 
 pub use fill::fill;
+pub use sphere::sphere;
 pub use tp::tp;
 
 use super::CommandResult;
@@ -17,6 +19,11 @@ pub fn help() -> CommandResult {
     Fill a region with blocks. Use 'air' to clear.
     Coordinates support ~ for relative (e.g., ~5 = player + 5)
     'hollow' flag creates a shell with air inside
+
+  sphere <block> <cx> <cy> <cz> <radius> [hollow]
+    Create a sphere of blocks at center (cx, cy, cz).
+    Coordinates support ~ for relative positions.
+    'hollow' flag creates a shell with air inside.
 
   tp <x> <y> <z>
     Teleport to coordinates. Y must be 0-255.
@@ -31,6 +38,8 @@ Examples:
   fill stone 0 0 0 10 5 10
   fill air ~-5 ~ ~-5 ~5 ~10 ~5
   fill brick ~ ~-1 ~ ~10 ~3 ~10 hollow
+  sphere stone ~ ~5 ~ 10
+  sphere glass ~ ~ ~ 15 hollow
   tp 100 64 200
   tp ~ ~10 ~"#;
 
