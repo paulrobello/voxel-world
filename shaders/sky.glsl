@@ -75,6 +75,12 @@ vec3 getFogColor(float time) {
     return mix(baseFog, sunsetFog, sunset * 0.5);
 }
 
+// Get current sun color (blends from white to orange at sunset)
+vec3 getSunColor() {
+    float sunset = getSunsetFactor(pc.time_of_day);
+    return mix(SUN_COLOR, SUNSET_SUN_COLOR, sunset);
+}
+
 // Simple hash for noise
 float hash(vec2 p) {
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
