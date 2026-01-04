@@ -568,7 +568,6 @@ In-game command console for world editing, debugging, and administration.
 - [ ] `pos` - Print current player position
 - [ ] `biome` - Print current biome info
 - [ ] `time [set <value>]` - Get/set time of day
-- [ ] `weather [clear|rain]` - Get/set weather (future)
 
 #### 11.5 Debug & Admin Commands
 - [ ] `give <block> [count]` - Add blocks to hotbar
