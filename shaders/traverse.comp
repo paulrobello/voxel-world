@@ -737,6 +737,10 @@ void main() {
     } else if (hit) {
         renderTargetBlockOutline(o, d, color, hitDistance);
         color = applyFog(color, hitDistance, d);
+        // Apply tint after fog so fog color is also tinted
+        if (passedTintedGlass) {
+            color *= accumulatedTint;
+        }
     } else {
         if (pc.transparent_background != 0u) {
             // Chroma-key sky for sprite generation: magenta with zero alpha.
