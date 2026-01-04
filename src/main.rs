@@ -90,7 +90,6 @@ mod gpu_resources;
 mod hot_reload;
 mod hud;
 mod hud_render;
-mod launcher_config;
 mod particles;
 mod player;
 mod raycast;
@@ -351,6 +350,7 @@ struct WorldSim {
     metadata_state: MetadataState,
     last_save: Instant,
     world_dir: PathBuf,
+    world_name: String,
     seed: u32,
 }
 
@@ -450,8 +450,6 @@ impl WorldSim {
 
     pub fn save_metadata(&self) {
         let player_pos = self.player.feet_pos(self.world_extent, self.texture_origin);
-        let yaw = self.player.camera.rotation.y;
-        let pitch = self.player.camera.rotation.x;
 
         let meta = storage::metadata::WorldMetadata {
             seed: self.seed,
@@ -459,11 +457,6 @@ impl WorldSim {
             version: 1,
             time_of_day: self.time_of_day,
             day_cycle_paused: self.day_cycle_paused,
-            player: Some(storage::metadata::PlayerData {
-                position: [player_pos.x, player_pos.y, player_pos.z],
-                yaw: yaw as f32,
-                pitch: pitch as f32,
-            }),
         };
 
         if let Err(e) = meta.save(self.world_dir.join("level.dat")) {
@@ -563,16 +556,18 @@ impl App {
             }
         }
 
+        // Load user preferences from disk (needed for world selection and player data)
+        let mut prefs = UserPreferences::load();
+
         // Determine world name
-        let mut launcher_config = launcher_config::LauncherConfig::load();
         let world_name = args
             .world
             .clone()
-            .or(launcher_config.last_world.clone())
+            .or(prefs.last_world.clone())
             .unwrap_or_else(|| "default".to_string());
 
         println!("[Launcher] Loading world: '{}'", world_name);
-        launcher_config.update_last_world(&world_name);
+        prefs.update_last_world(&world_name);
 
         let worlds_dir = PathBuf::from("worlds");
         let world_dir = worlds_dir.join(&world_name);
@@ -594,7 +589,6 @@ impl App {
         let mut seed = args.seed.unwrap_or(12345);
         let mut initial_time_of_day = DEFAULT_TIME_OF_DAY;
         let mut initial_day_paused = true; // Default
-        let mut initial_player_data = None;
 
         if metadata_path.exists() {
             if let Ok(meta) = storage::metadata::WorldMetadata::load(&metadata_path) {
@@ -602,7 +596,6 @@ impl App {
                 seed = meta.seed;
                 initial_time_of_day = meta.time_of_day;
                 initial_day_paused = meta.day_cycle_paused;
-                initial_player_data = meta.player;
             }
         } else {
             let meta = storage::metadata::WorldMetadata {
@@ -611,11 +604,13 @@ impl App {
                 version: 1,
                 time_of_day: DEFAULT_TIME_OF_DAY,
                 day_cycle_paused: true,
-                player: None,
             };
             let _ = meta.save(&metadata_path);
             println!("[Storage] Created new world metadata. Seed: {}", seed);
         }
+
+        // Load player data from user preferences (per-world)
+        let initial_player_data = prefs.get_player_data(&world_name).cloned();
 
         let view_distance = args.view_distance.unwrap_or(VIEW_DISTANCE);
         let unload_distance = UNLOAD_DISTANCE;
@@ -755,7 +750,7 @@ impl App {
         player.auto_jump = true;
 
         // Restore rotation if available
-        if let Some(p) = initial_player_data {
+        if let Some(ref p) = initial_player_data {
             player.camera.rotation.y = p.yaw as f64;
             player.camera.rotation.x = p.pitch as f64;
         }
@@ -837,13 +832,11 @@ impl App {
             metadata_state: MetadataState::new(texture_origin),
             last_save: Instant::now(),
             world_dir: world_dir.clone(),
+            world_name: world_name.clone(),
             seed,
         };
 
         let start_time = Instant::now();
-
-        // Load user preferences from disk
-        let prefs = UserPreferences::load();
 
         let ui = UiState {
             settings: {
@@ -919,6 +912,23 @@ impl App {
         self.prefs.hotbar_model_ids = self.ui.hotbar_model_ids;
         self.prefs.hotbar_tint_indices = self.ui.hotbar_tint_indices;
         self.prefs.show_minimap = self.ui.show_minimap;
+
+        // Save player position for the current world
+        let player_pos = self
+            .sim
+            .player
+            .feet_pos(self.sim.world_extent, self.sim.texture_origin);
+        let yaw = self.sim.player.camera.rotation.y as f32;
+        let pitch = self.sim.player.camera.rotation.x as f32;
+        self.prefs.set_player_data(
+            &self.sim.world_name,
+            user_prefs::WorldPlayerData {
+                position: [player_pos.x, player_pos.y, player_pos.z],
+                yaw,
+                pitch,
+            },
+        );
+
         self.prefs.save();
     }
 

@@ -1,15 +1,39 @@
 //! User preferences persistence.
 //!
 //! Saves and loads user settings and hotbar configuration to a local JSON file.
+//! Also stores per-world player data (position, rotation) for co-op/networked worlds.
 
 use crate::chunk::BlockType;
 use crate::config::Settings;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
 /// Default preferences file name.
 const PREFS_FILE_NAME: &str = "user_prefs.json";
+
+/// Player-specific data for a world (position, rotation).
+/// Stored per-user rather than per-world for co-op/networked support.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorldPlayerData {
+    /// Player position in world coordinates.
+    pub position: [f64; 3],
+    /// Horizontal rotation (yaw) in radians.
+    pub yaw: f32,
+    /// Vertical rotation (pitch) in radians.
+    pub pitch: f32,
+}
+
+impl Default for WorldPlayerData {
+    fn default() -> Self {
+        Self {
+            position: [0.0, 64.0, 0.0],
+            yaw: 0.0,
+            pitch: 0.0,
+        }
+    }
+}
 
 /// User preferences that are persisted to disk.
 #[derive(Serialize, Deserialize, Clone)]
@@ -35,6 +59,15 @@ pub struct UserPreferences {
 
     /// Last loaded world name.
     pub last_world: Option<String>,
+
+    /// Recently played worlds (most recent first, max 10).
+    #[serde(default)]
+    pub recent_worlds: Vec<String>,
+
+    /// Per-world player data (position, rotation).
+    /// Key is the world name (folder name).
+    #[serde(default)]
+    pub world_player_data: HashMap<String, WorldPlayerData>,
 }
 
 impl Default for UserPreferences {
@@ -57,6 +90,36 @@ impl Default for UserPreferences {
             hotbar_tint_indices: [0; 9],
             show_minimap: true,
             last_world: None,
+            recent_worlds: Vec::new(),
+            world_player_data: HashMap::new(),
+        }
+    }
+}
+
+impl UserPreferences {
+    /// Gets player data for a specific world, or None if not found.
+    pub fn get_player_data(&self, world_name: &str) -> Option<&WorldPlayerData> {
+        self.world_player_data.get(world_name)
+    }
+
+    /// Sets player data for a specific world.
+    pub fn set_player_data(&mut self, world_name: &str, data: WorldPlayerData) {
+        self.world_player_data.insert(world_name.to_string(), data);
+    }
+
+    /// Updates the last played world and adds it to recent worlds list.
+    pub fn update_last_world(&mut self, world_name: &str) {
+        self.last_world = Some(world_name.to_string());
+
+        // Remove if exists to move to top
+        if let Some(pos) = self.recent_worlds.iter().position(|x| x == world_name) {
+            self.recent_worlds.remove(pos);
+        }
+        // Add to front
+        self.recent_worlds.insert(0, world_name.to_string());
+        // Keep only last 10
+        if self.recent_worlds.len() > 10 {
+            self.recent_worlds.truncate(10);
         }
     }
 }
