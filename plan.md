@@ -535,6 +535,54 @@ Maintain 90+ FPS with all features enabled.
 
 ---
 
+## Phase 11: Command Console System ✅ PARTIAL
+
+### Goal
+In-game command console for world editing, debugging, and administration.
+
+### Implementation Tasks
+
+#### 11.1 Console Framework ✅ COMPLETE
+- [x] Toggle console with `/` key, close with Escape
+- [x] Command history navigation (up/down arrows)
+- [x] Color-coded output (success=green, error=red, warning=yellow)
+- [x] Relative coordinate parsing (`~` syntax)
+- [x] Volume confirmation for large operations (>100k blocks)
+- [x] `help` and `clear` commands
+
+#### 11.2 World Editing Commands
+- [x] `fill <block> <x1> <y1> <z1> <x2> <y2> <z2> [hollow]` - Fill region with blocks
+- [ ] `replace <from_block> <to_block> <x1> <y1> <z1> <x2> <y2> <z2>` - Replace blocks in region
+- [ ] `copy <x1> <y1> <z1> <x2> <y2> <z2>` - Copy region to clipboard
+- [ ] `paste [x] [y] [z]` - Paste clipboard at position
+- [ ] `undo` / `redo` - Undo/redo world edits
+
+#### 11.3 Teleportation & Movement
+- [ ] `tp <x> <y> <z>` - Teleport player to coordinates
+- [ ] `tp <player>` - Teleport to another player (multiplayer)
+- [ ] `spawn` - Teleport to world spawn point
+- [ ] `home` - Teleport to saved home position
+- [ ] `sethome` - Set home position
+
+#### 11.4 World Information
+- [ ] `pos` - Print current player position
+- [ ] `biome` - Print current biome info
+- [ ] `time [set <value>]` - Get/set time of day
+- [ ] `weather [clear|rain]` - Get/set weather (future)
+
+#### 11.5 Debug & Admin Commands
+- [ ] `give <block> [count]` - Add blocks to hotbar
+- [ ] `fly` - Toggle fly mode
+- [ ] `god` - Toggle invincibility (future)
+- [ ] `reload` - Hot reload shaders/configs
+
+### Technical Details
+- Console module: `src/console/mod.rs`
+- Command implementations: `src/console/commands/`
+- Block name parsing: `BlockType::from_name()` in `src/chunk.rs`
+
+---
+
 ## Implementation Order
 
 ### Foundation (Do First)
@@ -552,6 +600,9 @@ Maintain 90+ FPS with all features enabled.
 ### Polish (Final Phase)
 7. **Phase 8**: AI/Scripting - Animals need stable entity system
 8. **Phase 10**: Optimization - Profile with full feature set
+
+### Utility (Any Time)
+9. **Phase 11**: Command Console ✅ - World editing and debug commands
 
 ---
 
@@ -605,6 +656,13 @@ Maintain 90+ FPS with all features enabled.
 - [ ] 60+ FPS in multiplayer with 4 players
 - [ ] Sub-100ms world load time
 
+### Phase 11: Command Console ✅ PARTIAL
+- [x] Console opens/closes with `/` key
+- [x] Fill command works with relative coordinates
+- [x] Command history navigable with arrows
+- [ ] Copy/paste clipboard operations
+- [ ] Teleport commands functional
+
 ---
 
 ## Sprite Icon Generation ✅ COMPLETE (2026-01-03)
@@ -619,15 +677,7 @@ Maintain 90+ FPS with all features enabled.
 - Console command system complete. Looking for new features to implement.
 
 ## Done Recently
-- **Command Console System** (2026-01-04):
-  - Toggle with `/` key, close with Escape
-  - `fill <block> <x1> <y1> <z1> <x2> <y2> <z2> [hollow]` command
-  - Relative coordinates with `~` syntax (e.g., `~5` = player pos + 5)
-  - Volume confirmation for operations > 100k blocks
-  - `hollow` flag creates shell with air interior
-  - Command history navigation (up/down arrows)
-  - Color-coded output (success=green, error=red, warning=yellow)
-  - `help` and `clear` commands
+- **Phase 11: Command Console System** (2026-01-04): Console framework and `fill` command complete
 - **Mirror Mode for Model Editor** (2026-01-04):
   - X/Y/Z axis toggle buttons in editor UI
   - Multiple axes can be enabled simultaneously (2x/4x/8x placements)
