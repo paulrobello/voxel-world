@@ -694,8 +694,10 @@ void main() {
         vec3 color;
         uint steps = 0;
         float hitDistance = 9999.0;
+        bool dummyTinted;
+        vec3 dummyTint;
 
-        traversal(o, d, color, steps, hitDistance);
+        traversal(o, d, color, steps, hitDistance, dummyTinted, dummyTint);
 
         imageStore(distanceImage, pixelCoord, vec4(hitDistance, 0, 0, 0));
         return;
