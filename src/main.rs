@@ -1604,7 +1604,9 @@ impl App {
             falling_block_count: self.sim.falling_blocks.count() as u32,
             show_water_sources: self.ui.settings.show_water_sources as u32,
             water_source_count,
-            _padding: 0,
+            _padding0: 0,
+            _padding1: 0,
+            _padding2: 0,
             camera_pos: {
                 let cam = self
                     .sim

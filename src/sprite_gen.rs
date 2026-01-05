@@ -594,7 +594,9 @@ fn render_icon(
         falling_block_count: 0,
         show_water_sources: 0,
         water_source_count: 0,
-        _padding: 0,
+        _padding0: 0,
+        _padding1: 0,
+        _padding2: 0,
         camera_pos: [
             cam_world.x as f32,
             cam_world.y as f32,

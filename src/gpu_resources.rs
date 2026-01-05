@@ -307,7 +307,9 @@ pub struct PushConstants {
     pub falling_block_count: u32,
     pub show_water_sources: u32,
     pub water_source_count: u32,
-    pub _padding: u32, // Align camera_pos to 16 bytes for GLSL std430
+    pub _padding0: u32, // Align camera_pos to 16 bytes for GLSL std430
+    pub _padding1: u32,
+    pub _padding2: u32,
     pub camera_pos: [f32; 4],
 }
 

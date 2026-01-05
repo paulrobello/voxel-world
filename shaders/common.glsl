@@ -146,6 +146,8 @@ layout(push_constant) uniform PushConstants {
     uint show_water_sources;
     uint water_source_count;
     uint _padding0; // Align camera_pos to 16 bytes
+    uint _padding1;
+    uint _padding2;
     vec4 camera_pos; // world-space camera position
 } pc;
 
