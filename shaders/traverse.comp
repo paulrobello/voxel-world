@@ -382,28 +382,35 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
     vec3 blockColor;
     vec3 backgroundColor;
 
-    // Get background color (what's behind the model)
-    if (blockType == BLOCK_MODEL) {
-        backgroundColor = vec3(0.5, 0.5, 0.5);
-    } else {
-        backgroundColor = getBlockColor(blockType, local_hit, normal, stepped_axis, hit);
-    }
-
     // Handle sub-voxel model hits with transparency blending
-    if (blockType == BLOCK_MODEL && subVoxelHit) {
-        // If translucent, blend with background
+    // When a translucent model is hit, the ray continues to find the background,
+    // so blockType may have changed from BLOCK_MODEL to the background block type
+    if (subVoxelHit) {
+        // Get background color (what's behind the model)
+        if (blockType == BLOCK_MODEL) {
+            // Opaque model or no background found - use gray
+            backgroundColor = vec3(0.5, 0.5, 0.5);
+        } else {
+            // Translucent model with background - use actual background color
+            backgroundColor = getBlockColor(blockType, local_hit, normal, stepped_axis, hit);
+        }
+
+        // Blend translucent model with background
         if (subVoxelAlpha < 0.99) {
             blockColor = subVoxelColor * subVoxelAlpha + backgroundColor * (1.0 - subVoxelAlpha);
+            normal = subVoxelNormal;
         } else {
+            // Opaque model
             blockColor = subVoxelColor;
+            normal = subVoxelNormal;
         }
-        normal = subVoxelNormal;
-        // No glow effect for models - wireframe outline rendered separately
     } else if (blockType == BLOCK_MODEL) {
+        // Model block but ray missed the model geometry - shouldn't normally happen
+        backgroundColor = vec3(0.5, 0.5, 0.5);
         blockColor = backgroundColor;
-        // No glow effect for models - wireframe outline rendered separately
     } else {
-        blockColor = backgroundColor;
+        // Regular solid block
+        blockColor = getBlockColor(blockType, local_hit, normal, stepped_axis, hit);
     }
 
     vec2 uv;
