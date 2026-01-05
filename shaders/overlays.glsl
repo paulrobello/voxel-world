@@ -226,7 +226,22 @@ bool renderTargetBlockOutline(vec3 origin, vec3 dir, inout vec3 color, float sce
     }
 
     float tWorld = tHit * length(dir);
-    if (tHit < 0.0 || abs(tWorld - sceneHitDistance) > 0.1) {
+    if (tHit < 0.0) {
+        return false;
+    }
+
+    // For sub-voxel models, render outline even if ray passes through empty space
+    // For solid blocks, only render if we're looking at the target block
+    bool shouldRender = false;
+    if (blockType == BLOCK_MODEL) {
+        // Always render outline for models within reasonable distance
+        shouldRender = (tWorld < sceneHitDistance + 2.0);
+    } else {
+        // For solid blocks, only render if this is what we hit
+        shouldRender = (abs(tWorld - sceneHitDistance) < 0.1);
+    }
+
+    if (!shouldRender) {
         return false;
     }
 
