@@ -593,7 +593,7 @@ pub fn create_windowed_door_upper_closed_left() -> SubVoxelModel {
     model.palette[1] = Color::rgb(100, 70, 40);
     model.palette[2] = Color::rgb(139, 90, 43);
     model.palette[3] = Color::rgb(0, 0, 0);
-    model.palette[4] = Color::rgba(200, 220, 255, 160); // Glass
+    model.palette[4] = Color::rgba(200, 220, 255, 80); // Glass
 
     // Hinge column at x=0
     model.fill_box(7, 0, 0, 7, 7, 0, 1);
@@ -618,7 +618,7 @@ pub fn create_windowed_door_upper_closed_right() -> SubVoxelModel {
     model.palette[1] = Color::rgb(100, 70, 40);
     model.palette[2] = Color::rgb(139, 90, 43);
     model.palette[3] = Color::rgb(0, 0, 0);
-    model.palette[4] = Color::rgba(200, 220, 255, 160);
+    model.palette[4] = Color::rgba(200, 220, 255, 80);
 
     model.fill_box(0, 0, 0, 0, 7, 0, 1);
     model.fill_box(1, 0, 0, 7, 7, 0, 2);
@@ -685,7 +685,7 @@ pub fn create_windowed_door_upper_open_left() -> SubVoxelModel {
     model.palette[1] = Color::rgb(100, 70, 40);
     model.palette[2] = Color::rgb(139, 90, 43);
     model.palette[3] = Color::rgb(0, 0, 0);
-    model.palette[4] = Color::rgba(200, 220, 255, 160);
+    model.palette[4] = Color::rgba(200, 220, 255, 80);
 
     model.fill_box(7, 0, 0, 7, 7, 0, 1);
     model.fill_box(7, 0, 1, 7, 7, 7, 2);
@@ -706,7 +706,7 @@ pub fn create_windowed_door_upper_open_right() -> SubVoxelModel {
     model.palette[1] = Color::rgb(100, 70, 40);
     model.palette[2] = Color::rgb(139, 90, 43);
     model.palette[3] = Color::rgb(0, 0, 0);
-    model.palette[4] = Color::rgba(200, 220, 255, 160);
+    model.palette[4] = Color::rgba(200, 220, 255, 80);
 
     model.fill_box(0, 0, 0, 0, 7, 0, 1);
     model.fill_box(0, 0, 1, 0, 7, 7, 2);
@@ -967,7 +967,7 @@ pub fn create_fancy_door_upper_closed_left() -> SubVoxelModel {
     model.palette[1] = Color::rgb(100, 70, 40);
     model.palette[2] = Color::rgb(139, 90, 43);
     model.palette[3] = Color::rgb(0, 0, 0);
-    model.palette[4] = Color::rgba(200, 220, 255, 160); // Glass
+    model.palette[4] = Color::rgba(200, 220, 255, 80); // Glass
 
     model.fill_box(7, 0, 0, 7, 7, 0, 1);
     model.fill_box(0, 0, 0, 6, 7, 0, 2);
@@ -989,7 +989,7 @@ pub fn create_fancy_door_upper_closed_right() -> SubVoxelModel {
     model.palette[1] = Color::rgb(100, 70, 40);
     model.palette[2] = Color::rgb(139, 90, 43);
     model.palette[3] = Color::rgb(0, 0, 0);
-    model.palette[4] = Color::rgba(200, 220, 255, 160);
+    model.palette[4] = Color::rgba(200, 220, 255, 80);
 
     model.fill_box(0, 0, 0, 0, 7, 0, 1);
     model.fill_box(1, 0, 0, 7, 7, 0, 2);
@@ -1056,7 +1056,7 @@ pub fn create_fancy_door_upper_open_left() -> SubVoxelModel {
     model.palette[1] = Color::rgb(100, 70, 40);
     model.palette[2] = Color::rgb(139, 90, 43);
     model.palette[3] = Color::rgb(0, 0, 0);
-    model.palette[4] = Color::rgba(200, 220, 255, 160);
+    model.palette[4] = Color::rgba(200, 220, 255, 80);
 
     model.fill_box(7, 0, 0, 7, 7, 0, 1);
     model.fill_box(7, 0, 1, 7, 7, 7, 2);
@@ -1077,7 +1077,7 @@ pub fn create_fancy_door_upper_open_right() -> SubVoxelModel {
     model.palette[1] = Color::rgb(100, 70, 40);
     model.palette[2] = Color::rgb(139, 90, 43);
     model.palette[3] = Color::rgb(0, 0, 0);
-    model.palette[4] = Color::rgba(200, 220, 255, 160);
+    model.palette[4] = Color::rgba(200, 220, 255, 80);
 
     model.fill_box(0, 0, 0, 0, 7, 0, 1);
     model.fill_box(0, 0, 1, 0, 7, 7, 2);
@@ -1102,7 +1102,7 @@ pub fn create_glass_door_lower_closed_left() -> SubVoxelModel {
     model.palette[1] = Color::rgb(100, 70, 40);
     model.palette[2] = Color::rgb(139, 90, 43);
     model.palette[3] = Color::rgb(0, 0, 0);
-    model.palette[4] = Color::rgba(200, 220, 255, 160); // Glass
+    model.palette[4] = Color::rgba(200, 220, 255, 80); // Glass
 
     model.fill_box(7, 0, 0, 7, 7, 0, 1);
     // Wood frame edges
@@ -1127,7 +1127,7 @@ pub fn create_glass_door_lower_closed_right() -> SubVoxelModel {
     model.palette[1] = Color::rgb(100, 70, 40);
     model.palette[2] = Color::rgb(139, 90, 43);
     model.palette[3] = Color::rgb(0, 0, 0);
-    model.palette[4] = Color::rgba(200, 220, 255, 160);
+    model.palette[4] = Color::rgba(200, 220, 255, 80);
 
     model.fill_box(0, 0, 0, 0, 7, 0, 1);
     model.fill_box(1, 0, 0, 7, 0, 0, 2);
@@ -1150,7 +1150,7 @@ pub fn create_glass_door_upper_closed_left() -> SubVoxelModel {
     model.palette[1] = Color::rgb(100, 70, 40);
     model.palette[2] = Color::rgb(139, 90, 43);
     model.palette[3] = Color::rgb(0, 0, 0);
-    model.palette[4] = Color::rgba(200, 220, 255, 160);
+    model.palette[4] = Color::rgba(200, 220, 255, 80);
 
     model.fill_box(7, 0, 0, 7, 7, 0, 1);
     model.fill_box(0, 0, 0, 6, 0, 0, 2);
@@ -1173,7 +1173,7 @@ pub fn create_glass_door_upper_closed_right() -> SubVoxelModel {
     model.palette[1] = Color::rgb(100, 70, 40);
     model.palette[2] = Color::rgb(139, 90, 43);
     model.palette[3] = Color::rgb(0, 0, 0);
-    model.palette[4] = Color::rgba(200, 220, 255, 160);
+    model.palette[4] = Color::rgba(200, 220, 255, 80);
 
     model.fill_box(0, 0, 0, 0, 7, 0, 1);
     model.fill_box(1, 0, 0, 7, 0, 0, 2);
@@ -1196,7 +1196,7 @@ pub fn create_glass_door_lower_open_left() -> SubVoxelModel {
     model.palette[1] = Color::rgb(100, 70, 40);
     model.palette[2] = Color::rgb(139, 90, 43);
     model.palette[3] = Color::rgb(0, 0, 0);
-    model.palette[4] = Color::rgba(200, 220, 255, 160);
+    model.palette[4] = Color::rgba(200, 220, 255, 80);
 
     model.fill_box(7, 0, 0, 7, 7, 0, 1);
     model.fill_box(7, 0, 1, 7, 0, 7, 2);
@@ -1219,7 +1219,7 @@ pub fn create_glass_door_lower_open_right() -> SubVoxelModel {
     model.palette[1] = Color::rgb(100, 70, 40);
     model.palette[2] = Color::rgb(139, 90, 43);
     model.palette[3] = Color::rgb(0, 0, 0);
-    model.palette[4] = Color::rgba(200, 220, 255, 160);
+    model.palette[4] = Color::rgba(200, 220, 255, 80);
 
     model.fill_box(0, 0, 0, 0, 7, 0, 1);
     model.fill_box(0, 0, 1, 0, 0, 7, 2);
@@ -1242,7 +1242,7 @@ pub fn create_glass_door_upper_open_left() -> SubVoxelModel {
     model.palette[1] = Color::rgb(100, 70, 40);
     model.palette[2] = Color::rgb(139, 90, 43);
     model.palette[3] = Color::rgb(0, 0, 0);
-    model.palette[4] = Color::rgba(200, 220, 255, 160);
+    model.palette[4] = Color::rgba(200, 220, 255, 80);
 
     model.fill_box(7, 0, 0, 7, 7, 0, 1);
     model.fill_box(7, 0, 1, 7, 0, 7, 2);
@@ -1265,7 +1265,7 @@ pub fn create_glass_door_upper_open_right() -> SubVoxelModel {
     model.palette[1] = Color::rgb(100, 70, 40);
     model.palette[2] = Color::rgb(139, 90, 43);
     model.palette[3] = Color::rgb(0, 0, 0);
-    model.palette[4] = Color::rgba(200, 220, 255, 160);
+    model.palette[4] = Color::rgba(200, 220, 255, 80);
 
     model.fill_box(0, 0, 0, 0, 7, 0, 1);
     model.fill_box(0, 0, 1, 0, 0, 7, 2);
@@ -1376,7 +1376,7 @@ pub fn create_window(connections: u8) -> SubVoxelModel {
     let mut model = SubVoxelModel::new(&name);
 
     model.palette[1] = Color::rgb(80, 80, 85); // Frame (dark gray)
-    model.palette[2] = Color::rgba(180, 210, 255, 160); // Glass (light blue tinted)
+    model.palette[2] = Color::rgba(180, 210, 255, 80); // Glass (light blue tinted)
 
     // Center post (only if no connections, or if multiple directions)
     let has_ns = (connections & 0x03) != 0;
