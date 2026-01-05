@@ -174,6 +174,11 @@ pub fn load_sprite_icons(gui: &mut Gui) -> SpriteIcons {
         (BlockType::Cobblestone, "block_cobblestone.png"),
         (BlockType::Iron, "block_iron.png"),
         (BlockType::Bedrock, "block_bedrock.png"),
+        // Emissive blocks
+        (BlockType::Lava, "block_lava.png"),
+        (BlockType::GlowStone, "block_glowstone.png"),
+        (BlockType::GlowMushroom, "block_glowmushroom.png"),
+        // Crystal is loaded separately per tint color (like TintedGlass)
     ];
 
     // Tint indices used in the palette (from hud_render.rs TINTED_GLASS_COLORS)
