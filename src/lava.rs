@@ -397,11 +397,18 @@ impl LavaGrid {
             })
             .collect();
 
-        // Sort by distance to player (closer first).
-        // This prioritizes lava near the player over lava spreading far away,
-        // preventing distant lava from consuming all processing slots.
-        active_list
-            .sort_by(|(_, da), (_, db)| da.partial_cmp(db).unwrap_or(std::cmp::Ordering::Equal));
+        // Sort primarily by Y coordinate (lowest first), then by distance.
+        // Bottom-first processing is CRITICAL for draining: lower cells must
+        // flow out first so their pending_changes create space that upper cells
+        // can see via get_effective_mass() and flow into during the same tick.
+        // Distance is secondary tiebreaker to prioritize lava near the player.
+        active_list.sort_by(|(pos_a, dist_a), (pos_b, dist_b)| {
+            pos_a.y.cmp(&pos_b.y).then_with(|| {
+                dist_a
+                    .partial_cmp(dist_b)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+        });
 
         let active_list: Vec<_> = active_list.into_iter().map(|(pos, _)| pos).collect();
 

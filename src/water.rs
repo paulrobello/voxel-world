@@ -28,10 +28,10 @@ pub const MIN_FLOW: f32 = 0.01;
 
 /// Flow damping factor to prevent oscillation (0.0 to 1.0).
 /// Lower values = more damping = slower but more stable flow.
-pub const FLOW_DAMPING: f32 = 0.5;
+pub const FLOW_DAMPING: f32 = 0.8;
 
 /// Maximum water updates per frame (performance limit).
-pub const DEFAULT_WATER_UPDATES_PER_FRAME: usize = 256;
+pub const DEFAULT_WATER_UPDATES_PER_FRAME: usize = 1024;
 
 /// Default simulation radius in blocks (water outside this range is dormant).
 /// This ensures water is only simulated in loaded chunks near the player.
@@ -491,12 +491,18 @@ impl WaterGrid {
             })
             .collect();
 
-        // Sort by distance to player (closer first).
-        // This prioritizes water near the player (e.g., a draining room) over
-        // water spreading far away, preventing distant water from consuming
-        // all processing slots and blocking the room from draining.
-        active_list
-            .sort_by(|(_, da), (_, db)| da.partial_cmp(db).unwrap_or(std::cmp::Ordering::Equal));
+        // Sort primarily by Y coordinate (lowest first), then by distance.
+        // Bottom-first processing is CRITICAL for draining: lower cells must
+        // flow out first so their pending_changes create space that upper cells
+        // can see via get_effective_mass() and flow into during the same tick.
+        // Distance is secondary tiebreaker to prioritize water near the player.
+        active_list.sort_by(|(pos_a, dist_a), (pos_b, dist_b)| {
+            pos_a.y.cmp(&pos_b.y).then_with(|| {
+                dist_a
+                    .partial_cmp(dist_b)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+        });
 
         // Extract just the positions
         let active_list: Vec<_> = active_list.into_iter().map(|(pos, _)| pos).collect();
