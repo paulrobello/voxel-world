@@ -533,6 +533,755 @@ pub fn create_door_upper_open_right() -> SubVoxelModel {
 }
 
 // ============================================================================
+// WINDOWED DOORS (IDs 67-74)
+// ============================================================================
+
+/// Creates a windowed door lower half (closed, hinge on left).
+pub fn create_windowed_door_lower_closed_left() -> SubVoxelModel {
+    let mut model = SubVoxelModel::new("windowed_door_lower_closed_left");
+
+    model.palette[1] = Color::rgb(100, 70, 40); // Hinge
+    model.palette[2] = Color::rgb(139, 90, 43); // Wood
+    model.palette[3] = Color::rgb(0, 0, 0); // Handle
+    model.palette[4] = Color::rgb(90, 70, 50); // Darker wood panels
+
+    // Hinge column at x=0
+    model.fill_box(0, 0, 0, 0, 7, 0, 1);
+    // Wood body at x=1-7
+    model.fill_box(1, 0, 0, 7, 7, 0, 2);
+    // Decorative panels (lower half)
+    model.fill_box(2, 1, 0, 3, 2, 0, 4);
+    model.fill_box(5, 1, 0, 6, 2, 0, 4);
+    model.fill_box(2, 4, 0, 3, 5, 0, 4);
+    model.fill_box(5, 4, 0, 6, 5, 0, 4);
+    // Handle
+    model.set_voxel(7, 7, 0, 3);
+
+    model.light_blocking = LightBlocking::Partial;
+    model.rotatable = true;
+    model.compute_collision_mask();
+    model
+}
+
+/// Creates a windowed door lower half (closed, hinge on right).
+pub fn create_windowed_door_lower_closed_right() -> SubVoxelModel {
+    let mut model = SubVoxelModel::new("windowed_door_lower_closed_right");
+
+    model.palette[1] = Color::rgb(100, 70, 40);
+    model.palette[2] = Color::rgb(139, 90, 43);
+    model.palette[3] = Color::rgb(0, 0, 0);
+    model.palette[4] = Color::rgb(90, 70, 50);
+
+    model.fill_box(7, 0, 0, 7, 7, 0, 1);
+    model.fill_box(0, 0, 0, 6, 7, 0, 2);
+    model.fill_box(1, 1, 0, 2, 2, 0, 4);
+    model.fill_box(4, 1, 0, 5, 2, 0, 4);
+    model.fill_box(1, 4, 0, 2, 5, 0, 4);
+    model.fill_box(4, 4, 0, 5, 5, 0, 4);
+    model.set_voxel(0, 7, 0, 3);
+
+    model.light_blocking = LightBlocking::Partial;
+    model.rotatable = true;
+    model.compute_collision_mask();
+    model
+}
+
+/// Creates a windowed door upper half (closed, hinge on left).
+pub fn create_windowed_door_upper_closed_left() -> SubVoxelModel {
+    let mut model = SubVoxelModel::new("windowed_door_upper_closed_left");
+
+    model.palette[1] = Color::rgb(100, 70, 40);
+    model.palette[2] = Color::rgb(139, 90, 43);
+    model.palette[3] = Color::rgb(0, 0, 0);
+    model.palette[4] = Color::rgba(200, 220, 255, 160); // Glass
+
+    // Hinge column at x=0
+    model.fill_box(0, 0, 0, 0, 7, 0, 1);
+    // Wood body at x=1-7
+    model.fill_box(1, 0, 0, 7, 7, 0, 2);
+    // Glass windows (upper half)
+    model.fill_box(2, 3, 0, 3, 5, 0, 4);
+    model.fill_box(5, 3, 0, 6, 5, 0, 4);
+    // Handle
+    model.set_voxel(7, 0, 0, 3);
+
+    model.light_blocking = LightBlocking::Partial;
+    model.rotatable = true;
+    model.compute_collision_mask();
+    model
+}
+
+/// Creates a windowed door upper half (closed, hinge on right).
+pub fn create_windowed_door_upper_closed_right() -> SubVoxelModel {
+    let mut model = SubVoxelModel::new("windowed_door_upper_closed_right");
+
+    model.palette[1] = Color::rgb(100, 70, 40);
+    model.palette[2] = Color::rgb(139, 90, 43);
+    model.palette[3] = Color::rgb(0, 0, 0);
+    model.palette[4] = Color::rgba(200, 220, 255, 160);
+
+    model.fill_box(7, 0, 0, 7, 7, 0, 1);
+    model.fill_box(0, 0, 0, 6, 7, 0, 2);
+    model.fill_box(1, 3, 0, 2, 5, 0, 4);
+    model.fill_box(4, 3, 0, 5, 5, 0, 4);
+    model.set_voxel(0, 0, 0, 3);
+
+    model.light_blocking = LightBlocking::Partial;
+    model.rotatable = true;
+    model.compute_collision_mask();
+    model
+}
+
+/// Creates a windowed door lower half (open, hinge on left).
+pub fn create_windowed_door_lower_open_left() -> SubVoxelModel {
+    let mut model = SubVoxelModel::new("windowed_door_lower_open_left");
+
+    model.palette[1] = Color::rgb(100, 70, 40);
+    model.palette[2] = Color::rgb(139, 90, 43);
+    model.palette[3] = Color::rgb(0, 0, 0);
+    model.palette[4] = Color::rgb(90, 70, 50);
+
+    model.fill_box(0, 0, 0, 0, 7, 0, 1);
+    model.fill_box(0, 0, 1, 0, 7, 7, 2);
+    model.fill_box(0, 1, 1, 0, 2, 2, 4);
+    model.fill_box(0, 1, 4, 0, 2, 5, 4);
+    model.fill_box(0, 4, 1, 0, 5, 2, 4);
+    model.fill_box(0, 4, 4, 0, 5, 5, 4);
+    model.set_voxel(0, 7, 7, 3);
+
+    model.light_blocking = LightBlocking::Partial;
+    model.rotatable = true;
+    model.compute_collision_mask();
+    model
+}
+
+/// Creates a windowed door lower half (open, hinge on right).
+pub fn create_windowed_door_lower_open_right() -> SubVoxelModel {
+    let mut model = SubVoxelModel::new("windowed_door_lower_open_right");
+
+    model.palette[1] = Color::rgb(100, 70, 40);
+    model.palette[2] = Color::rgb(139, 90, 43);
+    model.palette[3] = Color::rgb(0, 0, 0);
+    model.palette[4] = Color::rgb(90, 70, 50);
+
+    model.fill_box(7, 0, 0, 7, 7, 0, 1);
+    model.fill_box(7, 0, 1, 7, 7, 7, 2);
+    model.fill_box(7, 1, 1, 7, 2, 2, 4);
+    model.fill_box(7, 1, 4, 7, 2, 5, 4);
+    model.fill_box(7, 4, 1, 7, 5, 2, 4);
+    model.fill_box(7, 4, 4, 7, 5, 5, 4);
+    model.set_voxel(7, 7, 7, 3);
+
+    model.light_blocking = LightBlocking::Partial;
+    model.rotatable = true;
+    model.compute_collision_mask();
+    model
+}
+
+/// Creates a windowed door upper half (open, hinge on left).
+pub fn create_windowed_door_upper_open_left() -> SubVoxelModel {
+    let mut model = SubVoxelModel::new("windowed_door_upper_open_left");
+
+    model.palette[1] = Color::rgb(100, 70, 40);
+    model.palette[2] = Color::rgb(139, 90, 43);
+    model.palette[3] = Color::rgb(0, 0, 0);
+    model.palette[4] = Color::rgba(200, 220, 255, 160);
+
+    model.fill_box(0, 0, 0, 0, 7, 0, 1);
+    model.fill_box(0, 0, 1, 0, 7, 7, 2);
+    model.fill_box(0, 3, 1, 0, 5, 2, 4);
+    model.fill_box(0, 3, 4, 0, 5, 5, 4);
+    model.set_voxel(0, 0, 7, 3);
+
+    model.light_blocking = LightBlocking::Partial;
+    model.rotatable = true;
+    model.compute_collision_mask();
+    model
+}
+
+/// Creates a windowed door upper half (open, hinge on right).
+pub fn create_windowed_door_upper_open_right() -> SubVoxelModel {
+    let mut model = SubVoxelModel::new("windowed_door_upper_open_right");
+
+    model.palette[1] = Color::rgb(100, 70, 40);
+    model.palette[2] = Color::rgb(139, 90, 43);
+    model.palette[3] = Color::rgb(0, 0, 0);
+    model.palette[4] = Color::rgba(200, 220, 255, 160);
+
+    model.fill_box(7, 0, 0, 7, 7, 0, 1);
+    model.fill_box(7, 0, 1, 7, 7, 7, 2);
+    model.fill_box(7, 3, 1, 7, 5, 2, 4);
+    model.fill_box(7, 3, 4, 7, 5, 5, 4);
+    model.set_voxel(7, 0, 7, 3);
+
+    model.light_blocking = LightBlocking::Partial;
+    model.rotatable = true;
+    model.compute_collision_mask();
+    model
+}
+
+// ============================================================================
+// PANELED DOORS (no windows, decorative panels)
+// ============================================================================
+
+/// Creates a paneled door lower half (closed, hinge on left).
+pub fn create_paneled_door_lower_closed_left() -> SubVoxelModel {
+    let mut model = SubVoxelModel::new("paneled_door_lower_closed_left");
+
+    model.palette[1] = Color::rgb(100, 70, 40);
+    model.palette[2] = Color::rgb(139, 90, 43);
+    model.palette[3] = Color::rgb(0, 0, 0);
+    model.palette[4] = Color::rgb(110, 75, 35); // Panel detail
+
+    model.fill_box(0, 0, 0, 0, 7, 0, 1);
+    model.fill_box(1, 0, 0, 7, 7, 0, 2);
+    // Decorative panels (lower door)
+    model.fill_box(2, 1, 0, 3, 3, 0, 4);
+    model.fill_box(5, 1, 0, 6, 3, 0, 4);
+    model.fill_box(2, 4, 0, 3, 6, 0, 4);
+    model.fill_box(5, 4, 0, 6, 6, 0, 4);
+    model.set_voxel(7, 7, 0, 3);
+
+    model.light_blocking = LightBlocking::Partial;
+    model.rotatable = true;
+    model.compute_collision_mask();
+    model
+}
+
+/// Creates a paneled door lower half (closed, hinge on right).
+pub fn create_paneled_door_lower_closed_right() -> SubVoxelModel {
+    let mut model = SubVoxelModel::new("paneled_door_lower_closed_right");
+
+    model.palette[1] = Color::rgb(100, 70, 40);
+    model.palette[2] = Color::rgb(139, 90, 43);
+    model.palette[3] = Color::rgb(0, 0, 0);
+    model.palette[4] = Color::rgb(110, 75, 35);
+
+    model.fill_box(7, 0, 0, 7, 7, 0, 1);
+    model.fill_box(0, 0, 0, 6, 7, 0, 2);
+    model.fill_box(1, 1, 0, 2, 3, 0, 4);
+    model.fill_box(4, 1, 0, 5, 3, 0, 4);
+    model.fill_box(1, 4, 0, 2, 6, 0, 4);
+    model.fill_box(4, 4, 0, 5, 6, 0, 4);
+    model.set_voxel(0, 7, 0, 3);
+
+    model.light_blocking = LightBlocking::Partial;
+    model.rotatable = true;
+    model.compute_collision_mask();
+    model
+}
+
+/// Creates a paneled door upper half (closed, hinge on left).
+pub fn create_paneled_door_upper_closed_left() -> SubVoxelModel {
+    let mut model = SubVoxelModel::new("paneled_door_upper_closed_left");
+
+    model.palette[1] = Color::rgb(100, 70, 40);
+    model.palette[2] = Color::rgb(139, 90, 43);
+    model.palette[3] = Color::rgb(0, 0, 0);
+    model.palette[4] = Color::rgb(110, 75, 35);
+
+    model.fill_box(0, 0, 0, 0, 7, 0, 1);
+    model.fill_box(1, 0, 0, 7, 7, 0, 2);
+    // Decorative panels (upper door - solid wood, no glass)
+    model.fill_box(2, 1, 0, 3, 3, 0, 4);
+    model.fill_box(5, 1, 0, 6, 3, 0, 4);
+    model.fill_box(2, 4, 0, 3, 6, 0, 4);
+    model.fill_box(5, 4, 0, 6, 6, 0, 4);
+    model.set_voxel(7, 0, 0, 3);
+
+    model.light_blocking = LightBlocking::Partial;
+    model.rotatable = true;
+    model.compute_collision_mask();
+    model
+}
+
+/// Creates a paneled door upper half (closed, hinge on right).
+pub fn create_paneled_door_upper_closed_right() -> SubVoxelModel {
+    let mut model = SubVoxelModel::new("paneled_door_upper_closed_right");
+
+    model.palette[1] = Color::rgb(100, 70, 40);
+    model.palette[2] = Color::rgb(139, 90, 43);
+    model.palette[3] = Color::rgb(0, 0, 0);
+    model.palette[4] = Color::rgb(110, 75, 35);
+
+    model.fill_box(7, 0, 0, 7, 7, 0, 1);
+    model.fill_box(0, 0, 0, 6, 7, 0, 2);
+    model.fill_box(1, 1, 0, 2, 3, 0, 4);
+    model.fill_box(4, 1, 0, 5, 3, 0, 4);
+    model.fill_box(1, 4, 0, 2, 6, 0, 4);
+    model.fill_box(4, 4, 0, 5, 6, 0, 4);
+    model.set_voxel(0, 0, 0, 3);
+
+    model.light_blocking = LightBlocking::Partial;
+    model.rotatable = true;
+    model.compute_collision_mask();
+    model
+}
+
+/// Creates a paneled door lower half (open, hinge on left).
+pub fn create_paneled_door_lower_open_left() -> SubVoxelModel {
+    let mut model = SubVoxelModel::new("paneled_door_lower_open_left");
+
+    model.palette[1] = Color::rgb(100, 70, 40);
+    model.palette[2] = Color::rgb(139, 90, 43);
+    model.palette[3] = Color::rgb(0, 0, 0);
+    model.palette[4] = Color::rgb(110, 75, 35);
+
+    model.fill_box(0, 0, 0, 0, 7, 0, 1);
+    model.fill_box(0, 0, 1, 0, 7, 7, 2);
+    model.fill_box(0, 1, 1, 0, 3, 2, 4);
+    model.fill_box(0, 1, 4, 0, 3, 5, 4);
+    model.fill_box(0, 4, 1, 0, 6, 2, 4);
+    model.fill_box(0, 4, 4, 0, 6, 5, 4);
+    model.set_voxel(0, 7, 7, 3);
+
+    model.light_blocking = LightBlocking::Partial;
+    model.rotatable = true;
+    model.compute_collision_mask();
+    model
+}
+
+/// Creates a paneled door lower half (open, hinge on right).
+pub fn create_paneled_door_lower_open_right() -> SubVoxelModel {
+    let mut model = SubVoxelModel::new("paneled_door_lower_open_right");
+
+    model.palette[1] = Color::rgb(100, 70, 40);
+    model.palette[2] = Color::rgb(139, 90, 43);
+    model.palette[3] = Color::rgb(0, 0, 0);
+    model.palette[4] = Color::rgb(110, 75, 35);
+
+    model.fill_box(7, 0, 0, 7, 7, 0, 1);
+    model.fill_box(7, 0, 1, 7, 7, 7, 2);
+    model.fill_box(7, 1, 1, 7, 3, 2, 4);
+    model.fill_box(7, 1, 4, 7, 3, 5, 4);
+    model.fill_box(7, 4, 1, 7, 6, 2, 4);
+    model.fill_box(7, 4, 4, 7, 6, 5, 4);
+    model.set_voxel(7, 7, 7, 3);
+
+    model.light_blocking = LightBlocking::Partial;
+    model.rotatable = true;
+    model.compute_collision_mask();
+    model
+}
+
+/// Creates a paneled door upper half (open, hinge on left).
+pub fn create_paneled_door_upper_open_left() -> SubVoxelModel {
+    let mut model = SubVoxelModel::new("paneled_door_upper_open_left");
+
+    model.palette[1] = Color::rgb(100, 70, 40);
+    model.palette[2] = Color::rgb(139, 90, 43);
+    model.palette[3] = Color::rgb(0, 0, 0);
+    model.palette[4] = Color::rgb(110, 75, 35);
+
+    model.fill_box(0, 0, 0, 0, 7, 0, 1);
+    model.fill_box(0, 0, 1, 0, 7, 7, 2);
+    model.fill_box(0, 1, 1, 0, 3, 2, 4);
+    model.fill_box(0, 1, 4, 0, 3, 5, 4);
+    model.fill_box(0, 4, 1, 0, 6, 2, 4);
+    model.fill_box(0, 4, 4, 0, 6, 5, 4);
+    model.set_voxel(0, 0, 7, 3);
+
+    model.light_blocking = LightBlocking::Partial;
+    model.rotatable = true;
+    model.compute_collision_mask();
+    model
+}
+
+/// Creates a paneled door upper half (open, hinge on right).
+pub fn create_paneled_door_upper_open_right() -> SubVoxelModel {
+    let mut model = SubVoxelModel::new("paneled_door_upper_open_right");
+
+    model.palette[1] = Color::rgb(100, 70, 40);
+    model.palette[2] = Color::rgb(139, 90, 43);
+    model.palette[3] = Color::rgb(0, 0, 0);
+    model.palette[4] = Color::rgb(110, 75, 35);
+
+    model.fill_box(7, 0, 0, 7, 7, 0, 1);
+    model.fill_box(7, 0, 1, 7, 7, 7, 2);
+    model.fill_box(7, 1, 1, 7, 3, 2, 4);
+    model.fill_box(7, 1, 4, 7, 3, 5, 4);
+    model.fill_box(7, 4, 1, 7, 6, 2, 4);
+    model.fill_box(7, 4, 4, 7, 6, 5, 4);
+    model.set_voxel(7, 0, 7, 3);
+
+    model.light_blocking = LightBlocking::Partial;
+    model.rotatable = true;
+    model.compute_collision_mask();
+    model
+}
+
+// ============================================================================
+// WINDOWED+PANELED DOORS (decorative panels on lower, glass on upper)
+// ============================================================================
+
+/// Creates a windowed+paneled door lower half (closed, hinge on left).
+pub fn create_fancy_door_lower_closed_left() -> SubVoxelModel {
+    let mut model = SubVoxelModel::new("fancy_door_lower_closed_left");
+
+    model.palette[1] = Color::rgb(100, 70, 40);
+    model.palette[2] = Color::rgb(139, 90, 43);
+    model.palette[3] = Color::rgb(0, 0, 0);
+    model.palette[4] = Color::rgb(110, 75, 35); // Panel detail
+
+    model.fill_box(0, 0, 0, 0, 7, 0, 1);
+    model.fill_box(1, 0, 0, 7, 7, 0, 2);
+    model.fill_box(2, 1, 0, 3, 3, 0, 4);
+    model.fill_box(5, 1, 0, 6, 3, 0, 4);
+    model.fill_box(2, 4, 0, 3, 6, 0, 4);
+    model.fill_box(5, 4, 0, 6, 6, 0, 4);
+    model.set_voxel(7, 7, 0, 3);
+
+    model.light_blocking = LightBlocking::Partial;
+    model.rotatable = true;
+    model.compute_collision_mask();
+    model
+}
+
+/// Creates a windowed+paneled door lower half (closed, hinge on right).
+pub fn create_fancy_door_lower_closed_right() -> SubVoxelModel {
+    let mut model = SubVoxelModel::new("fancy_door_lower_closed_right");
+
+    model.palette[1] = Color::rgb(100, 70, 40);
+    model.palette[2] = Color::rgb(139, 90, 43);
+    model.palette[3] = Color::rgb(0, 0, 0);
+    model.palette[4] = Color::rgb(110, 75, 35);
+
+    model.fill_box(7, 0, 0, 7, 7, 0, 1);
+    model.fill_box(0, 0, 0, 6, 7, 0, 2);
+    model.fill_box(1, 1, 0, 2, 3, 0, 4);
+    model.fill_box(4, 1, 0, 5, 3, 0, 4);
+    model.fill_box(1, 4, 0, 2, 6, 0, 4);
+    model.fill_box(4, 4, 0, 5, 6, 0, 4);
+    model.set_voxel(0, 7, 0, 3);
+
+    model.light_blocking = LightBlocking::Partial;
+    model.rotatable = true;
+    model.compute_collision_mask();
+    model
+}
+
+/// Creates a windowed+paneled door upper half (closed, hinge on left).
+pub fn create_fancy_door_upper_closed_left() -> SubVoxelModel {
+    let mut model = SubVoxelModel::new("fancy_door_upper_closed_left");
+
+    model.palette[1] = Color::rgb(100, 70, 40);
+    model.palette[2] = Color::rgb(139, 90, 43);
+    model.palette[3] = Color::rgb(0, 0, 0);
+    model.palette[4] = Color::rgba(200, 220, 255, 160); // Glass
+
+    model.fill_box(0, 0, 0, 0, 7, 0, 1);
+    model.fill_box(1, 0, 0, 7, 7, 0, 2);
+    // Glass windows (upper half)
+    model.fill_box(2, 3, 0, 3, 5, 0, 4);
+    model.fill_box(5, 3, 0, 6, 5, 0, 4);
+    model.set_voxel(7, 0, 0, 3);
+
+    model.light_blocking = LightBlocking::Partial;
+    model.rotatable = true;
+    model.compute_collision_mask();
+    model
+}
+
+/// Creates a windowed+paneled door upper half (closed, hinge on right).
+pub fn create_fancy_door_upper_closed_right() -> SubVoxelModel {
+    let mut model = SubVoxelModel::new("fancy_door_upper_closed_right");
+
+    model.palette[1] = Color::rgb(100, 70, 40);
+    model.palette[2] = Color::rgb(139, 90, 43);
+    model.palette[3] = Color::rgb(0, 0, 0);
+    model.palette[4] = Color::rgba(200, 220, 255, 160);
+
+    model.fill_box(7, 0, 0, 7, 7, 0, 1);
+    model.fill_box(0, 0, 0, 6, 7, 0, 2);
+    model.fill_box(1, 3, 0, 2, 5, 0, 4);
+    model.fill_box(4, 3, 0, 5, 5, 0, 4);
+    model.set_voxel(0, 0, 0, 3);
+
+    model.light_blocking = LightBlocking::Partial;
+    model.rotatable = true;
+    model.compute_collision_mask();
+    model
+}
+
+/// Creates a windowed+paneled door lower half (open, hinge on left).
+pub fn create_fancy_door_lower_open_left() -> SubVoxelModel {
+    let mut model = SubVoxelModel::new("fancy_door_lower_open_left");
+
+    model.palette[1] = Color::rgb(100, 70, 40);
+    model.palette[2] = Color::rgb(139, 90, 43);
+    model.palette[3] = Color::rgb(0, 0, 0);
+    model.palette[4] = Color::rgb(110, 75, 35);
+
+    model.fill_box(0, 0, 0, 0, 7, 0, 1);
+    model.fill_box(0, 0, 1, 0, 7, 7, 2);
+    model.fill_box(0, 1, 1, 0, 3, 2, 4);
+    model.fill_box(0, 1, 4, 0, 3, 5, 4);
+    model.fill_box(0, 4, 1, 0, 6, 2, 4);
+    model.fill_box(0, 4, 4, 0, 6, 5, 4);
+    model.set_voxel(0, 7, 7, 3);
+
+    model.light_blocking = LightBlocking::Partial;
+    model.rotatable = true;
+    model.compute_collision_mask();
+    model
+}
+
+/// Creates a windowed+paneled door lower half (open, hinge on right).
+pub fn create_fancy_door_lower_open_right() -> SubVoxelModel {
+    let mut model = SubVoxelModel::new("fancy_door_lower_open_right");
+
+    model.palette[1] = Color::rgb(100, 70, 40);
+    model.palette[2] = Color::rgb(139, 90, 43);
+    model.palette[3] = Color::rgb(0, 0, 0);
+    model.palette[4] = Color::rgb(110, 75, 35);
+
+    model.fill_box(7, 0, 0, 7, 7, 0, 1);
+    model.fill_box(7, 0, 1, 7, 7, 7, 2);
+    model.fill_box(7, 1, 1, 7, 3, 2, 4);
+    model.fill_box(7, 1, 4, 7, 3, 5, 4);
+    model.fill_box(7, 4, 1, 7, 6, 2, 4);
+    model.fill_box(7, 4, 4, 7, 6, 5, 4);
+    model.set_voxel(7, 7, 7, 3);
+
+    model.light_blocking = LightBlocking::Partial;
+    model.rotatable = true;
+    model.compute_collision_mask();
+    model
+}
+
+/// Creates a windowed+paneled door upper half (open, hinge on left).
+pub fn create_fancy_door_upper_open_left() -> SubVoxelModel {
+    let mut model = SubVoxelModel::new("fancy_door_upper_open_left");
+
+    model.palette[1] = Color::rgb(100, 70, 40);
+    model.palette[2] = Color::rgb(139, 90, 43);
+    model.palette[3] = Color::rgb(0, 0, 0);
+    model.palette[4] = Color::rgba(200, 220, 255, 160);
+
+    model.fill_box(0, 0, 0, 0, 7, 0, 1);
+    model.fill_box(0, 0, 1, 0, 7, 7, 2);
+    model.fill_box(0, 3, 1, 0, 5, 2, 4);
+    model.fill_box(0, 3, 4, 0, 5, 5, 4);
+    model.set_voxel(0, 0, 7, 3);
+
+    model.light_blocking = LightBlocking::Partial;
+    model.rotatable = true;
+    model.compute_collision_mask();
+    model
+}
+
+/// Creates a windowed+paneled door upper half (open, hinge on right).
+pub fn create_fancy_door_upper_open_right() -> SubVoxelModel {
+    let mut model = SubVoxelModel::new("fancy_door_upper_open_right");
+
+    model.palette[1] = Color::rgb(100, 70, 40);
+    model.palette[2] = Color::rgb(139, 90, 43);
+    model.palette[3] = Color::rgb(0, 0, 0);
+    model.palette[4] = Color::rgba(200, 220, 255, 160);
+
+    model.fill_box(7, 0, 0, 7, 7, 0, 1);
+    model.fill_box(7, 0, 1, 7, 7, 7, 2);
+    model.fill_box(7, 3, 1, 7, 5, 2, 4);
+    model.fill_box(7, 3, 4, 7, 5, 5, 4);
+    model.set_voxel(7, 0, 7, 3);
+
+    model.light_blocking = LightBlocking::Partial;
+    model.rotatable = true;
+    model.compute_collision_mask();
+    model
+}
+
+// ============================================================================
+// FULL GLASS DOORS (mostly glass with wood frame)
+// ============================================================================
+
+/// Creates a full glass door lower half (closed, hinge on left).
+pub fn create_glass_door_lower_closed_left() -> SubVoxelModel {
+    let mut model = SubVoxelModel::new("glass_door_lower_closed_left");
+
+    model.palette[1] = Color::rgb(100, 70, 40);
+    model.palette[2] = Color::rgb(139, 90, 43);
+    model.palette[3] = Color::rgb(0, 0, 0);
+    model.palette[4] = Color::rgba(200, 220, 255, 160); // Glass
+
+    model.fill_box(0, 0, 0, 0, 7, 0, 1);
+    // Wood frame edges
+    model.fill_box(1, 0, 0, 7, 0, 0, 2);
+    model.fill_box(1, 7, 0, 7, 7, 0, 2);
+    model.fill_box(1, 1, 0, 1, 6, 0, 2);
+    model.fill_box(7, 1, 0, 7, 6, 0, 2);
+    // Glass center
+    model.fill_box(2, 1, 0, 6, 6, 0, 4);
+    model.set_voxel(7, 7, 0, 3);
+
+    model.light_blocking = LightBlocking::Partial;
+    model.rotatable = true;
+    model.compute_collision_mask();
+    model
+}
+
+/// Creates a full glass door lower half (closed, hinge on right).
+pub fn create_glass_door_lower_closed_right() -> SubVoxelModel {
+    let mut model = SubVoxelModel::new("glass_door_lower_closed_right");
+
+    model.palette[1] = Color::rgb(100, 70, 40);
+    model.palette[2] = Color::rgb(139, 90, 43);
+    model.palette[3] = Color::rgb(0, 0, 0);
+    model.palette[4] = Color::rgba(200, 220, 255, 160);
+
+    model.fill_box(7, 0, 0, 7, 7, 0, 1);
+    model.fill_box(0, 0, 0, 6, 0, 0, 2);
+    model.fill_box(0, 7, 0, 6, 7, 0, 2);
+    model.fill_box(0, 1, 0, 0, 6, 0, 2);
+    model.fill_box(6, 1, 0, 6, 6, 0, 2);
+    model.fill_box(1, 1, 0, 5, 6, 0, 4);
+    model.set_voxel(0, 7, 0, 3);
+
+    model.light_blocking = LightBlocking::Partial;
+    model.rotatable = true;
+    model.compute_collision_mask();
+    model
+}
+
+/// Creates a full glass door upper half (closed, hinge on left).
+pub fn create_glass_door_upper_closed_left() -> SubVoxelModel {
+    let mut model = SubVoxelModel::new("glass_door_upper_closed_left");
+
+    model.palette[1] = Color::rgb(100, 70, 40);
+    model.palette[2] = Color::rgb(139, 90, 43);
+    model.palette[3] = Color::rgb(0, 0, 0);
+    model.palette[4] = Color::rgba(200, 220, 255, 160);
+
+    model.fill_box(0, 0, 0, 0, 7, 0, 1);
+    model.fill_box(1, 0, 0, 7, 0, 0, 2);
+    model.fill_box(1, 7, 0, 7, 7, 0, 2);
+    model.fill_box(1, 1, 0, 1, 6, 0, 2);
+    model.fill_box(7, 1, 0, 7, 6, 0, 2);
+    model.fill_box(2, 1, 0, 6, 6, 0, 4);
+    model.set_voxel(7, 0, 0, 3);
+
+    model.light_blocking = LightBlocking::Partial;
+    model.rotatable = true;
+    model.compute_collision_mask();
+    model
+}
+
+/// Creates a full glass door upper half (closed, hinge on right).
+pub fn create_glass_door_upper_closed_right() -> SubVoxelModel {
+    let mut model = SubVoxelModel::new("glass_door_upper_closed_right");
+
+    model.palette[1] = Color::rgb(100, 70, 40);
+    model.palette[2] = Color::rgb(139, 90, 43);
+    model.palette[3] = Color::rgb(0, 0, 0);
+    model.palette[4] = Color::rgba(200, 220, 255, 160);
+
+    model.fill_box(7, 0, 0, 7, 7, 0, 1);
+    model.fill_box(0, 0, 0, 6, 0, 0, 2);
+    model.fill_box(0, 7, 0, 6, 7, 0, 2);
+    model.fill_box(0, 1, 0, 0, 6, 0, 2);
+    model.fill_box(6, 1, 0, 6, 6, 0, 2);
+    model.fill_box(1, 1, 0, 5, 6, 0, 4);
+    model.set_voxel(0, 0, 0, 3);
+
+    model.light_blocking = LightBlocking::Partial;
+    model.rotatable = true;
+    model.compute_collision_mask();
+    model
+}
+
+/// Creates a full glass door lower half (open, hinge on left).
+pub fn create_glass_door_lower_open_left() -> SubVoxelModel {
+    let mut model = SubVoxelModel::new("glass_door_lower_open_left");
+
+    model.palette[1] = Color::rgb(100, 70, 40);
+    model.palette[2] = Color::rgb(139, 90, 43);
+    model.palette[3] = Color::rgb(0, 0, 0);
+    model.palette[4] = Color::rgba(200, 220, 255, 160);
+
+    model.fill_box(0, 0, 0, 0, 7, 0, 1);
+    model.fill_box(0, 0, 1, 0, 0, 7, 2);
+    model.fill_box(0, 7, 1, 0, 7, 7, 2);
+    model.fill_box(0, 1, 1, 0, 6, 1, 2);
+    model.fill_box(0, 1, 7, 0, 6, 7, 2);
+    model.fill_box(0, 1, 2, 0, 6, 6, 4);
+    model.set_voxel(0, 7, 7, 3);
+
+    model.light_blocking = LightBlocking::Partial;
+    model.rotatable = true;
+    model.compute_collision_mask();
+    model
+}
+
+/// Creates a full glass door lower half (open, hinge on right).
+pub fn create_glass_door_lower_open_right() -> SubVoxelModel {
+    let mut model = SubVoxelModel::new("glass_door_lower_open_right");
+
+    model.palette[1] = Color::rgb(100, 70, 40);
+    model.palette[2] = Color::rgb(139, 90, 43);
+    model.palette[3] = Color::rgb(0, 0, 0);
+    model.palette[4] = Color::rgba(200, 220, 255, 160);
+
+    model.fill_box(7, 0, 0, 7, 7, 0, 1);
+    model.fill_box(7, 0, 1, 7, 0, 7, 2);
+    model.fill_box(7, 7, 1, 7, 7, 7, 2);
+    model.fill_box(7, 1, 1, 7, 6, 1, 2);
+    model.fill_box(7, 1, 7, 7, 6, 7, 2);
+    model.fill_box(7, 1, 2, 7, 6, 6, 4);
+    model.set_voxel(7, 7, 7, 3);
+
+    model.light_blocking = LightBlocking::Partial;
+    model.rotatable = true;
+    model.compute_collision_mask();
+    model
+}
+
+/// Creates a full glass door upper half (open, hinge on left).
+pub fn create_glass_door_upper_open_left() -> SubVoxelModel {
+    let mut model = SubVoxelModel::new("glass_door_upper_open_left");
+
+    model.palette[1] = Color::rgb(100, 70, 40);
+    model.palette[2] = Color::rgb(139, 90, 43);
+    model.palette[3] = Color::rgb(0, 0, 0);
+    model.palette[4] = Color::rgba(200, 220, 255, 160);
+
+    model.fill_box(0, 0, 0, 0, 7, 0, 1);
+    model.fill_box(0, 0, 1, 0, 0, 7, 2);
+    model.fill_box(0, 7, 1, 0, 7, 7, 2);
+    model.fill_box(0, 1, 1, 0, 6, 1, 2);
+    model.fill_box(0, 1, 7, 0, 6, 7, 2);
+    model.fill_box(0, 1, 2, 0, 6, 6, 4);
+    model.set_voxel(0, 0, 7, 3);
+
+    model.light_blocking = LightBlocking::Partial;
+    model.rotatable = true;
+    model.compute_collision_mask();
+    model
+}
+
+/// Creates a full glass door upper half (open, hinge on right).
+pub fn create_glass_door_upper_open_right() -> SubVoxelModel {
+    let mut model = SubVoxelModel::new("glass_door_upper_open_right");
+
+    model.palette[1] = Color::rgb(100, 70, 40);
+    model.palette[2] = Color::rgb(139, 90, 43);
+    model.palette[3] = Color::rgb(0, 0, 0);
+    model.palette[4] = Color::rgba(200, 220, 255, 160);
+
+    model.fill_box(7, 0, 0, 7, 7, 0, 1);
+    model.fill_box(7, 0, 1, 7, 0, 7, 2);
+    model.fill_box(7, 7, 1, 7, 7, 7, 2);
+    model.fill_box(7, 1, 1, 7, 6, 1, 2);
+    model.fill_box(7, 1, 7, 7, 6, 7, 2);
+    model.fill_box(7, 1, 2, 7, 6, 6, 4);
+    model.set_voxel(7, 0, 7, 3);
+
+    model.light_blocking = LightBlocking::Partial;
+    model.rotatable = true;
+    model.compute_collision_mask();
+    model
+}
+
+// ============================================================================
 // TRAPDOORS
 // ============================================================================
 

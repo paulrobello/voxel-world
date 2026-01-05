@@ -236,6 +236,10 @@ impl HUDRenderer {
             push_if(28, "Stairs");
             push_if(29, "Ladder");
             push_if(39, "Door");
+            push_if(67, "Windowed Door");
+            push_if(75, "Paneled Door");
+            push_if(83, "Fancy Door");
+            push_if(91, "Glass Door");
             push_if(47, "Trapdoor");
             push_if(51, "Window");
 

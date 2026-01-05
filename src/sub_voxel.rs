@@ -26,7 +26,7 @@ pub const MAX_MODELS: usize = 256;
 pub const PALETTE_SIZE: usize = 16;
 
 /// First model ID available for custom/user models.
-/// Built-in models use IDs 0-66:
+/// Built-in models use IDs 0-98:
 /// - 0: Empty
 /// - 1: Torch
 /// - 2-3: Slabs
@@ -36,10 +36,14 @@ pub const PALETTE_SIZE: usize = 16;
 /// - 29: Ladder
 /// - 30: Inverted stairs
 /// - 31-38: Corner stairs (8 variants)
-/// - 39-46: Doors (8 variants: lower/upper × hinge left/right × closed/open)
+/// - 39-46: Plain Doors (8 variants: lower/upper × hinge left/right × closed/open)
 /// - 47-50: Trapdoors (4 variants: floor/ceiling × closed/open)
 /// - 51-66: Windows (16 connection variants)
-pub const FIRST_CUSTOM_MODEL_ID: u8 = 67;
+/// - 67-74: Windowed Doors (8 variants)
+/// - 75-82: Paneled Doors (8 variants)
+/// - 83-90: Windowed+Paneled Doors (8 variants)
+/// - 91-98: Full Glass Doors (8 variants)
+pub const FIRST_CUSTOM_MODEL_ID: u8 = 99;
 
 /// RGBA color for sub-voxel palette.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -484,15 +488,31 @@ impl ModelRegistry {
             create_door_lower_closed_left, create_door_lower_closed_right,
             create_door_lower_open_left, create_door_lower_open_right,
             create_door_upper_closed_left, create_door_upper_closed_right,
-            create_door_upper_open_left, create_door_upper_open_right, create_empty, create_fence,
-            create_gate_closed, create_gate_open, create_ladder, create_slab_bottom,
-            create_slab_top, create_stairs_inner_left, create_stairs_inner_left_inverted,
-            create_stairs_inner_right, create_stairs_inner_right_inverted, create_stairs_north,
-            create_stairs_north_inverted, create_stairs_outer_left,
-            create_stairs_outer_left_inverted, create_stairs_outer_right,
+            create_door_upper_open_left, create_door_upper_open_right, create_empty,
+            create_fancy_door_lower_closed_left, create_fancy_door_lower_closed_right,
+            create_fancy_door_lower_open_left, create_fancy_door_lower_open_right,
+            create_fancy_door_upper_closed_left, create_fancy_door_upper_closed_right,
+            create_fancy_door_upper_open_left, create_fancy_door_upper_open_right, create_fence,
+            create_gate_closed, create_gate_open, create_glass_door_lower_closed_left,
+            create_glass_door_lower_closed_right, create_glass_door_lower_open_left,
+            create_glass_door_lower_open_right, create_glass_door_upper_closed_left,
+            create_glass_door_upper_closed_right, create_glass_door_upper_open_left,
+            create_glass_door_upper_open_right, create_ladder,
+            create_paneled_door_lower_closed_left, create_paneled_door_lower_closed_right,
+            create_paneled_door_lower_open_left, create_paneled_door_lower_open_right,
+            create_paneled_door_upper_closed_left, create_paneled_door_upper_closed_right,
+            create_paneled_door_upper_open_left, create_paneled_door_upper_open_right,
+            create_slab_bottom, create_slab_top, create_stairs_inner_left,
+            create_stairs_inner_left_inverted, create_stairs_inner_right,
+            create_stairs_inner_right_inverted, create_stairs_north, create_stairs_north_inverted,
+            create_stairs_outer_left, create_stairs_outer_left_inverted, create_stairs_outer_right,
             create_stairs_outer_right_inverted, create_torch, create_trapdoor_ceiling_closed,
             create_trapdoor_ceiling_open, create_trapdoor_floor_closed, create_trapdoor_floor_open,
-            create_window,
+            create_window, create_windowed_door_lower_closed_left,
+            create_windowed_door_lower_closed_right, create_windowed_door_lower_open_left,
+            create_windowed_door_lower_open_right, create_windowed_door_upper_closed_left,
+            create_windowed_door_upper_closed_right, create_windowed_door_upper_open_left,
+            create_windowed_door_upper_open_right,
         };
 
         // ID 0: Empty/placeholder (no model)
@@ -565,6 +585,46 @@ impl ModelRegistry {
         for connections in 0..16u8 {
             self.register(create_window(connections));
         }
+
+        // ID 67-74: Windowed Doors (8 variants)
+        self.register(create_windowed_door_lower_closed_left());
+        self.register(create_windowed_door_lower_closed_right());
+        self.register(create_windowed_door_upper_closed_left());
+        self.register(create_windowed_door_upper_closed_right());
+        self.register(create_windowed_door_lower_open_left());
+        self.register(create_windowed_door_lower_open_right());
+        self.register(create_windowed_door_upper_open_left());
+        self.register(create_windowed_door_upper_open_right());
+
+        // ID 75-82: Paneled Doors (8 variants)
+        self.register(create_paneled_door_lower_closed_left());
+        self.register(create_paneled_door_lower_closed_right());
+        self.register(create_paneled_door_upper_closed_left());
+        self.register(create_paneled_door_upper_closed_right());
+        self.register(create_paneled_door_lower_open_left());
+        self.register(create_paneled_door_lower_open_right());
+        self.register(create_paneled_door_upper_open_left());
+        self.register(create_paneled_door_upper_open_right());
+
+        // ID 83-90: Windowed+Paneled Doors (8 variants)
+        self.register(create_fancy_door_lower_closed_left());
+        self.register(create_fancy_door_lower_closed_right());
+        self.register(create_fancy_door_upper_closed_left());
+        self.register(create_fancy_door_upper_closed_right());
+        self.register(create_fancy_door_lower_open_left());
+        self.register(create_fancy_door_lower_open_right());
+        self.register(create_fancy_door_upper_open_left());
+        self.register(create_fancy_door_upper_open_right());
+
+        // ID 91-98: Full Glass Doors (8 variants)
+        self.register(create_glass_door_lower_closed_left());
+        self.register(create_glass_door_lower_closed_right());
+        self.register(create_glass_door_upper_closed_left());
+        self.register(create_glass_door_upper_closed_right());
+        self.register(create_glass_door_lower_open_left());
+        self.register(create_glass_door_lower_open_right());
+        self.register(create_glass_door_upper_open_left());
+        self.register(create_glass_door_upper_open_right());
     }
 
     /// Gets the model ID for a fence with the given connections.
