@@ -458,14 +458,14 @@ pub fn create_door_lower_open_left() -> SubVoxelModel {
 
     model.palette[1] = Color::rgb(139, 90, 43);
     model.palette[2] = Color::rgb(160, 110, 60);
-    model.palette[3] = Color::rgb(60, 60, 65);
+    model.palette[3] = Color::rgb(0, 0, 0);
 
     // Door now along x=0,1 (swung 90 degrees from hinge on left/+X side)
     model.fill_box(0, 0, 0, 1, 7, 7, 1);
     model.fill_box(0, 1, 1, 1, 3, 6, 2);
     model.fill_box(0, 5, 1, 1, 6, 6, 2);
-    // Handle on front edge (top of lower door)
-    model.set_voxel(2, 7, 0, 3);
+    // Handle on door edge (top of lower door)
+    model.set_voxel(0, 7, 0, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -479,14 +479,14 @@ pub fn create_door_lower_open_right() -> SubVoxelModel {
 
     model.palette[1] = Color::rgb(139, 90, 43);
     model.palette[2] = Color::rgb(160, 110, 60);
-    model.palette[3] = Color::rgb(60, 60, 65);
+    model.palette[3] = Color::rgb(0, 0, 0);
 
     // Door along x=6,7 (swung 90 degrees from hinge on right/-X side)
     model.fill_box(6, 0, 0, 7, 7, 7, 1);
     model.fill_box(6, 1, 1, 7, 3, 6, 2);
     model.fill_box(6, 5, 1, 7, 6, 6, 2);
-    // Handle on front edge (top of lower door)
-    model.set_voxel(5, 7, 0, 3);
+    // Handle on door edge (top of lower door)
+    model.set_voxel(7, 7, 0, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -506,8 +506,8 @@ pub fn create_door_upper_open_left() -> SubVoxelModel {
     model.fill_box(0, 1, 1, 1, 6, 6, 2);
     model.fill_box(0, 3, 0, 1, 4, 7, 1);
     model.fill_box(0, 0, 3, 1, 7, 4, 1);
-    // Handle on front edge (bottom of upper door)
-    model.set_voxel(2, 0, 0, 3);
+    // Handle on door edge (bottom of upper door)
+    model.set_voxel(0, 0, 0, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -527,8 +527,8 @@ pub fn create_door_upper_open_right() -> SubVoxelModel {
     model.fill_box(6, 1, 1, 7, 6, 6, 2);
     model.fill_box(6, 3, 0, 7, 4, 7, 1);
     model.fill_box(6, 0, 3, 7, 7, 4, 1);
-    // Handle on front edge (bottom of upper door)
-    model.set_voxel(5, 0, 0, 3);
+    // Handle on door edge (bottom of upper door)
+    model.set_voxel(7, 0, 0, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
