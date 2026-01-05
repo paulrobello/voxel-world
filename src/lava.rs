@@ -458,6 +458,9 @@ impl LavaGrid {
                 if let Some(cell) = self.cells.get_mut(&pos) {
                     cell.stable_ticks = 0;
                 }
+
+                // Wake up neighbors so they can flow toward this cell (chain reaction)
+                self.activate_neighbors(pos);
             } else if let Some(cell) = self.cells.get_mut(&pos) {
                 cell.stable_ticks = cell.stable_ticks.saturating_add(1);
                 if cell.is_stable() {

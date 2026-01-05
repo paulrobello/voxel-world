@@ -548,6 +548,9 @@ impl WaterGrid {
                 if let Some(cell) = self.cells.get_mut(&pos) {
                     cell.stable_ticks = 0;
                 }
+
+                // Wake up neighbors so they can flow toward this cell (chain reaction)
+                self.activate_neighbors(pos);
             } else {
                 // No flow - increment stability counter
                 if let Some(cell) = self.cells.get_mut(&pos) {
