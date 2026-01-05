@@ -28,6 +28,9 @@ pub fn help() -> CommandResult {
   tp <x> <y> <z>
     Teleport to coordinates. Y must be 0-255.
 
+  waterdebug, wd
+    Show water/lava simulation debug info.
+
   clear
     Clear console output
 

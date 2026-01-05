@@ -15,10 +15,24 @@ use crate::{PaletteItem, PaletteTab};
 use egui_winit_vulkano::{Gui, egui};
 use nalgebra::Vector3;
 
+/// Water/lava simulation stats for debug display.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct FluidStats {
+    /// Total water cells in grid.
+    pub water_cells: usize,
+    /// Active (potentially flowing) water cells.
+    pub water_active: usize,
+    /// Total lava cells in grid.
+    pub lava_cells: usize,
+    /// Active (potentially flowing) lava cells.
+    pub lava_active: usize,
+}
+
 /// Bundles HUD inputs to avoid an oversized render signature.
 pub struct HudInputs<'a> {
     pub fps: u32,
     pub chunk_stats: &'a ChunkStats,
+    pub fluid_stats: FluidStats,
     pub player: &'a mut Player,
     pub world: &'a mut crate::world::World,
     pub settings: &'a mut Settings,
@@ -489,7 +503,12 @@ impl HUDRenderer {
             .inner_margin(egui::Margin::symmetric(8, 4))
     }
 
-    fn draw_stats_overlay(ctx: &egui::Context, fps: u32, chunk_stats: &ChunkStats) {
+    fn draw_stats_overlay(
+        ctx: &egui::Context,
+        fps: u32,
+        chunk_stats: &ChunkStats,
+        fluid_stats: FluidStats,
+    ) {
         egui::Area::new(egui::Id::new("fps_overlay"))
             .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-10.0, 10.0))
             .show(ctx, |ui| {
@@ -527,6 +546,32 @@ impl HUDRenderer {
                             .color(egui::Color32::LIGHT_GRAY)
                             .small(),
                     );
+                    // Show fluid stats when there are active fluid cells
+                    if fluid_stats.water_cells > 0 || fluid_stats.lava_cells > 0 {
+                        ui.separator();
+                        if fluid_stats.water_cells > 0 {
+                            let water_color = egui::Color32::from_rgb(64, 164, 223);
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "Water: {} ({} active)",
+                                    fluid_stats.water_cells, fluid_stats.water_active
+                                ))
+                                .color(water_color)
+                                .small(),
+                            );
+                        }
+                        if fluid_stats.lava_cells > 0 {
+                            let lava_color = egui::Color32::from_rgb(255, 100, 50);
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "Lava: {} ({} active)",
+                                    fluid_stats.lava_cells, fluid_stats.lava_active
+                                ))
+                                .color(lava_color)
+                                .small(),
+                            );
+                        }
+                    }
                 });
             });
     }
@@ -559,6 +604,7 @@ impl HUDRenderer {
         let HudInputs {
             fps,
             chunk_stats,
+            fluid_stats,
             player,
             world,
             settings,
@@ -597,7 +643,7 @@ impl HUDRenderer {
             let ctx = gui.context();
 
             if settings.show_stats {
-                Self::draw_stats_overlay(&ctx, fps, chunk_stats);
+                Self::draw_stats_overlay(&ctx, fps, chunk_stats, fluid_stats);
             }
             if settings.show_position {
                 Self::draw_position_overlay(&ctx, player_world_pos);
@@ -1540,7 +1586,7 @@ impl HUDRenderer {
 
             // Draw console if active
             if console.active {
-                Self::draw_console(&ctx, console, world, player_world_pos);
+                Self::draw_console(&ctx, console, world, player_world_pos, fluid_stats);
             }
         });
         (scale_changed, editor_action)
@@ -1552,6 +1598,7 @@ impl HUDRenderer {
         console: &mut ConsoleState,
         world: &mut crate::world::World,
         player_world_pos: Vector3<f64>,
+        fluid_stats: FluidStats,
     ) {
         let screen_rect = ctx.screen_rect();
         let console_height = screen_rect.height() * 0.6;
@@ -1629,6 +1676,15 @@ impl HUDRenderer {
                                 player_world_pos.z.floor() as i32,
                             );
                             console.submit(world, player_pos);
+                            // Handle pending fluid debug output
+                            if console.pending_fluid_debug {
+                                console.output_fluid_debug(
+                                    fluid_stats.water_cells,
+                                    fluid_stats.water_active,
+                                    fluid_stats.lava_cells,
+                                    fluid_stats.lava_active,
+                                );
+                            }
                             // Re-focus the input
                             console.request_focus = true;
                         } else if ui.input(|i| i.key_pressed(egui::Key::Escape)) {

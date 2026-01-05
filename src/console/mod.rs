@@ -66,6 +66,8 @@ pub enum CommandResult {
     NeedsConfirmation { message: String, command: String },
     /// Teleport player to coordinates.
     Teleport { x: f64, y: f64, z: f64 },
+    /// Request water/lava debug info output (caller has access to grids).
+    FluidDebug,
 }
 
 /// Pending command awaiting confirmation.
@@ -107,6 +109,8 @@ pub struct ConsoleState {
     pub request_focus: bool,
     /// Pending teleport to be handled by game loop.
     pub pending_teleport: Option<PendingTeleport>,
+    /// Pending fluid debug output request.
+    pub pending_fluid_debug: bool,
 }
 
 /// Maximum number of command history entries to persist.
@@ -125,6 +129,7 @@ impl ConsoleState {
             pending_confirm: None,
             request_focus: false,
             pending_teleport: None,
+            pending_fluid_debug: false,
         }
     }
 
@@ -191,6 +196,33 @@ impl ConsoleState {
     /// Adds a warning message to output.
     pub fn warning(&mut self, msg: impl Into<String>) {
         self.add_output(ConsoleEntry::Warning(msg.into()));
+    }
+
+    /// Outputs fluid debug information.
+    /// Called by the HUD when pending_fluid_debug is set.
+    pub fn output_fluid_debug(
+        &mut self,
+        water_cells: usize,
+        water_active: usize,
+        lava_cells: usize,
+        lava_active: usize,
+    ) {
+        self.info("=== Fluid Simulation Debug ===");
+        self.info(format!(
+            "Water: {} cells, {} active",
+            water_cells, water_active
+        ));
+        self.info(format!(
+            "Lava: {} cells, {} active",
+            lava_cells, lava_active
+        ));
+        if water_active == 0 && water_cells > 0 {
+            self.warning("Water cells exist but none are active - water is stable/stuck");
+        }
+        if lava_active == 0 && lava_cells > 0 {
+            self.warning("Lava cells exist but none are active - lava is stable/stuck");
+        }
+        self.pending_fluid_debug = false;
     }
 
     /// Navigate up in command history.
@@ -292,6 +324,10 @@ impl ConsoleState {
                 self.success(format!("Teleporting to ({:.1}, {:.1}, {:.1})", x, y, z));
                 self.pending_teleport = Some(PendingTeleport { x, y, z });
             }
+            CommandResult::FluidDebug => {
+                // Signal that caller should output fluid debug info
+                self.pending_fluid_debug = true;
+            }
         }
     }
 
@@ -316,6 +352,7 @@ impl ConsoleState {
             "fill" => commands::fill(args, world, player_pos, confirmed),
             "sphere" => commands::sphere(args, world, player_pos, confirmed),
             "tp" | "teleport" => commands::tp(args, player_pos),
+            "waterdebug" | "wd" => CommandResult::FluidDebug,
             "clear" => {
                 self.output.clear();
                 CommandResult::Success("Console cleared.".to_string())

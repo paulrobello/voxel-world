@@ -2,7 +2,7 @@ use crate::chunk::BlockType;
 use crate::editor::EditorAction;
 use crate::editor::rasterizer::generate_model_sprite;
 use crate::gpu_resources::RenderContext;
-use crate::hud_render::{HUDRenderer, HudInputs};
+use crate::hud_render::{FluidStats, HUDRenderer, HudInputs};
 use crate::{UiState, WorldSim};
 use egui_winit_vulkano::egui;
 use nalgebra::Vector3;
@@ -18,11 +18,20 @@ pub fn render_hud(
     camera_yaw: f32,
     player_world_pos: Vector3<f64>,
 ) -> bool {
+    // Gather fluid stats for debug display
+    let fluid_stats = FluidStats {
+        water_cells: sim.water_grid.cell_count(),
+        water_active: sim.water_grid.active_count(),
+        lava_cells: sim.lava_grid.cell_count(),
+        lava_active: sim.lava_grid.active_count(),
+    };
+
     let (scale_changed, editor_action) = HUDRenderer.render(
         &mut rcx.gui,
         HudInputs {
             fps: ui.fps,
             chunk_stats: &sim.chunk_stats,
+            fluid_stats,
             player: &mut sim.player,
             world: &mut sim.world,
             settings: &mut ui.settings,
