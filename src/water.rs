@@ -411,13 +411,28 @@ impl WaterGrid {
             }
         }
 
-        // 3. Flow UP (pressure) - only if we have excess water
-        if remaining > MAX_MASS && !is_solid(above) {
+        // 3. Flow UP - pressure-based OR equalization to fill space above
+        if !is_solid(above) {
             let above_mass = self.get_effective_mass(above, has_world_water);
-            let excess = remaining - MAX_MASS;
-            let space_above = MAX_MASS - above_mass;
-            if space_above > MIN_FLOW {
-                let flow = excess.min(space_above) * FLOW_DAMPING;
+
+            if remaining > MAX_MASS {
+                // Pressure-based: excess water pushes up
+                let excess = remaining - MAX_MASS;
+                let space_above = MAX_MASS - above_mass;
+                if space_above > MIN_FLOW {
+                    let flow = excess.min(space_above) * FLOW_DAMPING;
+                    if flow > MIN_FLOW {
+                        result.up = flow;
+                    }
+                }
+            } else if above_mass + MIN_FLOW < remaining {
+                // Equalization: rise to fill space above when above has less mass.
+                // This is critical for draining rooms where cells below the exit
+                // need to rise up to reach the drainage point. Without this,
+                // cells below exit level can only drain via tiny MAX_COMPRESS amounts.
+                // Use extra damping (0.5) since rising against gravity is slower.
+                let avg_mass = (remaining + above_mass) / 2.0;
+                let flow = (remaining - avg_mass) * FLOW_DAMPING * 0.5;
                 if flow > MIN_FLOW {
                     result.up = flow;
                 }
@@ -953,7 +968,12 @@ mod tests {
 
         let flow = grid.calculate_flow(pos, floor_solid, never_out_of_bounds, &no_world_water);
         assert!(flow.down > 0.0, "Water should flow down");
-        assert!(flow.up == 0.0, "Water should not flow up without pressure");
+        // Note: upward equalization flow can happen when above is empty
+        // (this is needed for draining rooms with side exits)
+        assert!(
+            flow.down > flow.up,
+            "Downward flow should be greater than upward equalization"
+        );
     }
 
     #[test]
