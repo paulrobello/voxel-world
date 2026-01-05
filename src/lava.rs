@@ -150,9 +150,19 @@ impl LavaGrid {
     }
 
     /// Gets the effective lava mass including pending changes from this tick.
+    ///
+    /// The `has_world_lava` closure should return true if the world has a Lava
+    /// block at the position (even if there's no grid cell). This ensures Lava
+    /// blocks placed by terrain/fill commands are treated as full lava.
     #[inline]
-    fn get_effective_mass(&self, pos: Vector3<i32>) -> f32 {
-        let base = self.cells.get(&pos).map(|c| c.mass).unwrap_or(0.0);
+    fn get_effective_mass<W>(&self, pos: Vector3<i32>, has_world_lava: &W) -> f32
+    where
+        W: Fn(Vector3<i32>) -> bool,
+    {
+        let base = self.cells.get(&pos).map(|c| c.mass).unwrap_or_else(|| {
+            // No grid cell - check if world has lava block
+            if has_world_lava(pos) { MAX_MASS } else { 0.0 }
+        });
         let pending = self.pending_changes.get(&pos).copied().unwrap_or(0.0);
         (base + pending).max(0.0)
     }
@@ -241,15 +251,21 @@ impl LavaGrid {
     }
 
     /// Calculates lava flow - similar to water but no upward pressure flow.
-    pub fn calculate_flow<F, B>(
+    ///
+    /// The `has_world_lava` closure should return true if the world has a Lava block
+    /// at the position, even if there's no grid cell. This is critical for proper flow
+    /// when lava was placed via terrain generation or fill commands.
+    pub fn calculate_flow<F, B, W>(
         &self,
         pos: Vector3<i32>,
         is_solid: F,
         is_out_of_bounds: B,
+        has_world_lava: &W,
     ) -> FlowResult
     where
         F: Fn(Vector3<i32>) -> bool,
         B: Fn(Vector3<i32>) -> bool,
+        W: Fn(Vector3<i32>) -> bool,
     {
         let mut result = FlowResult::default();
 
@@ -275,7 +291,7 @@ impl LavaGrid {
             remaining -= result.down;
         } else if !is_solid(below) {
             // Use effective mass to see pending changes from earlier this tick
-            let below_mass = self.get_effective_mass(below);
+            let below_mass = self.get_effective_mass(below, has_world_lava);
             let space_below = MAX_MASS - below_mass;
             if space_below > MIN_FLOW {
                 let flow = remaining.min(space_below) * FLOW_DAMPING;
@@ -294,7 +310,7 @@ impl LavaGrid {
 
             for (neighbor_pos, flow_ref) in neighbors {
                 if !is_solid(neighbor_pos) {
-                    let neighbor_mass = self.get_effective_mass(neighbor_pos);
+                    let neighbor_mass = self.get_effective_mass(neighbor_pos, has_world_lava);
                     if neighbor_mass < remaining {
                         lower_neighbors.push((neighbor_pos, neighbor_mass, flow_ref));
                     }
@@ -352,17 +368,22 @@ impl LavaGrid {
 
     /// Performs one tick of lava simulation.
     /// Returns (changed_positions, water_lava_contacts) for block updates.
-    pub fn tick<F, B, W>(
+    ///
+    /// # Arguments
+    /// * `has_world_lava` - Returns true if world has a Lava block at position (even without grid cell)
+    pub fn tick<F, B, Wtr, Lva>(
         &mut self,
         is_solid: F,
         is_out_of_bounds: B,
-        has_water: W,
+        has_water: Wtr,
+        has_world_lava: Lva,
         player_pos: Vector3<f32>,
     ) -> (Vec<Vector3<i32>>, Vec<Vector3<i32>>)
     where
         F: Fn(Vector3<i32>) -> bool,
         B: Fn(Vector3<i32>) -> bool,
-        W: Fn(Vector3<i32>) -> bool,
+        Wtr: Fn(Vector3<i32>) -> bool,
+        Lva: Fn(Vector3<i32>) -> bool,
     {
         let mut changed_positions = Vec::new();
         let mut water_contacts = Vec::new();
@@ -433,7 +454,7 @@ impl LavaGrid {
                 }
             }
 
-            let flow = self.calculate_flow(pos, &is_solid, &is_out_of_bounds);
+            let flow = self.calculate_flow(pos, &is_solid, &is_out_of_bounds, &has_world_lava);
 
             if flow.has_flow() {
                 let total_out = flow.total_outflow();
@@ -592,8 +613,23 @@ impl LavaGrid {
             }
         };
 
-        let (changed_positions, water_contacts) =
-            self.tick(is_solid, is_out_of_bounds, has_water, player_pos);
+        // Check if world has a Lava block (even without grid cell).
+        // This is critical for proper flow calculation - Lava blocks placed via
+        // terrain generation or fill commands should be treated as full lava.
+        let has_world_lava = |pos: Vector3<i32>| -> bool {
+            if pos.y < 0 || pos.y >= texture_height {
+                return false;
+            }
+            matches!(world.get_block(pos), Some(BlockType::Lava))
+        };
+
+        let (changed_positions, water_contacts) = self.tick(
+            is_solid,
+            is_out_of_bounds,
+            has_water,
+            has_world_lava,
+            player_pos,
+        );
 
         // Handle water-lava interactions first (create cobblestone)
         for pos in water_contacts {
@@ -705,6 +741,10 @@ mod tests {
         false
     }
 
+    fn no_world_lava(_: Vector3<i32>) -> bool {
+        false // No lava blocks in world (tests only use grid cells)
+    }
+
     #[test]
     fn test_lava_cell_creation() {
         let cell = LavaCell::new(0.5);
@@ -720,7 +760,7 @@ mod tests {
 
         grid.set_lava(pos, 1.0, false);
 
-        let flow = grid.calculate_flow(pos, floor_solid, never_out_of_bounds);
+        let flow = grid.calculate_flow(pos, floor_solid, never_out_of_bounds, &no_world_lava);
         assert!(flow.down > 0.0, "Lava should flow down");
     }
 
@@ -732,8 +772,13 @@ mod tests {
 
         grid.set_lava(pos, 1.0, false);
 
-        let (changed, _water_contacts) =
-            grid.tick(floor_solid, never_out_of_bounds, no_water, player_pos);
+        let (changed, _water_contacts) = grid.tick(
+            floor_solid,
+            never_out_of_bounds,
+            no_water,
+            no_world_lava,
+            player_pos,
+        );
 
         assert!(!changed.is_empty(), "Lava should have moved");
         assert!(

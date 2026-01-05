@@ -194,9 +194,19 @@ impl WaterGrid {
 
     /// Gets the effective water mass including pending changes from this tick.
     /// This allows cells processed later in a tick to see flow from earlier cells.
+    ///
+    /// The `has_world_water` closure should return true if the world has a Water
+    /// block at the position (even if there's no grid cell). This ensures Water
+    /// blocks placed by terrain/fill commands are treated as full water.
     #[inline]
-    fn get_effective_mass(&self, pos: Vector3<i32>) -> f32 {
-        let base = self.cells.get(&pos).map(|c| c.mass).unwrap_or(0.0);
+    fn get_effective_mass<W>(&self, pos: Vector3<i32>, has_world_water: &W) -> f32
+    where
+        W: Fn(Vector3<i32>) -> bool,
+    {
+        let base = self.cells.get(&pos).map(|c| c.mass).unwrap_or_else(|| {
+            // No grid cell - check if world has water block
+            if has_world_water(pos) { MAX_MASS } else { 0.0 }
+        });
         let pending = self.pending_changes.get(&pos).copied().unwrap_or(0.0);
         (base + pending).max(0.0)
     }
@@ -311,15 +321,21 @@ impl WaterGrid {
     ///
     /// The `is_out_of_bounds` closure should return true for positions outside the world.
     /// Water flowing out of bounds is destroyed (drains into void).
-    pub fn calculate_flow<F, B>(
+    ///
+    /// The `has_world_water` closure should return true if the world has a Water block
+    /// at the position, even if there's no grid cell. This is critical for proper flow
+    /// when water was placed via terrain generation or fill commands.
+    pub fn calculate_flow<F, B, W>(
         &self,
         pos: Vector3<i32>,
         is_solid: F,
         is_out_of_bounds: B,
+        has_world_water: &W,
     ) -> FlowResult
     where
         F: Fn(Vector3<i32>) -> bool,
         B: Fn(Vector3<i32>) -> bool,
+        W: Fn(Vector3<i32>) -> bool,
     {
         let mut result = FlowResult::default();
 
@@ -349,7 +365,7 @@ impl WaterGrid {
             remaining -= result.down;
         } else if !is_solid(below) {
             // Use effective mass to see pending changes from earlier this tick
-            let below_mass = self.get_effective_mass(below);
+            let below_mass = self.get_effective_mass(below, has_world_water);
             let space_below = (MAX_MASS + MAX_COMPRESS) - below_mass;
             if space_below > MIN_FLOW {
                 // Flow as much as possible down
@@ -369,7 +385,7 @@ impl WaterGrid {
 
             for (neighbor_pos, flow_ref) in neighbors {
                 if !is_solid(neighbor_pos) {
-                    let neighbor_mass = self.get_effective_mass(neighbor_pos);
+                    let neighbor_mass = self.get_effective_mass(neighbor_pos, has_world_water);
                     if neighbor_mass < remaining {
                         lower_neighbors.push((neighbor_pos, neighbor_mass, flow_ref));
                     }
@@ -397,7 +413,7 @@ impl WaterGrid {
 
         // 3. Flow UP (pressure) - only if we have excess water
         if remaining > MAX_MASS && !is_solid(above) {
-            let above_mass = self.get_effective_mass(above);
+            let above_mass = self.get_effective_mass(above, has_world_water);
             let excess = remaining - MAX_MASS;
             let space_above = MAX_MASS - above_mass;
             if space_above > MIN_FLOW {
@@ -447,16 +463,19 @@ impl WaterGrid {
     /// # Arguments
     /// * `is_solid` - Returns true if a block at position is solid (water can't flow there)
     /// * `is_out_of_bounds` - Returns true if position is outside the world (water drains into void)
+    /// * `has_world_water` - Returns true if world has a Water block at position (even without grid cell)
     /// * `player_pos` - Player position for prioritizing nearby water updates
-    pub fn tick<F, B>(
+    pub fn tick<F, B, W>(
         &mut self,
         is_solid: F,
         is_out_of_bounds: B,
+        has_world_water: W,
         player_pos: Vector3<f32>,
     ) -> Vec<Vector3<i32>>
     where
         F: Fn(Vector3<i32>) -> bool,
         B: Fn(Vector3<i32>) -> bool,
+        W: Fn(Vector3<i32>) -> bool,
     {
         let mut changed_positions = Vec::new();
 
@@ -512,7 +531,7 @@ impl WaterGrid {
         let mut deactivate = Vec::new();
 
         for &pos in active_list.iter().take(process_count) {
-            let flow = self.calculate_flow(pos, &is_solid, &is_out_of_bounds);
+            let flow = self.calculate_flow(pos, &is_solid, &is_out_of_bounds, &has_world_water);
 
             if flow.has_flow() {
                 // Record outflow from this cell
@@ -679,8 +698,18 @@ impl WaterGrid {
 
         let is_out_of_bounds = |pos: Vector3<i32>| -> bool { pos.y < 0 };
 
+        // Check if world has a Water block (even without grid cell).
+        // This is critical for proper flow calculation - Water blocks placed via
+        // terrain generation or fill commands should be treated as full water.
+        let has_world_water = |pos: Vector3<i32>| -> bool {
+            if pos.y < 0 || pos.y >= texture_height {
+                return false;
+            }
+            matches!(world.get_block(pos), Some(BlockType::Water))
+        };
+
         // Run water simulation tick
-        let changed_positions = self.tick(is_solid, is_out_of_bounds, player_pos);
+        let changed_positions = self.tick(is_solid, is_out_of_bounds, has_world_water, player_pos);
 
         // Update world blocks and GPU for changed water cells
         for pos in changed_positions {
@@ -841,6 +870,10 @@ mod tests {
         pos.y < 0 // Void below y=0
     }
 
+    fn no_world_water(_: Vector3<i32>) -> bool {
+        false // No water blocks in world (tests only use grid cells)
+    }
+
     #[test]
     fn test_water_cell_creation() {
         let cell = WaterCell::new(0.5);
@@ -918,7 +951,7 @@ mod tests {
 
         grid.set_water(pos, 1.0, false);
 
-        let flow = grid.calculate_flow(pos, floor_solid, never_out_of_bounds);
+        let flow = grid.calculate_flow(pos, floor_solid, never_out_of_bounds, &no_world_water);
         assert!(flow.down > 0.0, "Water should flow down");
         assert!(flow.up == 0.0, "Water should not flow up without pressure");
     }
@@ -932,7 +965,7 @@ mod tests {
         // Water at pos, empty at neighbor, floor below both
         grid.set_water(pos, 0.8, false);
 
-        let flow = grid.calculate_flow(pos, floor_solid, never_out_of_bounds);
+        let flow = grid.calculate_flow(pos, floor_solid, never_out_of_bounds, &no_world_water);
         // Should flow down AND horizontal
         assert!(
             flow.pos_x > 0.0 || flow.neg_x > 0.0 || flow.pos_z > 0.0 || flow.neg_z > 0.0,
@@ -964,7 +997,7 @@ mod tests {
         grid.set_water(pos, 1.0, false);
 
         // Run a tick
-        let changed = grid.tick(floor_solid, never_out_of_bounds, player_pos);
+        let changed = grid.tick(floor_solid, never_out_of_bounds, no_world_water, player_pos);
 
         // Water should have flowed
         assert!(!changed.is_empty(), "Water should have moved");
@@ -992,7 +1025,7 @@ mod tests {
         grid.set_water(pos, 1.0, false);
 
         // Run a tick with void below y=0
-        let _changed = grid.tick(never_solid, void_below_zero, player_pos);
+        let _changed = grid.tick(never_solid, void_below_zero, no_world_water, player_pos);
 
         // Water should have drained (flowed into void)
         assert!(
