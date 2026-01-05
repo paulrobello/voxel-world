@@ -187,18 +187,53 @@ bool renderTargetBlockOutline(vec3 origin, vec3 dir, inout vec3 color, float sce
 
     ivec3 targetPos = ivec3(pc.target_block_x, pc.target_block_y, pc.target_block_z);
     uint blockType = readBlockTypeAtTexCoord(targetPos);
+
+    // Define bounding box for outline
+    vec3 boxMin = vec3(targetPos);
+    vec3 boxMax = vec3(targetPos) + vec3(1.0);
+
+    // Handle multi-block models (doors)
     if (blockType == BLOCK_MODEL) {
-        return false;
+        uvec2 metadata = readModelMetadata(targetPos);
+        uint model_id = metadata.r;
+
+        if (isDoorModel(model_id)) {
+            // Check if this is upper or lower half
+            bool isUpper = isDoorUpper(model_id);
+            ivec3 otherHalf = targetPos + ivec3(0, isUpper ? -1 : 1, 0);
+
+            // Verify the other half exists and is also a door
+            if (otherHalf.y >= 0 && otherHalf.y < int(pc.texture_size_y)) {
+                uint otherBlockType = readBlockTypeAtTexCoord(otherHalf);
+                if (otherBlockType == BLOCK_MODEL) {
+                    uvec2 otherMetadata = readModelMetadata(otherHalf);
+                    uint otherModelId = otherMetadata.r;
+                    if (isDoorModel(otherModelId)) {
+                        // Extend bounding box to encompass both halves
+                        boxMin.y = float(min(targetPos.y, otherHalf.y));
+                        boxMax.y = float(max(targetPos.y, otherHalf.y)) + 1.0;
+                    }
+                }
+            }
+        }
     }
 
+    // Ray-box intersection
     vec3 hitNormal;
-    vec3 localHit;
-    float t = rayBlockIntersect(origin, dir, targetPos, hitNormal, localHit);
-
-    float tWorld = t * length(dir);
-    if (t < 0.0 || abs(tWorld - sceneHitDistance) > 0.1) {
+    float tHit;
+    if (!rayBoxHit(origin, dir, boxMin, boxMax, tHit, hitNormal)) {
         return false;
     }
+
+    float tWorld = tHit * length(dir);
+    if (tHit < 0.0 || abs(tWorld - sceneHitDistance) > 0.1) {
+        return false;
+    }
+
+    // Compute local hit position within the bounding box
+    vec3 hitPoint = origin + dir * tHit;
+    vec3 localHit = (hitPoint - boxMin) / (boxMax - boxMin);
+    localHit = clamp(localHit, vec3(0.0), vec3(1.0));
 
     float wireframe = getWireframeFactor(localHit, hitNormal);
     if (wireframe > 0.1) {

@@ -520,3 +520,31 @@ bool isModelWaterlogged(uint metadataGreen) {
     return (metadataGreen & 4u) != 0u;
 }
 
+// Door model detection helpers (match sub_voxel.rs)
+// Door model ID ranges: 39-46, 67-74, 75-82, 83-90, 91-98
+bool isDoorModel(uint model_id) {
+    return (model_id >= 39u && model_id <= 46u) ||
+           (model_id >= 67u && model_id <= 74u) ||
+           (model_id >= 75u && model_id <= 82u) ||
+           (model_id >= 83u && model_id <= 90u) ||
+           (model_id >= 91u && model_id <= 98u);
+}
+
+// Get the base model ID for a door type
+uint doorTypeBase(uint model_id) {
+    if (model_id >= 39u && model_id <= 46u) return 39u;
+    if (model_id >= 67u && model_id <= 74u) return 67u;
+    if (model_id >= 75u && model_id <= 82u) return 75u;
+    if (model_id >= 83u && model_id <= 90u) return 83u;
+    if (model_id >= 91u && model_id <= 98u) return 91u;
+    return 0u;
+}
+
+// Check if a door model is the upper half
+bool isDoorUpper(uint model_id) {
+    uint base = doorTypeBase(model_id);
+    if (base == 0u) return false;
+    uint offset = model_id - base;
+    return (offset == 2u || offset == 3u || offset == 6u || offset == 7u);
+}
+

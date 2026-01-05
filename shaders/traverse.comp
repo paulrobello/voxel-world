@@ -398,14 +398,10 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
             blockColor = subVoxelColor;
         }
         normal = subVoxelNormal;
-        if (isTargetBlock(ivec3(coord))) {
-            blockColor = applyTargetHighlight(blockColor);
-        }
+        // No glow effect for models - wireframe outline rendered separately
     } else if (blockType == BLOCK_MODEL) {
         blockColor = backgroundColor;
-        if (isTargetBlock(ivec3(coord))) {
-            blockColor = applyTargetHighlight(blockColor);
-        }
+        // No glow effect for models - wireframe outline rendered separately
     } else {
         blockColor = backgroundColor;
     }
