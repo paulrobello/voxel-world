@@ -1414,3 +1414,75 @@ pub fn create_window(connections: u8) -> SubVoxelModel {
     model.compute_collision_mask();
     model
 }
+
+/// Creates a crystal cluster model with the given color.
+/// The model consists of multiple pointed crystal spires of varying heights.
+#[allow(dead_code)]
+pub fn create_crystal(color: Color) -> SubVoxelModel {
+    let mut model = SubVoxelModel::new("crystal");
+
+    // Palette: darker base, main crystal color, bright highlight
+    let (r, g, b) = (color.r, color.g, color.b);
+    model.palette[1] = Color::rgb(r / 2, g / 2, b / 2); // Dark base
+    model.palette[2] = color; // Main crystal
+    model.palette[3] = Color::rgb(
+        // Bright highlight
+        (r as u16 + 128).min(255) as u8,
+        (g as u16 + 128).min(255) as u8,
+        (b as u16 + 128).min(255) as u8,
+    );
+
+    // Central tall crystal spire (tallest, center)
+    // Base (2x2)
+    model.fill_box(3, 0, 3, 4, 1, 4, 1);
+    // Body tapers up
+    model.fill_box(3, 2, 3, 4, 4, 4, 2);
+    model.set_voxel(3, 5, 3, 2);
+    model.set_voxel(4, 5, 4, 2);
+    model.set_voxel(3, 6, 4, 2);
+    model.set_voxel(4, 6, 3, 2);
+    // Tip
+    model.set_voxel(3, 7, 3, 3);
+    model.set_voxel(4, 7, 4, 3);
+
+    // Front-left crystal (medium height)
+    model.fill_box(1, 0, 1, 2, 0, 2, 1);
+    model.fill_box(1, 1, 1, 2, 3, 2, 2);
+    model.set_voxel(1, 4, 2, 2);
+    model.set_voxel(2, 4, 1, 2);
+    model.set_voxel(1, 5, 1, 3);
+
+    // Back-right crystal (medium height)
+    model.fill_box(5, 0, 5, 6, 0, 6, 1);
+    model.fill_box(5, 1, 5, 6, 3, 6, 2);
+    model.set_voxel(5, 4, 6, 2);
+    model.set_voxel(6, 4, 5, 2);
+    model.set_voxel(6, 5, 6, 3);
+
+    // Front-right small crystal
+    model.fill_box(5, 0, 1, 6, 0, 2, 1);
+    model.fill_box(5, 1, 1, 6, 2, 2, 2);
+    model.set_voxel(5, 3, 2, 3);
+
+    // Back-left small crystal
+    model.fill_box(1, 0, 5, 2, 0, 6, 1);
+    model.fill_box(1, 1, 5, 2, 2, 6, 2);
+    model.set_voxel(2, 3, 5, 3);
+
+    // Tiny accent crystals
+    model.set_voxel(0, 0, 3, 1);
+    model.set_voxel(0, 1, 3, 2);
+    model.set_voxel(7, 0, 4, 1);
+    model.set_voxel(7, 1, 4, 2);
+    model.set_voxel(3, 0, 7, 1);
+    model.set_voxel(3, 1, 7, 2);
+    model.set_voxel(4, 0, 0, 1);
+    model.set_voxel(4, 1, 0, 2);
+
+    model.emission = Some(color);
+    model.light_blocking = LightBlocking::Partial;
+    model.rotatable = false;
+    model.requires_ground_support = false;
+    model.compute_collision_mask();
+    model
+}

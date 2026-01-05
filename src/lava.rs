@@ -539,6 +539,11 @@ impl LavaGrid {
         let is_out_of_bounds = |pos: Vector3<i32>| -> bool { pos.y < 0 };
 
         let has_water = |pos: Vector3<i32>| -> bool {
+            // Check both the world block and water grid
+            // Water might exist in the grid before being rendered as a block
+            if water_grid.has_water(pos) {
+                return true;
+            }
             if let Some(block) = world.get_block(pos) {
                 block == BlockType::Water
             } else {

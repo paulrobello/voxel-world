@@ -1192,9 +1192,11 @@ impl App {
                 .player
                 .feet_pos(self.sim.world_extent, self.sim.texture_origin)
                 .cast::<f32>();
-            self.sim
-                .water_grid
-                .process_simulation(&mut self.sim.world, player_pos_f32);
+            self.sim.water_grid.process_simulation(
+                &mut self.sim.world,
+                &mut self.sim.lava_grid,
+                player_pos_f32,
+            );
 
             // Process lava flow simulation (uses same enabled flag as water)
             self.sim.lava_grid.process_simulation(

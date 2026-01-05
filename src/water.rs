@@ -618,6 +618,7 @@ impl WaterGrid {
     pub fn process_simulation(
         &mut self,
         world: &mut crate::world::World,
+        lava_grid: &mut crate::lava::LavaGrid,
         player_pos: Vector3<f32>,
     ) {
         use crate::chunk::BlockType;
@@ -657,6 +658,14 @@ impl WaterGrid {
                     world.set_block(pos, BlockType::Air);
                     world.invalidate_minimap_cache(pos.x, pos.z);
                 }
+                (Some(BlockType::Lava), true) => {
+                    // Water flows into lava - creates cobblestone
+                    self.cells.remove(&pos);
+                    self.active.remove(&pos);
+                    lava_grid.on_block_placed(pos);
+                    world.set_block(pos, BlockType::Cobblestone);
+                    world.invalidate_minimap_cache(pos.x, pos.z);
+                }
                 (Some(BlockType::Model), true) => {
                     // Set waterlogged = true
                     if let Some(mut data) = world.get_model_data(pos) {
@@ -676,6 +685,42 @@ impl WaterGrid {
                     }
                 }
                 _ => {}
+            }
+        }
+
+        // Check for water-lava adjacency and create cobblestone
+        // This handles cases where water is adjacent to lava but not flowing into it
+        let water_positions: Vec<_> = self.cells.keys().copied().collect();
+        for pos in water_positions {
+            if pos.y < 0 || pos.y >= texture_height {
+                continue;
+            }
+
+            // Check adjacent positions for lava
+            let neighbors = [
+                pos + Vector3::new(1, 0, 0),
+                pos + Vector3::new(-1, 0, 0),
+                pos + Vector3::new(0, 1, 0),
+                pos + Vector3::new(0, -1, 0),
+                pos + Vector3::new(0, 0, 1),
+                pos + Vector3::new(0, 0, -1),
+            ];
+
+            for neighbor in neighbors {
+                // Check if neighbor has lava (either in world or lava grid)
+                let neighbor_is_lava = lava_grid.has_lava(neighbor)
+                    || world
+                        .get_block(neighbor)
+                        .map(|b| b == BlockType::Lava)
+                        .unwrap_or(false);
+
+                if neighbor_is_lava && self.has_water(pos) {
+                    // Water touching lava - convert lava to cobblestone
+                    lava_grid.set_lava(neighbor, 0.0, false); // Removes the lava cell
+                    world.set_block(neighbor, BlockType::Cobblestone);
+                    world.invalidate_minimap_cache(neighbor.x, neighbor.z);
+                    break; // Only convert one lava per tick per water cell
+                }
             }
         }
     }
