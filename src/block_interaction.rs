@@ -717,17 +717,42 @@ impl App {
                     let local_hit = hit_point - place_pos.cast::<f32>();
 
                     // Determine if click was on far side based on which face was clicked
-                    let place_at_far_edge = match hit.normal {
-                        n if n.y < 0 => {
-                            // Clicking on top face (Y-), check depth along player's facing direction
+                    let place_at_far_edge = match (hit.normal.x, hit.normal.y, hit.normal.z) {
+                        (_, 1, _) => {
+                            // Clicking on top face (Y+), check depth along player's facing direction
                             match base_rotation {
-                                0 => local_hit.z > 0.5, // Facing +Z
-                                1 => local_hit.x < 0.5, // Facing -X
-                                2 => local_hit.z < 0.5, // Facing -Z
-                                _ => local_hit.x > 0.5, // Facing +X
+                                0 => local_hit.z > 0.5, // Facing +Z: far if z > 0.5
+                                1 => local_hit.x < 0.5, // Facing -X: far if x < 0.5
+                                2 => local_hit.z < 0.5, // Facing -Z: far if z < 0.5
+                                _ => local_hit.x > 0.5, // Facing +X: far if x > 0.5
                             }
                         }
-                        _ => false, // For wall placement, keep default behavior
+                        (_, -1, _) => {
+                            // Clicking on bottom face (Y-), check depth along player's facing direction
+                            match base_rotation {
+                                0 => local_hit.z > 0.5, // Facing +Z: far if z > 0.5
+                                1 => local_hit.x < 0.5, // Facing -X: far if x < 0.5
+                                2 => local_hit.z < 0.5, // Facing -Z: far if z < 0.5
+                                _ => local_hit.x > 0.5, // Facing +X: far if x > 0.5
+                            }
+                        }
+                        (1, _, _) | (-1, _, _) => {
+                            // Clicking on X-facing wall
+                            match base_rotation {
+                                0 => local_hit.z > 0.5, // Facing +Z: far if z > 0.5
+                                2 => local_hit.z < 0.5, // Facing -Z: far if z < 0.5
+                                _ => false,             // Perpendicular to wall, no depth
+                            }
+                        }
+                        (_, _, 1) | (_, _, -1) => {
+                            // Clicking on Z-facing wall
+                            match base_rotation {
+                                1 => local_hit.x < 0.5, // Facing -X: far if x < 0.5
+                                3 => local_hit.x > 0.5, // Facing +X: far if x > 0.5
+                                _ => false,             // Perpendicular to wall, no depth
+                            }
+                        }
+                        _ => false,
                     };
 
                     // If placing at far edge, rotate door 180° so it's at back of block
@@ -775,6 +800,9 @@ impl App {
                 self.sim
                     .world
                     .set_model_block(upper_pos, upper_model, rotation, upper_waterlogged);
+
+                // Prevent door from being toggled on same click
+                self.ui.gate_needs_reclick = true;
 
                 return true;
             } else if ModelRegistry::is_trapdoor_model(base_model_id) {
