@@ -305,6 +305,8 @@ pub struct PushConstants {
     pub lod_point_light_distance: f32,
     pub lod_model_distance: f32,
     pub falling_block_count: u32,
+    pub show_water_sources: u32,
+    pub water_source_count: u32,
     pub _padding: u32, // Align camera_pos to 16 bytes for GLSL std430
     pub camera_pos: [f32; 4],
 }
@@ -646,8 +648,20 @@ pub fn load_texture_atlas(
     (descriptor_set, sampler, image_view)
 }
 
-/// Creates storage buffers and descriptor set for particle and falling block data.
-/// Both share set index 3: particles at binding 0, falling blocks at binding 1.
+/// Maximum number of water/lava sources to show in debug mode.
+pub const MAX_WATER_SOURCES: usize = 512;
+
+/// GPU-compatible water source data for debug visualization.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct GpuWaterSource {
+    /// Position XYZ + type W (0=water, 1=lava)
+    pub position: [f32; 4],
+}
+
+/// Creates storage buffers and descriptor set for particle, falling block, and water source data.
+/// All share set index 3: particles at binding 0, falling blocks at binding 1, water sources at binding 2.
+#[allow(clippy::type_complexity)]
 pub fn get_particle_and_falling_block_set(
     memory_allocator: Arc<StandardMemoryAllocator>,
     descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
@@ -655,6 +669,7 @@ pub fn get_particle_and_falling_block_set(
 ) -> (
     Subbuffer<[particles::GpuParticle]>,
     Subbuffer<[GpuFallingBlock]>,
+    Subbuffer<[GpuWaterSource]>,
     Arc<DescriptorSet>,
 ) {
     use particles::{GpuParticle, MAX_PARTICLES};
@@ -664,8 +679,10 @@ pub fn get_particle_and_falling_block_set(
         make_storage_buffer::<GpuParticle>(&memory_allocator, MAX_PARTICLES as u64);
     let falling_block_buffer =
         make_storage_buffer::<GpuFallingBlock>(&memory_allocator, MAX_FALLING_BLOCKS as u64);
+    let water_source_buffer =
+        make_storage_buffer::<GpuWaterSource>(&memory_allocator, MAX_WATER_SOURCES as u64);
 
-    // Create descriptor set at set index 3 with both buffers
+    // Create descriptor set at set index 3 with all buffers
     let descriptor_set = make_set(
         &descriptor_set_allocator,
         render_pipeline,
@@ -673,10 +690,16 @@ pub fn get_particle_and_falling_block_set(
         [
             WriteDescriptorSet::buffer(0, particle_buffer.clone()),
             WriteDescriptorSet::buffer(1, falling_block_buffer.clone()),
+            WriteDescriptorSet::buffer(2, water_source_buffer.clone()),
         ],
     );
 
-    (particle_buffer, falling_block_buffer, descriptor_set)
+    (
+        particle_buffer,
+        falling_block_buffer,
+        water_source_buffer,
+        descriptor_set,
+    )
 }
 
 /// Maximum number of point lights (torches) that can be active at once.

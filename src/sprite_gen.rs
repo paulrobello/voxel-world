@@ -88,7 +88,7 @@ pub fn run(_args: &Args, event_loop: &EventLoop<()>) -> Result<(), Box<dyn Error
         &texture_path,
     );
 
-    let (_particle_buffer, _falling_block_buffer, particle_set) =
+    let (_particle_buffer, _falling_block_buffer, _water_source_buffer, particle_set) =
         get_particle_and_falling_block_set(
             memory_allocator.clone(),
             descriptor_set_allocator.clone(),
@@ -592,6 +592,8 @@ fn render_icon(
         lod_point_light_distance: 20.0,
         lod_model_distance: 32.0,
         falling_block_count: 0,
+        show_water_sources: 0,
+        water_source_count: 0,
         _padding: 0,
         camera_pos: [
             cam_world.x as f32,

@@ -143,6 +143,8 @@ layout(push_constant) uniform PushConstants {
     float lod_point_light_distance;
     float lod_model_distance;
     uint falling_block_count;
+    uint show_water_sources;
+    uint water_source_count;
     uint _padding0; // Align camera_pos to 16 bytes
     vec4 camera_pos; // world-space camera position
 } pc;
@@ -163,6 +165,14 @@ struct FallingBlock {
 };
 layout(set = 3, binding = 1) readonly buffer FallingBlockBuffer {
     FallingBlock falling_blocks[];
+};
+
+// Water source positions for debug visualization (shares particle set)
+struct WaterSource {
+    vec4 position;  // xyz = block position, w = type (0=water, 1=lava)
+};
+layout(set = 3, binding = 2) readonly buffer WaterSourceBuffer {
+    WaterSource water_sources[];
 };
 
 // Point lights (set 4)

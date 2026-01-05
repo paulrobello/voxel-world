@@ -318,6 +318,7 @@ struct Graphics {
     brick_dist_buffer: Subbuffer<[u32]>,
     brick_and_model_set: Arc<DescriptorSet>,
     falling_block_buffer: Subbuffer<[GpuFallingBlock]>,
+    water_source_buffer: Subbuffer<[gpu_resources::GpuWaterSource]>,
     voxel_image: Arc<Image>,
     model_atlas: Arc<Image>,
     model_palettes: Arc<Image>,
@@ -713,8 +714,8 @@ impl App {
             &texture_path,
         );
 
-        // Create particle and falling block buffers (share set 3)
-        let (particle_buffer, falling_block_buffer, particle_set) =
+        // Create particle, falling block, and water source buffers (share set 3)
+        let (particle_buffer, falling_block_buffer, water_source_buffer, particle_set) =
             get_particle_and_falling_block_set(
                 vk.memory_allocator.clone(),
                 vk.descriptor_set_allocator.clone(),
@@ -818,6 +819,7 @@ impl App {
             brick_dist_buffer,
             brick_and_model_set,
             falling_block_buffer,
+            water_source_buffer,
             voxel_image,
             model_atlas,
             model_palettes,
@@ -1224,6 +1226,66 @@ impl App {
             self.sim.world_extent,
         );
         let light_count = gpu_lights.len() as u32;
+
+        // Collect water/lava sources for debug visualization
+        let water_source_count = if self.ui.settings.show_water_sources {
+            let player_pos = self.sim.player.camera.position;
+            let max_dist_sq = 64.0 * 64.0; // 64 block radius
+            let tex_origin = self.sim.texture_origin;
+
+            let mut sources = Vec::new();
+
+            // Collect water sources
+            for (pos, cell) in self.sim.water_grid.iter() {
+                if cell.is_source {
+                    let dx = pos.x as f64 - player_pos.x;
+                    let dy = pos.y as f64 - player_pos.y;
+                    let dz = pos.z as f64 - player_pos.z;
+                    if dx * dx + dy * dy + dz * dz <= max_dist_sq {
+                        sources.push(gpu_resources::GpuWaterSource {
+                            position: [
+                                (pos.x - tex_origin.x) as f32,
+                                (pos.y - tex_origin.y) as f32,
+                                (pos.z - tex_origin.z) as f32,
+                                0.0, // 0 = water
+                            ],
+                        });
+                    }
+                }
+            }
+
+            // Collect lava sources
+            for (pos, cell) in self.sim.lava_grid.iter() {
+                if cell.is_source {
+                    let dx = pos.x as f64 - player_pos.x;
+                    let dy = pos.y as f64 - player_pos.y;
+                    let dz = pos.z as f64 - player_pos.z;
+                    if dx * dx + dy * dy + dz * dz <= max_dist_sq {
+                        sources.push(gpu_resources::GpuWaterSource {
+                            position: [
+                                (pos.x - tex_origin.x) as f32,
+                                (pos.y - tex_origin.y) as f32,
+                                (pos.z - tex_origin.z) as f32,
+                                1.0, // 1 = lava
+                            ],
+                        });
+                    }
+                }
+            }
+
+            // Upload to GPU buffer
+            let count = sources.len().min(gpu_resources::MAX_WATER_SOURCES);
+            {
+                let mut write = self.graphics.water_source_buffer.write().unwrap();
+                for (i, src) in sources.iter().take(count).enumerate() {
+                    write[i] = *src;
+                }
+            }
+            count as u32
+        } else {
+            0
+        };
+
         let player_world_pos = self
             .sim
             .player
@@ -1540,6 +1602,8 @@ impl App {
             lod_point_light_distance: self.ui.settings.lod_point_light_distance,
             lod_model_distance: self.ui.settings.lod_model_distance,
             falling_block_count: self.sim.falling_blocks.count() as u32,
+            show_water_sources: self.ui.settings.show_water_sources as u32,
+            water_source_count,
             _padding: 0,
             camera_pos: {
                 let cam = self

@@ -829,6 +829,7 @@ void main() {
         color = stepsToInferno(steps, 0, (maxDim - 1) * 3);
     } else if (hit) {
         renderTargetBlockOutline(o, d, color, hitDistance);
+        renderWaterSourceMarkers(o, d, color, hitDistance);
         color = applyFog(color, hitDistance, d);
         // Apply tint after fog so fog color is also tinted
         if (passedTintedGlass) {

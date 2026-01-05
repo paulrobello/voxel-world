@@ -195,6 +195,19 @@ impl App {
             );
         }
 
+        // Toggle water/lava source debug markers (K key)
+        if self.input.key_pressed(KeyCode::KeyK) {
+            self.ui.settings.show_water_sources = !self.ui.settings.show_water_sources;
+            println!(
+                "Water/Lava sources: {}",
+                if self.ui.settings.show_water_sources {
+                    "ON"
+                } else {
+                    "OFF"
+                }
+            );
+        }
+
         // Block placing - continuous when holding right mouse button
         self.update_block_placing(delta_time as f32);
     }

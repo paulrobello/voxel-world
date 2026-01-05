@@ -179,6 +179,55 @@ bool renderPreviewBlock(vec3 origin, vec3 dir, inout vec3 color, float sceneHitD
     return true;
 }
 
+// Render water/lava source debug markers
+bool renderWaterSourceMarkers(vec3 origin, vec3 dir, inout vec3 color, float sceneHitDistance) {
+    if (pc.show_water_sources == 0 || pc.water_source_count == 0) {
+        return false;
+    }
+
+    bool anyHit = false;
+    float dirLen = length(dir);
+    if (dirLen < 1e-6) return false;
+
+    for (uint i = 0; i < pc.water_source_count; i++) {
+        WaterSource src = water_sources[i];
+        ivec3 sourcePos = ivec3(src.position.xyz);
+        float sourceType = src.position.w; // 0=water, 1=lava
+
+        vec3 boxMin = vec3(sourcePos);
+        vec3 boxMax = vec3(sourcePos) + vec3(1.0);
+
+        vec3 hitNormal;
+        float tHit;
+        if (!rayBoxHit(origin, dir, boxMin, boxMax, tHit, hitNormal)) {
+            continue;
+        }
+
+        float tWorld = tHit * dirLen;
+        if (tHit < 0.0 || tWorld > sceneHitDistance + 0.5) {
+            continue;
+        }
+
+        // Compute local hit position
+        vec3 hitPoint = origin + dir * tHit;
+        vec3 localHit = hitPoint - boxMin;
+        localHit = clamp(localHit, vec3(0.0), vec3(1.0));
+
+        float wireframe = getWireframeFactor(localHit, hitNormal);
+        if (wireframe > 0.1) {
+            // Water sources = blue, Lava sources = orange
+            vec3 outlineColor = sourceType < 0.5 ? vec3(0.2, 0.5, 1.0) : vec3(1.0, 0.5, 0.1);
+            // Pulsing effect to make them more visible
+            float pulse = 0.7 + 0.3 * sin(pc.animation_time * 3.0 + float(i) * 0.5);
+            float outlineAlpha = wireframe * 0.9 * pulse;
+            color = mix(color, outlineColor, outlineAlpha);
+            anyHit = true;
+        }
+    }
+
+    return anyHit;
+}
+
 // Render target block outline (wireframe only)
 bool renderTargetBlockOutline(vec3 origin, vec3 dir, inout vec3 color, float sceneHitDistance) {
     if (!hasTargetBlock()) {
