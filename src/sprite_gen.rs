@@ -433,6 +433,17 @@ fn render_icon(
     let idx = local_pos.0 + local_pos.1 * CHUNK_SIZE + local_pos.2 * CHUNK_SIZE * CHUNK_SIZE;
     block_buf[idx] = block_type as u8;
 
+    // Check if this is a door model (2 blocks tall)
+    let is_door = model_id.map(ModelRegistry::is_door_model).unwrap_or(false);
+
+    // For doors, also place the upper half
+    if is_door {
+        let upper_pos = (local_pos.0, local_pos.1 + 1, local_pos.2);
+        let upper_idx =
+            upper_pos.0 + upper_pos.1 * CHUNK_SIZE + upper_pos.2 * CHUNK_SIZE * CHUNK_SIZE;
+        block_buf[upper_idx] = block_type as u8;
+    }
+
     // For glass blocks, add a backing block behind to make transparency visible
     // Camera is at block_center + (2, 2, 2), so backing is at (-1, -1, -1) offset
     if matches!(block_type, BlockType::Glass | BlockType::TintedGlass) {
@@ -445,6 +456,21 @@ fn render_icon(
     if let Some(id) = model_id {
         meta_buf[idx * 2] = id;
         meta_buf[idx * 2 + 1] = 0; // rotation 0
+
+        // For doors, set metadata for upper half too
+        if is_door {
+            let upper_pos = (local_pos.0, local_pos.1 + 1, local_pos.2);
+            let upper_idx =
+                upper_pos.0 + upper_pos.1 * CHUNK_SIZE + upper_pos.2 * CHUNK_SIZE * CHUNK_SIZE;
+            // Upper door models are base_id + 2 (see door_model_id_with_base logic)
+            let upper_model_id = if let Some(base) = ModelRegistry::door_type_base(id) {
+                base + 2 // Upper half, same hinge/open state as lower
+            } else {
+                id
+            };
+            meta_buf[upper_idx * 2] = upper_model_id;
+            meta_buf[upper_idx * 2 + 1] = 0; // rotation 0
+        }
     }
     // For tinted glass, set the tint index from the target
     if let Some(idx_val) = tint_index {
@@ -466,9 +492,23 @@ fn render_icon(
         (chunk_pos.y * CHUNK_SIZE as i32 + local_pos.1 as i32) as f64 + 0.5,
         (chunk_pos.z * CHUNK_SIZE as i32 + local_pos.2 as i32) as f64 + 0.5,
     );
+
+    // For doors (2 blocks tall), adjust the look-at point to center between lower and upper
+    let look_at = if is_door {
+        block_center + Vector3::new(0.0, 0.5, 0.0) // Center between two blocks
+    } else {
+        block_center
+    };
+
     // 3/4 view: camera offset diagonally and above the block.
-    let cam_world = block_center + Vector3::new(2.0, 2.0, 2.0);
-    let pixel_to_ray = build_pixel_to_ray(cam_world, block_center, render_extent, 35.0);
+    // For doors, move camera up a bit more to frame both blocks
+    let cam_offset = if is_door {
+        Vector3::new(2.5, 2.5, 2.5)
+    } else {
+        Vector3::new(2.0, 2.0, 2.0)
+    };
+    let cam_world = look_at + cam_offset;
+    let pixel_to_ray = build_pixel_to_ray(cam_world, look_at, render_extent, 35.0);
 
     let push_constants = PushConstants {
         pixel_to_ray,
