@@ -109,6 +109,9 @@ pub struct ConsoleState {
     pub pending_teleport: Option<PendingTeleport>,
 }
 
+/// Maximum number of command history entries to persist.
+const MAX_HISTORY_ENTRIES: usize = 100;
+
 impl ConsoleState {
     /// Creates a new console state.
     pub fn new() -> Self {
@@ -122,6 +125,28 @@ impl ConsoleState {
             pending_confirm: None,
             request_focus: false,
             pending_teleport: None,
+        }
+    }
+
+    /// Creates a console state with pre-loaded command history.
+    pub fn with_history(history: Vec<String>) -> Self {
+        let mut state = Self::new();
+        // Take only the last MAX_HISTORY_ENTRIES
+        state.history = if history.len() > MAX_HISTORY_ENTRIES {
+            history[history.len() - MAX_HISTORY_ENTRIES..].to_vec()
+        } else {
+            history
+        };
+        state
+    }
+
+    /// Returns the command history for persistence.
+    /// Limits to MAX_HISTORY_ENTRIES.
+    pub fn get_history(&self) -> Vec<String> {
+        if self.history.len() > MAX_HISTORY_ENTRIES {
+            self.history[self.history.len() - MAX_HISTORY_ENTRIES..].to_vec()
+        } else {
+            self.history.clone()
         }
     }
 

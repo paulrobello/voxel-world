@@ -999,7 +999,7 @@ impl App {
             screenshot_taken: false,
             editor: EditorState::new(),
             editor_previously_focused: false,
-            console: ConsoleState::new(),
+            console: ConsoleState::with_history(prefs.console_history.clone()),
             console_previously_focused: false,
         };
 
@@ -1029,6 +1029,7 @@ impl App {
         self.prefs.hotbar_tint_indices = self.ui.hotbar_tint_indices;
         self.prefs.hotbar_paint_textures = self.ui.hotbar_paint_textures;
         self.prefs.show_minimap = self.ui.show_minimap;
+        self.prefs.console_history = self.ui.console.get_history();
 
         // Save player position for the current world
         let player_pos = self

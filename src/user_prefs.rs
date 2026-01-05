@@ -104,6 +104,10 @@ pub struct UserPreferences {
     /// Key is the world name (folder name).
     #[serde(default)]
     pub world_player_data: HashMap<String, WorldPlayerData>,
+
+    /// Console command history (most recent last, max 100 entries).
+    #[serde(default)]
+    pub console_history: Vec<String>,
 }
 
 impl Default for UserPreferences {
@@ -129,6 +133,7 @@ impl Default for UserPreferences {
             last_world: None,
             recent_worlds: Vec::new(),
             world_player_data: HashMap::new(),
+            console_history: Vec::new(),
         }
     }
 }
