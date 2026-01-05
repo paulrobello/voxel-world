@@ -411,28 +411,16 @@ impl WaterGrid {
             }
         }
 
-        // 3. Flow UP - pressure-based OR equalization to fill space above
-        if !is_solid(above) {
+        // 3. Flow UP - only under pressure (mass > MAX_MASS)
+        // Water only rises when compressed beyond its normal capacity.
+        // This prevents water from "climbing" out of containers and creating
+        // circulation loops where water exits, falls, rises back up, and re-enters.
+        if !is_solid(above) && remaining > MAX_MASS {
             let above_mass = self.get_effective_mass(above, has_world_water);
-
-            if remaining > MAX_MASS {
-                // Pressure-based: excess water pushes up
-                let excess = remaining - MAX_MASS;
-                let space_above = MAX_MASS - above_mass;
-                if space_above > MIN_FLOW {
-                    let flow = excess.min(space_above) * FLOW_DAMPING;
-                    if flow > MIN_FLOW {
-                        result.up = flow;
-                    }
-                }
-            } else if above_mass + MIN_FLOW < remaining {
-                // Equalization: rise to fill space above when above has less mass.
-                // This is critical for draining rooms where cells below the exit
-                // need to rise up to reach the drainage point. Without this,
-                // cells below exit level can only drain via tiny MAX_COMPRESS amounts.
-                // Use extra damping (0.5) since rising against gravity is slower.
-                let avg_mass = (remaining + above_mass) / 2.0;
-                let flow = (remaining - avg_mass) * FLOW_DAMPING * 0.5;
+            let excess = remaining - MAX_MASS;
+            let space_above = MAX_MASS - above_mass;
+            if space_above > MIN_FLOW {
+                let flow = excess.min(space_above) * FLOW_DAMPING;
                 if flow > MIN_FLOW {
                     result.up = flow;
                 }
