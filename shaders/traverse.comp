@@ -432,9 +432,31 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
     } else if (blockType == BLOCK_PAINTED) {
         uvec2 meta = readModelMetadata(ivec3(coord));
         blockColor = getPaintedColor(meta, local_hit, normal, stepped_axis, hit);
+    } else if (blockType == BLOCK_CRYSTAL) {
+        // Crystal uses tint palette for both color and emission
+        uvec2 meta = readModelMetadata(ivec3(coord));
+        uint tintIndex = meta.g & 0x1Fu;
+        blockColor = getBlockColor(blockType, local_hit, normal, stepped_axis, hit);
+        // Apply tint to base color
+        if (tintIndex < 32u) {
+            blockColor *= TINT_PALETTE[tintIndex];
+        }
     } else {
         // Regular solid block
         blockColor = getBlockColor(blockType, local_hit, normal, stepped_axis, hit);
+    }
+
+    // Track emission for emissive blocks
+    vec3 blockEmission = vec3(0.0);
+    float emissionStrength = 0.0;
+    if (isEmissiveBlock(blockType)) {
+        uint tintIndex = 0u;
+        if (blockType == BLOCK_CRYSTAL) {
+            uvec2 meta = readModelMetadata(ivec3(coord));
+            tintIndex = meta.g & 0x1Fu;
+        }
+        blockEmission = getEmissionColor(blockType, tintIndex);
+        emissionStrength = getEmissionStrength(blockType);
     }
 
     vec2 uv;
@@ -510,6 +532,26 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
         vec3 ambientColor = blockColor * ambient * ao;
         vec3 directColor = blockColor * sunColor * direct * ao;
         color = ambientColor + directColor + blockColor * pointLightContrib * (0.7 + 0.3 * ao);
+
+        // Add emissive glow for light-emitting blocks
+        // Emissive blocks self-illuminate regardless of external lighting
+        if (emissionStrength > 0.0) {
+            // Emission is additive and not affected by shadows or AO
+            // Scale by emission strength and add a subtle pulsing effect for lava
+            float pulse = 1.0;
+            if (blockType == BLOCK_LAVA) {
+                // Slow pulsing glow for lava
+                pulse = 0.9 + 0.1 * sin(pc.animation_time * 2.0 + hit.x * 0.5 + hit.z * 0.3);
+            } else if (blockType == BLOCK_GLOWMUSHROOM) {
+                // Gentle breathing effect for mushrooms
+                pulse = 0.95 + 0.05 * sin(pc.animation_time * 1.5);
+            }
+            vec3 emission = blockEmission * emissionStrength * pulse;
+            // Emissive blocks appear bright even in shadow
+            color = mix(color, blockColor + emission, emissionStrength * 0.8);
+            // Add extra glow on top
+            color += emission * 0.3;
+        }
         }
         break;
         case SHADOW_DEBUG:

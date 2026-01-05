@@ -88,22 +88,27 @@ cd textures
 magick air_64x64.png stone_64x64.png dirt_64x64.png grass_64x64.png planks_64x64.png \
   leaves_64x64.png sand_64x64.png gravel_64x64.png water_64x64.png glass_64x64.png \
   log_64x64.png torch_64x64.png brick_64x64.png snow_64x64.png cobblestone_64x64.png \
-  iron_64x64.png bedrock_64x64.png grass_side_64x64.png log_top_64x64.png +append texture_atlas.png
+  iron_64x64.png bedrock_64x64.png grass_side_64x64.png log_top_64x64.png \
+  lava_64x64.png glowstone_64x64.png glowmushroom_64x64.png crystal_64x64.png \
+  +append texture_atlas.png
 ```
 
 ## Block Type Sync
 
-BlockType enum in `chunk.rs` must match constants in `traverse.comp`:
+BlockType enum in `chunk.rs` must match constants in `common.glsl`:
 ```
 0=Air, 1=Stone, 2=Dirt, 3=Grass, 4=Planks, 5=Leaves, 6=Sand, 7=Gravel,
-8=Water, 9=Glass, 10=Log, 11=Torch, 12=Brick, 13=Snow, 14=Cobblestone, 15=Iron, 16=Bedrock
+8=Water, 9=Glass, 10=Log, 11=Model, 12=Brick, 13=Snow, 14=Cobblestone, 15=Iron, 16=Bedrock,
+17=TintedGlass, 18=Painted, 19=Lava, 20=GlowStone, 21=GlowMushroom, 22=Crystal
 ```
 Extra texture slots: 17=grass_side, 18=log_top
+
+**Emissive blocks** (19-22): Lava, GlowStone, GlowMushroom, Crystal - these emit light and have visual glow effects. Crystal blocks use tint_data for colored variations.
 
 ## Key Constants
 
 - `CHUNK_SIZE = 32` (chunk.rs)
 - `BRICK_SIZE = 8` (svt.rs)
-- `ATLAS_TILE_COUNT = 19.0` (traverse.comp)
+- `ATLAS_TILE_COUNT = 23.0` (materials.glsl)
 - World: 16x4x16 chunks = 512x128x512 blocks
 - View distance: 6 chunks

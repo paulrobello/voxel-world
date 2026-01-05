@@ -159,8 +159,8 @@ impl HUDRenderer {
         tab: PaletteTab,
         registry: &ModelRegistry,
     ) -> Vec<(PaletteItem, String)> {
-        // Regular blocks (excluding TintedGlass which has separate color entries)
-        const BLOCK_PALETTE: [BlockType; 15] = [
+        // Regular blocks (excluding TintedGlass and Crystal which have separate color entries)
+        const BLOCK_PALETTE: [BlockType; 18] = [
             BlockType::Stone,
             BlockType::Dirt,
             BlockType::Grass,
@@ -176,6 +176,10 @@ impl HUDRenderer {
             BlockType::Cobblestone,
             BlockType::Iron,
             BlockType::Bedrock,
+            // Emissive blocks
+            BlockType::Lava,
+            BlockType::GlowStone,
+            BlockType::GlowMushroom,
         ];
 
         // Tinted glass colors: (tint_index, name)
@@ -208,6 +212,28 @@ impl HUDRenderer {
                 items.push((
                     PaletteItem {
                         block: BlockType::TintedGlass,
+                        model_id: 0,
+                        tint_index,
+                        paint_texture_idx: 0,
+                    },
+                    name.to_string(),
+                ));
+            }
+            // Add crystal colors (emissive with tint)
+            const CRYSTAL_COLORS: [(u8, &str); 8] = [
+                (0, "Red Crystal"),
+                (4, "Green Crystal"),
+                (8, "Blue Crystal"),
+                (6, "Cyan Crystal"),
+                (2, "Yellow Crystal"),
+                (1, "Orange Crystal"),
+                (9, "Purple Crystal"),
+                (12, "White Crystal"),
+            ];
+            for &(tint_index, name) in CRYSTAL_COLORS.iter() {
+                items.push((
+                    PaletteItem {
+                        block: BlockType::Crystal,
                         model_id: 0,
                         tint_index,
                         paint_texture_idx: 0,

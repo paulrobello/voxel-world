@@ -30,6 +30,22 @@ const uint BLOCK_IRON = 15;
 const uint BLOCK_BEDROCK = 16;
 const uint BLOCK_TINTED_GLASS = 17;
 const uint BLOCK_PAINTED = 18;
+const uint BLOCK_LAVA = 19;
+const uint BLOCK_GLOWSTONE = 20;
+const uint BLOCK_GLOWMUSHROOM = 21;
+const uint BLOCK_CRYSTAL = 22;
+
+// Emission colors for emissive blocks (RGB)
+const vec3 EMISSION_LAVA = vec3(1.0, 0.4, 0.1);        // Orange-red
+const vec3 EMISSION_GLOWSTONE = vec3(1.0, 0.95, 0.8);  // Warm white
+const vec3 EMISSION_GLOWMUSHROOM = vec3(0.3, 0.9, 1.0); // Cyan
+const vec3 EMISSION_CRYSTAL = vec3(0.8, 0.8, 1.0);     // White-blue (default, tint overrides)
+
+// Emission strengths (0-1)
+const float EMISSION_STRENGTH_LAVA = 0.9;
+const float EMISSION_STRENGTH_GLOWSTONE = 1.0;
+const float EMISSION_STRENGTH_GLOWMUSHROOM = 0.6;
+const float EMISSION_STRENGTH_CRYSTAL = 0.7;
 
 // Tint palette for tinted glass (32 colors)
 const vec3 TINT_PALETTE[32] = vec3[32](

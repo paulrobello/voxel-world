@@ -94,6 +94,14 @@ pub enum BlockType {
     TintedGlass = 17,
     /// Paintable block. Texture and tint are stored per-block in metadata.
     Painted = 18,
+    /// Lava block - glowing orange/red, decorative (no damage).
+    Lava = 19,
+    /// GlowStone - bright warm white light source.
+    GlowStone = 20,
+    /// Glowing mushroom - soft cyan/blue glow for caves.
+    GlowMushroom = 21,
+    /// Crystal block - colored glowing crystal. Uses tint_data for color (0-31).
+    Crystal = 22,
 }
 
 /// Metadata for a block that uses a sub-voxel model.
@@ -132,6 +140,7 @@ impl BlockType {
                 | BlockType::Model
                 | BlockType::Glass
                 | BlockType::TintedGlass
+                | BlockType::Lava
         )
     }
 
@@ -171,6 +180,7 @@ impl BlockType {
                 | BlockType::TintedGlass
                 | BlockType::Leaves
                 | BlockType::Model
+                | BlockType::Lava
         )
     }
 
@@ -178,8 +188,10 @@ impl BlockType {
     /// Note: For Model blocks, check the model's emission property instead.
     #[inline]
     pub fn is_light_source(self) -> bool {
-        // Model blocks handle light emission via their model data
-        false
+        matches!(
+            self,
+            BlockType::Lava | BlockType::GlowStone | BlockType::GlowMushroom | BlockType::Crystal
+        )
     }
 
     /// Returns the light color and intensity for light-emitting blocks.
@@ -187,8 +199,42 @@ impl BlockType {
     /// Note: For Model blocks, use the model registry to get emission properties.
     #[inline]
     pub fn light_properties(self) -> Option<([f32; 3], f32)> {
-        // Model blocks get light properties from their model data
-        None
+        match self {
+            BlockType::Lava => Some(([1.0, 0.4, 0.1], 0.9)), // Orange-red, high intensity
+            BlockType::GlowStone => Some(([1.0, 0.95, 0.8], 1.0)), // Warm white, full intensity
+            BlockType::GlowMushroom => Some(([0.3, 0.9, 1.0], 0.6)), // Cyan, medium intensity
+            BlockType::Crystal => Some(([0.8, 0.8, 1.0], 0.7)), // Default white-blue (tint overrides)
+            _ => None,
+        }
+    }
+
+    /// Returns the emission color for emissive blocks (RGB, 0-1 range).
+    /// Returns None if the block doesn't emit light.
+    #[inline]
+    pub fn emission_color(self) -> Option<[f32; 3]> {
+        self.light_properties().map(|(color, _)| color)
+    }
+
+    /// Returns the emission strength for emissive blocks (0-1 range).
+    /// Returns 0.0 if the block doesn't emit light.
+    #[inline]
+    pub fn emission_strength(self) -> f32 {
+        self.light_properties()
+            .map(|(_, strength)| strength)
+            .unwrap_or(0.0)
+    }
+
+    /// Returns the light radius in blocks for dynamic point light emission.
+    /// Only used when dynamic lighting is enabled.
+    #[inline]
+    pub fn light_radius(self) -> f32 {
+        match self {
+            BlockType::Lava => 12.0,
+            BlockType::GlowStone => 16.0,
+            BlockType::GlowMushroom => 8.0,
+            BlockType::Crystal => 10.0,
+            _ => 0.0,
+        }
     }
 
     /// Returns the color for this block type (RGB, 0-1 range).
@@ -215,6 +261,10 @@ impl BlockType {
             BlockType::Bedrock => [0.2, 0.2, 0.2], // Dark gray, nearly black
             BlockType::TintedGlass => [0.7, 0.8, 0.9], // Light blue-gray base
             BlockType::Painted => [0.8, 0.8, 0.8], // Neutral base; actual color comes from metadata
+            BlockType::Lava => [1.0, 0.4, 0.1],    // Molten orange-red
+            BlockType::GlowStone => [1.0, 0.95, 0.8], // Warm yellow-white
+            BlockType::GlowMushroom => [0.3, 0.9, 1.0], // Cyan-blue
+            BlockType::Crystal => [0.8, 0.8, 1.0], // Light blue-white (tint overrides)
         }
     }
 
@@ -239,8 +289,11 @@ impl BlockType {
             BlockType::Stone | BlockType::Cobblestone | BlockType::Brick => 0.8,
             // Very slow
             BlockType::Iron => 1.2,
+            // Emissive blocks (medium difficulty)
+            BlockType::GlowStone | BlockType::Crystal => 0.6,
+            BlockType::GlowMushroom => 0.2, // Soft mushroom breaks easily
             // Special (can't break or shouldn't)
-            BlockType::Water => 0.0,
+            BlockType::Water | BlockType::Lava => 0.0, // Fluids can't be broken normally
             // Indestructible
             BlockType::Bedrock => 0.0,
         }
@@ -275,6 +328,10 @@ impl BlockType {
             "iron" => Some(BlockType::Iron),
             "bedrock" => Some(BlockType::Bedrock),
             "painted" | "paint" => Some(BlockType::Painted),
+            "lava" => Some(BlockType::Lava),
+            "glowstone" | "glow_stone" => Some(BlockType::GlowStone),
+            "glowmushroom" | "glow_mushroom" | "mushroom" => Some(BlockType::GlowMushroom),
+            "crystal" => Some(BlockType::Crystal),
             _ => None,
         }
     }
@@ -302,6 +359,10 @@ impl From<u8> for BlockType {
             16 => BlockType::Bedrock,
             17 => BlockType::TintedGlass,
             18 => BlockType::Painted,
+            19 => BlockType::Lava,
+            20 => BlockType::GlowStone,
+            21 => BlockType::GlowMushroom,
+            22 => BlockType::Crystal,
             _ => BlockType::Air,
         }
     }
@@ -457,8 +518,8 @@ impl Chunk {
                 self.model_data.remove(&idx);
                 self.model_metadata_dirty.set(true);
             }
-            // Clean up tint data if block is no longer TintedGlass
-            if block != BlockType::TintedGlass {
+            // Clean up tint data if block is no longer TintedGlass or Crystal
+            if block != BlockType::TintedGlass && block != BlockType::Crystal {
                 self.tint_data.remove(&idx);
                 self.model_metadata_dirty.set(true);
             }
@@ -530,6 +591,24 @@ impl Chunk {
         self.model_metadata_dirty.set(true);
     }
 
+    /// Sets a crystal block with its color index at the given local coordinates.
+    /// Crystal blocks are emissive and use the tint palette for color variation.
+    #[inline]
+    pub fn set_crystal_block(&mut self, x: usize, y: usize, z: usize, tint_index: u8) {
+        let idx = Self::index(x, y, z);
+        let old = self.blocks[idx];
+        // Update light block count
+        if !old.is_light_source() {
+            self.light_block_count += 1;
+        }
+        self.blocks[idx] = BlockType::Crystal;
+        self.tint_data.insert(idx, tint_index & 0x1F); // Clamp to 0-31
+        self.dirty = true;
+        self.persistence_dirty = true;
+        self.metadata_dirty = true;
+        self.model_metadata_dirty.set(true);
+    }
+
     /// Sets a painted block with its texture + tint metadata at the given local coordinates.
     #[inline]
     pub fn set_painted_block(
@@ -555,8 +634,8 @@ impl Chunk {
         self.model_metadata_dirty.set(true);
     }
 
-    /// Gets the tint color index for a tinted glass block at the given local coordinates.
-    /// Returns None if the block is not a TintedGlass type.
+    /// Gets the tint color index for a tinted glass or crystal block at the given local coordinates.
+    /// Returns None if the block does not use tint data (TintedGlass or Crystal).
     #[inline]
     pub fn get_tint_index(&self, x: usize, y: usize, z: usize) -> Option<u8> {
         let idx = Self::index(x, y, z);

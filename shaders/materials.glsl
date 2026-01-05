@@ -1,10 +1,62 @@
 // Material sampling, AO, and surface helpers
 
 // Texture atlas constants
-const float ATLAS_TILE_COUNT = 19.0;
+// Slots 0-16: standard blocks (Air through Bedrock)
+// Slot 17: grass_side, Slot 18: log_top
+// Slots 19-22: emissive blocks (Lava, GlowStone, GlowMushroom, Crystal)
+const float ATLAS_TILE_COUNT = 23.0;
 const float ATLAS_TILE_SIZE = 1.0 / ATLAS_TILE_COUNT;
 const uint TEX_GRASS_SIDE = 17;
 const uint TEX_LOG_TOP = 18;
+const uint TEX_LAVA = 19;
+const uint TEX_GLOWSTONE = 20;
+const uint TEX_GLOWMUSHROOM = 21;
+const uint TEX_CRYSTAL = 22;
+
+// Check if a block type is emissive
+bool isEmissiveBlock(uint blockType) {
+    return blockType == BLOCK_LAVA ||
+           blockType == BLOCK_GLOWSTONE ||
+           blockType == BLOCK_GLOWMUSHROOM ||
+           blockType == BLOCK_CRYSTAL;
+}
+
+// Get emission color for an emissive block
+// For Crystal blocks, the tintIndex can be used to override the emission color
+vec3 getEmissionColor(uint blockType, uint tintIndex) {
+    switch (blockType) {
+        case BLOCK_LAVA:
+            return EMISSION_LAVA;
+        case BLOCK_GLOWSTONE:
+            return EMISSION_GLOWSTONE;
+        case BLOCK_GLOWMUSHROOM:
+            return EMISSION_GLOWMUSHROOM;
+        case BLOCK_CRYSTAL:
+            // Crystal uses tint palette for colored crystals
+            if (tintIndex < 32u) {
+                return TINT_PALETTE[tintIndex];
+            }
+            return EMISSION_CRYSTAL;
+        default:
+            return vec3(0.0);
+    }
+}
+
+// Get emission strength for an emissive block
+float getEmissionStrength(uint blockType) {
+    switch (blockType) {
+        case BLOCK_LAVA:
+            return EMISSION_STRENGTH_LAVA;
+        case BLOCK_GLOWSTONE:
+            return EMISSION_STRENGTH_GLOWSTONE;
+        case BLOCK_GLOWMUSHROOM:
+            return EMISSION_STRENGTH_GLOWMUSHROOM;
+        case BLOCK_CRYSTAL:
+            return EMISSION_STRENGTH_CRYSTAL;
+        default:
+            return 0.0;
+    }
+}
 
 // Sample a specific texture from the atlas
 vec3 sampleTexture(uint textureIndex, vec2 uv) {
@@ -89,6 +141,17 @@ vec3 getBlockColor(uint blockType, vec3 local_hit, vec3 normal, uint stepped_axi
             waterColor += vec3(caustics);
         }
         return waterColor;
+    } else if (blockType == BLOCK_LAVA) {
+        // Animated lava surface with slow flow
+        float t = pc.animation_time * 0.3;
+        vec2 animatedUV = uv + vec2(t * 0.1, -t * 0.05);
+        animatedUV += fbmWaterFlow(worldPos.xz * 0.3 + vec2(t * 0.1)) * 0.1;
+        vec3 lavaColor = sampleTexture(TEX_LAVA, animatedUV);
+        // Add bright veins
+        float veins = fbmWater(worldPos.xz * 2.0 + vec2(t * 0.2, t * 0.15));
+        veins = smoothstep(0.4, 0.6, veins);
+        lavaColor = mix(lavaColor, vec3(1.0, 0.8, 0.3), veins * 0.4);
+        return lavaColor;
     }
 
     return sampleTexture(textureIndex, uv);
