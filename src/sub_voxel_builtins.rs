@@ -378,9 +378,9 @@ pub fn create_door_lower_closed_left() -> SubVoxelModel {
     // Inner panels (recessed)
     model.fill_box(1, 1, 3, 6, 3, 4, 2);
     model.fill_box(1, 5, 3, 6, 6, 4, 2);
-    // Door handle (right side, lower half has handle)
-    model.set_voxel(6, 3, 2, 3);
-    model.set_voxel(6, 4, 2, 3);
+    // Door handle (right side, bottom half of handle on lower door)
+    model.set_voxel(6, 6, 2, 3);
+    model.set_voxel(6, 7, 2, 3);
 
     model.light_blocking = LightBlocking::Full;
     model.rotatable = true;
@@ -399,9 +399,9 @@ pub fn create_door_lower_closed_right() -> SubVoxelModel {
     model.fill_box(0, 0, 3, 7, 7, 4, 1);
     model.fill_box(1, 1, 3, 6, 3, 4, 2);
     model.fill_box(1, 5, 3, 6, 6, 4, 2);
-    // Door handle on left side
-    model.set_voxel(1, 3, 2, 3);
-    model.set_voxel(1, 4, 2, 3);
+    // Door handle on left side (bottom half of handle on lower door)
+    model.set_voxel(1, 6, 2, 3);
+    model.set_voxel(1, 7, 2, 3);
 
     model.light_blocking = LightBlocking::Full;
     model.rotatable = true;
@@ -424,6 +424,9 @@ pub fn create_door_upper_closed_left() -> SubVoxelModel {
     // Cross bars
     model.fill_box(3, 0, 3, 4, 7, 4, 1);
     model.fill_box(0, 3, 3, 7, 4, 4, 1);
+    // Door handle (right side, top half of handle on upper door)
+    model.set_voxel(6, 0, 2, 3);
+    model.set_voxel(6, 1, 2, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -443,6 +446,9 @@ pub fn create_door_upper_closed_right() -> SubVoxelModel {
     model.fill_box(1, 1, 3, 6, 6, 4, 3);
     model.fill_box(3, 0, 3, 4, 7, 4, 1);
     model.fill_box(0, 3, 3, 7, 4, 4, 1);
+    // Door handle on left side (top half of handle on upper door)
+    model.set_voxel(1, 0, 2, 3);
+    model.set_voxel(1, 1, 2, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -462,9 +468,9 @@ pub fn create_door_lower_open_left() -> SubVoxelModel {
     model.fill_box(0, 0, 0, 1, 7, 7, 1);
     model.fill_box(0, 1, 1, 1, 3, 6, 2);
     model.fill_box(0, 5, 1, 1, 6, 6, 2);
-    // Handle now on front
-    model.set_voxel(2, 3, 1, 3);
-    model.set_voxel(2, 4, 1, 3);
+    // Handle now on front (bottom half of handle on lower door)
+    model.set_voxel(2, 6, 1, 3);
+    model.set_voxel(2, 7, 1, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -484,9 +490,9 @@ pub fn create_door_lower_open_right() -> SubVoxelModel {
     model.fill_box(6, 0, 0, 7, 7, 7, 1);
     model.fill_box(6, 1, 1, 7, 3, 6, 2);
     model.fill_box(6, 5, 1, 7, 6, 6, 2);
-    // Handle
-    model.set_voxel(5, 3, 1, 3);
-    model.set_voxel(5, 4, 1, 3);
+    // Handle (bottom half of handle on lower door)
+    model.set_voxel(5, 6, 1, 3);
+    model.set_voxel(5, 7, 1, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -506,6 +512,9 @@ pub fn create_door_upper_open_left() -> SubVoxelModel {
     model.fill_box(0, 1, 1, 1, 6, 6, 3);
     model.fill_box(0, 3, 0, 1, 4, 7, 1);
     model.fill_box(0, 0, 3, 1, 7, 4, 1);
+    // Handle on front (top half of handle on upper door)
+    model.set_voxel(2, 0, 1, 3);
+    model.set_voxel(2, 1, 1, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -525,6 +534,9 @@ pub fn create_door_upper_open_right() -> SubVoxelModel {
     model.fill_box(6, 1, 1, 7, 6, 6, 3);
     model.fill_box(6, 3, 0, 7, 4, 7, 1);
     model.fill_box(6, 0, 3, 7, 7, 4, 1);
+    // Handle on front (top half of handle on upper door)
+    model.set_voxel(5, 0, 1, 3);
+    model.set_voxel(5, 1, 1, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -626,7 +638,7 @@ pub fn create_window(connections: u8) -> SubVoxelModel {
     let mut model = SubVoxelModel::new(&name);
 
     model.palette[1] = Color::rgb(80, 80, 85); // Frame (dark gray)
-    model.palette[2] = Color::rgba(200, 220, 255, 160); // Glass (translucent blue)
+    model.palette[2] = Color::rgba(180, 210, 255, 160); // Glass (light blue tinted)
 
     // Center post (only if no connections, or if multiple directions)
     let has_ns = (connections & 0x03) != 0;
