@@ -40,6 +40,14 @@ use crate::player::PLAYER_EYE_HEIGHT;
 use crate::sub_voxel::{ModelRegistry, StairShape};
 
 impl World {
+    /// Encodes light mode and intensity for the shader.
+    /// Mode: 0 = steady, 1 = slow pulse, 2 = torch flicker
+    /// Encoded as: mode + (intensity / 2.0) where intensity is clamped to 0-2 range
+    #[inline]
+    fn encode_light_intensity(mode: u8, intensity: f32) -> f32 {
+        mode as f32 + (intensity.clamp(0.0, 2.0) / 2.0)
+    }
+
     /// Collects all light-emitting blocks (including model blocks like torches)
     /// and returns them as GPU light data.
     pub fn collect_torch_lights(
@@ -59,8 +67,8 @@ impl World {
             let tex_y = (player_pos.y + PLAYER_EYE_HEIGHT * 0.7 - texture_origin.y as f64) as f32;
             let tex_z = (player_pos.z - texture_origin.z as f64) as f32;
             lights.push(GpuLight {
-                pos_radius: [tex_x, tex_y, tex_z, 12.0], // Torch-like radius
-                color_intensity: [1.0, 0.8, 0.5, 1.5],   // Warm torch color
+                pos_radius: [tex_x, tex_y, tex_z, 12.0],
+                color_intensity: [1.0, 0.8, 0.5, Self::encode_light_intensity(2, 1.5)], // Flicker mode
             });
         }
 
@@ -90,8 +98,8 @@ impl World {
                             let b = emission.b as f32 / 255.0;
 
                             lights.push(GpuLight {
-                                pos_radius: [tex_x, tex_y, tex_z, 10.0], // Torch radius
-                                color_intensity: [r, g, b, 1.2],
+                                pos_radius: [tex_x, tex_y, tex_z, 10.0],
+                                color_intensity: [r, g, b, Self::encode_light_intensity(2, 1.2)], // Flicker mode for torches
                             });
 
                             if lights.len() >= crate::gpu_resources::MAX_LIGHTS {
@@ -111,6 +119,7 @@ impl World {
                     // light_properties returns (color, intensity), light_radius returns actual radius
                     if let Some((color, intensity)) = block.light_properties() {
                         let radius = block.light_radius();
+                        let mode = block.light_mode();
                         let (lx, ly, lz) = crate::chunk::Chunk::index_to_coords(idx);
                         let world_x = chunk_pos.x * CHUNK_SIZE as i32 + lx as i32;
                         let world_y = chunk_pos.y * CHUNK_SIZE as i32 + ly as i32;
@@ -122,7 +131,12 @@ impl World {
 
                         lights.push(GpuLight {
                             pos_radius: [tex_x, tex_y, tex_z, radius],
-                            color_intensity: [color[0], color[1], color[2], intensity],
+                            color_intensity: [
+                                color[0],
+                                color[1],
+                                color[2],
+                                Self::encode_light_intensity(mode, intensity),
+                            ],
                         });
 
                         if lights.len() >= crate::gpu_resources::MAX_LIGHTS {

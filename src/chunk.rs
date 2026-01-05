@@ -238,6 +238,18 @@ impl BlockType {
         }
     }
 
+    /// Returns the light animation mode for point lights.
+    /// 0 = steady, 1 = slow pulse, 2 = torch flicker
+    #[inline]
+    pub fn light_mode(self) -> u8 {
+        match self {
+            BlockType::GlowStone => 0,    // Steady
+            BlockType::GlowMushroom => 1, // Slow pulse
+            BlockType::Crystal => 1,      // Slow pulse
+            _ => 2,                       // Default to flicker for torches etc
+        }
+    }
+
     /// Returns the color for this block type (RGB, 0-1 range).
     /// Note: Model blocks use their sub-voxel palette for coloring.
     #[inline]
