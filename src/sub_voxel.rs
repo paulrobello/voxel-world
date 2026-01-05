@@ -747,47 +747,91 @@ impl ModelRegistry {
     // DOOR HELPERS
     // ========================================================================
 
-    /// Returns the model ID for a door.
+    /// Returns the base ID for a door type from any of its variants.
+    /// Returns the ID of the lower_closed_left variant (base of each 8-variant group).
+    pub fn door_type_base(model_id: u8) -> Option<u8> {
+        match model_id {
+            39..=46 => Some(39), // Plain doors
+            67..=74 => Some(67), // Windowed doors
+            75..=82 => Some(75), // Paneled doors
+            83..=90 => Some(83), // Fancy doors
+            91..=98 => Some(91), // Glass doors
+            _ => None,
+        }
+    }
+
+    /// Returns the model ID for a door of a specific type.
+    /// - `base_id`: The base ID for the door type (39, 67, 75, 83, or 91)
+    /// - `is_upper`: true for upper half, false for lower half
+    /// - `hinge_left`: true for left hinge, false for right hinge
+    /// - `is_open`: true for open, false for closed
+    pub fn door_model_id_with_base(
+        base_id: u8,
+        is_upper: bool,
+        hinge_left: bool,
+        is_open: bool,
+    ) -> u8 {
+        // Order: lower closed left (0), lower closed right (1),
+        //        upper closed left (2), upper closed right (3),
+        //        lower open left (4), lower open right (5),
+        //        upper open left (6), upper open right (7)
+        let mut offset = 0u8;
+        if is_upper {
+            offset += 2;
+        }
+        if !hinge_left {
+            offset += 1;
+        }
+        if is_open {
+            offset += 4;
+        }
+        base_id + offset
+    }
+
+    /// Returns the model ID for a plain door (backwards compatibility).
     /// - `is_upper`: true for upper half, false for lower half
     /// - `hinge_left`: true for left hinge, false for right hinge
     /// - `is_open`: true for open, false for closed
     pub fn door_model_id(is_upper: bool, hinge_left: bool, is_open: bool) -> u8 {
-        // Base: 39 (lower closed left)
-        // Order: lower closed left (39), lower closed right (40),
-        //        upper closed left (41), upper closed right (42),
-        //        lower open left (43), lower open right (44),
-        //        upper open left (45), upper open right (46)
-        let mut id = 39u8;
-        if is_upper {
-            id += 2;
-        }
-        if !hinge_left {
-            id += 1;
-        }
-        if is_open {
-            id += 4;
-        }
-        id
+        Self::door_model_id_with_base(39, is_upper, hinge_left, is_open)
     }
 
-    /// Checks if a model ID is any door variant (IDs 39-46).
+    /// Checks if a model ID is any door variant (all types).
     pub fn is_door_model(model_id: u8) -> bool {
-        (39..=46).contains(&model_id)
+        matches!(
+            model_id,
+            39..=46 | 67..=74 | 75..=82 | 83..=90 | 91..=98
+        )
     }
 
     /// Checks if a door model is the upper half.
     pub fn is_door_upper(model_id: u8) -> bool {
-        matches!(model_id, 41 | 42 | 45 | 46)
+        if let Some(base) = Self::door_type_base(model_id) {
+            let offset = model_id - base;
+            matches!(offset, 2 | 3 | 6 | 7)
+        } else {
+            false
+        }
     }
 
     /// Checks if a door model is open.
     pub fn is_door_open(model_id: u8) -> bool {
-        (43..=46).contains(&model_id)
+        if let Some(base) = Self::door_type_base(model_id) {
+            let offset = model_id - base;
+            offset >= 4
+        } else {
+            false
+        }
     }
 
     /// Checks if a door model has left hinge.
     pub fn is_door_hinge_left(model_id: u8) -> bool {
-        matches!(model_id, 39 | 41 | 43 | 45)
+        if let Some(base) = Self::door_type_base(model_id) {
+            let offset = model_id - base;
+            matches!(offset, 0 | 2 | 4 | 6)
+        } else {
+            false
+        }
     }
 
     /// Returns the toggled (open/closed) version of a door model.

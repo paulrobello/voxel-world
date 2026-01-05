@@ -788,14 +788,19 @@ impl App {
                 // Prefer hinge on solid side, default to left
                 let hinge_left = !right_solid || left_solid;
 
+                // Determine door type from selected model
+                let door_base = ModelRegistry::door_type_base(base_model_id).unwrap_or(39);
+
                 // Place lower half
-                let lower_model = ModelRegistry::door_model_id(false, hinge_left, false);
+                let lower_model =
+                    ModelRegistry::door_model_id_with_base(door_base, false, hinge_left, false);
                 self.sim
                     .world
                     .set_model_block(place_pos, lower_model, rotation, waterlogged);
 
                 // Place upper half
-                let upper_model = ModelRegistry::door_model_id(true, hinge_left, false);
+                let upper_model =
+                    ModelRegistry::door_model_id_with_base(door_base, true, hinge_left, false);
                 let upper_waterlogged = upper_block == Some(BlockType::Water);
                 self.sim
                     .world

@@ -1426,6 +1426,13 @@ impl HUDRenderer {
                                         20..=27 => "Gate".to_string(),
                                         29 => "Ladder".to_string(),
                                         28 | 30..=38 => "Stairs".to_string(),
+                                        39..=46 => "Door".to_string(),
+                                        47..=50 => "Trapdoor".to_string(),
+                                        51..=66 => "Window".to_string(),
+                                        67..=74 => "Windowed Door".to_string(),
+                                        75..=82 => "Paneled Door".to_string(),
+                                        83..=90 => "Fancy Door".to_string(),
+                                        91..=98 => "Glass Door".to_string(),
                                         _ => "Model".to_string(),
                                     }
                                 } else {
