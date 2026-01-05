@@ -851,6 +851,9 @@ void main() {
             float skyDistance = length(vec3(pc.texture_size_x, pc.texture_size_y, pc.texture_size_z)) * 0.5;
             color = applyFog(color, skyDistance, d);
         }
+        // Still render water source markers even when looking at sky (e.g., inside water)
+        float farDistance = length(vec3(pc.texture_size_x, pc.texture_size_y, pc.texture_size_z));
+        renderWaterSourceMarkers(o, d, color, farDistance);
     }
 
     if (pc.particle_count > 0 && pc.render_mode != STEPS) {

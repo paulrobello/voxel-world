@@ -1229,46 +1229,82 @@ impl App {
 
         // Collect water/lava sources for debug visualization
         let water_source_count = if self.ui.settings.show_water_sources {
-            let player_pos = self.sim.player.camera.position;
-            let max_dist_sq = 64.0 * 64.0; // 64 block radius
+            // Use world coordinates (camera.position is in texture coords)
+            let player_world_pos = self
+                .sim
+                .player
+                .feet_pos(self.sim.world_extent, self.sim.texture_origin);
             let tex_origin = self.sim.texture_origin;
 
             let mut sources = Vec::new();
+            let mut source_positions = std::collections::HashSet::new();
 
-            // Collect water sources
+            // Collect water sources from grid
             for (pos, cell) in self.sim.water_grid.iter() {
                 if cell.is_source {
-                    let dx = pos.x as f64 - player_pos.x;
-                    let dy = pos.y as f64 - player_pos.y;
-                    let dz = pos.z as f64 - player_pos.z;
-                    if dx * dx + dy * dy + dz * dz <= max_dist_sq {
-                        sources.push(gpu_resources::GpuWaterSource {
-                            position: [
-                                (pos.x - tex_origin.x) as f32,
-                                (pos.y - tex_origin.y) as f32,
-                                (pos.z - tex_origin.z) as f32,
-                                0.0, // 0 = water
-                            ],
-                        });
-                    }
+                    source_positions.insert(*pos);
+                    sources.push(gpu_resources::GpuWaterSource {
+                        position: [
+                            (pos.x - tex_origin.x) as f32,
+                            (pos.y - tex_origin.y) as f32,
+                            (pos.z - tex_origin.z) as f32,
+                            0.0, // 0 = water
+                        ],
+                    });
                 }
             }
 
-            // Collect lava sources
+            // Collect lava sources from grid
             for (pos, cell) in self.sim.lava_grid.iter() {
                 if cell.is_source {
-                    let dx = pos.x as f64 - player_pos.x;
-                    let dy = pos.y as f64 - player_pos.y;
-                    let dz = pos.z as f64 - player_pos.z;
-                    if dx * dx + dy * dy + dz * dz <= max_dist_sq {
-                        sources.push(gpu_resources::GpuWaterSource {
-                            position: [
-                                (pos.x - tex_origin.x) as f32,
-                                (pos.y - tex_origin.y) as f32,
-                                (pos.z - tex_origin.z) as f32,
-                                1.0, // 1 = lava
-                            ],
-                        });
+                    source_positions.insert(*pos);
+                    sources.push(gpu_resources::GpuWaterSource {
+                        position: [
+                            (pos.x - tex_origin.x) as f32,
+                            (pos.y - tex_origin.y) as f32,
+                            (pos.z - tex_origin.z) as f32,
+                            1.0, // 1 = lava
+                        ],
+                    });
+                }
+            }
+
+            // Also scan world blocks near player for Water/Lava not in grids
+            // This catches blocks placed before simulation or loaded from save
+            // Use smaller radius and skip if we already have enough sources
+            if sources.len() < gpu_resources::MAX_WATER_SOURCES {
+                let scan_radius = 16;
+                let px = player_world_pos.x as i32;
+                let py = player_world_pos.y as i32;
+                let pz = player_world_pos.z as i32;
+                'scan: for dx in -scan_radius..=scan_radius {
+                    for dy in -scan_radius..=scan_radius {
+                        for dz in -scan_radius..=scan_radius {
+                            if sources.len() >= gpu_resources::MAX_WATER_SOURCES {
+                                break 'scan;
+                            }
+                            let pos = nalgebra::Vector3::new(px + dx, py + dy, pz + dz);
+                            if source_positions.contains(&pos) {
+                                continue;
+                            }
+                            if let Some(block) = self.sim.world.get_block(pos) {
+                                let source_type = match block {
+                                    crate::chunk::BlockType::Water => Some(0.0),
+                                    crate::chunk::BlockType::Lava => Some(1.0),
+                                    _ => None,
+                                };
+                                if let Some(st) = source_type {
+                                    sources.push(gpu_resources::GpuWaterSource {
+                                        position: [
+                                            (pos.x - tex_origin.x) as f32,
+                                            (pos.y - tex_origin.y) as f32,
+                                            (pos.z - tex_origin.z) as f32,
+                                            st,
+                                        ],
+                                    });
+                                }
+                            }
+                        }
                     }
                 }
             }
