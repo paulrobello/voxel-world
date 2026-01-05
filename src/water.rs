@@ -634,6 +634,25 @@ impl WaterGrid {
         self.active.len()
     }
 
+    /// Returns the number of dirty positions waiting to be processed.
+    pub fn dirty_count(&self) -> usize {
+        self.dirty_positions.len()
+    }
+
+    /// Forces ALL water cells to become active (for debugging stuck water).
+    /// Returns the number of cells activated.
+    pub fn force_all_active(&mut self) -> usize {
+        let count = self.cells.len();
+        for pos in self.cells.keys().cloned().collect::<Vec<_>>() {
+            self.active.insert(pos);
+            // Also reset stable ticks so they'll try to flow
+            if let Some(cell) = self.cells.get_mut(&pos) {
+                cell.stable_ticks = 0;
+            }
+        }
+        count
+    }
+
     /// Prunes active and dirty sets to a maximum radius from player to avoid unbounded growth.
     fn prune_far_sets(&mut self, player_pos: Vector3<f32>) {
         let radius_sq = self.simulation_radius * self.simulation_radius;

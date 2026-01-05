@@ -1448,6 +1448,15 @@ impl App {
             self.sim.player.velocity = Vector3::zeros();
         }
 
+        // Handle pending force water active from console
+        if self.ui.console.pending_force_water_active {
+            let count = self.sim.water_grid.force_all_active();
+            self.ui
+                .console
+                .success(format!("Forced {} water cells active", count));
+            self.ui.console.pending_force_water_active = false;
+        }
+
         let render_extent = rcx.render_image.extent();
         let resample_extent = rcx.resample_image.extent();
         self.sim.player.camera.extent = [render_extent[0] as f64, render_extent[1] as f64];

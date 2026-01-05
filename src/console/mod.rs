@@ -68,6 +68,8 @@ pub enum CommandResult {
     Teleport { x: f64, y: f64, z: f64 },
     /// Request water/lava debug info output (caller has access to grids).
     FluidDebug,
+    /// Force all water cells to become active (for debugging stuck water).
+    ForceWaterActive,
 }
 
 /// Pending command awaiting confirmation.
@@ -111,6 +113,8 @@ pub struct ConsoleState {
     pub pending_teleport: Option<PendingTeleport>,
     /// Pending fluid debug output request.
     pub pending_fluid_debug: bool,
+    /// Pending force water active request.
+    pub pending_force_water_active: bool,
 }
 
 /// Maximum number of command history entries to persist.
@@ -130,6 +134,7 @@ impl ConsoleState {
             request_focus: false,
             pending_teleport: None,
             pending_fluid_debug: false,
+            pending_force_water_active: false,
         }
     }
 
@@ -328,6 +333,10 @@ impl ConsoleState {
                 // Signal that caller should output fluid debug info
                 self.pending_fluid_debug = true;
             }
+            CommandResult::ForceWaterActive => {
+                // Signal that caller should force all water cells active
+                self.pending_force_water_active = true;
+            }
         }
     }
 
@@ -353,6 +362,7 @@ impl ConsoleState {
             "sphere" => commands::sphere(args, world, player_pos, confirmed),
             "tp" | "teleport" => commands::tp(args, player_pos),
             "waterdebug" | "wd" => CommandResult::FluidDebug,
+            "waterforce" | "wf" => CommandResult::ForceWaterActive,
             "clear" => {
                 self.output.clear();
                 CommandResult::Success("Console cleared.".to_string())

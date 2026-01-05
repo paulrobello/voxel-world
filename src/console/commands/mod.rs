@@ -31,6 +31,9 @@ pub fn help() -> CommandResult {
   waterdebug, wd
     Show water/lava simulation debug info.
 
+  waterforce, wf
+    Force ALL water cells to become active (unstick water).
+
   clear
     Clear console output
 

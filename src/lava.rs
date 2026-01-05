@@ -537,6 +537,18 @@ impl LavaGrid {
         self.active.len()
     }
 
+    /// Forces ALL lava cells to become active (for debugging stuck lava).
+    pub fn force_all_active(&mut self) -> usize {
+        let count = self.cells.len();
+        for pos in self.cells.keys().cloned().collect::<Vec<_>>() {
+            self.active.insert(pos);
+            if let Some(cell) = self.cells.get_mut(&pos) {
+                cell.stable_ticks = 0;
+            }
+        }
+        count
+    }
+
     fn prune_far_sets(&mut self, player_pos: Vector3<f32>) {
         let radius_sq = self.simulation_radius * self.simulation_radius;
         self.active.retain(|p| {
