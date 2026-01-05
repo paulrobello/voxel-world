@@ -387,8 +387,13 @@ impl LavaGrid {
             })
             .collect();
 
-        active_list
-            .sort_by(|(_, da), (_, db)| da.partial_cmp(db).unwrap_or(std::cmp::Ordering::Equal));
+        // Sort by Y coordinate (ascending) first, then by distance.
+        // Processing lower cells first allows them to drain and make room
+        // for cells above to flow down (proper gravity-based draining).
+        active_list.sort_by(|(pa, da), (pb, db)| {
+            pa.y.cmp(&pb.y)
+                .then_with(|| da.partial_cmp(db).unwrap_or(std::cmp::Ordering::Equal))
+        });
 
         let active_list: Vec<_> = active_list.into_iter().map(|(pos, _)| pos).collect();
 
@@ -459,8 +464,13 @@ impl LavaGrid {
                     cell.stable_ticks = 0;
                 }
 
-                // Wake up neighbors so they can flow toward this cell (chain reaction)
-                self.activate_neighbors(pos);
+                // When lava flows DOWN from this cell, wake up the cell ABOVE
+                // so it can flow down to fill the space (chain draining).
+                // Only activate above - not all neighbors (that causes exponential activation).
+                if flow.down > MIN_FLOW {
+                    let above = pos + Vector3::new(0, 1, 0);
+                    self.dirty_positions.insert(above);
+                }
             } else if let Some(cell) = self.cells.get_mut(&pos) {
                 cell.stable_ticks = cell.stable_ticks.saturating_add(1);
                 if cell.is_stable() {
