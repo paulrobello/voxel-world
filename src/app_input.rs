@@ -5,6 +5,8 @@ use nalgebra::Vector3;
 use winit::event::MouseButton;
 use winit::keyboard::KeyCode;
 
+const ATLAS_TILE_COUNT: u8 = 19;
+
 impl App {
     /// Handle focus/unfocus toggles. Returns true if we should early-return from update.
     pub fn handle_focus_toggles(&mut self) -> bool {
@@ -226,6 +228,23 @@ impl App {
             if let Some(hit) = self.ui.current_hit {
                 if let Some(block_type) = self.sim.world.get_block(hit.block_pos) {
                     if block_type != BlockType::Air {
+                        // Capture metadata for special blocks before potential slot change
+                        let mut picked_model_id = 0u8;
+                        let mut picked_tint = 0u8;
+                        let mut picked_paint_texture = 0u8;
+                        if block_type == BlockType::Model {
+                            if let Some(data) = self.sim.world.get_model_data(hit.block_pos) {
+                                picked_model_id = data.model_id;
+                            }
+                        } else if block_type == BlockType::TintedGlass {
+                            picked_tint = self.sim.world.get_tint_index(hit.block_pos).unwrap_or(0);
+                        } else if block_type == BlockType::Painted {
+                            if let Some(data) = self.sim.world.get_paint_data(hit.block_pos) {
+                                picked_tint = data.tint_idx;
+                                picked_paint_texture = data.texture_idx;
+                            }
+                        }
+
                         // Check if block type is already in hotbar
                         if let Some(idx) =
                             self.ui.hotbar_blocks.iter().position(|&b| b == block_type)
@@ -241,6 +260,29 @@ impl App {
                                 self.ui.hotbar_index + 1,
                                 block_type
                             );
+                        }
+
+                        // Update metadata arrays based on picked block
+                        let idx = self.ui.hotbar_index;
+                        match block_type {
+                            BlockType::Model => {
+                                self.ui.hotbar_model_ids[idx] = picked_model_id;
+                            }
+                            BlockType::TintedGlass => {
+                                self.ui.hotbar_tint_indices[idx] = picked_tint;
+                                self.ui.hotbar_model_ids[idx] = 0;
+                                self.ui.hotbar_paint_textures[idx] = 0;
+                            }
+                            BlockType::Painted => {
+                                self.ui.hotbar_tint_indices[idx] = picked_tint;
+                                self.ui.hotbar_paint_textures[idx] = picked_paint_texture;
+                                self.ui.hotbar_model_ids[idx] = 0;
+                            }
+                            _ => {
+                                self.ui.hotbar_model_ids[idx] = 0;
+                                self.ui.hotbar_tint_indices[idx] = 0;
+                                self.ui.hotbar_paint_textures[idx] = 0;
+                            }
                         }
                     }
                 }
@@ -262,6 +304,73 @@ impl App {
         // Toggle model editor (N key)
         if self.input.key_pressed(KeyCode::KeyN) {
             self.toggle_editor_panel();
+        }
+
+        // Repaint painted block under cursor with current hotbar texture/tint (P key)
+        if self.input.key_pressed(KeyCode::KeyP) {
+            if let Some(hit) = self.ui.current_hit {
+                if let Some(BlockType::Painted) = self.sim.world.get_block(hit.block_pos) {
+                    let tex = self.ui.hotbar_paint_textures[self.ui.hotbar_index];
+                    let tint = self.ui.hotbar_tint_indices[self.ui.hotbar_index];
+                    self.sim.world.set_painted_block(hit.block_pos, tex, tint);
+                    self.sim
+                        .world
+                        .invalidate_minimap_cache(hit.block_pos.x, hit.block_pos.z);
+                    println!(
+                        "Repainted block at {:?} -> tex {}, tint {}",
+                        hit.block_pos, tex, tint
+                    );
+                }
+            }
+        }
+
+        // Cycle paint texture on selected Painted hotbar slot
+        if self.input.key_pressed(KeyCode::BracketRight)
+            && self.ui.hotbar_blocks[self.ui.hotbar_index] == BlockType::Painted
+        {
+            let tex = (self.ui.hotbar_paint_textures[self.ui.hotbar_index] + 1) % ATLAS_TILE_COUNT;
+            self.ui.hotbar_paint_textures[self.ui.hotbar_index] = tex;
+            println!("Paint texture -> {}", tex);
+        }
+        if self.input.key_pressed(KeyCode::BracketLeft)
+            && self.ui.hotbar_blocks[self.ui.hotbar_index] == BlockType::Painted
+        {
+            let tex = self.ui.hotbar_paint_textures[self.ui.hotbar_index];
+            let tex = if tex == 0 {
+                ATLAS_TILE_COUNT - 1
+            } else {
+                tex - 1
+            };
+            self.ui.hotbar_paint_textures[self.ui.hotbar_index] = tex;
+            println!("Paint texture -> {}", tex);
+        }
+
+        // Cycle tint for Painted or TintedGlass hotbar slot
+        if self.input.key_pressed(KeyCode::Period)
+            && matches!(
+                self.ui.hotbar_blocks[self.ui.hotbar_index],
+                BlockType::Painted | BlockType::TintedGlass
+            )
+        {
+            self.ui.hotbar_tint_indices[self.ui.hotbar_index] =
+                (self.ui.hotbar_tint_indices[self.ui.hotbar_index] + 1) & 0x1F;
+            println!(
+                "Tint -> {}",
+                self.ui.hotbar_tint_indices[self.ui.hotbar_index]
+            );
+        }
+        if self.input.key_pressed(KeyCode::Comma)
+            && matches!(
+                self.ui.hotbar_blocks[self.ui.hotbar_index],
+                BlockType::Painted | BlockType::TintedGlass
+            )
+        {
+            let tint = self.ui.hotbar_tint_indices[self.ui.hotbar_index];
+            self.ui.hotbar_tint_indices[self.ui.hotbar_index] = tint.wrapping_sub(1) & 0x1F;
+            println!(
+                "Tint -> {}",
+                self.ui.hotbar_tint_indices[self.ui.hotbar_index]
+            );
         }
 
         // Toggle console (/ key)

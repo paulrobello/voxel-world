@@ -308,6 +308,36 @@ impl World {
             .and_then(|chunk| chunk.get_tint_index(lx, ly, lz))
     }
 
+    /// Sets a painted block at world coordinates with the given texture + tint.
+    ///
+    /// This sets the block type to Painted and stores the paint metadata.
+    /// If the chunk doesn't exist, it will be created.
+    pub fn set_painted_block(&mut self, world_pos: WorldPos, texture_idx: u8, tint_idx: u8) {
+        let chunk_pos = Self::world_to_chunk(world_pos);
+        let (lx, ly, lz) = Self::world_to_local(world_pos);
+
+        let is_new_chunk = !self.chunks.contains_key(&chunk_pos);
+        let chunk = self.chunks.entry(chunk_pos).or_default();
+        let was_dirty = chunk.dirty;
+        chunk.set_painted_block(lx, ly, lz, texture_idx, tint_idx);
+
+        if is_new_chunk || (chunk.dirty && !was_dirty) {
+            self.push_dirty(chunk_pos);
+        }
+    }
+
+    /// Gets the paint metadata for a painted block at world coordinates.
+    ///
+    /// Returns None if the chunk doesn't exist or the block has no paint data.
+    pub fn get_paint_data(&self, world_pos: WorldPos) -> Option<crate::chunk::BlockPaintData> {
+        let chunk_pos = Self::world_to_chunk(world_pos);
+        let (lx, ly, lz) = Self::world_to_local(world_pos);
+
+        self.chunks
+            .get(&chunk_pos)
+            .and_then(|chunk| chunk.get_paint_data(lx, ly, lz))
+    }
+
     /// Checks if a block is solid at world coordinates.
     pub fn is_solid(&self, world_pos: WorldPos) -> bool {
         self.get_block(world_pos)

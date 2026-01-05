@@ -7,3 +7,5 @@
 - Update this checklist with outcomes/notes.
 - Commit all work before moving to the next item.
 
+## Next Tasks
+(Empty - awaiting new refactoring tasks)

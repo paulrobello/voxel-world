@@ -33,6 +33,7 @@ pub fn render_hud(
             hotbar_blocks: &mut ui.hotbar_blocks,
             hotbar_model_ids: &mut ui.hotbar_model_ids,
             hotbar_tint_indices: &mut ui.hotbar_tint_indices,
+            hotbar_paint_textures: &mut ui.hotbar_paint_textures,
             minimap_image,
             atlas_texture_id: rcx.atlas_texture_id,
             sprite_icons: Some(&rcx.sprite_icons),

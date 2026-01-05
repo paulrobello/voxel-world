@@ -21,8 +21,8 @@ pub const CHUNK_SIZE: usize = 32;
 pub const CHUNK_VOLUME: usize = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
 
 /// Tint color palette matching TINT_PALETTE in shaders/common.glsl.
-/// RGB values for 16 commonly used tint colors (indices 0-15).
-pub const TINT_PALETTE: [[f32; 3]; 16] = [
+/// RGB values for 32 tint colors (indices 0-31).
+pub const TINT_PALETTE: [[f32; 3]; 32] = [
     [1.0, 0.2, 0.2],    // 0: Red
     [1.0, 0.5, 0.2],    // 1: Orange
     [1.0, 1.0, 0.2],    // 2: Yellow
@@ -39,10 +39,26 @@ pub const TINT_PALETTE: [[f32; 3]; 16] = [
     [0.6, 0.6, 0.6],    // 13: Light gray
     [0.3, 0.3, 0.3],    // 14: Dark gray
     [0.4, 0.25, 0.1],   // 15: Brown
+    [0.8, 0.4, 0.4],    // 16: Light red
+    [0.8, 0.6, 0.4],    // 17: Peach
+    [0.8, 0.8, 0.4],    // 18: Light yellow
+    [0.6, 0.8, 0.4],    // 19: Light lime
+    [0.4, 0.8, 0.4],    // 20: Light green
+    [0.4, 0.8, 0.6],    // 21: Light teal
+    [0.4, 0.8, 0.8],    // 22: Light cyan
+    [0.4, 0.6, 0.8],    // 23: Light sky
+    [0.4, 0.4, 0.8],    // 24: Light blue
+    [0.6, 0.4, 0.8],    // 25: Light purple
+    [0.8, 0.4, 0.8],    // 26: Light magenta
+    [0.8, 0.4, 0.6],    // 27: Light pink
+    [0.2, 0.15, 0.1],   // 28: Dark brown
+    [0.1, 0.2, 0.1],    // 29: Dark green
+    [0.1, 0.1, 0.2],    // 30: Dark blue
+    [0.2, 0.1, 0.2],    // 31: Dark purple
 ];
 
 /// Returns the RGB tint color for a given tint index.
-/// Returns a default gray for indices >= 16.
+/// Returns a default gray for indices >= 32.
 pub fn tint_color(tint_index: u8) -> [f32; 3] {
     if (tint_index as usize) < TINT_PALETTE.len() {
         TINT_PALETTE[tint_index as usize]
@@ -76,6 +92,8 @@ pub enum BlockType {
     Bedrock = 16,
     /// Tinted glass block. Use tint_data to get color index (0-31).
     TintedGlass = 17,
+    /// Paintable block. Texture and tint are stored per-block in metadata.
+    Painted = 18,
 }
 
 /// Metadata for a block that uses a sub-voxel model.
@@ -91,6 +109,15 @@ pub struct BlockModelData {
 
     /// Whether this block is waterlogged (contains water in the same space).
     pub waterlogged: bool,
+}
+
+/// Metadata for a paintable block (per-block texture + tint).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct BlockPaintData {
+    /// Atlas texture index to sample (0-based).
+    pub texture_idx: u8,
+    /// Tint palette index (0-31).
+    pub tint_idx: u8,
 }
 
 impl BlockType {
@@ -187,6 +214,7 @@ impl BlockType {
             BlockType::Iron => [0.75, 0.75, 0.78],
             BlockType::Bedrock => [0.2, 0.2, 0.2], // Dark gray, nearly black
             BlockType::TintedGlass => [0.7, 0.8, 0.9], // Light blue-gray base
+            BlockType::Painted => [0.8, 0.8, 0.8], // Neutral base; actual color comes from metadata
         }
     }
 
@@ -205,7 +233,8 @@ impl BlockType {
             | BlockType::Planks
             | BlockType::Log
             | BlockType::Glass
-            | BlockType::TintedGlass => 0.5,
+            | BlockType::TintedGlass
+            | BlockType::Painted => 0.5,
             // Slow
             BlockType::Stone | BlockType::Cobblestone | BlockType::Brick => 0.8,
             // Very slow
@@ -245,6 +274,7 @@ impl BlockType {
             "cobblestone" | "cobble" => Some(BlockType::Cobblestone),
             "iron" => Some(BlockType::Iron),
             "bedrock" => Some(BlockType::Bedrock),
+            "painted" | "paint" => Some(BlockType::Painted),
             _ => None,
         }
     }
@@ -271,6 +301,7 @@ impl From<u8> for BlockType {
             15 => BlockType::Iron,
             16 => BlockType::Bedrock,
             17 => BlockType::TintedGlass,
+            18 => BlockType::Painted,
             _ => BlockType::Air,
         }
     }
@@ -294,6 +325,11 @@ pub struct Chunk {
     /// Only blocks of type `TintedGlass` have entries here.
     /// Key: block index, Value: color index (0-31).
     tint_data: HashMap<usize, u8>,
+
+    /// Sparse storage for painted block metadata (texture + tint).
+    /// Only blocks of type `Painted` have entries here.
+    /// Key: block index, Value: BlockPaintData.
+    painted_data: HashMap<usize, BlockPaintData>,
 
     /// Reusable RG8 buffer for model metadata uploads (len = CHUNK_VOLUME * 2).
     model_metadata_buf: RefCell<Vec<u8>>,
@@ -335,6 +371,7 @@ impl Chunk {
             blocks: Box::new([BlockType::Air; CHUNK_VOLUME]),
             model_data: HashMap::new(),
             tint_data: HashMap::new(),
+            painted_data: HashMap::new(),
             model_metadata_buf: RefCell::new(vec![0u8; CHUNK_VOLUME * 2]),
             model_metadata_dirty: Cell::new(false),
             light_block_count: 0,
@@ -360,6 +397,7 @@ impl Chunk {
             blocks: Box::new([block_type; CHUNK_VOLUME]),
             model_data: HashMap::new(),
             tint_data: HashMap::new(),
+            painted_data: HashMap::new(),
             model_metadata_buf: RefCell::new(vec![0u8; CHUNK_VOLUME * 2]),
             model_metadata_dirty: Cell::new(false),
             light_block_count,
@@ -422,6 +460,11 @@ impl Chunk {
             // Clean up tint data if block is no longer TintedGlass
             if block != BlockType::TintedGlass {
                 self.tint_data.remove(&idx);
+                self.model_metadata_dirty.set(true);
+            }
+            // Clean up painted data if block is no longer Painted
+            if block != BlockType::Painted {
+                self.painted_data.remove(&idx);
                 self.model_metadata_dirty.set(true);
             }
         } else if block.is_light_source() {
@@ -487,12 +530,44 @@ impl Chunk {
         self.model_metadata_dirty.set(true);
     }
 
+    /// Sets a painted block with its texture + tint metadata at the given local coordinates.
+    #[inline]
+    pub fn set_painted_block(
+        &mut self,
+        x: usize,
+        y: usize,
+        z: usize,
+        texture_idx: u8,
+        tint_idx: u8,
+    ) {
+        let idx = Self::index(x, y, z);
+        self.blocks[idx] = BlockType::Painted;
+        self.painted_data.insert(
+            idx,
+            BlockPaintData {
+                texture_idx,
+                tint_idx: tint_idx & 0x1F,
+            },
+        );
+        self.dirty = true;
+        self.persistence_dirty = true;
+        self.metadata_dirty = true;
+        self.model_metadata_dirty.set(true);
+    }
+
     /// Gets the tint color index for a tinted glass block at the given local coordinates.
     /// Returns None if the block is not a TintedGlass type.
     #[inline]
     pub fn get_tint_index(&self, x: usize, y: usize, z: usize) -> Option<u8> {
         let idx = Self::index(x, y, z);
         self.tint_data.get(&idx).copied()
+    }
+
+    /// Gets paint metadata for a painted block at the given local coordinates.
+    #[inline]
+    pub fn get_paint_data(&self, x: usize, y: usize, z: usize) -> Option<BlockPaintData> {
+        let idx = Self::index(x, y, z);
+        self.painted_data.get(&idx).copied()
     }
 
     /// Returns the number of model blocks in this chunk.
@@ -511,6 +586,18 @@ impl Chunk {
     #[inline]
     pub fn model_entries(&self) -> impl Iterator<Item = (&usize, &BlockModelData)> {
         self.model_data.iter()
+    }
+
+    /// Iterates over all painted block entries (index -> metadata).
+    #[inline]
+    pub fn painted_entries(&self) -> impl Iterator<Item = (&usize, &BlockPaintData)> {
+        self.painted_data.iter()
+    }
+
+    /// Iterates over all tinted glass entries (index -> tint idx).
+    #[inline]
+    pub fn tinted_entries(&self) -> impl Iterator<Item = (&usize, &u8)> {
+        self.tint_data.iter()
     }
 
     /// Iterates over all blocks with their flat index.
@@ -582,6 +669,7 @@ impl Chunk {
     /// Layout:
     /// - For Model blocks: R = model_id, G = rotation (bits 0-1) | waterlogged (bit 2)
     /// - For TintedGlass blocks: R = 0, G = tint_index (bits 0-4)
+    /// - For Painted blocks: R = texture_idx, G = tint_index (bits 0-4)
     #[inline]
     pub fn model_metadata_bytes(&self) -> Ref<'_, [u8]> {
         if self.model_metadata_dirty.get() {
@@ -604,6 +692,12 @@ impl Chunk {
                     let offset = idx * 2;
                     buf[offset] = 0; // R = 0 (no model_id)
                     buf[offset + 1] = tint_index & 0x1F; // G = tint_index (bits 0-4)
+                }
+                // Pack painted block data
+                for (idx, data) in &self.painted_data {
+                    let offset = idx * 2;
+                    buf[offset] = data.texture_idx;
+                    buf[offset + 1] = data.tint_idx & 0x1F;
                 }
             }
             self.model_metadata_dirty.set(false);

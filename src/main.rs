@@ -169,6 +169,8 @@ struct PaletteItem {
     model_id: u8,
     /// For TintedGlass blocks, the tint color index (0-31). Ignored for other block types.
     tint_index: u8,
+    /// For Painted blocks, the atlas texture index (0-based). Ignored for other block types.
+    paint_texture_idx: u8,
 }
 
 /// Finds the ground level (highest non-air block) at the given world coordinates.
@@ -381,6 +383,7 @@ struct UiState {
     hotbar_blocks: [BlockType; 9],
     hotbar_model_ids: [u8; 9],
     hotbar_tint_indices: [u8; 9],
+    hotbar_paint_textures: [u8; 9],
     current_hit: Option<RaycastHit>,
 
     breaking_block: Option<Vector3<i32>>,
@@ -932,6 +935,7 @@ impl App {
             hotbar_blocks: prefs.get_hotbar_blocks(),
             hotbar_model_ids: prefs.hotbar_model_ids,
             hotbar_tint_indices: prefs.hotbar_tint_indices,
+            hotbar_paint_textures: prefs.hotbar_paint_textures,
             current_hit: None,
             breaking_block: None,
             break_progress: 0.0,
@@ -980,6 +984,7 @@ impl App {
         self.prefs.set_hotbar_blocks(&self.ui.hotbar_blocks);
         self.prefs.hotbar_model_ids = self.ui.hotbar_model_ids;
         self.prefs.hotbar_tint_indices = self.ui.hotbar_tint_indices;
+        self.prefs.hotbar_paint_textures = self.ui.hotbar_paint_textures;
         self.prefs.show_minimap = self.ui.show_minimap;
 
         // Save player position for the current world

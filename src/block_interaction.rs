@@ -7,6 +7,7 @@ use crate::raycast::{MAX_RAYCAST_DISTANCE, get_place_position, raycast};
 use crate::sub_voxel::{FIRST_CUSTOM_MODEL_ID, ModelRegistry, StairShape};
 use nalgebra::Vector3;
 use winit::event::MouseButton;
+use winit::keyboard::KeyCode;
 
 impl App {
     pub fn update_raycast(&mut self) {
@@ -90,6 +91,11 @@ impl App {
                     if block_type == BlockType::TintedGlass {
                         if let Some(tint_index) = self.sim.world.get_tint_index(target) {
                             let tint = crate::chunk::tint_color(tint_index);
+                            particle_color = nalgebra::Vector3::new(tint[0], tint[1], tint[2]);
+                        }
+                    } else if block_type == BlockType::Painted {
+                        if let Some(paint) = self.sim.world.get_paint_data(target) {
+                            let tint = crate::chunk::tint_color(paint.tint_idx);
                             particle_color = nalgebra::Vector3::new(tint[0], tint[1], tint[2]);
                         }
                     }
@@ -344,6 +350,23 @@ impl App {
         true
     }
 
+    /// Repaints a Painted block with current hotbar texture/tint. Returns true if repainted.
+    pub fn repaint_painted_block_at(&mut self, pos: Vector3<i32>) -> bool {
+        // Check if target is a Painted block
+        let Some(BlockType::Painted) = self.sim.world.get_block(pos) else {
+            return false;
+        };
+
+        // Get current hotbar paint settings
+        let texture_idx = self.ui.hotbar_paint_textures[self.ui.hotbar_index];
+        let tint_idx = self.ui.hotbar_tint_indices[self.ui.hotbar_index];
+
+        // Repaint the block
+        self.sim.world.set_painted_block(pos, texture_idx, tint_idx);
+
+        true
+    }
+
     /// Rotates a custom model 90 degrees around Y axis. Returns true if rotated.
     fn rotate_custom_model_at(&mut self, pos: Vector3<i32>) -> bool {
         // Check if there's a model block at this position
@@ -439,7 +462,19 @@ impl App {
                 return;
             }
 
-            // Priority 5: Place new block
+            // Priority 5: Repaint existing Painted block (Shift+Right-Click while holding Painted)
+            let shift_held =
+                self.input.key_held(KeyCode::ShiftLeft) || self.input.key_held(KeyCode::ShiftRight);
+            if self.selected_block() == BlockType::Painted
+                && shift_held
+                && !self.ui.gate_needs_reclick
+                && self.repaint_painted_block_at(hit.block_pos)
+            {
+                self.ui.gate_needs_reclick = true;
+                return;
+            }
+
+            // Priority 6: Place new block
             let place_pos = get_place_position(&hit);
 
             // Handle model blocks - require re-click to place multiple
@@ -875,6 +910,12 @@ impl App {
             // TintedGlass needs the tint_index from the hotbar
             let tint_index = self.ui.hotbar_tint_indices[self.ui.hotbar_index];
             self.sim.world.set_tinted_glass_block(place_pos, tint_index);
+        } else if block_to_place == BlockType::Painted {
+            let texture_idx = self.ui.hotbar_paint_textures[self.ui.hotbar_index];
+            let tint_idx = self.ui.hotbar_tint_indices[self.ui.hotbar_index];
+            self.sim
+                .world
+                .set_painted_block(place_pos, texture_idx, tint_idx);
         } else {
             self.sim.world.set_block(place_pos, block_to_place);
 

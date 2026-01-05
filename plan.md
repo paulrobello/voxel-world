@@ -804,10 +804,21 @@ In-game command console for world editing, debugging, and administration.
 
 ---
 
-## Current Work (2026-01-04)
-- Console command system expanded with world generation commands.
+## Current Work (2026-01-05)
+- Awaiting next feature or refactor task.
 
 ## Done Recently
+- **Paintable Blocks Feature** (2026-01-05): ✅ COMPLETE
+  - New `Painted` block type with per-block metadata (texture_idx + tint_idx)
+  - 19 atlas textures × 32 tint colors = 608 possible combinations
+  - GPU shader integration: `getPaintedColor()` samples atlas tile and applies tint
+  - Persistence via chunk codec (BlockPaintData serialization)
+  - Hotbar controls: `[` `]` cycle textures, `,` `.` cycle tints (32-color palette)
+  - Right-click to place, Shift+Right-click to repaint existing blocks
+  - Sprite tinting in UI (palette & hotbar) matches world rendering
+  - Fixed tint palette synchronization between UI and shader (32 colors)
+  - Particle colors follow block tint on break
+  - All changes persist across save/load
 - **Phase 6: Interactive Block Types** (2026-01-04): ✅ COMPLETE
   - Door system with 5 variants (Plain, Windowed, Paneled, Fancy, Glass)
   - 40 total door models (8 states per variant: upper/lower × left/right hinge × open/closed)

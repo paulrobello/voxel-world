@@ -87,6 +87,9 @@ pub struct UserPreferences {
     /// Tint indices for each hotbar slot (for TintedGlass blocks).
     pub hotbar_tint_indices: [u8; 9],
 
+    /// Paint texture indices for each hotbar slot (for Painted blocks).
+    pub hotbar_paint_textures: [u8; 9],
+
     /// Whether to show the minimap.
     pub show_minimap: bool,
 
@@ -121,6 +124,7 @@ impl Default for UserPreferences {
             ],
             hotbar_model_ids: [0, 0, 0, 0, 0, 0, 1, 4, 20],
             hotbar_tint_indices: [0; 9],
+            hotbar_paint_textures: [BlockType::Stone as u8; 9],
             show_minimap: true,
             last_world: None,
             recent_worlds: Vec::new(),

@@ -11,6 +11,24 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 #include "materials.glsl"
 #include "overlays.glsl"
 
+// Sample painted block using per-voxel metadata (texture_idx, tint_idx)
+vec3 getPaintedColor(uvec2 metadata, vec3 local_hit, vec3 normal, uint stepped_axis, vec3 worldPos) {
+    uint textureIndex = metadata.r;
+    uint tintIndex = metadata.g & 0x1Fu;
+
+    vec2 uv;
+    if (stepped_axis == 0) {
+        uv = vec2(local_hit.z, 1.0 - local_hit.y);
+    } else if (stepped_axis == 1) {
+        uv = vec2(local_hit.x, local_hit.z);
+    } else {
+        uv = vec2(local_hit.x, 1.0 - local_hit.y);
+    }
+
+    vec3 base = sampleTexture(textureIndex, uv);
+    return base * TINT_PALETTE[tintIndex];
+}
+
 // Check if a block position matches the breaking block
 bool isBreakingBlock(ivec3 blockPos) {
     return pc.break_block_x >= 0 &&
@@ -390,6 +408,9 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
         if (blockType == BLOCK_MODEL) {
             // Opaque model or no background found - use gray
             backgroundColor = vec3(0.5, 0.5, 0.5);
+        } else if (blockType == BLOCK_PAINTED) {
+            uvec2 meta = readModelMetadata(ivec3(coord));
+            backgroundColor = getPaintedColor(meta, local_hit, normal, stepped_axis, hit);
         } else {
             // Translucent model with background - use actual background color
             backgroundColor = getBlockColor(blockType, local_hit, normal, stepped_axis, hit);
@@ -408,6 +429,9 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
         // Model block but ray missed the model geometry - shouldn't normally happen
         backgroundColor = vec3(0.5, 0.5, 0.5);
         blockColor = backgroundColor;
+    } else if (blockType == BLOCK_PAINTED) {
+        uvec2 meta = readModelMetadata(ivec3(coord));
+        blockColor = getPaintedColor(meta, local_hit, normal, stepped_axis, hit);
     } else {
         // Regular solid block
         blockColor = getBlockColor(blockType, local_hit, normal, stepped_axis, hit);

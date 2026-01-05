@@ -29,6 +29,7 @@ pub struct HudInputs<'a> {
     pub hotbar_blocks: &'a mut [BlockType; 9],
     pub hotbar_model_ids: &'a mut [u8; 9],
     pub hotbar_tint_indices: &'a mut [u8; 9],
+    pub hotbar_paint_textures: &'a mut [u8; 9],
     pub minimap_image: Option<egui::ColorImage>,
     pub atlas_texture_id: egui::TextureId,
     pub sprite_icons: Option<&'a SpriteIcons>,
@@ -57,25 +58,13 @@ impl HUDRenderer {
     /// Convert tint_index to egui::Color32 for UI display.
     /// Matches TINT_PALETTE in shaders/common.glsl.
     fn tint_color(tint_index: u8) -> egui::Color32 {
-        match tint_index {
-            0 => egui::Color32::from_rgb(255, 51, 51),    // Red
-            1 => egui::Color32::from_rgb(255, 128, 51),   // Orange
-            2 => egui::Color32::from_rgb(255, 255, 51),   // Yellow
-            3 => egui::Color32::from_rgb(128, 255, 51),   // Lime
-            4 => egui::Color32::from_rgb(51, 255, 51),    // Green
-            5 => egui::Color32::from_rgb(51, 255, 128),   // Teal
-            6 => egui::Color32::from_rgb(51, 255, 255),   // Cyan
-            7 => egui::Color32::from_rgb(51, 128, 255),   // Sky blue
-            8 => egui::Color32::from_rgb(51, 51, 255),    // Blue
-            9 => egui::Color32::from_rgb(128, 51, 255),   // Purple
-            10 => egui::Color32::from_rgb(255, 51, 255),  // Magenta
-            11 => egui::Color32::from_rgb(255, 51, 128),  // Pink
-            12 => egui::Color32::from_rgb(242, 242, 242), // White
-            13 => egui::Color32::from_rgb(153, 153, 153), // Light gray
-            14 => egui::Color32::from_rgb(77, 77, 77),    // Dark gray
-            15 => egui::Color32::from_rgb(102, 64, 26),   // Brown
-            _ => egui::Color32::from_rgb(200, 200, 200),  // Default gray
-        }
+        // Use the same palette as the shader (from chunk.rs)
+        let color = crate::chunk::tint_color(tint_index);
+        egui::Color32::from_rgb(
+            (color[0] * 255.0) as u8,
+            (color[1] * 255.0) as u8,
+            (color[2] * 255.0) as u8,
+        )
     }
 
     fn sprite_for_item(item: PaletteItem, icons: Option<&SpriteIcons>) -> Option<egui::TextureId> {
@@ -87,13 +76,16 @@ impl HUDRenderer {
                 .get(&item.tint_index)
                 .copied()
                 .or(Some(set.missing)),
+            BlockType::Painted => None, // Use atlas texture + tint instead of sprite
             BlockType::Air => None,
             _ => set.block.get(&item.block).copied().or(Some(set.missing)),
         }
     }
 
-    fn atlas_tile_for(block: BlockType, model_id: u8) -> f32 {
-        if block == BlockType::Model {
+    fn atlas_tile_for(block: BlockType, model_id: u8, paint_texture_idx: u8) -> f32 {
+        if block == BlockType::Painted {
+            paint_texture_idx as f32
+        } else if block == BlockType::Model {
             match model_id {
                 1 => 11.0,     // Torch
                 4..=27 => 4.0, // Wood-based models use planks texture
@@ -111,6 +103,7 @@ impl HUDRenderer {
         hotbar_blocks: &mut [BlockType; 9],
         hotbar_model_ids: &mut [u8; 9],
         hotbar_tint_indices: &mut [u8; 9],
+        hotbar_paint_textures: &mut [u8; 9],
     ) {
         hotbar_blocks[slot] = item.block;
         hotbar_model_ids[slot] = if item.block == BlockType::Model {
@@ -118,8 +111,14 @@ impl HUDRenderer {
         } else {
             0
         };
-        hotbar_tint_indices[slot] = if item.block == BlockType::TintedGlass {
-            item.tint_index
+        hotbar_tint_indices[slot] =
+            if item.block == BlockType::TintedGlass || item.block == BlockType::Painted {
+                item.tint_index
+            } else {
+                0
+            };
+        hotbar_paint_textures[slot] = if item.block == BlockType::Painted {
+            item.paint_texture_idx
         } else {
             0
         };
@@ -130,6 +129,7 @@ impl HUDRenderer {
         hotbar_blocks: &mut [BlockType; 9],
         hotbar_model_ids: &mut [u8; 9],
         hotbar_tint_indices: &mut [u8; 9],
+        hotbar_paint_textures: &mut [u8; 9],
         hotbar_index: &mut usize,
     ) {
         if let Some(empty_slot) = hotbar_blocks.iter().position(|b| *b == BlockType::Air) {
@@ -139,6 +139,7 @@ impl HUDRenderer {
                 hotbar_blocks,
                 hotbar_model_ids,
                 hotbar_tint_indices,
+                hotbar_paint_textures,
             );
             *hotbar_index = empty_slot;
         } else {
@@ -149,6 +150,7 @@ impl HUDRenderer {
                 hotbar_blocks,
                 hotbar_model_ids,
                 hotbar_tint_indices,
+                hotbar_paint_textures,
             );
         }
     }
@@ -196,6 +198,7 @@ impl HUDRenderer {
                         block,
                         model_id: 0,
                         tint_index: 0,
+                        paint_texture_idx: 0,
                     },
                     format!("{:?}", block),
                 ));
@@ -207,10 +210,21 @@ impl HUDRenderer {
                         block: BlockType::TintedGlass,
                         model_id: 0,
                         tint_index,
+                        paint_texture_idx: 0,
                     },
                     name.to_string(),
                 ));
             }
+            // Add paintable block entry (defaults: planks texture, no tint)
+            items.push((
+                PaletteItem {
+                    block: BlockType::Painted,
+                    model_id: 0,
+                    tint_index: 0,
+                    paint_texture_idx: BlockType::Planks as u8,
+                },
+                "Painted Block".to_string(),
+            ));
         }
 
         if matches!(tab, PaletteTab::Models | PaletteTab::All) {
@@ -221,6 +235,7 @@ impl HUDRenderer {
                             block: BlockType::Model,
                             model_id: id,
                             tint_index: 0,
+                            paint_texture_idx: 0,
                         },
                         label.to_string(),
                     ));
@@ -250,6 +265,7 @@ impl HUDRenderer {
                         block: BlockType::Model,
                         model_id: model.id,
                         tint_index: 0,
+                        paint_texture_idx: 0,
                     },
                     model.name.clone(),
                 ));
@@ -269,28 +285,38 @@ impl HUDRenderer {
         hotbar_blocks: &mut [BlockType; 9],
         hotbar_model_ids: &mut [u8; 9],
         hotbar_tint_indices: &mut [u8; 9],
+        hotbar_paint_textures: &mut [u8; 9],
         hotbar_index: &mut usize,
         dragging_item: &mut Option<PaletteItem>,
     ) {
         const ATLAS_TILE_COUNT: f32 = 19.0;
-        let block_idx = Self::atlas_tile_for(item.block, item.model_id);
+        let block_idx = Self::atlas_tile_for(item.block, item.model_id, item.paint_texture_idx);
         let uv_left = block_idx / ATLAS_TILE_COUNT;
         let uv_right = (block_idx + 1.0) / ATLAS_TILE_COUNT;
         let uv_rect = egui::Rect::from_min_max(egui::pos2(uv_left, 0.0), egui::pos2(uv_right, 1.0));
         let sprite_id = Self::sprite_for_item(item, sprite_icons);
 
         ui.vertical(|ui| {
+            // Calculate tint color for Painted blocks
+            let tint_color = if item.block == BlockType::Painted {
+                Self::tint_color(item.tint_index)
+            } else {
+                egui::Color32::WHITE
+            };
+
             let button = if let Some(id) = sprite_id {
                 egui::ImageButton::new((id, egui::vec2(48.0, 48.0)))
                     .uv(egui::Rect::from_min_max(
                         egui::pos2(0.0, 0.0),
                         egui::pos2(1.0, 1.0),
                     ))
+                    .tint(tint_color)
                     .frame(true)
                     .sense(egui::Sense::click_and_drag())
             } else {
                 egui::ImageButton::new((atlas_texture_id, egui::vec2(48.0, 48.0)))
                     .uv(uv_rect)
+                    .tint(tint_color)
                     .frame(true)
                     .sense(egui::Sense::click_and_drag())
             };
@@ -309,6 +335,7 @@ impl HUDRenderer {
                     hotbar_blocks,
                     hotbar_model_ids,
                     hotbar_tint_indices,
+                    hotbar_paint_textures,
                 );
             }
             if middle {
@@ -317,6 +344,7 @@ impl HUDRenderer {
                     hotbar_blocks,
                     hotbar_model_ids,
                     hotbar_tint_indices,
+                    hotbar_paint_textures,
                     hotbar_index,
                 );
             }
@@ -341,7 +369,7 @@ impl HUDRenderer {
                 );
             }
             // Draw colored border for TintedGlass items
-            if item.block == BlockType::TintedGlass {
+            if item.block == BlockType::TintedGlass || item.block == BlockType::Painted {
                 let tint_color = Self::tint_color(item.tint_index);
                 ui.painter().rect_stroke(
                     hover_rect.shrink(2.0),
@@ -373,6 +401,7 @@ impl HUDRenderer {
         hotbar_blocks: &mut [BlockType; 9],
         hotbar_model_ids: &mut [u8; 9],
         hotbar_tint_indices: &mut [u8; 9],
+        hotbar_paint_textures: &mut [u8; 9],
         hotbar_index: &mut usize,
     ) {
         if !*palette_open {
@@ -407,6 +436,7 @@ impl HUDRenderer {
                                         hotbar_blocks,
                                         hotbar_model_ids,
                                         hotbar_tint_indices,
+                                        hotbar_paint_textures,
                                         hotbar_index,
                                         dragging_item,
                                     );
@@ -506,6 +536,7 @@ impl HUDRenderer {
             hotbar_blocks,
             hotbar_model_ids,
             hotbar_tint_indices,
+            hotbar_paint_textures,
             minimap_image,
             atlas_texture_id,
             sprite_icons,
@@ -549,6 +580,7 @@ impl HUDRenderer {
                 hotbar_blocks,
                 hotbar_model_ids,
                 hotbar_tint_indices,
+                hotbar_paint_textures,
                 hotbar_index,
             );
 
@@ -564,7 +596,8 @@ impl HUDRenderer {
                         )
                     } else {
                         const ATLAS_TILE_COUNT: f32 = 19.0;
-                        let block_idx = Self::atlas_tile_for(item.block, item.model_id);
+                        let block_idx =
+                            Self::atlas_tile_for(item.block, item.model_id, item.paint_texture_idx);
                         let uv_left = block_idx / ATLAS_TILE_COUNT;
                         let uv_right = (block_idx + 1.0) / ATLAS_TILE_COUNT;
                         (
@@ -1287,6 +1320,7 @@ impl HUDRenderer {
                                         block,
                                         model_id: hotbar_model_ids[i],
                                         tint_index: hotbar_tint_indices[i],
+                                        paint_texture_idx: hotbar_paint_textures[i],
                                     };
                                     let (texture_id, uv_rect) = if let Some(tex) =
                                         Self::sprite_for_item(palette_item, sprite_icons)
@@ -1299,8 +1333,11 @@ impl HUDRenderer {
                                             ),
                                         )
                                     } else {
-                                        let block_idx =
-                                            Self::atlas_tile_for(block, hotbar_model_ids[i]);
+                                        let block_idx = Self::atlas_tile_for(
+                                            block,
+                                            hotbar_model_ids[i],
+                                            hotbar_paint_textures[i],
+                                        );
                                         let uv_left = block_idx / ATLAS_TILE_COUNT;
                                         let uv_right = (block_idx + 1.0) / ATLAS_TILE_COUNT;
                                         (
@@ -1338,11 +1375,17 @@ impl HUDRenderer {
                                         rect.min + egui::vec2(2.0, 2.0),
                                         egui::vec2(SLOT_SIZE, SLOT_SIZE),
                                     );
+                                    // Apply tint color for Painted blocks, white for others
+                                    let texture_tint = if block == BlockType::Painted {
+                                        Self::tint_color(hotbar_tint_indices[i])
+                                    } else {
+                                        egui::Color32::WHITE
+                                    };
                                     ui.painter().image(
                                         texture_id,
                                         texture_rect,
                                         uv_rect,
-                                        egui::Color32::WHITE,
+                                        texture_tint,
                                     );
                                     if hotbar_model_ids[i] == 2 {
                                         ui.painter().text(
@@ -1361,7 +1404,7 @@ impl HUDRenderer {
                                             egui::Color32::YELLOW,
                                         );
                                     }
-                                    // Draw colored inner border for TintedGlass
+                                    // Draw colored inner border for TintedGlass only
                                     if block == BlockType::TintedGlass {
                                         let tint_color = Self::tint_color(hotbar_tint_indices[i]);
                                         ui.painter().rect_stroke(
@@ -1402,6 +1445,7 @@ impl HUDRenderer {
                                                 hotbar_blocks,
                                                 hotbar_model_ids,
                                                 hotbar_tint_indices,
+                                                hotbar_paint_textures,
                                             );
                                             *hotbar_index = i;
                                         }
@@ -1435,6 +1479,12 @@ impl HUDRenderer {
                                         91..=98 => "Glass Door".to_string(),
                                         _ => "Model".to_string(),
                                     }
+                                } else if selected_block == BlockType::Painted {
+                                    format!(
+                                        "Painted (tex {}, tint {})",
+                                        hotbar_paint_textures[*hotbar_index],
+                                        hotbar_tint_indices[*hotbar_index]
+                                    )
                                 } else {
                                     format!("{:?}", selected_block)
                                 };

@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Version of the serialization format.
-pub const FORMAT_VERSION: u8 = 1;
+pub const FORMAT_VERSION: u8 = 2;
 
 /// Metadata for a single block in a chunk.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -30,6 +30,26 @@ impl BlockMeta {
     }
 }
 
+/// Metadata for tinted glass blocks.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct TintMeta {
+    /// Flattened index in the chunk.
+    pub index: u16,
+    /// Tint palette index (0-31).
+    pub tint: u8,
+}
+
+/// Metadata for painted blocks (texture + tint).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct PaintMeta {
+    /// Flattened index in the chunk.
+    pub index: u16,
+    /// Atlas texture index (0-based).
+    pub texture: u8,
+    /// Tint palette index (0-31).
+    pub tint: u8,
+}
+
 /// A chunk serialized for storage or network transmission.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SerializedChunk {
@@ -41,6 +61,12 @@ pub struct SerializedChunk {
     pub block_data: Vec<u8>,
     /// Sparse metadata for model blocks.
     pub metadata: Vec<BlockMeta>,
+    /// Sparse metadata for tinted glass blocks.
+    #[serde(default)]
+    pub tinted: Vec<TintMeta>,
+    /// Sparse metadata for painted blocks.
+    #[serde(default)]
+    pub painted: Vec<PaintMeta>,
 }
 
 impl SerializedChunk {

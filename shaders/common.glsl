@@ -29,6 +29,7 @@ const uint BLOCK_COBBLESTONE = 14;
 const uint BLOCK_IRON = 15;
 const uint BLOCK_BEDROCK = 16;
 const uint BLOCK_TINTED_GLASS = 17;
+const uint BLOCK_PAINTED = 18;
 
 // Tint palette for tinted glass (32 colors)
 const vec3 TINT_PALETTE[32] = vec3[32](
