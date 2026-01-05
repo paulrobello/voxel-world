@@ -547,6 +547,19 @@ impl LavaGrid {
 
         let texture_height = TEXTURE_SIZE_Y as i32;
 
+        // Sync dirty positions: if world has Lava block but grid has no cell, create one.
+        let dirty_to_check: Vec<_> = self.dirty_positions.iter().copied().collect();
+        for pos in dirty_to_check {
+            if pos.y >= 0 && pos.y < texture_height {
+                if let std::collections::hash_map::Entry::Vacant(e) = self.cells.entry(pos) {
+                    if let Some(BlockType::Lava) = world.get_block(pos) {
+                        e.insert(LavaCell::new(MAX_MASS));
+                        self.active.insert(pos);
+                    }
+                }
+            }
+        }
+
         let is_solid = |pos: Vector3<i32>| -> bool {
             if pos.y < 0 || pos.y >= texture_height {
                 return true;

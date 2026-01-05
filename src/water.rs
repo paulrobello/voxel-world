@@ -648,6 +648,20 @@ impl WaterGrid {
 
         let texture_height = TEXTURE_SIZE_Y as i32;
 
+        // Sync dirty positions: if world has Water block but grid has no cell, create one.
+        // This ensures water blocks placed by terrain or other systems can drain.
+        let dirty_to_check: Vec<_> = self.dirty_positions.iter().copied().collect();
+        for pos in dirty_to_check {
+            if pos.y >= 0 && pos.y < texture_height {
+                if let std::collections::hash_map::Entry::Vacant(e) = self.cells.entry(pos) {
+                    if let Some(BlockType::Water) = world.get_block(pos) {
+                        e.insert(WaterCell::new(MAX_MASS));
+                        self.active.insert(pos);
+                    }
+                }
+            }
+        }
+
         // Create a closure that checks if a block is solid
         // Also returns true for unloaded chunks (blocks water flow until chunk loads)
         let is_solid = |pos: Vector3<i32>| -> bool {
