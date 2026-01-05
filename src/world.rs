@@ -108,7 +108,9 @@ impl World {
                     if !block.is_light_source() {
                         continue;
                     }
-                    if let Some((color, radius)) = block.light_properties() {
+                    // light_properties returns (color, intensity), light_radius returns actual radius
+                    if let Some((color, intensity)) = block.light_properties() {
+                        let radius = block.light_radius();
                         let (lx, ly, lz) = crate::chunk::Chunk::index_to_coords(idx);
                         let world_x = chunk_pos.x * CHUNK_SIZE as i32 + lx as i32;
                         let world_y = chunk_pos.y * CHUNK_SIZE as i32 + ly as i32;
@@ -120,7 +122,7 @@ impl World {
 
                         lights.push(GpuLight {
                             pos_radius: [tex_x, tex_y, tex_z, radius],
-                            color_intensity: [color[0], color[1], color[2], 1.2],
+                            color_intensity: [color[0], color[1], color[2], intensity],
                         });
 
                         if lights.len() >= crate::gpu_resources::MAX_LIGHTS {
