@@ -1286,7 +1286,7 @@ pub fn create_glass_door_upper_open_right() -> SubVoxelModel {
 // ============================================================================
 
 /// Creates a trapdoor (closed, attached to floor).
-/// Fills bottom 2 voxels of the block.
+/// Fills bottom 1 voxel of the block.
 pub fn create_trapdoor_floor_closed() -> SubVoxelModel {
     let mut model = SubVoxelModel::new("trapdoor_floor_closed");
 
@@ -1294,13 +1294,13 @@ pub fn create_trapdoor_floor_closed() -> SubVoxelModel {
     model.palette[2] = Color::rgb(160, 110, 60); // Lighter brown
     model.palette[3] = Color::rgb(60, 60, 65); // Iron
 
-    // Main panel
-    model.fill_box(0, 0, 0, 7, 1, 7, 1);
+    // Main panel (1 voxel thick at y=0)
+    model.fill_box(0, 0, 0, 7, 0, 7, 1);
     // Inner panel detail
-    model.fill_box(1, 0, 1, 6, 1, 6, 2);
+    model.fill_box(1, 0, 1, 6, 0, 6, 2);
     // Handle
-    model.set_voxel(3, 2, 3, 3);
-    model.set_voxel(4, 2, 3, 3);
+    model.set_voxel(3, 1, 3, 3);
+    model.set_voxel(4, 1, 3, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -1309,7 +1309,7 @@ pub fn create_trapdoor_floor_closed() -> SubVoxelModel {
 }
 
 /// Creates a trapdoor (closed, attached to ceiling).
-/// Fills top 2 voxels of the block.
+/// Fills top 1 voxel of the block.
 pub fn create_trapdoor_ceiling_closed() -> SubVoxelModel {
     let mut model = SubVoxelModel::new("trapdoor_ceiling_closed");
 
@@ -1317,10 +1317,11 @@ pub fn create_trapdoor_ceiling_closed() -> SubVoxelModel {
     model.palette[2] = Color::rgb(160, 110, 60);
     model.palette[3] = Color::rgb(60, 60, 65);
 
-    model.fill_box(0, 6, 0, 7, 7, 7, 1);
-    model.fill_box(1, 6, 1, 6, 7, 6, 2);
-    model.set_voxel(3, 5, 3, 3);
-    model.set_voxel(4, 5, 3, 3);
+    // Main panel (1 voxel thick at y=7)
+    model.fill_box(0, 7, 0, 7, 7, 7, 1);
+    model.fill_box(1, 7, 1, 6, 7, 6, 2);
+    model.set_voxel(3, 6, 3, 3);
+    model.set_voxel(4, 6, 3, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -1328,7 +1329,7 @@ pub fn create_trapdoor_ceiling_closed() -> SubVoxelModel {
     model
 }
 
-/// Creates a trapdoor (open, hinged at +Z, panel now vertical).
+/// Creates a trapdoor (open, hinged at -Z, panel now vertical).
 pub fn create_trapdoor_floor_open() -> SubVoxelModel {
     let mut model = SubVoxelModel::new("trapdoor_floor_open");
 
@@ -1336,9 +1337,9 @@ pub fn create_trapdoor_floor_open() -> SubVoxelModel {
     model.palette[2] = Color::rgb(160, 110, 60);
     model.palette[3] = Color::rgb(60, 60, 65);
 
-    // Vertical panel at z=6,7
-    model.fill_box(0, 0, 6, 7, 7, 7, 1);
-    model.fill_box(1, 1, 6, 6, 6, 7, 2);
+    // Vertical panel at z=0 (1 voxel thick, hinged at near edge)
+    model.fill_box(0, 0, 0, 7, 7, 0, 1);
+    model.fill_box(1, 1, 0, 6, 6, 0, 2);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -1346,7 +1347,7 @@ pub fn create_trapdoor_floor_open() -> SubVoxelModel {
     model
 }
 
-/// Creates a trapdoor (open, hinged at +Z from ceiling, panel now vertical).
+/// Creates a trapdoor (open, hinged at -Z from ceiling, panel now vertical).
 pub fn create_trapdoor_ceiling_open() -> SubVoxelModel {
     let mut model = SubVoxelModel::new("trapdoor_ceiling_open");
 
@@ -1354,9 +1355,9 @@ pub fn create_trapdoor_ceiling_open() -> SubVoxelModel {
     model.palette[2] = Color::rgb(160, 110, 60);
     model.palette[3] = Color::rgb(60, 60, 65);
 
-    // Same as floor open (vertical panel)
-    model.fill_box(0, 0, 6, 7, 7, 7, 1);
-    model.fill_box(1, 1, 6, 6, 6, 7, 2);
+    // Vertical panel at z=0 (1 voxel thick, hinged at near edge)
+    model.fill_box(0, 0, 0, 7, 7, 0, 1);
+    model.fill_box(1, 1, 0, 6, 6, 0, 2);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
