@@ -1,3 +1,4 @@
+pub mod fluid_sources;
 pub mod format;
 pub mod metadata;
 pub mod model_format;

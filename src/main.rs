@@ -510,6 +510,26 @@ impl WorldSim {
             }
         }
         println!("[Storage] Saved {} chunks to disk", saved_count);
+
+        // Save fluid sources (water/lava with is_source=true)
+        let fluid_sources = storage::fluid_sources::FluidSources {
+            water: self.water_grid.get_source_positions(),
+            lava: self.lava_grid.get_source_positions(),
+        };
+        if let Err(e) = fluid_sources.save(&self.world_dir) {
+            eprintln!("[Storage] Failed to save fluid sources: {}", e);
+        } else {
+            let total = fluid_sources.water.len() + fluid_sources.lava.len();
+            if total > 0 {
+                println!(
+                    "[Storage] Saved {} fluid sources ({} water, {} lava)",
+                    total,
+                    fluid_sources.water.len(),
+                    fluid_sources.lava.len()
+                );
+            }
+        }
+
         self.save_metadata();
     }
 }
@@ -828,7 +848,7 @@ impl App {
             rcx: None,
         };
 
-        let sim = WorldSim {
+        let mut sim = WorldSim {
             world,
             model_registry,
             player,
@@ -876,6 +896,23 @@ impl App {
             seed,
             world_gen,
         };
+
+        // Load fluid sources (water/lava sources that were saved)
+        let fluid_sources = storage::fluid_sources::FluidSources::load(&world_dir);
+        if !fluid_sources.water.is_empty() || !fluid_sources.lava.is_empty() {
+            println!(
+                "[Storage] Loaded {} fluid sources ({} water, {} lava)",
+                fluid_sources.water.len() + fluid_sources.lava.len(),
+                fluid_sources.water.len(),
+                fluid_sources.lava.len()
+            );
+            // Load water sources into grid
+            sim.water_grid
+                .load_sources(&fluid_sources.water, &mut sim.world);
+            // Load lava sources into grid
+            sim.lava_grid
+                .load_sources(&fluid_sources.lava, &mut sim.world);
+        }
 
         let start_time = Instant::now();
 
@@ -1227,22 +1264,14 @@ impl App {
         );
         let light_count = gpu_lights.len() as u32;
 
-        // Collect water/lava sources for debug visualization
+        // Collect water/lava sources for debug visualization (only true sources with is_source flag)
         let water_source_count = if self.ui.settings.show_water_sources {
-            // Use world coordinates (camera.position is in texture coords)
-            let player_world_pos = self
-                .sim
-                .player
-                .feet_pos(self.sim.world_extent, self.sim.texture_origin);
             let tex_origin = self.sim.texture_origin;
-
             let mut sources = Vec::new();
-            let mut source_positions = std::collections::HashSet::new();
 
-            // Collect water sources from grid
+            // Collect water sources from grid (only cells with is_source == true)
             for (pos, cell) in self.sim.water_grid.iter() {
-                if cell.is_source {
-                    source_positions.insert(*pos);
+                if cell.is_source && sources.len() < gpu_resources::MAX_WATER_SOURCES {
                     sources.push(gpu_resources::GpuWaterSource {
                         position: [
                             (pos.x - tex_origin.x) as f32,
@@ -1254,10 +1283,9 @@ impl App {
                 }
             }
 
-            // Collect lava sources from grid
+            // Collect lava sources from grid (only cells with is_source == true)
             for (pos, cell) in self.sim.lava_grid.iter() {
-                if cell.is_source {
-                    source_positions.insert(*pos);
+                if cell.is_source && sources.len() < gpu_resources::MAX_WATER_SOURCES {
                     sources.push(gpu_resources::GpuWaterSource {
                         position: [
                             (pos.x - tex_origin.x) as f32,
@@ -1266,46 +1294,6 @@ impl App {
                             1.0, // 1 = lava
                         ],
                     });
-                }
-            }
-
-            // Also scan world blocks near player for Water/Lava not in grids
-            // This catches blocks placed before simulation or loaded from save
-            // Use smaller radius and skip if we already have enough sources
-            if sources.len() < gpu_resources::MAX_WATER_SOURCES {
-                let scan_radius = 16;
-                let px = player_world_pos.x as i32;
-                let py = player_world_pos.y as i32;
-                let pz = player_world_pos.z as i32;
-                'scan: for dx in -scan_radius..=scan_radius {
-                    for dy in -scan_radius..=scan_radius {
-                        for dz in -scan_radius..=scan_radius {
-                            if sources.len() >= gpu_resources::MAX_WATER_SOURCES {
-                                break 'scan;
-                            }
-                            let pos = nalgebra::Vector3::new(px + dx, py + dy, pz + dz);
-                            if source_positions.contains(&pos) {
-                                continue;
-                            }
-                            if let Some(block) = self.sim.world.get_block(pos) {
-                                let source_type = match block {
-                                    crate::chunk::BlockType::Water => Some(0.0),
-                                    crate::chunk::BlockType::Lava => Some(1.0),
-                                    _ => None,
-                                };
-                                if let Some(st) = source_type {
-                                    sources.push(gpu_resources::GpuWaterSource {
-                                        position: [
-                                            (pos.x - tex_origin.x) as f32,
-                                            (pos.y - tex_origin.y) as f32,
-                                            (pos.z - tex_origin.z) as f32,
-                                            st,
-                                        ],
-                                    });
-                                }
-                            }
-                        }
-                    }
                 }
             }
 

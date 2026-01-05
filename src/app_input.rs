@@ -199,7 +199,7 @@ impl App {
         if self.input.key_pressed(KeyCode::KeyK) {
             self.ui.settings.show_water_sources = !self.ui.settings.show_water_sources;
             if self.ui.settings.show_water_sources {
-                // Count sources for debug info
+                // Count true sources (cells with is_source == true)
                 let water_sources = self
                     .sim
                     .water_grid
@@ -213,36 +213,9 @@ impl App {
                     .filter(|(_, c)| c.is_source)
                     .count();
 
-                // Also count water/lava blocks in world near player
-                // Use world coordinates (camera.position is in texture coords)
-                let player_world_pos = self
-                    .sim
-                    .player
-                    .feet_pos(self.sim.world_extent, self.sim.texture_origin);
-                let mut world_water = 0;
-                let mut world_lava = 0;
-                let scan_radius = 16;
-                let px = player_world_pos.x as i32;
-                let py = player_world_pos.y as i32;
-                let pz = player_world_pos.z as i32;
-                for dx in -scan_radius..=scan_radius {
-                    for dy in -scan_radius..=scan_radius {
-                        for dz in -scan_radius..=scan_radius {
-                            let pos = nalgebra::Vector3::new(px + dx, py + dy, pz + dz);
-                            if let Some(block) = self.sim.world.get_block(pos) {
-                                if block == crate::chunk::BlockType::Water {
-                                    world_water += 1;
-                                } else if block == crate::chunk::BlockType::Lava {
-                                    world_lava += 1;
-                                }
-                            }
-                        }
-                    }
-                }
-
                 println!(
-                    "Water/Lava sources: ON ({} water, {} lava in grids; {} water, {} lava blocks in world)",
-                    water_sources, lava_sources, world_water, world_lava
+                    "Water/Lava sources: ON ({} water sources, {} lava sources)",
+                    water_sources, lava_sources
                 );
             } else {
                 println!("Water/Lava sources: OFF");

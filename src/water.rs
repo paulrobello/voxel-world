@@ -758,6 +758,25 @@ impl WaterGrid {
             }
         }
     }
+
+    /// Returns all source positions for serialization.
+    pub fn get_source_positions(&self) -> Vec<[i32; 3]> {
+        self.cells
+            .iter()
+            .filter(|(_, cell)| cell.is_source)
+            .map(|(pos, _)| [pos.x, pos.y, pos.z])
+            .collect()
+    }
+
+    /// Loads sources from serialized positions.
+    /// This also sets BlockType::Water in the world for each source.
+    pub fn load_sources(&mut self, positions: &[[i32; 3]], world: &mut crate::world::World) {
+        for [x, y, z] in positions {
+            let pos = Vector3::new(*x, *y, *z);
+            self.place_source(pos);
+            world.set_block(pos, crate::chunk::BlockType::Water);
+        }
+    }
 }
 
 #[cfg(test)]
