@@ -173,6 +173,14 @@ impl App {
                     .water_grid
                     .activate_adjacent_terrain_water(&self.sim.world, target);
 
+                // Notify lava grid that a block was removed (may trigger flow)
+                self.sim.lava_grid.on_block_removed(target);
+
+                // Check if any adjacent terrain lava should start flowing
+                self.sim
+                    .lava_grid
+                    .activate_adjacent_terrain_lava(&self.sim.world, target);
+
                 // Queue physics checks (frame-distributed to prevent FPS spikes)
                 let player_pos = self
                     .sim
@@ -936,6 +944,13 @@ impl App {
             }
         } else {
             self.sim.water_grid.on_block_placed(place_pos);
+        }
+
+        // Handle lava placement
+        if block_to_place == BlockType::Lava {
+            self.sim.lava_grid.place_source(place_pos);
+        } else {
+            self.sim.lava_grid.on_block_placed(place_pos);
         }
 
         true

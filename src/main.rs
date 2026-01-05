@@ -91,6 +91,7 @@ mod gpu_resources;
 mod hot_reload;
 mod hud;
 mod hud_render;
+mod lava;
 mod particles;
 mod player;
 mod raycast;
@@ -127,6 +128,7 @@ use crate::gpu_resources::{
 };
 use crate::hot_reload::HotReloadComputePipeline;
 use crate::hud::Minimap;
+use crate::lava::LavaGrid;
 use crate::particles::ParticleSystem;
 use crate::player::{HEAD_BOB_AMPLITUDE, PLAYER_EYE_HEIGHT, Player};
 use crate::raycast::{RaycastHit, get_place_position};
@@ -340,6 +342,7 @@ struct WorldSim {
     falling_blocks: FallingBlockSystem,
     block_updates: BlockUpdateQueue,
     water_grid: WaterGrid,
+    lava_grid: LavaGrid,
 
     time_of_day: f32,
     day_cycle_paused: bool,
@@ -844,6 +847,7 @@ impl App {
             falling_blocks: FallingBlockSystem::new(),
             block_updates: BlockUpdateQueue::new(32),
             water_grid: WaterGrid::new(),
+            lava_grid: LavaGrid::new(),
             time_of_day: if args.time_of_day.is_some() {
                 args.time_of_day.map(|t| t as f32).unwrap()
             } else {
@@ -1191,6 +1195,13 @@ impl App {
             self.sim
                 .water_grid
                 .process_simulation(&mut self.sim.world, player_pos_f32);
+
+            // Process lava flow simulation (uses same enabled flag as water)
+            self.sim.lava_grid.process_simulation(
+                &mut self.sim.world,
+                &mut self.sim.water_grid,
+                player_pos_f32,
+            );
         }
 
         self.handle_focused_controls(delta_time);
