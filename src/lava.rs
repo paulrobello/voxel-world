@@ -25,7 +25,7 @@ pub const MIN_FLOW: f32 = 0.02;
 pub const FLOW_DAMPING: f32 = 0.25;
 
 /// Maximum lava updates per frame (lower than water for performance).
-pub const DEFAULT_LAVA_UPDATES_PER_FRAME: usize = 32;
+pub const DEFAULT_LAVA_UPDATES_PER_FRAME: usize = 128;
 
 /// Default simulation radius in blocks.
 pub const DEFAULT_SIMULATION_RADIUS: f32 = 48.0;

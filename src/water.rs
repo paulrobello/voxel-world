@@ -31,7 +31,7 @@ pub const MIN_FLOW: f32 = 0.01;
 pub const FLOW_DAMPING: f32 = 0.5;
 
 /// Maximum water updates per frame (performance limit).
-pub const DEFAULT_WATER_UPDATES_PER_FRAME: usize = 64;
+pub const DEFAULT_WATER_UPDATES_PER_FRAME: usize = 256;
 
 /// Default simulation radius in blocks (water outside this range is dormant).
 /// This ensures water is only simulated in loaded chunks near the player.
