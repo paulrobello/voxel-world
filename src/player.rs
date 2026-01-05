@@ -388,7 +388,10 @@ impl Player {
             self.on_ground = false;
         }
 
-        if self.check_collision(feet, world, model_registry) && !self.fly_mode {
+        // Push player up if stuck inside a solid block (but not when in water,
+        // as water physics handles collision differently and this would cause
+        // the player to be shoved to the surface when entering water).
+        if self.check_collision(feet, world, model_registry) && !self.fly_mode && !touching_water {
             for offset in 1..10 {
                 let test_pos = Vector3::new(feet.x, feet.y + offset as f64, feet.z);
                 if !self.check_collision(test_pos, world, model_registry) {
