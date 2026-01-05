@@ -130,6 +130,7 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
     vec3 subVoxelColor = vec3(0.5);
     vec3 subVoxelNormal = vec3(0.0, 1.0, 0.0);
     vec3 subVoxelHitPos = vec3(0.0);
+    float subVoxelAlpha = 1.0;
 
     if (!instantHit)
     while (steps < dynamicMaxSteps) {
@@ -301,16 +302,18 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
                         subVoxelColor = subColor;
                         subVoxelNormal = subNormal;
                         subVoxelHitPos = vec3(coord) + localEntry + dirNorm * subT;
-
-                        // If model is partially transparent, we might need to continue
-                        // For now, treat any hit as solid for lighting purposes
-                        // TODO: blend with background for partial transparency
+                        subVoxelAlpha = subAlpha;
 
                         if (inWater) {
                             float currentT = (tmin + distToBlock / length(dir) + subT);
                             waterDepth = (currentT - waterEntryT) * length(dir);
                         }
-                        break;
+
+                        // If model is opaque, we're done
+                        // If translucent (alpha < 1.0), continue marching to find background for blending
+                        if (subAlpha >= 0.99) {
+                            break;
+                        }
                     }
                 }
             }
@@ -377,20 +380,34 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
     vec3 normal = -mask * sgn_dir;
 
     vec3 blockColor;
+    vec3 backgroundColor;
 
+    // Get background color (what's behind the model)
+    if (blockType == BLOCK_MODEL) {
+        backgroundColor = vec3(0.5, 0.5, 0.5);
+    } else {
+        backgroundColor = getBlockColor(blockType, local_hit, normal, stepped_axis, hit);
+    }
+
+    // Handle sub-voxel model hits with transparency blending
     if (blockType == BLOCK_MODEL && subVoxelHit) {
-        blockColor = subVoxelColor;
+        // If translucent, blend with background
+        if (subVoxelAlpha < 0.99) {
+            blockColor = subVoxelColor * subVoxelAlpha + backgroundColor * (1.0 - subVoxelAlpha);
+        } else {
+            blockColor = subVoxelColor;
+        }
         normal = subVoxelNormal;
         if (isTargetBlock(ivec3(coord))) {
             blockColor = applyTargetHighlight(blockColor);
         }
     } else if (blockType == BLOCK_MODEL) {
-        blockColor = vec3(0.5, 0.5, 0.5);
+        blockColor = backgroundColor;
         if (isTargetBlock(ivec3(coord))) {
             blockColor = applyTargetHighlight(blockColor);
         }
     } else {
-        blockColor = getBlockColor(blockType, local_hit, normal, stepped_axis, hit);
+        blockColor = backgroundColor;
     }
 
     vec2 uv;
