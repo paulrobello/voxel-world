@@ -235,6 +235,9 @@ impl HUDRenderer {
             push_if(20, "Gate");
             push_if(28, "Stairs");
             push_if(29, "Ladder");
+            push_if(39, "Door");
+            push_if(47, "Trapdoor");
+            push_if(51, "Window");
 
             // Add custom/user models from the registry
             for model in registry.iter_custom_models() {
