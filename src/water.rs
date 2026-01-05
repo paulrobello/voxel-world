@@ -553,12 +553,12 @@ impl WaterGrid {
                     cell.stable_ticks = 0;
                 }
 
-                // When water flows DOWN from this cell, wake up the cell ABOVE
-                // so it can flow down to fill the space (chain draining).
-                // Only activate above - not all neighbors (that causes exponential activation).
-                if flow.down > MIN_FLOW {
-                    let above = pos + Vector3::new(0, 1, 0);
-                    self.dirty_positions.insert(above);
+                // When water flows OUT of this cell, wake up all neighbors
+                // so they can flow into this now-emptier cell (chain draining).
+                // Insert directly to dirty_positions (not via activate_neighbors
+                // which would cause exponential growth by also re-inserting pos).
+                for (dx, dy, dz) in ORTHO_DIRS {
+                    self.dirty_positions.insert(pos + Vector3::new(dx, dy, dz));
                 }
             } else {
                 // No flow - increment stability counter
