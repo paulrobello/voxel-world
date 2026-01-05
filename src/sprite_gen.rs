@@ -157,7 +157,7 @@ pub fn run(_args: &Args, event_loop: &EventLoop<()>) -> Result<(), Box<dyn Error
     )
     .unwrap();
 
-    let blocks: [BlockType; 15] = [
+    let blocks: [BlockType; 18] = [
         BlockType::Stone,
         BlockType::Dirt,
         BlockType::Grass,
@@ -174,10 +174,17 @@ pub fn run(_args: &Args, event_loop: &EventLoop<()>) -> Result<(), Box<dyn Error
         BlockType::Cobblestone,
         BlockType::Iron,
         BlockType::Bedrock,
+        // Emissive blocks
+        BlockType::Lava,
+        BlockType::GlowStone,
+        BlockType::GlowMushroom,
+        // Crystal is handled separately per tint color (like TintedGlass)
     ];
 
     // Tint indices used in the palette (from hud_render.rs TINTED_GLASS_COLORS)
     const TINTED_GLASS_INDICES: [u8; 7] = [0, 1, 2, 4, 6, 8, 9];
+    // Crystal tint indices (from hud_render.rs CRYSTAL_COLORS)
+    const CRYSTAL_INDICES: [u8; 8] = [0, 1, 2, 4, 6, 8, 9, 12];
 
     for block in blocks {
         render_icon(
@@ -210,6 +217,34 @@ pub fn run(_args: &Args, event_loop: &EventLoop<()>) -> Result<(), Box<dyn Error
     for tint_idx in TINTED_GLASS_INDICES {
         render_icon(
             IconTarget::TintedGlass(tint_idx),
+            &vk.queue,
+            &render_pipeline,
+            &render_image,
+            &render_set,
+            &distance_image,
+            &distance_set,
+            &voxel_image,
+            &voxel_set,
+            &model_metadata_image,
+            &texture_set,
+            &particle_set,
+            &light_set,
+            &chunk_metadata_set,
+            &brick_and_model_set,
+            &model_registry,
+            world_extent,
+            render_extent,
+            &render_image_view,
+            &out_dir,
+            &memory_allocator,
+            &command_buffer_allocator,
+        )?;
+    }
+
+    // Generate crystal sprites for each tint color
+    for tint_idx in CRYSTAL_INDICES {
+        render_icon(
+            IconTarget::Crystal(tint_idx),
             &vk.queue,
             &render_pipeline,
             &render_image,
@@ -292,6 +327,7 @@ fn ensure_missing_texture(out_dir: &Path) -> Result<PathBuf, Box<dyn Error>> {
 enum IconTarget {
     Block(BlockType),
     TintedGlass(u8), // tint_index
+    Crystal(u8),     // tint_index for colored crystals
     Model(u8),
 }
 
@@ -387,6 +423,7 @@ fn render_icon(
     let block_type = match target {
         IconTarget::Block(b) => b,
         IconTarget::TintedGlass(_) => BlockType::TintedGlass,
+        IconTarget::Crystal(_) => BlockType::Crystal,
         IconTarget::Model(_) => BlockType::Model,
     };
     let model_id = match target {
@@ -394,7 +431,7 @@ fn render_icon(
         _ => None,
     };
     let tint_index = match target {
-        IconTarget::TintedGlass(idx) => Some(idx),
+        IconTarget::TintedGlass(idx) | IconTarget::Crystal(idx) => Some(idx),
         _ => None,
     };
 
@@ -613,6 +650,7 @@ fn render_icon(
     let filename = match target {
         IconTarget::Block(b) => format!("block_{}.png", format!("{:?}", b).to_ascii_lowercase()),
         IconTarget::TintedGlass(idx) => format!("block_tintedglass_{}.png", idx),
+        IconTarget::Crystal(idx) => format!("block_crystal_{}.png", idx),
         IconTarget::Model(id) => format!("model_{}.png", id),
     };
     let path = out_dir.join(filename);

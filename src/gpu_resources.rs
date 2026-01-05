@@ -99,6 +99,7 @@ pub struct RenderContext {
 pub struct SpriteIcons {
     pub block: HashMap<BlockType, egui::TextureId>,
     pub tinted_glass: HashMap<u8, egui::TextureId>, // tint_index -> texture
+    pub crystal: HashMap<u8, egui::TextureId>,      // tint_index -> texture for Crystal blocks
     pub model: HashMap<u8, egui::TextureId>,
     pub missing: egui::TextureId,
     handles: Vec<egui::TextureHandle>,
@@ -177,6 +178,8 @@ pub fn load_sprite_icons(gui: &mut Gui) -> SpriteIcons {
 
     // Tint indices used in the palette (from hud_render.rs TINTED_GLASS_COLORS)
     const TINTED_GLASS_INDICES: [u8; 7] = [0, 1, 2, 4, 6, 8, 9];
+    // Crystal tint indices (from hud_render.rs CRYSTAL_COLORS)
+    const CRYSTAL_INDICES: [u8; 8] = [0, 1, 2, 4, 6, 8, 9, 12];
 
     for (block, filename) in BLOCK_FILES {
         let path = dir.join(filename);
@@ -202,6 +205,21 @@ pub fn load_sprite_icons(gui: &mut Gui) -> SpriteIcons {
                 egui::TextureOptions::NEAREST,
             );
             icons.tinted_glass.insert(tint_idx, handle.id());
+            icons.handles.push(handle);
+        }
+    }
+
+    // Load crystal sprites
+    for tint_idx in CRYSTAL_INDICES {
+        let filename = format!("block_crystal_{}.png", tint_idx);
+        let path = dir.join(&filename);
+        if let Some(image) = load_color_image(&path) {
+            let handle = ctx.load_texture(
+                format!("sprite_crystal_{}", tint_idx),
+                image,
+                egui::TextureOptions::NEAREST,
+            );
+            icons.crystal.insert(tint_idx, handle.id());
             icons.handles.push(handle);
         }
     }

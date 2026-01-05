@@ -76,6 +76,11 @@ impl HUDRenderer {
                 .get(&item.tint_index)
                 .copied()
                 .or(Some(set.missing)),
+            BlockType::Crystal => set
+                .crystal
+                .get(&item.tint_index)
+                .copied()
+                .or(Some(set.missing)),
             BlockType::Painted => None, // Use atlas texture + tint instead of sprite
             BlockType::Air => None,
             _ => set.block.get(&item.block).copied().or(Some(set.missing)),
@@ -111,12 +116,14 @@ impl HUDRenderer {
         } else {
             0
         };
-        hotbar_tint_indices[slot] =
-            if item.block == BlockType::TintedGlass || item.block == BlockType::Painted {
-                item.tint_index
-            } else {
-                0
-            };
+        hotbar_tint_indices[slot] = if item.block == BlockType::TintedGlass
+            || item.block == BlockType::Painted
+            || item.block == BlockType::Crystal
+        {
+            item.tint_index
+        } else {
+            0
+        };
         hotbar_paint_textures[slot] = if item.block == BlockType::Painted {
             item.paint_texture_idx
         } else {
