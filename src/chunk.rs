@@ -184,23 +184,24 @@ impl BlockType {
         )
     }
 
-    /// Returns true if this block type emits light.
-    /// Note: For Model blocks, check the model's emission property instead.
+    /// Returns true if this block type emits point light onto surroundings.
+    /// Note: Lava self-illuminates but doesn't cast point lights (too many blocks).
+    /// For Model blocks, check the model's emission property instead.
     #[inline]
     pub fn is_light_source(self) -> bool {
         matches!(
             self,
-            BlockType::Lava | BlockType::GlowStone | BlockType::GlowMushroom | BlockType::Crystal
+            BlockType::GlowStone | BlockType::GlowMushroom | BlockType::Crystal
         )
     }
 
-    /// Returns the light color and intensity for light-emitting blocks.
-    /// Returns (color RGB, intensity) or None if not a light source.
-    /// Note: For Model blocks, use the model registry to get emission properties.
+    /// Returns the light color and intensity for point light-emitting blocks.
+    /// Returns (color RGB, intensity) or None if not a point light source.
+    /// Note: Lava self-illuminates in shader but doesn't use point lights.
+    /// For Model blocks, use the model registry to get emission properties.
     #[inline]
     pub fn light_properties(self) -> Option<([f32; 3], f32)> {
         match self {
-            BlockType::Lava => Some(([1.0, 0.4, 0.1], 0.9)), // Orange-red, high intensity
             BlockType::GlowStone => Some(([1.0, 0.95, 0.8], 1.0)), // Warm white, full intensity
             BlockType::GlowMushroom => Some(([0.3, 0.9, 1.0], 0.6)), // Cyan, medium intensity
             BlockType::Crystal => Some(([0.8, 0.8, 1.0], 0.7)), // Default white-blue (tint overrides)
@@ -226,10 +227,10 @@ impl BlockType {
 
     /// Returns the light radius in blocks for dynamic point light emission.
     /// Only used when dynamic lighting is enabled.
+    /// Note: Lava self-illuminates but doesn't cast point lights.
     #[inline]
     pub fn light_radius(self) -> f32 {
         match self {
-            BlockType::Lava => 12.0,
             BlockType::GlowStone => 16.0,
             BlockType::GlowMushroom => 8.0,
             BlockType::Crystal => 10.0,
