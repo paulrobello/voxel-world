@@ -149,6 +149,14 @@ impl LavaGrid {
         self.cells.get(&pos).map(|c| c.mass).unwrap_or(0.0)
     }
 
+    /// Gets the effective lava mass including pending changes from this tick.
+    #[inline]
+    fn get_effective_mass(&self, pos: Vector3<i32>) -> f32 {
+        let base = self.cells.get(&pos).map(|c| c.mass).unwrap_or(0.0);
+        let pending = self.pending_changes.get(&pos).copied().unwrap_or(0.0);
+        (base + pending).max(0.0)
+    }
+
     #[inline]
     pub fn has_lava(&self, pos: Vector3<i32>) -> bool {
         self.cells.get(&pos).map(|c| c.has_lava()).unwrap_or(false)
@@ -266,7 +274,8 @@ impl LavaGrid {
             result.down = remaining * FLOW_DAMPING;
             remaining -= result.down;
         } else if !is_solid(below) {
-            let below_mass = self.get_mass(below);
+            // Use effective mass to see pending changes from earlier this tick
+            let below_mass = self.get_effective_mass(below);
             let space_below = MAX_MASS - below_mass;
             if space_below > MIN_FLOW {
                 let flow = remaining.min(space_below) * FLOW_DAMPING;
@@ -280,11 +289,12 @@ impl LavaGrid {
         // 2. Flow HORIZONTAL (equalization) - only if supported by solid below
         // Lava spreads more slowly horizontally
         if remaining > MIN_FLOW && is_solid(below) {
+            // Use effective mass to see pending changes from earlier this tick
             let mut lower_neighbors: Vec<(Vector3<i32>, f32, &mut f32)> = Vec::new();
 
             for (neighbor_pos, flow_ref) in neighbors {
                 if !is_solid(neighbor_pos) {
-                    let neighbor_mass = self.get_mass(neighbor_pos);
+                    let neighbor_mass = self.get_effective_mass(neighbor_pos);
                     if neighbor_mass < remaining {
                         lower_neighbors.push((neighbor_pos, neighbor_mass, flow_ref));
                     }

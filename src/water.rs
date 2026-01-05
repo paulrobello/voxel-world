@@ -192,6 +192,15 @@ impl WaterGrid {
         self.cells.get(&pos).map(|c| c.mass).unwrap_or(0.0)
     }
 
+    /// Gets the effective water mass including pending changes from this tick.
+    /// This allows cells processed later in a tick to see flow from earlier cells.
+    #[inline]
+    fn get_effective_mass(&self, pos: Vector3<i32>) -> f32 {
+        let base = self.cells.get(&pos).map(|c| c.mass).unwrap_or(0.0);
+        let pending = self.pending_changes.get(&pos).copied().unwrap_or(0.0);
+        (base + pending).max(0.0)
+    }
+
     /// Gets a water cell at a position (None if no water).
     #[inline]
     pub fn get_cell(&self, pos: Vector3<i32>) -> Option<&WaterCell> {
@@ -339,7 +348,8 @@ impl WaterGrid {
             result.down = remaining * FLOW_DAMPING;
             remaining -= result.down;
         } else if !is_solid(below) {
-            let below_mass = self.get_mass(below);
+            // Use effective mass to see pending changes from earlier this tick
+            let below_mass = self.get_effective_mass(below);
             let space_below = (MAX_MASS + MAX_COMPRESS) - below_mass;
             if space_below > MIN_FLOW {
                 // Flow as much as possible down
@@ -354,11 +364,12 @@ impl WaterGrid {
         // 2. Flow HORIZONTAL (equalization)
         if remaining > MIN_FLOW {
             // Find neighbors that can accept water
+            // Use effective mass to see pending changes from earlier this tick
             let mut lower_neighbors: Vec<(Vector3<i32>, f32, &mut f32)> = Vec::new();
 
             for (neighbor_pos, flow_ref) in neighbors {
                 if !is_solid(neighbor_pos) {
-                    let neighbor_mass = self.get_mass(neighbor_pos);
+                    let neighbor_mass = self.get_effective_mass(neighbor_pos);
                     if neighbor_mass < remaining {
                         lower_neighbors.push((neighbor_pos, neighbor_mass, flow_ref));
                     }
@@ -386,7 +397,7 @@ impl WaterGrid {
 
         // 3. Flow UP (pressure) - only if we have excess water
         if remaining > MAX_MASS && !is_solid(above) {
-            let above_mass = self.get_mass(above);
+            let above_mass = self.get_effective_mass(above);
             let excess = remaining - MAX_MASS;
             let space_above = MAX_MASS - above_mass;
             if space_above > MIN_FLOW {
