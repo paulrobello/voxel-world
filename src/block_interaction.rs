@@ -702,7 +702,41 @@ impl App {
                 // Determine rotation from player yaw (door faces player)
                 let yaw = self.sim.player.camera.rotation.y as f32;
                 let rot = (yaw / std::f32::consts::FRAC_PI_2).round() as i32;
-                rotation = rot.rem_euclid(4) as u8;
+                let mut base_rotation = rot.rem_euclid(4) as u8;
+
+                // Determine if click was on near or far side of block
+                // Calculate exact hit point
+                if let Some(hit) = self.ui.current_hit {
+                    let player_pos = self
+                        .sim
+                        .player
+                        .camera_world_pos(self.sim.world_extent, self.sim.texture_origin)
+                        .cast::<f32>();
+                    let direction = self.sim.player.camera_direction().cast::<f32>();
+                    let hit_point = player_pos + direction * hit.distance;
+                    let local_hit = hit_point - place_pos.cast::<f32>();
+
+                    // Determine if click was on far side based on which face was clicked
+                    let place_at_far_edge = match hit.normal {
+                        n if n.y < 0 => {
+                            // Clicking on top face (Y-), check depth along player's facing direction
+                            match base_rotation {
+                                0 => local_hit.z > 0.5, // Facing +Z
+                                1 => local_hit.x < 0.5, // Facing -X
+                                2 => local_hit.z < 0.5, // Facing -Z
+                                _ => local_hit.x > 0.5, // Facing +X
+                            }
+                        }
+                        _ => false, // For wall placement, keep default behavior
+                    };
+
+                    // If placing at far edge, rotate door 180° so it's at back of block
+                    if place_at_far_edge {
+                        base_rotation = (base_rotation + 2) % 4;
+                    }
+                }
+
+                rotation = base_rotation;
 
                 // Determine hinge side based on adjacent blocks
                 // Check blocks to the left and right of the door (based on rotation)
