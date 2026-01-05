@@ -456,12 +456,12 @@ pub fn create_door_lower_open_left() -> SubVoxelModel {
     model.palette[2] = Color::rgb(139, 90, 43); // Wood
     model.palette[3] = Color::rgb(0, 0, 0); // Handle (black)
 
-    // Hinge at x=0, z=7 (1 voxel)
-    model.fill_box(0, 0, 7, 0, 7, 7, 1);
-    // Wood body at x=0, z=0-6 (1 voxel thick in x)
-    model.fill_box(0, 0, 0, 0, 7, 6, 2);
-    // Handle at front edge (x=0, z=0, top of lower door)
-    model.set_voxel(0, 7, 0, 3);
+    // Hinge at x=0, z=0 (pivot point - 1 voxel)
+    model.fill_box(0, 0, 0, 0, 7, 0, 1);
+    // Wood body at x=0, z=1-7 (1 voxel thick in x)
+    model.fill_box(0, 0, 1, 0, 7, 7, 2);
+    // Handle at swung end (x=0, z=7, top of lower door)
+    model.set_voxel(0, 7, 7, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -477,12 +477,12 @@ pub fn create_door_lower_open_right() -> SubVoxelModel {
     model.palette[2] = Color::rgb(139, 90, 43); // Wood
     model.palette[3] = Color::rgb(0, 0, 0); // Handle (black)
 
-    // Hinge at x=7, z=7 (1 voxel)
-    model.fill_box(7, 0, 7, 7, 7, 7, 1);
-    // Wood body at x=7, z=0-6 (1 voxel thick in x)
-    model.fill_box(7, 0, 0, 7, 7, 6, 2);
-    // Handle at front edge (x=7, z=0, top of lower door)
-    model.set_voxel(7, 7, 0, 3);
+    // Hinge at x=7, z=0 (pivot point - 1 voxel)
+    model.fill_box(7, 0, 0, 7, 7, 0, 1);
+    // Wood body at x=7, z=1-7 (1 voxel thick in x)
+    model.fill_box(7, 0, 1, 7, 7, 7, 2);
+    // Handle at swung end (x=7, z=7, top of lower door)
+    model.set_voxel(7, 7, 7, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -498,12 +498,12 @@ pub fn create_door_upper_open_left() -> SubVoxelModel {
     model.palette[2] = Color::rgb(139, 90, 43); // Wood
     model.palette[3] = Color::rgb(0, 0, 0); // Handle (black)
 
-    // Hinge at x=0, z=7 (1 voxel)
-    model.fill_box(0, 0, 7, 0, 7, 7, 1);
-    // Wood body at x=0, z=0-6 (1 voxel thick in x)
-    model.fill_box(0, 0, 0, 0, 7, 6, 2);
-    // Handle at front edge (x=0, z=0, bottom of upper door)
-    model.set_voxel(0, 0, 0, 3);
+    // Hinge at x=0, z=0 (pivot point - 1 voxel)
+    model.fill_box(0, 0, 0, 0, 7, 0, 1);
+    // Wood body at x=0, z=1-7 (1 voxel thick in x)
+    model.fill_box(0, 0, 1, 0, 7, 7, 2);
+    // Handle at swung end (x=0, z=7, bottom of upper door)
+    model.set_voxel(0, 0, 7, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -519,12 +519,12 @@ pub fn create_door_upper_open_right() -> SubVoxelModel {
     model.palette[2] = Color::rgb(139, 90, 43); // Wood
     model.palette[3] = Color::rgb(0, 0, 0); // Handle (black)
 
-    // Hinge at x=7, z=7 (1 voxel)
-    model.fill_box(7, 0, 7, 7, 7, 7, 1);
-    // Wood body at x=7, z=0-6 (1 voxel thick in x)
-    model.fill_box(7, 0, 0, 7, 7, 6, 2);
-    // Handle at front edge (x=7, z=0, bottom of upper door)
-    model.set_voxel(7, 0, 0, 3);
+    // Hinge at x=7, z=0 (pivot point - 1 voxel)
+    model.fill_box(7, 0, 0, 7, 7, 0, 1);
+    // Wood body at x=7, z=1-7 (1 voxel thick in x)
+    model.fill_box(7, 0, 1, 7, 7, 7, 2);
+    // Handle at swung end (x=7, z=7, bottom of upper door)
+    model.set_voxel(7, 0, 7, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
