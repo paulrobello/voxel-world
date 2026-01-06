@@ -149,6 +149,7 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
     vec3 subVoxelNormal = vec3(0.0, 1.0, 0.0);
     vec3 subVoxelHitPos = vec3(0.0);
     float subVoxelAlpha = 1.0;
+    bool subVoxelEmissive = false;  // Track if hit model emits light (skip shadows)
 
     if (!instantHit)
     while (steps < dynamicMaxSteps) {
@@ -321,6 +322,10 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
                         subVoxelNormal = subNormal;
                         subVoxelHitPos = vec3(coord) + localEntry + dirNorm * subT;
                         subVoxelAlpha = subAlpha;
+                        // Check if model emits light (skip shadow calculations)
+                        ModelProperties props = model_properties[model_id];
+                        subVoxelEmissive = props.emission.a > 0.0 ||
+                                           (props.flags & MODEL_FLAG_IS_LIGHT_SOURCE) != 0u;
 
                         if (inWater) {
                             float currentT = (tmin + distToBlock / length(dir) + subT);
@@ -381,6 +386,8 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
                         subVoxelNormal = subNormal;
                         subVoxelHitPos = vec3(coord) + localEntry + dirNorm * subT;
                         subVoxelAlpha = subAlpha;
+                        // Crystal blocks are always emissive
+                        subVoxelEmissive = true;
 
                         if (inWater) {
                             float currentT = (tmin + distToBlock / length(dir) + subT);
@@ -550,43 +557,65 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
         float daylight = getDaylightFactor(pc.time_of_day);
         vec3 lightingHit = subVoxelHit ? subVoxelHitPos : hit;
         // Sub-voxels need larger offset to clear geometry and avoid self-occlusion
-        float receiverOffset = subVoxelHit ? 0.02 : 0.01;
-        vec3 shadowOffset = normal * receiverOffset + sunDir * (subVoxelHit ? 0.01 : 0.002);
-        float skyExposure = nearEnoughForSkyExposure ? getSkyExposure(lightingHit + shadowOffset) : 1.0;
+        // Increased for 32³ models where sub-voxels are denser (1/32 = 0.03125 per sub-voxel)
+        float receiverOffset = subVoxelHit ? 0.04 : 0.01;
+        vec3 shadowOffset = normal * receiverOffset + sunDir * (subVoxelHit ? 0.02 : 0.002);
+        // Emissive models don't need sky exposure checks - they're self-illuminated
+        float skyExposure = subVoxelEmissive ? 1.0 :
+                            (nearEnoughForSkyExposure ? getSkyExposure(lightingHit + shadowOffset) : 1.0);
         vec3 shadowOrigin = lightingHit + shadowOffset;
         uint dummyDbg;
         vec3 shadowTint = vec3(1.0);
         // Skip starting block for sub-voxel origins to avoid self-occlusion artifacts
         bool ignoreStartModel = subVoxelHit;
-        float shadow = nearEnoughForShadow ? castShadowRayInternal(shadowOrigin, ignoreStartModel, dummyDbg, shadowTint) : 1.0;
-        float sunLight = max(0.0, dot(normal, sunDir));
-        float baseAmbient = mix(pc.ambient_light, pc.ambient_light + 0.25, daylight);
-        // Allow true darkness when ambient_light is 0; otherwise use half ambient as floor
-        float minAmbient = pc.ambient_light * 0.5;
-        // Sky exposure is only used to detect enclosed spaces (caves, rooms).
-        // It should NOT cast a visible shadow - only the sun/moon shadow does that.
-        // When sky AND sun are both blocked (enclosed), reduce ambient to darkness.
-        // When sun can reach OR sky is visible, use full ambient (no sky shadow).
-        bool isEnclosed = (skyExposure < 0.1) && (shadow < 0.1);
-        float ambient = isEnclosed ? minAmbient : baseAmbient;
-        // Direct sun should only be reduced by actual blockers along the sun ray.
-        // Tying it to vertical sky exposure caused a second "top-down" shadow overlay
-        // when the sky above was occluded even though the sun was visible at an angle.
-        float direct = mix(0.2, 0.65, daylight) * sunLight * shadow;
-        float lighting = ambient + direct;
+        // Emissive sub-voxel models use simplified self-illuminated lighting
+        // No shadow rays, no directional sun - use view-dependent shading for depth
+        if (subVoxelEmissive) {
+            // View-dependent shading: faces pointing toward camera are brighter
+            // This gives depth without sun dependency
+            vec3 viewDir = normalize(pc.camera_pos.xyz - (lightingHit + textureOrigin()));
+            float viewDot = max(0.0, dot(normal, viewDir));
+            // Use squared falloff for edge definition, but keep minimum bright enough
+            // Range 0.55 to 1.0 - edges are darker but overall model stays visible
+            float viewShading = mix(0.55, 1.0, viewDot * viewDot);
+            color = blockColor * viewShading;
+            // Add point light contribution if any (other lights can still affect it slightly)
+            if (pc.light_count > 0 && nearEnoughForPointLights) {
+                vec3 pointLightContrib = calculatePointLights(lightingHit, normal);
+                color += blockColor * pointLightContrib * 0.3;
+            }
+        } else {
+            // Normal lighting path for non-emissive surfaces
+            float shadow = nearEnoughForShadow ? castShadowRayInternal(shadowOrigin, ignoreStartModel, dummyDbg, shadowTint) : 1.0;
+            float sunLight = max(0.0, dot(normal, sunDir));
+            float baseAmbient = mix(pc.ambient_light, pc.ambient_light + 0.25, daylight);
+            // Allow true darkness when ambient_light is 0; otherwise use half ambient as floor
+            float minAmbient = pc.ambient_light * 0.5;
+            // Sky exposure is only used to detect enclosed spaces (caves, rooms).
+            // It should NOT cast a visible shadow - only the sun/moon shadow does that.
+            // When sky AND sun are both blocked (enclosed), reduce ambient to darkness.
+            // When sun can reach OR sky is visible, use full ambient (no sky shadow).
+            bool isEnclosed = (skyExposure < 0.1) && (shadow < 0.1);
+            float ambient = isEnclosed ? minAmbient : baseAmbient;
+            // Direct sun should only be reduced by actual blockers along the sun ray.
+            // Tying it to vertical sky exposure caused a second "top-down" shadow overlay
+            // when the sky above was occluded even though the sun was visible at an angle.
+            float direct = mix(0.2, 0.65, daylight) * sunLight * shadow;
+            float lighting = ambient + direct;
 
-        // Apply tinted shadow to direct lighting color
-        vec3 sunColor = getSunColor() * shadowTint;
+            // Apply tinted shadow to direct lighting color
+            vec3 sunColor = getSunColor() * shadowTint;
 
-        vec3 pointLightContrib = vec3(0.0);
-        if (pc.light_count > 0 && nearEnoughForPointLights) {
-            pointLightContrib = calculatePointLights(lightingHit, normal);
+            vec3 pointLightContrib = vec3(0.0);
+            if (pc.light_count > 0 && nearEnoughForPointLights) {
+                pointLightContrib = calculatePointLights(lightingHit, normal);
+            }
+
+            // Blend ambient (white) with direct (sun color with tint)
+            vec3 ambientColor = blockColor * ambient * ao;
+            vec3 directColor = blockColor * sunColor * direct * ao;
+            color = ambientColor + directColor + blockColor * pointLightContrib * (0.7 + 0.3 * ao);
         }
-
-        // Blend ambient (white) with direct (sun color with tint)
-        vec3 ambientColor = blockColor * ambient * ao;
-        vec3 directColor = blockColor * sunColor * direct * ao;
-        color = ambientColor + directColor + blockColor * pointLightContrib * (0.7 + 0.3 * ao);
 
         // Add emissive glow for light-emitting blocks
         // Emissive blocks self-illuminate regardless of external lighting

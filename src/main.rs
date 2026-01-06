@@ -374,6 +374,7 @@ enum AutoProfileFeature {
     Shadows,      // Testing enable_shadows
     ModelShadows, // Testing enable_model_shadows
     PointLights,  // Testing enable_point_lights
+    Minimap,      // Testing show_minimap
     Done,         // All tests complete
 }
 
@@ -384,7 +385,8 @@ impl AutoProfileFeature {
             Self::AO => Self::Shadows,
             Self::Shadows => Self::ModelShadows,
             Self::ModelShadows => Self::PointLights,
-            Self::PointLights => Self::Done,
+            Self::PointLights => Self::Minimap,
+            Self::Minimap => Self::Done,
             Self::Done => Self::Done,
         }
     }
@@ -396,6 +398,7 @@ impl AutoProfileFeature {
             Self::Shadows => "Shadows",
             Self::ModelShadows => "ModelShadows",
             Self::PointLights => "PointLights",
+            Self::Minimap => "Minimap",
             Self::Done => "Done",
         }
     }
@@ -611,10 +614,14 @@ impl App {
             self.input.focused = false;
             self.input.pending_grab = Some(false);
             self.ui.dragging_item = None;
-        } else if self.ui.palette_previously_focused {
-            self.input.focused = true;
-            self.input.pending_grab = Some(true);
-            self.ui.palette_previously_focused = false;
+        } else {
+            // Closing palette: restore focus if we were focused before and no other panel is open
+            let other_panel_open = self.ui.editor.active || self.ui.console.active;
+            if !other_panel_open && self.ui.palette_previously_focused {
+                self.input.focused = true;
+                self.input.pending_grab = Some(true);
+                self.ui.palette_previously_focused = false;
+            }
         }
     }
 
@@ -1165,6 +1172,7 @@ impl App {
                                     AutoProfileFeature::PointLights => {
                                         self.ui.settings.enable_point_lights = true
                                     }
+                                    AutoProfileFeature::Minimap => self.ui.show_minimap = true,
                                     _ => {}
                                 }
                                 println!(
@@ -1186,6 +1194,7 @@ impl App {
                                     AutoProfileFeature::PointLights => {
                                         self.ui.settings.enable_point_lights = false
                                     }
+                                    AutoProfileFeature::Minimap => self.ui.show_minimap = false,
                                     AutoProfileFeature::Done => {
                                         println!(
                                             "[AUTO-PROFILE] All features tested. Final 5s baseline..."
@@ -1288,7 +1297,13 @@ impl App {
 
         self.handle_global_shortcuts();
 
-        if !self.ui.palette_open && self.ui.palette_previously_focused && !self.input.focused {
+        // Restore focus if palette was closed externally and no other panel is open
+        let other_panel_open = self.ui.editor.active || self.ui.console.active;
+        if !self.ui.palette_open
+            && self.ui.palette_previously_focused
+            && !self.input.focused
+            && !other_panel_open
+        {
             self.input.focused = true;
             self.input.pending_grab = Some(true);
             self.ui.palette_previously_focused = false;
@@ -2091,8 +2106,8 @@ fn main() {
     if app.ui.auto_profile_enabled {
         println!("[AUTO-PROFILE] Starting automated feature profiling");
         println!("[AUTO-PROFILE] Sequence: 5s baseline → for each feature: 5s OFF, 5s ON → exit");
-        println!("[AUTO-PROFILE] Features: AO, Shadows, ModelShadows, PointLights");
-        println!("[AUTO-PROFILE] Total duration: ~45 seconds");
+        println!("[AUTO-PROFILE] Features: AO, Shadows, ModelShadows, PointLights, Minimap");
+        println!("[AUTO-PROFILE] Total duration: ~55 seconds");
     }
 
     // Upload all initial chunks to GPU before starting the game

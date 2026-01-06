@@ -3,7 +3,7 @@
 //! Renders 3D voxel cubes to a 2D image with proper depth testing,
 //! avoiding the depth sorting issues of painter's algorithm.
 
-use crate::sub_voxel::{SUB_VOXEL_CENTER_F32, SUB_VOXEL_SIZE, SubVoxelModel};
+use crate::sub_voxel::SubVoxelModel;
 use egui_winit_vulkano::egui;
 use image::{ImageBuffer, Rgba};
 use std::path::Path;
@@ -257,7 +257,9 @@ pub fn render_model(
         base_x[1] * sin_yaw + base_z[1] * cos_yaw,
     ];
 
-    let model_center = SUB_VOXEL_CENTER_F32;
+    // Get model-specific size and center for multi-resolution support
+    let model_size = model.size();
+    let model_center = model.resolution.center_f32();
 
     // Project 3D point to screen coordinates with depth
     let project = |x: f32, y: f32, z: f32| -> [f32; 3] {
@@ -281,8 +283,8 @@ pub fn render_model(
     };
 
     // Draw floor grid first (at Y=0)
-    for z in 0..SUB_VOXEL_SIZE {
-        for x in 0..SUB_VOXEL_SIZE {
+    for z in 0..model_size {
+        for x in 0..model_size {
             let x_f = x as f32;
             let z_f = z as f32;
 
@@ -320,8 +322,8 @@ pub fn render_model(
     }
 
     // Draw mirror plane indicators (wireframe only)
-    let mirror_center = SUB_VOXEL_CENTER_F32;
-    let mirror_size = SUB_VOXEL_SIZE as f32;
+    let mirror_center = model_center;
+    let mirror_size = model_size as f32;
 
     // X mirror plane (YZ plane at x=center) - Red wireframe
     if mirror_axes[0] {
@@ -371,11 +373,12 @@ pub fn render_model(
         rasterizer.draw_line(l1, l3);
     }
 
-    // Draw axis lines
+    // Draw axis lines - scale with model size (extend ~12.5% beyond origin)
+    let axis_length = model_size as f32 * 0.125;
     let axis_origin = make_vertex(0.0, 0.0, 0.0, [255, 255, 255, 255]);
-    let axis_x = make_vertex(2.0, 0.0, 0.0, [255, 0, 0, 255]);
-    let axis_y = make_vertex(0.0, 2.0, 0.0, [0, 255, 0, 255]);
-    let axis_z = make_vertex(0.0, 0.0, 2.0, [0, 0, 255, 255]);
+    let axis_x = make_vertex(axis_length, 0.0, 0.0, [255, 0, 0, 255]);
+    let axis_y = make_vertex(0.0, axis_length, 0.0, [0, 255, 0, 255]);
+    let axis_z = make_vertex(0.0, 0.0, axis_length, [0, 0, 255, 255]);
 
     // Draw axis with red origin
     let red_origin = Vertex {
@@ -396,9 +399,9 @@ pub fn render_model(
     rasterizer.draw_line(blue_origin, axis_z);
 
     // Draw all voxels with proper z-buffer - render ALL 6 faces
-    for y in 0..SUB_VOXEL_SIZE {
-        for z in 0..SUB_VOXEL_SIZE {
-            for x in 0..SUB_VOXEL_SIZE {
+    for y in 0..model_size {
+        for z in 0..model_size {
+            for x in 0..model_size {
                 let idx = model.get_voxel(x, y, z);
                 if idx == 0 {
                     continue;
@@ -554,11 +557,11 @@ pub fn render_model(
 
         // Check if this is a floor tile (empty voxel position)
         let is_floor = voxel[0] >= 0
-            && voxel[0] < SUB_VOXEL_SIZE as i32
+            && voxel[0] < model_size as i32
             && voxel[1] >= 0
-            && voxel[1] < SUB_VOXEL_SIZE as i32
+            && voxel[1] < model_size as i32
             && voxel[2] >= 0
-            && voxel[2] < SUB_VOXEL_SIZE as i32
+            && voxel[2] < model_size as i32
             && model.get_voxel(voxel[0] as usize, voxel[1] as usize, voxel[2] as usize) == 0;
 
         // Get face vertices based on normal
@@ -785,12 +788,16 @@ pub fn generate_model_sprite(model: &SubVoxelModel, output_path: &Path) -> std::
     let size = SPRITE_SIZE as usize;
     let mut rasterizer = Rasterizer::new(size, size);
 
+    // Get model-specific size and center for multi-resolution support
+    let model_voxel_size = model.size();
+    let model_center = model.resolution.center_f32();
+
     // Transparent background
     rasterizer.clear([0, 0, 0, 0]);
 
     // Isometric projection setup - 3/4 view like GPU sprites
-    // Scale based on model size so 16³ models fit the same as 8³ did
-    let cell_size = size as f32 / (SUB_VOXEL_SIZE as f32 * 1.5);
+    // Scale based on model size so all resolution models fit nicely
+    let cell_size = size as f32 / (model_voxel_size as f32 * 1.5);
     let center_x = size as f32 / 2.0;
     let center_y = size as f32 / 2.0 + size as f32 * 0.1;
 
@@ -812,8 +819,6 @@ pub fn generate_model_sprite(model: &SubVoxelModel, output_path: &Path) -> std::
         base_x[1] * sin_yaw + base_z[1] * cos_yaw,
     ];
 
-    let model_center = SUB_VOXEL_CENTER_F32;
-
     // Project 3D point to screen coordinates with depth
     let project = |x: f32, y: f32, z: f32| -> [f32; 3] {
         let cx = x - model_center;
@@ -828,9 +833,9 @@ pub fn generate_model_sprite(model: &SubVoxelModel, output_path: &Path) -> std::
     };
 
     // Draw all voxels with proper z-buffer
-    for y in 0..SUB_VOXEL_SIZE {
-        for z in 0..SUB_VOXEL_SIZE {
-            for x in 0..SUB_VOXEL_SIZE {
+    for y in 0..model_voxel_size {
+        for z in 0..model_voxel_size {
+            for x in 0..model_voxel_size {
                 let idx = model.get_voxel(x, y, z);
                 if idx == 0 {
                     continue;

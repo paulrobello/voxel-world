@@ -73,15 +73,12 @@ pub fn draw_editor_ui(
             });
             // Shape size slider (only shown for Cube/Sphere tools)
             if editor.tool == EditorTool::Cube || editor.tool == EditorTool::Sphere {
-                use crate::sub_voxel::SUB_VOXEL_SIZE;
+                let model_size = editor.scratch_pad.size() as i32;
                 ui.horizontal(|ui| {
                     ui.label("Size:");
                     let mut size = editor.shape_size as i32;
                     if ui
-                        .add(
-                            egui::Slider::new(&mut size, 1..=SUB_VOXEL_SIZE as i32)
-                                .suffix(" voxels"),
-                        )
+                        .add(egui::Slider::new(&mut size, 1..=model_size).suffix(" voxels"))
                         .changed()
                     {
                         editor.shape_size = size as usize;
@@ -139,11 +136,31 @@ pub fn draw_editor_ui(
 
             // Model properties
             ui.collapsing("Properties", |ui| {
-                // Resolution display (read-only after creation)
+                // Resolution selector (triggers confirmation dialog)
                 ui.horizontal(|ui| {
                     ui.label("Resolution:");
-                    let res = editor.scratch_pad.resolution;
-                    ui.label(format!("{}³ ({} voxels)", res.size(), res.volume()));
+                    let current_res = editor.scratch_pad.resolution;
+                    egui::ComboBox::from_id_salt("res_combo")
+                        .selected_text(format!(
+                            "{}³ ({} voxels)",
+                            current_res.size(),
+                            current_res.volume()
+                        ))
+                        .show_ui(ui, |ui| {
+                            for res in [
+                                ModelResolution::Low,
+                                ModelResolution::Medium,
+                                ModelResolution::High,
+                            ] {
+                                let label = format!("{}³ ({} voxels)", res.size(), res.volume());
+                                if ui.selectable_label(current_res == res, label).clicked()
+                                    && res != current_res
+                                {
+                                    // Store pending change, show confirmation dialog
+                                    editor.pending_resolution_change = Some(res);
+                                }
+                            }
+                        });
                 });
 
                 ui.checkbox(&mut editor.scratch_pad.rotatable, "Rotatable");
@@ -407,6 +424,33 @@ pub fn draw_editor_ui(
             });
     }
 
+    // Resolution change confirmation dialog
+    if let Some(new_res) = editor.pending_resolution_change {
+        egui::Window::new("Change Resolution?")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+            .show(ctx, |ui| {
+                ui.label("Changing resolution will clear all voxels.");
+                ui.label(format!(
+                    "Change to {}³ ({} voxels)?",
+                    new_res.size(),
+                    new_res.volume()
+                ));
+                ui.add_space(10.0);
+                ui.horizontal(|ui| {
+                    if ui.button("Change").clicked() {
+                        let name = editor.scratch_pad.name.clone();
+                        editor.new_model_with_resolution(&name, new_res);
+                        editor.pending_resolution_change = None;
+                    }
+                    if ui.button("Cancel").clicked() {
+                        editor.pending_resolution_change = None;
+                    }
+                });
+            });
+    }
+
     action
 }
 
@@ -617,8 +661,13 @@ pub fn draw_model_preview(ctx: &egui::Context, editor: &mut EditorState) {
                 if scroll_delta != 0.0 {
                     // Zoom in/out based on scroll direction
                     editor.orbit_distance -= scroll_delta * 0.05;
-                    // Clamp to reasonable range for 16³ model
-                    editor.orbit_distance = editor.orbit_distance.clamp(8.0, 40.0);
+                    // Clamp to reasonable range based on model resolution
+                    let (min_zoom, max_zoom) = match editor.scratch_pad.resolution {
+                        ModelResolution::Low => (6.0, 25.0),
+                        ModelResolution::Medium => (8.0, 40.0),
+                        ModelResolution::High => (15.0, 70.0),
+                    };
+                    editor.orbit_distance = editor.orbit_distance.clamp(min_zoom, max_zoom);
                 }
             }
 
@@ -655,7 +704,15 @@ pub fn draw_model_preview(ctx: &egui::Context, editor: &mut EditorState) {
             );
 
             // Draw axis labels on top of the rendered image
-            draw_axis_labels(ui, &painter, rect, editor.orbit_yaw, editor.orbit_distance);
+            draw_axis_labels(
+                ui,
+                &painter,
+                rect,
+                editor.orbit_yaw,
+                editor.orbit_distance,
+                editor.scratch_pad.size(),
+                editor.scratch_pad.resolution.center_f32(),
+            );
 
             // Handle mouse interaction using hit map
             if let Some(pointer_pos) = response.hover_pos() {
@@ -735,9 +792,10 @@ fn draw_axis_labels(
     rect: egui::Rect,
     orbit_yaw: f32,
     orbit_distance: f32,
+    model_size: usize,
+    model_center: f32,
 ) {
     use super::rasterizer::DEFAULT_ORBIT_DISTANCE;
-    use crate::sub_voxel::SUB_VOXEL_CENTER_F32;
 
     // Calculate where axis endpoints would be in screen space
     // Must match the projection in render_model exactly
@@ -763,8 +821,6 @@ fn draw_axis_labels(
     ];
     let iso_y = [0.0, -cell_size];
 
-    let model_center = SUB_VOXEL_CENTER_F32;
-
     // Project function for label positions
     let project = |x: f32, y: f32, z: f32| -> egui::Pos2 {
         let cx = x - model_center;
@@ -776,10 +832,11 @@ fn draw_axis_labels(
         )
     };
 
-    // Labels at end of axis lines (which go from 0 to 2.0)
-    let x_end = project(2.0, 0.0, 0.0);
-    let y_end = project(0.0, 2.0, 0.0);
-    let z_end = project(0.0, 0.0, 2.0);
+    // Labels at end of axis lines (scale with model size ~12.5%)
+    let axis_length = model_size as f32 * 0.125;
+    let x_end = project(axis_length, 0.0, 0.0);
+    let y_end = project(0.0, axis_length, 0.0);
+    let z_end = project(0.0, 0.0, axis_length);
 
     painter.text(
         x_end + egui::vec2(5.0, 0.0),

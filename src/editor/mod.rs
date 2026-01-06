@@ -12,11 +12,8 @@
 pub mod rasterizer;
 pub mod ui;
 
-#[cfg(test)]
-use crate::sub_voxel::SUB_VOXEL_MAX;
 use crate::sub_voxel::{
-    Color, ModelResolution, SUB_VOXEL_BOUNDS_F32, SUB_VOXEL_CENTER_F32, SUB_VOXEL_SIZE,
-    SubVoxelModel,
+    Color, ModelResolution, SUB_VOXEL_BOUNDS_F32, SUB_VOXEL_CENTER_F32, SubVoxelModel,
 };
 use nalgebra::Vector3;
 
@@ -200,6 +197,9 @@ pub struct EditorState {
     /// Selected resolution for new model dialog.
     pub new_model_resolution: ModelResolution,
 
+    /// Pending resolution change (triggers confirmation dialog).
+    pub pending_resolution_change: Option<ModelResolution>,
+
     /// Undo/redo history for voxel operations.
     pub history: UndoHistory,
 
@@ -252,6 +252,7 @@ impl EditorState {
             show_overwrite_confirm: false,
             show_new_model_dialog: false,
             new_model_resolution: ModelResolution::Medium,
+            pending_resolution_change: None,
             history: UndoHistory::new(),
             shape_size: 3, // Default 3x3 cube/sphere
         }
@@ -301,6 +302,12 @@ impl EditorState {
         self.scratch_pad = model.clone();
         self.hovered_voxel = None;
         self.history.clear();
+        // Adjust camera distance based on loaded model's resolution
+        self.orbit_distance = match model.resolution {
+            ModelResolution::Low => 12.0,
+            ModelResolution::Medium => 20.0,
+            ModelResolution::High => 35.0,
+        };
     }
 
     /// Saves the current voxel state to the undo history.
@@ -464,7 +471,8 @@ impl EditorState {
         let start_t = t_near.max(0.0);
         let mut current_pos = origin + safe_dir * start_t;
         current_pos += safe_dir * 0.001; // nudge
-        current_pos = current_pos.map(|v| v.clamp(0.001, SUB_VOXEL_SIZE as f32 - 0.001));
+        let model_size = self.scratch_pad.size();
+        current_pos = current_pos.map(|v| v.clamp(0.001, model_size as f32 - 0.001));
 
         let mut voxel = Vector3::new(
             current_pos.x.floor() as i32,
@@ -505,15 +513,15 @@ impl EditorState {
         );
 
         let mut stepped_axis = entry_axis;
-        const MAX_STEPS: usize = SUB_VOXEL_SIZE * 3;
+        let max_steps = model_size * 3;
 
-        for i in 0..MAX_STEPS {
+        for i in 0..max_steps {
             if voxel.x < 0
-                || voxel.x >= SUB_VOXEL_SIZE as i32
+                || voxel.x >= model_size as i32
                 || voxel.y < 0
-                || voxel.y >= SUB_VOXEL_SIZE as i32
+                || voxel.y >= model_size as i32
                 || voxel.z < 0
-                || voxel.z >= SUB_VOXEL_SIZE as i32
+                || voxel.z >= model_size as i32
             {
                 break;
             }
@@ -556,11 +564,11 @@ impl EditorState {
 
     /// Computes all positions affected by the current mirror settings.
     ///
-    /// For an 8x8x8 grid, mirroring across axis A means: `mirrored = 7 - original`
+    /// For an NxNxN grid, mirroring across axis A means: `mirrored = (N-1) - original`
     /// Returns up to 8 positions when all three axes are mirrored.
     fn get_mirrored_positions(&self, pos: Vector3<i32>) -> Vec<Vector3<i32>> {
         let mut positions = vec![pos];
-        let max_idx = (SUB_VOXEL_SIZE - 1) as i32;
+        let max_idx = (self.scratch_pad.size() - 1) as i32;
 
         // X mirror
         if self.mirror_axes[0] {
@@ -622,16 +630,17 @@ impl EditorState {
     /// When mirror mode is enabled, places at all mirrored positions.
     pub fn place_voxel(&mut self, pos: Vector3<i32>) {
         let positions = self.get_mirrored_positions(pos);
+        let model_size = self.scratch_pad.size() as i32;
 
         // Check if any position will actually change
         let mut any_change = false;
         for p in &positions {
             if p.x >= 0
-                && p.x < SUB_VOXEL_SIZE as i32
+                && p.x < model_size
                 && p.y >= 0
-                && p.y < SUB_VOXEL_SIZE as i32
+                && p.y < model_size
                 && p.z >= 0
-                && p.z < SUB_VOXEL_SIZE as i32
+                && p.z < model_size
             {
                 let current = self
                     .scratch_pad
@@ -648,11 +657,11 @@ impl EditorState {
             self.save_state();
             for p in positions {
                 if p.x >= 0
-                    && p.x < SUB_VOXEL_SIZE as i32
+                    && p.x < model_size
                     && p.y >= 0
-                    && p.y < SUB_VOXEL_SIZE as i32
+                    && p.y < model_size
                     && p.z >= 0
-                    && p.z < SUB_VOXEL_SIZE as i32
+                    && p.z < model_size
                 {
                     self.scratch_pad.set_voxel(
                         p.x as usize,
@@ -671,16 +680,17 @@ impl EditorState {
     /// When mirror mode is enabled, erases at all mirrored positions.
     pub fn erase_voxel(&mut self, pos: Vector3<i32>) {
         let positions = self.get_mirrored_positions(pos);
+        let model_size = self.scratch_pad.size() as i32;
 
         // Check if any position has something to erase
         let mut any_change = false;
         for p in &positions {
             if p.x >= 0
-                && p.x < SUB_VOXEL_SIZE as i32
+                && p.x < model_size
                 && p.y >= 0
-                && p.y < SUB_VOXEL_SIZE as i32
+                && p.y < model_size
                 && p.z >= 0
-                && p.z < SUB_VOXEL_SIZE as i32
+                && p.z < model_size
             {
                 let current = self
                     .scratch_pad
@@ -697,11 +707,11 @@ impl EditorState {
             self.save_state();
             for p in positions {
                 if p.x >= 0
-                    && p.x < SUB_VOXEL_SIZE as i32
+                    && p.x < model_size
                     && p.y >= 0
-                    && p.y < SUB_VOXEL_SIZE as i32
+                    && p.y < model_size
                     && p.z >= 0
-                    && p.z < SUB_VOXEL_SIZE as i32
+                    && p.z < model_size
                 {
                     self.scratch_pad
                         .set_voxel(p.x as usize, p.y as usize, p.z as usize, 0);
@@ -712,12 +722,13 @@ impl EditorState {
 
     /// Picks the color at the given voxel position.
     pub fn pick_color(&mut self, pos: Vector3<i32>) {
+        let model_size = self.scratch_pad.size() as i32;
         if pos.x >= 0
-            && pos.x < SUB_VOXEL_SIZE as i32
+            && pos.x < model_size
             && pos.y >= 0
-            && pos.y < SUB_VOXEL_SIZE as i32
+            && pos.y < model_size
             && pos.z >= 0
-            && pos.z < SUB_VOXEL_SIZE as i32
+            && pos.z < model_size
         {
             let idx = self
                 .scratch_pad
@@ -734,6 +745,7 @@ impl EditorState {
     /// Saves state to undo history before placing.
     pub fn place_cube(&mut self, center: Vector3<i32>) {
         let half = (self.shape_size / 2) as i32;
+        let model_size = self.scratch_pad.size() as i32;
         let mut any_change = false;
 
         // Check if any position will actually change
@@ -742,11 +754,11 @@ impl EditorState {
                 for dx in -(half)..=(half) {
                     let pos = center + Vector3::new(dx, dy, dz);
                     if pos.x >= 0
-                        && pos.x < SUB_VOXEL_SIZE as i32
+                        && pos.x < model_size
                         && pos.y >= 0
-                        && pos.y < SUB_VOXEL_SIZE as i32
+                        && pos.y < model_size
                         && pos.z >= 0
-                        && pos.z < SUB_VOXEL_SIZE as i32
+                        && pos.z < model_size
                     {
                         let current = self.scratch_pad.get_voxel(
                             pos.x as usize,
@@ -775,11 +787,11 @@ impl EditorState {
                     for dx in -(half)..=(half) {
                         let pos = center + Vector3::new(dx, dy, dz);
                         if pos.x >= 0
-                            && pos.x < SUB_VOXEL_SIZE as i32
+                            && pos.x < model_size
                             && pos.y >= 0
-                            && pos.y < SUB_VOXEL_SIZE as i32
+                            && pos.y < model_size
                             && pos.z >= 0
-                            && pos.z < SUB_VOXEL_SIZE as i32
+                            && pos.z < model_size
                         {
                             self.scratch_pad.set_voxel(
                                 pos.x as usize,
@@ -802,6 +814,7 @@ impl EditorState {
         let radius = self.shape_size as f32 / 2.0;
         let radius_sq = radius * radius;
         let half = (self.shape_size / 2) as i32 + 1; // +1 to include edge voxels
+        let model_size = self.scratch_pad.size() as i32;
         let mut any_change = false;
 
         // Check if any position will actually change
@@ -814,11 +827,11 @@ impl EditorState {
                     if dist_sq <= radius_sq {
                         let pos = center + Vector3::new(dx, dy, dz);
                         if pos.x >= 0
-                            && pos.x < SUB_VOXEL_SIZE as i32
+                            && pos.x < model_size
                             && pos.y >= 0
-                            && pos.y < SUB_VOXEL_SIZE as i32
+                            && pos.y < model_size
                             && pos.z >= 0
-                            && pos.z < SUB_VOXEL_SIZE as i32
+                            && pos.z < model_size
                         {
                             let current = self.scratch_pad.get_voxel(
                                 pos.x as usize,
@@ -852,11 +865,11 @@ impl EditorState {
                         if dist_sq <= radius_sq {
                             let pos = center + Vector3::new(dx, dy, dz);
                             if pos.x >= 0
-                                && pos.x < SUB_VOXEL_SIZE as i32
+                                && pos.x < model_size
                                 && pos.y >= 0
-                                && pos.y < SUB_VOXEL_SIZE as i32
+                                && pos.y < model_size
                                 && pos.z >= 0
-                                && pos.z < SUB_VOXEL_SIZE as i32
+                                && pos.z < model_size
                             {
                                 self.scratch_pad.set_voxel(
                                     pos.x as usize,
@@ -887,13 +900,14 @@ impl EditorState {
                         // Place adjacent to existing voxel based on hovered face normal
                         if let Some(normal) = self.hovered_normal {
                             let place_pos = voxel + normal;
+                            let model_size = self.scratch_pad.size();
                             // Check bounds
                             if place_pos.x >= 0
-                                && (place_pos.x as usize) < SUB_VOXEL_SIZE
+                                && (place_pos.x as usize) < model_size
                                 && place_pos.y >= 0
-                                && (place_pos.y as usize) < SUB_VOXEL_SIZE
+                                && (place_pos.y as usize) < model_size
                                 && place_pos.z >= 0
-                                && (place_pos.z as usize) < SUB_VOXEL_SIZE
+                                && (place_pos.z as usize) < model_size
                             {
                                 self.place_voxel(place_pos);
                             }
@@ -1254,7 +1268,7 @@ mod tests {
     #[test]
     fn test_editor_undo_rotate() {
         let mut editor = EditorState::new();
-        let max = SUB_VOXEL_MAX as i32;
+        let max = (editor.scratch_pad.size() - 1) as i32;
 
         // Place a voxel at corner
         editor.place_voxel(Vector3::new(0, 0, 0));
@@ -1337,7 +1351,8 @@ mod tests {
     #[test]
     fn test_mirror_x_axis() {
         let mut editor = EditorState::new();
-        let mirror_x = SUB_VOXEL_MAX - 1; // Mirror of 1
+        let max_idx = editor.scratch_pad.size() - 1;
+        let mirror_x = max_idx - 1; // Mirror of 1
 
         // Enable X mirroring
         editor.toggle_mirror(super::MirrorAxis::X);
@@ -1358,7 +1373,8 @@ mod tests {
     #[test]
     fn test_mirror_y_axis() {
         let mut editor = EditorState::new();
-        let mirror_y = SUB_VOXEL_MAX - 1; // Mirror of 1
+        let max_idx = editor.scratch_pad.size() - 1;
+        let mirror_y = max_idx - 1; // Mirror of 1
 
         // Enable Y mirroring
         editor.toggle_mirror(super::MirrorAxis::Y);
@@ -1373,7 +1389,8 @@ mod tests {
     #[test]
     fn test_mirror_z_axis() {
         let mut editor = EditorState::new();
-        let mirror_z = SUB_VOXEL_MAX - 1; // Mirror of 1
+        let max_idx = editor.scratch_pad.size() - 1;
+        let mirror_z = max_idx - 1; // Mirror of 1
 
         // Enable Z mirroring
         editor.toggle_mirror(super::MirrorAxis::Z);
@@ -1388,7 +1405,7 @@ mod tests {
     #[test]
     fn test_mirror_multiple_axes() {
         let mut editor = EditorState::new();
-        let m = SUB_VOXEL_MAX - 1; // Mirror of 1
+        let m = editor.scratch_pad.size() - 1 - 1; // Mirror of 1
 
         // Enable X and Y mirroring (should place 4 voxels)
         editor.toggle_mirror(super::MirrorAxis::X);
@@ -1407,7 +1424,7 @@ mod tests {
     #[test]
     fn test_mirror_all_axes() {
         let mut editor = EditorState::new();
-        let m = SUB_VOXEL_MAX - 1; // Mirror of 1
+        let m = editor.scratch_pad.size() - 1 - 1; // Mirror of 1
 
         // Enable all three axes (should place 8 voxels)
         editor.toggle_mirror(super::MirrorAxis::X);
@@ -1431,14 +1448,16 @@ mod tests {
     #[test]
     fn test_mirror_center_voxel() {
         let mut editor = EditorState::new();
-        let near_center = SUB_VOXEL_SIZE / 2 - 1;
-        let mirror_near_center = SUB_VOXEL_MAX - near_center;
+        let model_size = editor.scratch_pad.size();
+        let max_idx = model_size - 1;
+        let near_center = model_size / 2 - 1;
+        let mirror_near_center = max_idx - near_center;
 
         // Enable X mirroring
         editor.toggle_mirror(super::MirrorAxis::X);
 
         // Place voxel near center X - mirror should be symmetric
-        // Since we use SUB_VOXEL_MAX - x, position near_center mirrors to mirror_near_center
+        // Since we use max_idx - x, position near_center mirrors to mirror_near_center
         editor.place_voxel(Vector3::new(near_center as i32, 3, 3));
         assert_eq!(editor.scratch_pad.get_voxel(near_center, 3, 3), 1);
         assert_eq!(editor.scratch_pad.get_voxel(mirror_near_center, 3, 3), 1);
@@ -1465,7 +1484,7 @@ mod tests {
     #[test]
     fn test_mirror_undo_all_placements() {
         let mut editor = EditorState::new();
-        let m = SUB_VOXEL_MAX - 1; // Mirror of 1
+        let m = editor.scratch_pad.size() - 1 - 1; // Mirror of 1
 
         // Enable X mirroring
         editor.toggle_mirror(super::MirrorAxis::X);

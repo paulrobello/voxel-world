@@ -96,6 +96,8 @@ float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFl
     vec3 rayPos = origin;
     ivec3 pos = ivec3(floor(rayPos));
     ivec3 startPos = pos;
+    // Track the original model block to skip for self-shadowing avoidance
+    ivec3 ignoreModelPos = ignoreStartModel ? pos : ivec3(-9999);
     ivec3 stepDir = ivec3(sign(dir));
 
     vec3 tMax = (vec3(pos) + 0.5 + 0.5 * vec3(stepDir) - rayPos) * inv_dir;
@@ -180,10 +182,12 @@ float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFl
         if (skipSelf && blockType == BLOCK_MODEL && !ignoreStartModel) {
             skipSelf = false;
         }
+        // Skip the original model block to prevent self-shadowing
+        bool skipModelBlock = all(equal(pos, ignoreModelPos));
 
         if (!skipSelf) {
             vec3 blockOrigin = rayPos + dir * 0.001; // texture space
-            if (blockType == BLOCK_MODEL) {
+            if (blockType == BLOCK_MODEL && !skipModelBlock) {
                 if (pc.enable_model_shadows == 0u) {
                     // Treat model as non-blocking when disabled
                 } else {

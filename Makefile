@@ -7,7 +7,7 @@ export DYLD_FALLBACK_LIBRARY_PATH := /opt/homebrew/lib:/opt/homebrew/opt/vulkan-
 export VK_ICD_FILENAMES := /opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json
 export CMAKE_POLICY_VERSION_MINIMUM := 3.5
 
-.PHONY: build build-release build-debug run run-release run-debug profile run-profile auto-profile clean test check fmt lint checkall sprite-gen run-p1 run-p2 reset reset-p1 reset-p2 new-flat
+.PHONY: build build-release build-debug run run-release run-debug profile run-profile auto-profile-flat auto-profile-normal clean test check fmt lint checkall sprite-gen run-p1 run-p2 reset reset-p1 reset-p2 new-flat
 
 # Default target
 all: build-release
@@ -42,8 +42,12 @@ run-profile: build-release
 	./target/release/voxel_world --verbose --profile --debug-interval 120 --view-distance 8 --fly-mode $(ARGS)
 
 # Auto-profile: automated 45s test cycling through each feature flag
-auto-profile: build-release
+# Use auto-profile-flat or auto-profile-normal for clean world tests
+auto-profile-flat: reset build-release
 	./target/release/voxel_world --auto-profile --world-gen flat --fly-mode $(ARGS)
+
+auto-profile-normal: reset build-release
+	./target/release/voxel_world --auto-profile --world-gen normal --fly-mode $(ARGS)
 
 # Development targets
 clean:

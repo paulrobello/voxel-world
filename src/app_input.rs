@@ -14,7 +14,9 @@ impl App {
         if self.input.key_pressed(KeyCode::Escape) && self.ui.palette_open {
             self.ui.palette_open = false;
             self.ui.dragging_item = None;
-            if self.ui.palette_previously_focused {
+            // Only restore focus if no other cursor-needing panels are still open
+            let other_panel_open = self.ui.editor.active || self.ui.console.active;
+            if !other_panel_open && self.ui.palette_previously_focused {
                 self.input.focused = true;
                 self.input.pending_grab = Some(true);
                 self.ui.palette_previously_focused = false;
@@ -25,7 +27,9 @@ impl App {
         // Close editor with Escape (restores focus if it was focused before opening)
         if self.input.key_pressed(KeyCode::Escape) && self.ui.editor.active {
             self.ui.editor.active = false;
-            if self.ui.editor_previously_focused {
+            // Only restore focus if no other cursor-needing panels are still open
+            let other_panel_open = self.ui.palette_open || self.ui.console.active;
+            if !other_panel_open && self.ui.editor_previously_focused {
                 self.input.focused = true;
                 self.input.pending_grab = Some(true);
                 self.ui.editor_previously_focused = false;
@@ -37,7 +41,9 @@ impl App {
         // Close console with Escape (restores focus if it was focused before opening)
         if self.input.key_pressed(KeyCode::Escape) && self.ui.console.active {
             self.ui.console.close();
-            if self.ui.console_previously_focused {
+            // Only restore focus if no other cursor-needing panels are still open
+            let other_panel_open = self.ui.palette_open || self.ui.editor.active;
+            if !other_panel_open && self.ui.console_previously_focused {
                 self.input.focused = true;
                 self.input.pending_grab = Some(true);
                 self.ui.console_previously_focused = false;
@@ -455,8 +461,9 @@ impl App {
             }
             println!("Model editor: ON");
         } else {
-            // Closing editor: restore focus if we were focused before
-            if self.ui.editor_previously_focused {
+            // Closing editor: restore focus if we were focused before and no other panel is open
+            let other_panel_open = self.ui.palette_open || self.ui.console.active;
+            if !other_panel_open && self.ui.editor_previously_focused {
                 self.input.focused = true;
                 self.input.pending_grab = Some(true);
                 self.ui.editor_previously_focused = false;
@@ -474,8 +481,9 @@ impl App {
             self.input.focused = false;
             self.input.pending_grab = Some(false);
         } else {
-            // Closing console: restore focus if we were focused before
-            if self.ui.console_previously_focused {
+            // Closing console: restore focus if we were focused before and no other panel is open
+            let other_panel_open = self.ui.palette_open || self.ui.editor.active;
+            if !other_panel_open && self.ui.console_previously_focused {
                 self.input.focused = true;
                 self.input.pending_grab = Some(true);
                 self.ui.console_previously_focused = false;
