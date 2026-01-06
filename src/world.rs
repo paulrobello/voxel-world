@@ -232,10 +232,29 @@ impl World {
     pub fn insert_chunk(&mut self, chunk_pos: ChunkPos, chunk: Chunk) {
         self.chunks.insert(chunk_pos, chunk);
         self.push_dirty(chunk_pos);
+
+        // Invalidate minimap cache for this chunk's column to ensure new data is visible
+        let world_x_base = chunk_pos.x * CHUNK_SIZE as i32;
+        let world_z_base = chunk_pos.z * CHUNK_SIZE as i32;
+        for z in 0..CHUNK_SIZE {
+            for x in 0..CHUNK_SIZE {
+                self.minimap_height_cache
+                    .remove(&(world_x_base + x as i32, world_z_base + z as i32));
+            }
+        }
     }
 
     /// Removes and returns a chunk at the given position.
     pub fn remove_chunk(&mut self, chunk_pos: ChunkPos) -> Option<Chunk> {
+        // Invalidate minimap cache for this chunk's column
+        let world_x_base = chunk_pos.x * CHUNK_SIZE as i32;
+        let world_z_base = chunk_pos.z * CHUNK_SIZE as i32;
+        for z in 0..CHUNK_SIZE {
+            for x in 0..CHUNK_SIZE {
+                self.minimap_height_cache
+                    .remove(&(world_x_base + x as i32, world_z_base + z as i32));
+            }
+        }
         self.chunks.remove(&chunk_pos)
     }
 
