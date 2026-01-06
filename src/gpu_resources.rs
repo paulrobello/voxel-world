@@ -1143,7 +1143,7 @@ pub fn upload_model_registry(
     // Convert properties data to GpuModelProperties
     let gpu_properties: Vec<GpuModelProperties> = properties_data
         .chunks(48)
-        .map(|chunk| {
+        .map(|chunk: &[u8]| {
             let mut props = GpuModelProperties::default();
             if chunk.len() >= 48 {
                 // collision_mask (8 bytes)

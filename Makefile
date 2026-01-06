@@ -26,6 +26,9 @@ ARGS ?=
 
 run: run-release
 
+run-no-build:
+	./target/release/voxel_world --seed 12345 $(ARGS)
+
 run-release: build-release
 	./target/release/voxel_world --seed 12345 $(ARGS)
 

@@ -1,74 +1,77 @@
-# Refactoring Plan: Sub-Voxel System
+# Refactoring Plan: Voxel World
 
-The goal of this refactor is to decompose the large `src/sub_voxel.rs` (2166 lines) and `src/sub_voxel_builtins.rs` (1800 lines) files into a modular `sub_voxel` directory. This will improve code navigability, maintainability, and compilation parallelism.
+This document outlines the strategy for decomposing large files into smaller, more manageable modules.
 
-## 1. Create Directory Structure
+## Status Summary
 
-We will transition from:
-```
-src/sub_voxel.rs
-src/sub_voxel_builtins.rs
-```
+| File | Lines (Original) | Status | Refactored To |
+|------|------------------|--------|---------------|
+| `src/sub_voxel.rs` | 2166 | ✅ Done | `src/sub_voxel/` |
+| `src/sub_voxel_builtins.rs` | 1800 | ✅ Done | `src/sub_voxel/builtins/` |
+| `src/main.rs` | 2128 | ⏳ Pending | `src/app/` (Logic), `src/render/` (Setup) |
+| `src/world.rs` | 2104 | ⏳ Pending | `src/world/` (Logic split from Storage) |
+| `src/hud_render.rs` | 2005 | ⏳ Pending | `src/ui/` |
 
-To:
-```
-src/sub_voxel/
-├── mod.rs              # Re-exports for backward compatibility
-├── types.rs            # LightMode, Color, LightBlocking, ModelResolution
-├── model.rs            # SubVoxelModel struct and impl
-├── registry.rs         # ModelRegistry struct and impl
-├── builtins/           # Derived from sub_voxel_builtins.rs
-│   ├── mod.rs          # Registration logic
-│   ├── basic.rs        # Empty, basic helpers
-│   ├── lighting.rs     # Torch, crystal
-│   ├── fences.rs       # Fences, gates
-│   ├── stairs.rs       # Stairs, ladders
-│   ├── doors.rs        # Doors, trapdoors, windows
-│   └── vegetation.rs   # Plants, mushrooms
-└── texture_atlas.rs    # (Optional) If texture logic is separable
-```
+---
 
-## 2. Phase 1: Core Types and Model Definition
+## 1. Sub-Voxel System (COMPLETED)
 
-1.  **Create `src/sub_voxel/types.rs`**:
-    *   Move `ModelResolution` enum and constants.
-    *   Move `LightMode` enum.
-    *   Move `Color` struct.
-    *   Move `LightBlocking` enum.
+Successfully decomposed `src/sub_voxel.rs` and `src/sub_voxel_builtins.rs` into a modular structure under `src/sub_voxel/`.
 
-2.  **Create `src/sub_voxel/model.rs`**:
-    *   Move `SubVoxelModel` struct.
-    *   Move methods related to model manipulation (setting voxels, collision masks).
+### Structure:
+- `src/sub_voxel/mod.rs`: Re-exports and high-level API.
+- `src/sub_voxel/types.rs`: Core enums and structs (`ModelResolution`, `LightMode`, etc.).
+- `src/sub_voxel/model.rs`: `SubVoxelModel` implementation and voxel manipulation.
+- `src/sub_voxel/registry.rs`: `ModelRegistry` management and GPU packing.
+- `src/sub_voxel/builtins/`: Categorized built-in models.
 
-3.  **Create `src/sub_voxel/registry.rs`**:
-    *   Move `ModelRegistry` struct.
-    *   Move serialization/deserialization logic.
+---
 
-4.  **Create `src/sub_voxel/mod.rs`**:
-    *   Re-export all types to match the original `crate::sub_voxel::*` API surface to minimize breakage in other files.
+## 2. World Management (`src/world.rs`)
 
-## 3. Phase 2: Built-in Models
+`src/world.rs` currently manages chunk storage, light collection, height caches, and block-level access.
 
-1.  **Create `src/sub_voxel/builtins/` directory**.
+### Proposed Structure (`src/world/`):
+- `mod.rs`: Re-exports.
+- `storage.rs`: `World` struct and chunk `HashMap`.
+- `lighting.rs`: `collect_torch_lights` and emission logic.
+- `query.rs`: Block access, raycasting integration, height cache.
+- `stair_logic.rs`: Complex stair shape auto-calculation.
 
-2.  **Split `src/sub_voxel_builtins.rs`**:
-    *   **`basic.rs`**: `create_empty`, scaling helpers (`set_scaled`, `fill_scaled`), `inverted_copy`.
-    *   **`lighting.rs`**: `create_torch`, `create_crystal`.
-    *   **`fences.rs`**: `create_fence`, `create_gate_closed`, `create_gate_open`.
-    *   **`stairs.rs`**: `create_stairs_*`, `create_ladder`.
-    *   **`doors.rs`**: `create_door_*`, `create_trapdoor_*`, `create_window_*`.
-    *   **`vegetation.rs`**: `create_tall_grass`, `create_flower_*`, `create_mushroom_*`.
+---
 
-3.  **Create `src/sub_voxel/builtins/mod.rs`**:
-    *   Implement `register_builtins(registry: &mut ModelRegistry)`.
-    *   Call functions from the sub-modules.
+## 3. HUD and UI (`src/hud_render.rs`)
 
-## 4. Updates
+This file is a massive collection of `egui` code.
 
-*   Update `src/lib.rs` (if it exists) or `src/main.rs` to use `mod sub_voxel;` pointing to the directory instead of the file.
-*   Update imports in `src/sub_voxel_builtins.rs` (which will move) to point to the new locations of `SubVoxelModel` etc.
-*   Ensure `src/sub_voxel_builtins.rs` is deleted and replaced by `src/sub_voxel/builtins/mod.rs`.
+### Proposed Structure (`src/ui/`):
+- `mod.rs`: Renderer entry point.
+- `palette.rs`: Block/Model palette selection UI.
+- `stats.rs`: Performance and debug overlays.
+- `settings.rs`: Atmosphere and game settings menus.
+- `hotbar.rs`: Inventory/Hotbar rendering.
+- `minimap.rs`: Minimap integration.
 
-## 5. Verification
+---
 
-*   Run `make checkall` to ensure no breaking changes.
+## 4. Main Application (`src/main.rs`)
+
+`src/main.rs` is over 2000 lines and contains Vulkan setup, window event handling, and game loop logic.
+
+### Proposed Structure:
+- `src/main.rs`: Minimal entry point and event loop.
+- `src/app/mod.rs`: `VoxelApp` struct managing game state.
+- `src/app/events.rs`: Keyboard/Mouse input handling.
+- `src/render/mod.rs`: Vulkan device/swapchain management.
+- `src/render/pipelines.rs`: Pipeline initialization.
+- `src/render/frame.rs`: Frame-by-frame command buffer building.
+
+---
+
+## 5. Verification Process
+
+After each phase:
+1. Run `cargo check` / `make lint`.
+2. Run `make test`.
+3. Verify in-game functionality.
+4. Commit before starting next phase.
