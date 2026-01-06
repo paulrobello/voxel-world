@@ -69,6 +69,11 @@ pub struct Args {
     #[arg(long, short = 'p')]
     pub profile: bool,
 
+    /// Auto-profile mode: cycles through each feature flag (5s off, 5s on) then exits.
+    /// Implies --profile. Useful for automated regression testing.
+    #[arg(long, short = 'P')]
+    pub auto_profile: bool,
+
     /// Generate hotbar/palette sprites and exit
     #[arg(long)]
     pub generate_sprites: bool,

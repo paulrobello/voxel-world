@@ -366,12 +366,53 @@ struct WorldSim {
     world_gen: WorldGenType,
 }
 
+/// Auto-profile feature being tested
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AutoProfileFeature {
+    Baseline,     // Initial 5s with all features ON
+    AO,           // Testing enable_ao
+    Shadows,      // Testing enable_shadows
+    ModelShadows, // Testing enable_model_shadows
+    PointLights,  // Testing enable_point_lights
+    Done,         // All tests complete
+}
+
+impl AutoProfileFeature {
+    fn next(self) -> Self {
+        match self {
+            Self::Baseline => Self::AO,
+            Self::AO => Self::Shadows,
+            Self::Shadows => Self::ModelShadows,
+            Self::ModelShadows => Self::PointLights,
+            Self::PointLights => Self::Done,
+            Self::Done => Self::Done,
+        }
+    }
+
+    fn name(&self) -> &'static str {
+        match self {
+            Self::Baseline => "Baseline (all ON)",
+            Self::AO => "AO",
+            Self::Shadows => "Shadows",
+            Self::ModelShadows => "ModelShadows",
+            Self::PointLights => "PointLights",
+            Self::Done => "Done",
+        }
+    }
+}
+
 struct UiState {
     settings: Settings,
     window_size: [u32; 2],
     start_time: Instant,
     profile_log_path: Option<String>,
     profile_log_header_written: bool,
+
+    // Auto-profile state machine
+    auto_profile_enabled: bool,
+    auto_profile_feature: AutoProfileFeature,
+    auto_profile_feature_off: bool, // true = feature is OFF, false = feature is ON
+    auto_profile_phase_start: Instant,
 
     show_minimap: bool,
     minimap: Minimap,
@@ -933,7 +974,7 @@ impl App {
             },
             window_size: INITIAL_WINDOW_RESOLUTION.into(),
             start_time,
-            profile_log_path: if args.profile {
+            profile_log_path: if args.profile || args.auto_profile {
                 // Create profiles directory and generate timestamped filename
                 let profiles_directory = profiles_dir();
                 std::fs::create_dir_all(&profiles_directory).ok();
@@ -970,6 +1011,10 @@ impl App {
                 None
             },
             profile_log_header_written: false,
+            auto_profile_enabled: args.auto_profile,
+            auto_profile_feature: AutoProfileFeature::Baseline,
+            auto_profile_feature_off: false,
+            auto_profile_phase_start: start_time,
             show_minimap: prefs.show_minimap,
             minimap: Minimap::new(),
             minimap_cached_image: None,
@@ -1083,6 +1128,83 @@ impl App {
             self.ui.last_second = now;
 
             app_stats::print_stats(&mut self.ui, &mut self.sim, self.args.verbose);
+
+            // Auto-profile state machine: toggle features every 5 seconds
+            if self.ui.auto_profile_enabled {
+                const PHASE_DURATION: Duration = Duration::from_secs(5);
+                let phase_elapsed = now.duration_since(self.ui.auto_profile_phase_start);
+
+                if phase_elapsed >= PHASE_DURATION {
+                    self.ui.auto_profile_phase_start = now;
+
+                    match self.ui.auto_profile_feature {
+                        AutoProfileFeature::Baseline => {
+                            // Move to first feature test (AO OFF)
+                            self.ui.auto_profile_feature = AutoProfileFeature::AO;
+                            self.ui.auto_profile_feature_off = true;
+                            self.ui.settings.enable_ao = false;
+                            println!("[AUTO-PROFILE] Testing AO: OFF");
+                        }
+                        AutoProfileFeature::Done => {
+                            // Exit the application
+                            println!("[AUTO-PROFILE] Complete! Exiting...");
+                            std::process::exit(0);
+                        }
+                        _ => {
+                            if self.ui.auto_profile_feature_off {
+                                // Feature was OFF, turn it back ON
+                                self.ui.auto_profile_feature_off = false;
+                                match self.ui.auto_profile_feature {
+                                    AutoProfileFeature::AO => self.ui.settings.enable_ao = true,
+                                    AutoProfileFeature::Shadows => {
+                                        self.ui.settings.enable_shadows = true
+                                    }
+                                    AutoProfileFeature::ModelShadows => {
+                                        self.ui.settings.enable_model_shadows = true
+                                    }
+                                    AutoProfileFeature::PointLights => {
+                                        self.ui.settings.enable_point_lights = true
+                                    }
+                                    _ => {}
+                                }
+                                println!(
+                                    "[AUTO-PROFILE] Testing {}: ON",
+                                    self.ui.auto_profile_feature.name()
+                                );
+                            } else {
+                                // Feature was ON, move to next feature (OFF)
+                                self.ui.auto_profile_feature = self.ui.auto_profile_feature.next();
+                                self.ui.auto_profile_feature_off = true;
+                                match self.ui.auto_profile_feature {
+                                    AutoProfileFeature::AO => self.ui.settings.enable_ao = false,
+                                    AutoProfileFeature::Shadows => {
+                                        self.ui.settings.enable_shadows = false
+                                    }
+                                    AutoProfileFeature::ModelShadows => {
+                                        self.ui.settings.enable_model_shadows = false
+                                    }
+                                    AutoProfileFeature::PointLights => {
+                                        self.ui.settings.enable_point_lights = false
+                                    }
+                                    AutoProfileFeature::Done => {
+                                        println!(
+                                            "[AUTO-PROFILE] All features tested. Final 5s baseline..."
+                                        );
+                                        self.ui.auto_profile_feature_off = false;
+                                    }
+                                    _ => {}
+                                }
+                                if self.ui.auto_profile_feature != AutoProfileFeature::Done {
+                                    println!(
+                                        "[AUTO-PROFILE] Testing {}: OFF",
+                                        self.ui.auto_profile_feature.name()
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
         self.ui.frames_since_last_second += 1;
 
@@ -1964,6 +2086,14 @@ impl ApplicationHandler for App {
 fn main() {
     let event_loop = EventLoop::new().unwrap();
     let mut app = App::new(&event_loop);
+
+    // Print auto-profile info if enabled
+    if app.ui.auto_profile_enabled {
+        println!("[AUTO-PROFILE] Starting automated feature profiling");
+        println!("[AUTO-PROFILE] Sequence: 5s baseline → for each feature: 5s OFF, 5s ON → exit");
+        println!("[AUTO-PROFILE] Features: AO, Shadows, ModelShadows, PointLights");
+        println!("[AUTO-PROFILE] Total duration: ~45 seconds");
+    }
 
     // Upload all initial chunks to GPU before starting the game
     app.upload_all_dirty_chunks();
