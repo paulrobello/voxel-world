@@ -99,7 +99,6 @@ mod render_mode;
 mod sprite_gen;
 mod storage;
 mod sub_voxel;
-mod sub_voxel_builtins;
 mod svt;
 mod terrain_gen;
 mod user_prefs;
