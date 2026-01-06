@@ -305,9 +305,10 @@ fn generate_flat_chunk(chunk_pos: Vector3<i32>) -> Chunk {
         }
     }
 
-    // Explicitly do NOT generate trees or ground cover for flat worlds
+    // Explicitly do NOT generate trees, ground cover, or caves for flat worlds
     // generate_trees(...);
     // generate_ground_cover(...);
+    // caves are part of generate_normal_chunk loop, not here.
 
     chunk.update_metadata();
     chunk.persistence_dirty = false;
