@@ -27,13 +27,13 @@ ARGS ?=
 run: run-release
 
 run-release: build-release
-	./target/release/voxel_world $(ARGS)
+	./target/release/voxel_world --seed 12345 $(ARGS)
 
 run-debug: build-debug
 	@echo "DYLD_LIBRARY_PATH=$(DYLD_LIBRARY_PATH)"
 	@echo "DYLD_FALLBACK_LIBRARY_PATH=$(DYLD_FALLBACK_LIBRARY_PATH)"
 	@echo "VK_ICD_FILENAMES=$(VK_ICD_FILENAMES)"
-	DYLD_LIBRARY_PATH=$(DYLD_LIBRARY_PATH) DYLD_FALLBACK_LIBRARY_PATH=$(DYLD_FALLBACK_LIBRARY_PATH) VK_ICD_FILENAMES=$(VK_ICD_FILENAMES) RUST_BACKTRACE=1 ./target/debug/voxel_world $(ARGS)
+	DYLD_LIBRARY_PATH=$(DYLD_LIBRARY_PATH) DYLD_FALLBACK_LIBRARY_PATH=$(DYLD_FALLBACK_LIBRARY_PATH) VK_ICD_FILENAMES=$(VK_ICD_FILENAMES) RUST_BACKTRACE=1 ./target/debug/voxel_world --seed 12345 $(ARGS)
 
 # Profiling target (writes timestamped csv to profiles/)
 profile: run-profile
