@@ -2,48 +2,170 @@
 //!
 //! Models (torch, slab, fence, stairs, etc.) are stored once in a registry and
 //! referenced by blocks. Each model is an N×N×N voxel grid with a 16-color palette.
-//! Resolution is configurable via SUB_VOXEL_SIZE constant.
+//! Resolution is per-model: Low (8³), Medium (16³), or High (32³).
 //!
 //! Memory efficiency:
-//! - Registry footprint scales with resolution (16³ = ~4MB for 256 models)
+//! - Three tiered GPU atlases for different resolutions
+//! - Registry footprint scales with model complexity choices
 //! - Sparse metadata: only Model blocks store model_id + rotation
 
 #![allow(dead_code)] // Some editor-facing APIs are still planned; rendering/interaction use this today.
 
 use nalgebra::Vector3;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
 
 // =============================================================================
 // SUB-VOXEL RESOLUTION CONFIGURATION
 // =============================================================================
-// Change SUB_VOXEL_SIZE to adjust model detail level. All derived constants
-// update automatically. Supported values: 8, 16, 32
-// After changing, rebuild builtin models and regenerate any saved .vxm files.
+// Models now support per-model resolution selection.
+// Three tiers: Low (8³), Medium (16³), High (32³)
 
-/// Resolution of sub-voxel models (N×N×N voxels per model).
+/// Model resolution tiers.
+///
+/// Each model can independently choose its resolution for the right balance
+/// of detail vs. performance:
+/// - Low (8³): Simple models like torches, slabs - fastest rendering
+/// - Medium (16³): Standard models like doors, fences - balanced
+/// - High (32³): Detailed models like statues, decorations - highest quality
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum ModelResolution {
+    /// 8×8×8 voxels (512 total) - fastest, good for simple shapes
+    Low = 8,
+    /// 16×16×16 voxels (4096 total) - balanced detail and performance
+    #[default]
+    Medium = 16,
+    /// 32×32×32 voxels (32768 total) - highest detail
+    High = 32,
+}
+
+impl ModelResolution {
+    /// Returns the size (N) of the model grid (N×N×N).
+    #[inline]
+    pub const fn size(&self) -> usize {
+        *self as u8 as usize
+    }
+
+    /// Returns the total number of voxels (N³).
+    #[inline]
+    pub const fn volume(&self) -> usize {
+        let s = self.size();
+        s * s * s
+    }
+
+    /// Returns the center coordinate (N/2).
+    #[inline]
+    pub const fn center(&self) -> usize {
+        self.size() / 2
+    }
+
+    /// Returns the maximum valid coordinate index (N-1).
+    #[inline]
+    pub const fn max_idx(&self) -> usize {
+        self.size() - 1
+    }
+
+    /// Returns the center as f32 for ray calculations.
+    #[inline]
+    pub const fn center_f32(&self) -> f32 {
+        self.size() as f32 / 2.0
+    }
+
+    /// Returns the bounds with epsilon for ray intersection.
+    #[inline]
+    pub const fn bounds_f32(&self) -> f32 {
+        self.size() as f32 + 0.001
+    }
+
+    /// Returns the maximum DDA steps for ray marching (N * 3).
+    #[inline]
+    pub const fn max_steps(&self) -> usize {
+        self.size() * 3
+    }
+
+    /// Returns the GPU atlas tier index (0=Low, 1=Medium, 2=High).
+    #[inline]
+    pub const fn tier(&self) -> usize {
+        match *self {
+            ModelResolution::Low => 0,
+            ModelResolution::Medium => 1,
+            ModelResolution::High => 2,
+        }
+    }
+
+    /// Creates resolution from size value (8, 16, or 32).
+    /// Returns Medium if invalid size.
+    pub const fn from_size(size: usize) -> Self {
+        match size {
+            8 => ModelResolution::Low,
+            32 => ModelResolution::High,
+            _ => ModelResolution::Medium,
+        }
+    }
+
+    /// Creates resolution from tier index (0, 1, or 2).
+    /// Returns Medium if invalid tier.
+    pub const fn from_tier(tier: usize) -> Self {
+        match tier {
+            0 => ModelResolution::Low,
+            2 => ModelResolution::High,
+            _ => ModelResolution::Medium,
+        }
+    }
+
+    /// Returns all resolution variants.
+    pub const fn all() -> [ModelResolution; 3] {
+        [
+            ModelResolution::Low,
+            ModelResolution::Medium,
+            ModelResolution::High,
+        ]
+    }
+
+    /// Returns display name for UI.
+    pub const fn display_name(&self) -> &'static str {
+        match *self {
+            ModelResolution::Low => "Low (8³)",
+            ModelResolution::Medium => "Medium (16³)",
+            ModelResolution::High => "High (32³)",
+        }
+    }
+}
+
+// =============================================================================
+// LEGACY CONSTANTS (for compatibility during transition)
+// =============================================================================
+// These constants use Medium resolution (16³) as the default.
+// New code should use ModelResolution methods instead.
+
+/// Default resolution of sub-voxel models (backward compatibility).
 pub const SUB_VOXEL_SIZE: usize = 16;
 
-/// Total voxels per model (N³).
+/// Total voxels per model at default resolution (backward compatibility).
 pub const SUB_VOXEL_VOLUME: usize = SUB_VOXEL_SIZE * SUB_VOXEL_SIZE * SUB_VOXEL_SIZE;
 
-/// Center coordinate of the model grid (for mirroring, rotation, etc).
+/// Center coordinate at default resolution (backward compatibility).
 pub const SUB_VOXEL_CENTER: usize = SUB_VOXEL_SIZE / 2;
 
-/// Maximum valid coordinate index (SIZE - 1).
+/// Maximum valid coordinate at default resolution (backward compatibility).
 pub const SUB_VOXEL_MAX: usize = SUB_VOXEL_SIZE - 1;
 
-/// Center coordinate as f32 (for ray calculations).
+/// Center as f32 at default resolution (backward compatibility).
 pub const SUB_VOXEL_CENTER_F32: f32 = SUB_VOXEL_SIZE as f32 / 2.0;
 
-/// Grid bounds with epsilon for ray intersection (SIZE + small epsilon).
+/// Grid bounds at default resolution (backward compatibility).
 pub const SUB_VOXEL_BOUNDS_F32: f32 = SUB_VOXEL_SIZE as f32 + 0.001;
 
 /// Maximum unique models in registry.
 pub const MAX_MODELS: usize = 256;
 
-/// Colors per model palette.
-pub const PALETTE_SIZE: usize = 16;
+/// Colors per model palette (expanded from 16 to 32 for more variety).
+pub const PALETTE_SIZE: usize = 32;
+
+/// Number of atlas tiers (Low, Medium, High).
+pub const NUM_RESOLUTION_TIERS: usize = 3;
 
 /// First model ID available for custom/user models.
 /// Built-in models use IDs 0-98:
@@ -104,7 +226,7 @@ impl Color {
 }
 
 /// How a model blocks light.
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 pub enum LightBlocking {
     /// Doesn't block light (air-like).
     #[default]
@@ -113,6 +235,117 @@ pub enum LightBlocking {
     Partial,
     /// Fully blocks light (solid).
     Full,
+}
+
+/// Light animation modes for emissive models.
+///
+/// These modes control how the light intensity varies over time.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum LightMode {
+    /// Constant brightness (no animation).
+    #[default]
+    Steady = 0,
+    /// Smooth sine wave oscillation (gentle pulsing).
+    Pulse = 1,
+    /// Random noise-based flickering (fire/torch-like).
+    Flicker = 2,
+    /// Slower, more subtle flickering (candle-like).
+    Candle = 3,
+    /// Fast on/off blinking.
+    Strobe = 4,
+    /// Very slow pulse (like breathing).
+    Breathe = 5,
+    /// Occasional random bright flashes (sparkle effect).
+    Sparkle = 6,
+    /// Position-based wave pattern (for synchronized light chains).
+    Wave = 7,
+    /// Gradual warm-up then steady (like incandescent bulb).
+    WarmUp = 8,
+    /// Electrical arc/welding effect (irregular bright bursts).
+    Arc = 9,
+}
+
+impl LightMode {
+    /// Returns all available light modes.
+    pub const fn all() -> [LightMode; 10] {
+        [
+            LightMode::Steady,
+            LightMode::Pulse,
+            LightMode::Flicker,
+            LightMode::Candle,
+            LightMode::Strobe,
+            LightMode::Breathe,
+            LightMode::Sparkle,
+            LightMode::Wave,
+            LightMode::WarmUp,
+            LightMode::Arc,
+        ]
+    }
+
+    /// Returns display name for UI.
+    pub const fn display_name(&self) -> &'static str {
+        match *self {
+            LightMode::Steady => "Steady",
+            LightMode::Pulse => "Pulse",
+            LightMode::Flicker => "Flicker",
+            LightMode::Candle => "Candle",
+            LightMode::Strobe => "Strobe",
+            LightMode::Breathe => "Breathe",
+            LightMode::Sparkle => "Sparkle",
+            LightMode::Wave => "Wave",
+            LightMode::WarmUp => "Warm Up",
+            LightMode::Arc => "Arc",
+        }
+    }
+
+    /// Returns a brief description for tooltips.
+    pub const fn description(&self) -> &'static str {
+        match *self {
+            LightMode::Steady => "Constant brightness",
+            LightMode::Pulse => "Smooth sine wave pulsing",
+            LightMode::Flicker => "Fire/torch-like random flickering",
+            LightMode::Candle => "Subtle candle-like flickering",
+            LightMode::Strobe => "Fast on/off blinking",
+            LightMode::Breathe => "Very slow, gentle pulsing",
+            LightMode::Sparkle => "Occasional random bright flashes",
+            LightMode::Wave => "Synchronized wave pattern",
+            LightMode::WarmUp => "Gradual warm-up then steady",
+            LightMode::Arc => "Electrical arc/welding effect",
+        }
+    }
+
+    /// Returns the animation speed multiplier for this mode.
+    pub const fn speed(&self) -> f32 {
+        match *self {
+            LightMode::Steady => 0.0,
+            LightMode::Pulse => 2.0,
+            LightMode::Flicker => 10.0,
+            LightMode::Candle => 4.0,
+            LightMode::Strobe => 15.0,
+            LightMode::Breathe => 0.5,
+            LightMode::Sparkle => 8.0,
+            LightMode::Wave => 1.0,
+            LightMode::WarmUp => 0.3,
+            LightMode::Arc => 20.0,
+        }
+    }
+
+    /// Returns the intensity range (min, max) for this mode.
+    pub const fn intensity_range(&self) -> (f32, f32) {
+        match *self {
+            LightMode::Steady => (1.0, 1.0),
+            LightMode::Pulse => (0.5, 1.0),
+            LightMode::Flicker => (0.3, 1.0),
+            LightMode::Candle => (0.6, 1.0),
+            LightMode::Strobe => (0.0, 1.0),
+            LightMode::Breathe => (0.4, 1.0),
+            LightMode::Sparkle => (0.7, 1.5), // Can flash brighter
+            LightMode::Wave => (0.3, 1.0),
+            LightMode::WarmUp => (0.0, 1.0),
+            LightMode::Arc => (0.2, 2.0), // Very bright bursts
+        }
+    }
 }
 
 /// Shape variants for stair models.
@@ -127,9 +360,9 @@ pub enum StairShape {
 
 /// A single sub-voxel model definition.
 ///
-/// Models are SUB_VOXEL_SIZE³ voxel grids where each voxel is a palette index (0 = air).
-/// The 16-color palette allows for efficient storage while providing enough
-/// variety for detailed models.
+/// Models are N×N×N voxel grids (where N is determined by resolution) and each
+/// voxel is a palette index (0 = air). The 32-color palette with per-slot
+/// emission allows for rich visual variety including glowing elements.
 #[derive(Debug, Clone)]
 pub struct SubVoxelModel {
     /// Model ID (assigned by registry).
@@ -138,16 +371,26 @@ pub struct SubVoxelModel {
     /// Human-readable name for debugging and editor.
     pub name: String,
 
-    /// SUB_VOXEL_SIZE³ voxel grid as palette indices (0 = air/transparent).
-    /// Index = x + y * SUB_VOXEL_SIZE + z * SUB_VOXEL_SIZE².
-    pub voxels: [u8; SUB_VOXEL_VOLUME],
+    /// Model resolution (8³, 16³, or 32³).
+    pub resolution: ModelResolution,
 
-    /// 16-color palette for this model.
+    /// N³ voxel grid as palette indices (0 = air/transparent).
+    /// Index = x + y * N + z * N² where N = resolution.size().
+    /// Length is always resolution.volume().
+    pub voxels: Vec<u8>,
+
+    /// 32-color RGBA palette for this model.
     /// Index 0 is always transparent (air).
+    /// Alpha channel controls transparency (0=fully transparent, 255=opaque).
     pub palette: [Color; PALETTE_SIZE],
 
+    /// Per-palette-slot emission intensity (0.0 = no glow, 1.0 = full emission).
+    /// Allows individual palette colors to emit light (e.g., torch flames, glowing crystals).
+    /// Index 0 is always 0.0 (air doesn't emit).
+    pub palette_emission: [f32; PALETTE_SIZE],
+
     /// 4×4×4 collision bitmask (64 bits).
-    /// Each bit represents a 2×2×2 region of the model.
+    /// Each bit represents an (N/4)³ region of the model.
     /// Bit index = cx + cy * 4 + cz * 16 where cx,cy,cz in 0..4.
     pub collision_mask: u64,
 
@@ -157,8 +400,24 @@ pub struct SubVoxelModel {
     /// Whether this model can be rotated (90° increments around Y).
     pub rotatable: bool,
 
-    /// Light emission color (None = doesn't emit light).
+    /// Overall model emission color (legacy, for simple emissive models).
+    /// For per-voxel emission, use palette_emission instead.
     pub emission: Option<Color>,
+
+    /// Whether this model acts as a point light source.
+    /// When enabled, the model emits light into the surrounding area.
+    pub is_light_source: bool,
+
+    /// Light animation mode (only used when is_light_source is true).
+    pub light_mode: LightMode,
+
+    /// Light radius in blocks (how far the light reaches).
+    /// Default is 8.0 blocks. Range: 1.0 - 32.0.
+    pub light_radius: f32,
+
+    /// Light intensity multiplier (0.0 - 2.0).
+    /// Default is 1.0. Values > 1.0 create brighter lights.
+    pub light_intensity: f32,
 
     /// Whether this model requires ground support (breaks if block below is removed).
     pub requires_ground_support: bool,
@@ -166,45 +425,136 @@ pub struct SubVoxelModel {
 
 impl Default for SubVoxelModel {
     fn default() -> Self {
+        Self::with_resolution(ModelResolution::Medium)
+    }
+}
+
+impl SubVoxelModel {
+    /// Creates a new empty model with default (Medium) resolution.
+    pub fn new(name: &str) -> Self {
+        Self::with_resolution_and_name(ModelResolution::Medium, name)
+    }
+
+    /// Creates a new empty model with the specified resolution.
+    pub fn with_resolution(resolution: ModelResolution) -> Self {
         let mut palette = [Color::transparent(); PALETTE_SIZE];
         palette[0] = Color::transparent(); // Index 0 is always air
 
         Self {
             id: 0,
             name: String::new(),
-            voxels: [0; SUB_VOXEL_VOLUME],
+            resolution,
+            voxels: vec![0; resolution.volume()],
             palette,
+            palette_emission: [0.0; PALETTE_SIZE], // No emission by default
             collision_mask: 0,
             light_blocking: LightBlocking::None,
             rotatable: false,
             emission: None,
+            is_light_source: false,
+            light_mode: LightMode::Steady,
+            light_radius: 8.0,
+            light_intensity: 1.0,
             requires_ground_support: false,
         }
     }
-}
 
-impl SubVoxelModel {
-    /// Creates a new empty model with the given name.
-    pub fn new(name: &str) -> Self {
-        Self {
-            name: name.to_string(),
-            ..Default::default()
+    /// Sets the emission intensity for a palette slot.
+    /// Emission makes the color glow and emit light (0.0 = none, 1.0 = full).
+    pub fn set_palette_emission(&mut self, palette_idx: usize, emission: f32) {
+        if palette_idx < PALETTE_SIZE {
+            self.palette_emission[palette_idx] = emission.clamp(0.0, 1.0);
         }
+    }
+
+    /// Gets the emission intensity for a palette slot.
+    pub fn get_palette_emission(&self, palette_idx: usize) -> f32 {
+        if palette_idx < PALETTE_SIZE {
+            self.palette_emission[palette_idx]
+        } else {
+            0.0
+        }
+    }
+
+    /// Configures this model as a light source.
+    pub fn set_light_source(
+        &mut self,
+        enabled: bool,
+        mode: LightMode,
+        radius: f32,
+        intensity: f32,
+    ) {
+        self.is_light_source = enabled;
+        self.light_mode = mode;
+        self.light_radius = radius.clamp(1.0, 32.0);
+        self.light_intensity = intensity.clamp(0.0, 2.0);
+    }
+
+    /// Enables this model as a simple steady light source.
+    pub fn enable_light(&mut self, radius: f32, intensity: f32) {
+        self.set_light_source(true, LightMode::Steady, radius, intensity);
+    }
+
+    /// Enables this model as a flickering light source (torch/fire-like).
+    pub fn enable_flickering_light(&mut self, radius: f32, intensity: f32) {
+        self.set_light_source(true, LightMode::Flicker, radius, intensity);
+    }
+
+    /// Returns true if this model has any emissive palette entries.
+    pub fn has_palette_emission(&self) -> bool {
+        self.palette_emission.iter().any(|&e| e > 0.0)
+    }
+
+    /// Returns the dominant emission color from the palette.
+    /// Used for light source color when is_light_source is enabled.
+    pub fn dominant_emission_color(&self) -> Option<Color> {
+        let mut max_emission = 0.0f32;
+        let mut dominant_idx = None;
+
+        for (idx, &emission) in self.palette_emission.iter().enumerate() {
+            if emission > max_emission && self.palette[idx].a > 0 {
+                max_emission = emission;
+                dominant_idx = Some(idx);
+            }
+        }
+
+        dominant_idx.map(|idx| self.palette[idx])
+    }
+
+    /// Creates a new empty model with the specified resolution and name.
+    pub fn with_resolution_and_name(resolution: ModelResolution, name: &str) -> Self {
+        let mut model = Self::with_resolution(resolution);
+        model.name = name.to_string();
+        model
+    }
+
+    /// Returns the size (N) of this model's voxel grid.
+    #[inline]
+    pub fn size(&self) -> usize {
+        self.resolution.size()
+    }
+
+    /// Returns the total number of voxels in this model.
+    #[inline]
+    pub fn volume(&self) -> usize {
+        self.resolution.volume()
     }
 
     /// Gets voxel palette index at (x, y, z).
     #[inline]
     pub fn get_voxel(&self, x: usize, y: usize, z: usize) -> u8 {
-        debug_assert!(x < SUB_VOXEL_SIZE && y < SUB_VOXEL_SIZE && z < SUB_VOXEL_SIZE);
-        self.voxels[x + y * SUB_VOXEL_SIZE + z * SUB_VOXEL_SIZE * SUB_VOXEL_SIZE]
+        let size = self.size();
+        debug_assert!(x < size && y < size && z < size);
+        self.voxels[x + y * size + z * size * size]
     }
 
     /// Sets voxel palette index at (x, y, z).
     #[inline]
     pub fn set_voxel(&mut self, x: usize, y: usize, z: usize, palette_idx: u8) {
-        debug_assert!(x < SUB_VOXEL_SIZE && y < SUB_VOXEL_SIZE && z < SUB_VOXEL_SIZE);
+        let size = self.size();
+        debug_assert!(x < size && y < size && z < size);
         debug_assert!((palette_idx as usize) < PALETTE_SIZE);
-        self.voxels[x + y * SUB_VOXEL_SIZE + z * SUB_VOXEL_SIZE * SUB_VOXEL_SIZE] = palette_idx;
+        self.voxels[x + y * size + z * size * size] = palette_idx;
     }
 
     /// Fills a box region with a palette index.
@@ -219,9 +569,10 @@ impl SubVoxelModel {
         z1: usize,
         palette_idx: u8,
     ) {
-        for z in z0..=z1.min(SUB_VOXEL_SIZE - 1) {
-            for y in y0..=y1.min(SUB_VOXEL_SIZE - 1) {
-                for x in x0..=x1.min(SUB_VOXEL_SIZE - 1) {
+        let max_idx = self.resolution.max_idx();
+        for z in z0..=z1.min(max_idx) {
+            for y in y0..=y1.min(max_idx) {
+                for x in x0..=x1.min(max_idx) {
                     self.set_voxel(x, y, z, palette_idx);
                 }
             }
@@ -230,24 +581,24 @@ impl SubVoxelModel {
 
     /// Computes the 4×4×4 collision mask from the voxel data.
     ///
-    /// Each bit in the 64-bit mask represents a (SUB_VOXEL_SIZE/4)³ region.
+    /// Each bit in the 64-bit mask represents a (N/4)³ region where N is the resolution.
     /// A bit is set if ANY voxel in that region is solid (non-zero).
     pub fn compute_collision_mask(&mut self) {
         self.collision_mask = 0;
-        const CELL_SIZE: usize = SUB_VOXEL_SIZE / 4;
+        let cell_size = self.size() / 4;
 
         for cz in 0..4 {
             for cy in 0..4 {
                 for cx in 0..4 {
                     let mut has_solid = false;
 
-                    // Check CELL_SIZE³ region
-                    'region: for dz in 0..CELL_SIZE {
-                        for dy in 0..CELL_SIZE {
-                            for dx in 0..CELL_SIZE {
-                                let vx = cx * CELL_SIZE + dx;
-                                let vy = cy * CELL_SIZE + dy;
-                                let vz = cz * CELL_SIZE + dz;
+                    // Check cell_size³ region
+                    'region: for dz in 0..cell_size {
+                        for dy in 0..cell_size {
+                            for dx in 0..cell_size {
+                                let vx = cx * cell_size + dx;
+                                let vy = cy * cell_size + dy;
+                                let vz = cz * cell_size + dz;
 
                                 if self.get_voxel(vx, vy, vz) != 0 {
                                     has_solid = true;
@@ -297,34 +648,25 @@ impl SubVoxelModel {
         dir: Vector3<f32>,
         rotation: u8,
     ) -> Option<(f32, Vector3<i32>)> {
-        const CENTER: i32 = (SUB_VOXEL_SIZE / 2) as i32;
-        const SIZE: i32 = SUB_VOXEL_SIZE as i32;
-        const SIZE_F: f32 = SUB_VOXEL_SIZE as f32;
-        const MAX_STEPS: usize = SUB_VOXEL_SIZE * 3;
+        let center = self.resolution.center() as i32;
+        let size = self.size() as i32;
+        let size_f = self.size() as f32;
+        let max_steps = self.resolution.max_steps();
 
-        fn rotate_pos(pos: Vector3<i32>, rotation: u8) -> Vector3<i32> {
-            let px = pos.x - CENTER;
-            let pz = pos.z - CENTER;
-            match rotation & 3 {
-                1 => Vector3::new(CENTER - pz - 1, pos.y, CENTER + px),
-                2 => Vector3::new(CENTER - px - 1, pos.y, CENTER - pz - 1),
-                3 => Vector3::new(CENTER + pz, pos.y, CENTER - px - 1),
+        // Helper closure for rotation (captures center)
+        let rotate_pos = |pos: Vector3<i32>, rot: u8| -> Vector3<i32> {
+            let px = pos.x - center;
+            let pz = pos.z - center;
+            match rot & 3 {
+                1 => Vector3::new(center - pz - 1, pos.y, center + px),
+                2 => Vector3::new(center - px - 1, pos.y, center - pz - 1),
+                3 => Vector3::new(center + pz, pos.y, center - px - 1),
                 _ => pos,
             }
-        }
+        };
 
-        #[allow(dead_code)]
-        fn inverse_rotate_normal(n: Vector3<i32>, rotation: u8) -> Vector3<i32> {
-            match rotation & 3 {
-                1 => Vector3::new(-n.z, n.y, n.x),
-                2 => Vector3::new(-n.x, n.y, -n.z),
-                3 => Vector3::new(n.z, n.y, -n.x),
-                _ => n,
-            }
-        }
-
-        // Scale to sub-voxel coordinates (0 to SUB_VOXEL_SIZE)
-        let pos = origin * SIZE_F;
+        // Scale to sub-voxel coordinates (0 to size)
+        let pos = origin * size_f;
 
         // Avoid division by zero
         let safe_dir = Vector3::new(
@@ -348,7 +690,7 @@ impl SubVoxelModel {
 
         // Calculate entry/exit t for the model cube
         let t_min_v = (Vector3::new(-0.001, -0.001, -0.001) - pos).component_mul(&inv_dir);
-        let t_max_v = (Vector3::new(SIZE_F + 0.001, SIZE_F + 0.001, SIZE_F + 0.001) - pos)
+        let t_max_v = (Vector3::new(size_f + 0.001, size_f + 0.001, size_f + 0.001) - pos)
             .component_mul(&inv_dir);
 
         let t1 = Vector3::new(
@@ -380,7 +722,7 @@ impl SubVoxelModel {
         let start_t = t_near.max(0.0);
         let mut current_pos = pos + safe_dir * start_t;
         current_pos += safe_dir * 0.001; // nudge
-        current_pos = current_pos.map(|v| v.clamp(0.001, SIZE_F - 0.001));
+        current_pos = current_pos.map(|v| v.clamp(0.001, size_f - 0.001));
 
         let mut voxel = Vector3::new(
             current_pos.x.floor() as i32,
@@ -416,13 +758,13 @@ impl SubVoxelModel {
 
         let mut stepped_axis = entry_axis;
 
-        for i in 0..MAX_STEPS {
+        for i in 0..max_steps {
             if voxel.x < 0
-                || voxel.x >= SIZE
+                || voxel.x >= size
                 || voxel.y < 0
-                || voxel.y >= SIZE
+                || voxel.y >= size
                 || voxel.z < 0
-                || voxel.z >= SIZE
+                || voxel.z >= size
             {
                 break;
             }
@@ -438,7 +780,7 @@ impl SubVoxelModel {
                 } else {
                     t_max[stepped_axis] - t_delta[stepped_axis]
                 };
-                let t = (start_t + voxel_dist) / SIZE_F;
+                let t = (start_t + voxel_dist) / size_f;
                 return Some((t, normal));
             }
 
@@ -466,11 +808,32 @@ impl SubVoxelModel {
         None
     }
 
-    /// Packs palette for GPU upload (64 bytes = 16 × RGBA).
+    /// Packs palette colors for GPU upload (128 bytes = 32 × RGBA).
     pub fn pack_palette(&self) -> Vec<u8> {
         let mut data = Vec::with_capacity(PALETTE_SIZE * 4);
         for color in &self.palette {
             data.extend_from_slice(&color.to_array());
+        }
+        data
+    }
+
+    /// Packs palette emission values for GPU upload (32 floats = 128 bytes).
+    pub fn pack_palette_emission(&self) -> Vec<u8> {
+        let mut data = Vec::with_capacity(PALETTE_SIZE * 4);
+        for &emission in &self.palette_emission {
+            data.extend_from_slice(&emission.to_le_bytes());
+        }
+        data
+    }
+
+    /// Packs combined palette data for GPU upload (RGBA + emission per slot).
+    /// Format: 32 entries × 5 bytes (R, G, B, A, emission_u8)
+    pub fn pack_palette_combined(&self) -> Vec<u8> {
+        let mut data = Vec::with_capacity(PALETTE_SIZE * 5);
+        for (color, &emission) in self.palette.iter().zip(self.palette_emission.iter()) {
+            data.extend_from_slice(&color.to_array());
+            // Pack emission as u8 (0-255, scaled from 0.0-1.0)
+            data.push((emission * 255.0) as u8);
         }
         data
     }
@@ -480,6 +843,7 @@ impl SubVoxelModel {
 ///
 /// Models are registered at startup and referenced by ID in block metadata.
 /// The registry provides efficient GPU data packing for shader access.
+/// Supports three resolution tiers (Low/8³, Medium/16³, High/32³).
 pub struct ModelRegistry {
     /// All registered models (index = model_id).
     models: Vec<SubVoxelModel>,
@@ -487,8 +851,12 @@ pub struct ModelRegistry {
     /// Lookup by name for editor/tools.
     name_to_id: HashMap<String, u8>,
 
-    /// Whether GPU buffers need update.
+    /// Whether GPU buffers need update (general flag).
     gpu_dirty: bool,
+
+    /// Per-tier dirty flags [Low, Medium, High].
+    /// Each tier's atlas is updated independently for efficiency.
+    tier_dirty: [bool; NUM_RESOLUTION_TIERS],
 }
 
 impl Default for ModelRegistry {
@@ -504,6 +872,7 @@ impl ModelRegistry {
             models: Vec::with_capacity(MAX_MODELS),
             name_to_id: HashMap::new(),
             gpu_dirty: true,
+            tier_dirty: [true; NUM_RESOLUTION_TIERS], // All tiers need initial upload
         };
 
         // Register built-in models
@@ -978,9 +1347,11 @@ impl ModelRegistry {
     pub fn register(&mut self, mut model: SubVoxelModel) -> u8 {
         let id = self.models.len() as u8;
         model.id = id;
+        let tier = model.resolution.tier();
         self.name_to_id.insert(model.name.clone(), id);
         self.models.push(model);
         self.gpu_dirty = true;
+        self.tier_dirty[tier] = true;
         id
     }
 
@@ -1041,8 +1412,10 @@ impl ModelRegistry {
             // Update existing model
             let mut updated = model;
             updated.id = existing_id;
+            let tier = updated.resolution.tier();
             self.models[existing_id as usize] = updated;
             self.gpu_dirty = true;
+            self.tier_dirty[tier] = true;
             existing_id
         } else {
             // Register as new
@@ -1085,34 +1458,119 @@ impl ModelRegistry {
         self.gpu_dirty
     }
 
+    /// Returns true if a specific tier needs GPU update.
+    pub fn is_tier_dirty(&self, tier: usize) -> bool {
+        tier < NUM_RESOLUTION_TIERS && self.tier_dirty[tier]
+    }
+
+    /// Returns true if any tier needs GPU update.
+    pub fn is_any_tier_dirty(&self) -> bool {
+        self.tier_dirty.iter().any(|&d| d)
+    }
+
     /// Clears the GPU dirty flag.
     pub fn clear_gpu_dirty(&mut self) {
         self.gpu_dirty = false;
     }
 
-    /// Packs all model voxel data for GPU upload as a 3D texture.
+    /// Clears a specific tier's dirty flag.
+    pub fn clear_tier_dirty(&mut self, tier: usize) {
+        if tier < NUM_RESOLUTION_TIERS {
+            self.tier_dirty[tier] = false;
+        }
+    }
+
+    /// Clears all tier dirty flags.
+    pub fn clear_all_tier_dirty(&mut self) {
+        self.tier_dirty = [false; NUM_RESOLUTION_TIERS];
+    }
+
+    /// Packs voxel data for a specific resolution tier.
     ///
-    /// Models are arranged in a 16×16 grid, each occupying an N×N×N region where N = SUB_VOXEL_SIZE.
-    /// Atlas dimensions: (16 * N) × N × (16 * N) = 256 * N³ bytes total.
+    /// Models are arranged in a 16×16 grid (256 models max per tier).
+    /// Atlas dimensions: (16 * res) × res × (16 * res) where res = 8, 16, or 32.
+    pub fn pack_voxels_for_tier(&self, tier: usize) -> Vec<u8> {
+        let res = match tier {
+            0 => 8,  // Low resolution
+            1 => 16, // Medium resolution
+            2 => 32, // High resolution
+            _ => 16, // Default to medium
+        };
+
+        let atlas_width = 16 * res;
+        let atlas_height = res;
+        let atlas_depth = 16 * res;
+        let mut data = vec![0u8; atlas_width * atlas_height * atlas_depth];
+
+        for (model_id, model) in self.models.iter().enumerate() {
+            // Only pack models that match this tier's resolution
+            if model.resolution.tier() != tier {
+                continue;
+            }
+
+            let model_res = model.resolution.size();
+            // Model position in the 16×16 grid
+            let model_x = model_id % 16;
+            let model_z = model_id / 16;
+
+            // Copy each voxel to the correct position in the atlas
+            for lz in 0..model_res {
+                for ly in 0..model_res {
+                    for lx in 0..model_res {
+                        let src_idx = lx + ly * model_res + lz * model_res * model_res;
+                        let voxel = if src_idx < model.voxels.len() {
+                            model.voxels[src_idx]
+                        } else {
+                            0
+                        };
+
+                        let atlas_x = model_x * res + lx;
+                        let atlas_y = ly;
+                        let atlas_z = model_z * res + lz;
+                        let dst_idx =
+                            atlas_x + atlas_y * atlas_width + atlas_z * atlas_width * atlas_height;
+
+                        if dst_idx < data.len() {
+                            data[dst_idx] = voxel;
+                        }
+                    }
+                }
+            }
+        }
+
+        data
+    }
+
+    /// Legacy function - packs all models to medium resolution atlas for backward compatibility.
+    /// Prefer using `pack_voxels_for_tier()` for multi-resolution support.
     pub fn pack_voxels_for_gpu(&self) -> Vec<u8> {
-        // Atlas dimensions derived from SUB_VOXEL_SIZE
+        // For backward compatibility, pack all models into a single medium-res atlas
+        // Models with different resolutions will be resampled
         const ATLAS_WIDTH: usize = 16 * SUB_VOXEL_SIZE;
         const ATLAS_HEIGHT: usize = SUB_VOXEL_SIZE;
         const ATLAS_DEPTH: usize = 16 * SUB_VOXEL_SIZE;
         let mut data = vec![0u8; ATLAS_WIDTH * ATLAS_HEIGHT * ATLAS_DEPTH];
 
         for (model_id, model) in self.models.iter().enumerate() {
-            // Model position in the 16×16 grid
             let model_x = model_id % 16;
             let model_z = model_id / 16;
+            let model_res = model.resolution.size();
 
-            // Copy each voxel to the correct position in the atlas
-            for lz in 0..SUB_VOXEL_SIZE {
-                for ly in 0..SUB_VOXEL_SIZE {
+            // Copy voxels with scaling if necessary
+            for ly in 0..SUB_VOXEL_SIZE {
+                for lz in 0..SUB_VOXEL_SIZE {
                     for lx in 0..SUB_VOXEL_SIZE {
-                        let src_idx =
-                            lx + ly * SUB_VOXEL_SIZE + lz * SUB_VOXEL_SIZE * SUB_VOXEL_SIZE;
-                        let voxel = model.voxels[src_idx];
+                        // Scale coordinates based on model resolution
+                        let src_x = lx * model_res / SUB_VOXEL_SIZE;
+                        let src_y = ly * model_res / SUB_VOXEL_SIZE;
+                        let src_z = lz * model_res / SUB_VOXEL_SIZE;
+                        let src_idx = src_x + src_y * model_res + src_z * model_res * model_res;
+
+                        let voxel = if src_idx < model.voxels.len() {
+                            model.voxels[src_idx]
+                        } else {
+                            0
+                        };
 
                         let atlas_x = model_x * SUB_VOXEL_SIZE + lx;
                         let atlas_y = ly;
@@ -1131,12 +1589,12 @@ impl ModelRegistry {
 
     /// Packs all model palettes for GPU upload as a 2D texture.
     ///
-    /// The texture layout is 256×16 (model_id × palette_idx).
+    /// The texture layout is 256×32 (model_id × palette_idx).
     /// Buffer index formula: (model_id + palette_idx * 256) * 4 bytes
     pub fn pack_palettes_for_gpu(&self) -> Vec<u8> {
-        // Texture dimensions: 256 width (model_id) × 16 height (palette_idx)
+        // Texture dimensions: 256 width (model_id) × 32 height (palette_idx)
         const TEX_WIDTH: usize = MAX_MODELS; // 256
-        const TEX_HEIGHT: usize = PALETTE_SIZE; // 16
+        const TEX_HEIGHT: usize = PALETTE_SIZE; // 32
         let mut data = vec![0u8; TEX_WIDTH * TEX_HEIGHT * 4];
 
         for (model_id, model) in self.models.iter().enumerate() {
@@ -1154,33 +1612,33 @@ impl ModelRegistry {
     ///
     /// Layout per model (48 bytes) matching GLSL std430:
     /// - collision_mask: u64 (8 bytes)
-    /// - padding: 8 bytes (aligns next vec4 to 16 bytes)
+    /// - aabb_min: u32 (4 bytes) - packed xyz
+    /// - aabb_max: u32 (4 bytes) - packed xyz
     /// - emission: vec4 (16 bytes) - RGB + intensity
-    /// - flags: u32 (4 bytes) - rotatable, light_blocking
-    /// - padding: 12 bytes (aligns struct to 16 bytes)
+    /// - flags: u32 (4 bytes) - rotatable, light_blocking, light_source, light_mode
+    /// - resolution: u32 (4 bytes) - 8, 16, or 32
+    /// - light_radius: f32 (4 bytes)
+    /// - light_intensity: f32 (4 bytes)
     pub fn pack_properties_for_gpu(&self) -> Vec<u8> {
         const PROPS_SIZE: usize = 48;
         let mut data = vec![0u8; MAX_MODELS * PROPS_SIZE];
 
         for (i, model) in self.models.iter().enumerate() {
             let offset = i * PROPS_SIZE;
+            let res = model.resolution.size();
 
             // Collision mask (8 bytes) at offset 0
             data[offset..offset + 8].copy_from_slice(&model.collision_mask.to_le_bytes());
 
-            // Compute Fine AABB
-            let mut min = [
-                SUB_VOXEL_SIZE as u8,
-                SUB_VOXEL_SIZE as u8,
-                SUB_VOXEL_SIZE as u8,
-            ];
+            // Compute Fine AABB using model's actual resolution
+            let mut min = [res as u8, res as u8, res as u8];
             let mut max = [0u8, 0, 0];
             // Iterate all voxels to find bounds
             for (idx, &voxel) in model.voxels.iter().enumerate() {
                 if voxel != 0 {
-                    let x = (idx % SUB_VOXEL_SIZE) as u8;
-                    let y = ((idx / SUB_VOXEL_SIZE) % SUB_VOXEL_SIZE) as u8;
-                    let z = (idx / (SUB_VOXEL_SIZE * SUB_VOXEL_SIZE)) as u8;
+                    let x = (idx % res) as u8;
+                    let y = ((idx / res) % res) as u8;
+                    let z = (idx / (res * res)) as u8;
 
                     if x < min[0] {
                         min[0] = x;
@@ -1214,7 +1672,7 @@ impl ModelRegistry {
             let aabb_max_packed =
                 (max[0] as u32) | ((max[1] as u32) << 8) | ((max[2] as u32) << 16);
 
-            // Store AABB in padding at offset 8
+            // Store AABB at offset 8
             data[offset + 8..offset + 12].copy_from_slice(&aabb_min_packed.to_le_bytes());
             data[offset + 12..offset + 16].copy_from_slice(&aabb_max_packed.to_le_bytes());
 
@@ -1223,7 +1681,7 @@ impl ModelRegistry {
                 let r = emission.r as f32 / 255.0;
                 let g = emission.g as f32 / 255.0;
                 let b = emission.b as f32 / 255.0;
-                let intensity = 1.0f32;
+                let intensity = model.light_intensity;
 
                 data[offset + 16..offset + 20].copy_from_slice(&r.to_le_bytes());
                 data[offset + 20..offset + 24].copy_from_slice(&g.to_le_bytes());
@@ -1232,6 +1690,7 @@ impl ModelRegistry {
             }
 
             // Flags (4 bytes) at offset 32
+            // Bits 0: rotatable, 1-2: light_blocking, 3: is_light_source, 4-7: light_mode
             let mut flags: u32 = 0;
             if model.rotatable {
                 flags |= 1;
@@ -1241,9 +1700,20 @@ impl ModelRegistry {
                 LightBlocking::Partial => 2,
                 LightBlocking::Full => 4,
             };
+            if model.is_light_source {
+                flags |= 8; // bit 3
+            }
+            flags |= (model.light_mode as u32) << 4; // bits 4-7
             data[offset + 32..offset + 36].copy_from_slice(&flags.to_le_bytes());
 
-            // Padding (12 bytes) at offset 36 - already zeros
+            // Resolution (4 bytes) at offset 36
+            data[offset + 36..offset + 40].copy_from_slice(&(res as u32).to_le_bytes());
+
+            // Light radius (4 bytes) at offset 40
+            data[offset + 40..offset + 44].copy_from_slice(&model.light_radius.to_le_bytes());
+
+            // Light intensity (4 bytes) at offset 44 - separate from emission intensity
+            data[offset + 44..offset + 48].copy_from_slice(&model.light_intensity.to_le_bytes());
         }
 
         data
@@ -1339,7 +1809,7 @@ mod tests {
         assert_eq!(model.collision_mask, u64::MAX);
 
         // Clear model
-        model.voxels = [0; SUB_VOXEL_VOLUME];
+        model.voxels = vec![0; model.resolution.volume()];
         model.compute_collision_mask();
         assert_eq!(model.collision_mask, 0);
     }
@@ -1368,12 +1838,13 @@ mod tests {
         assert_eq!(torch.name, "torch");
         assert!(torch.emission.is_some());
         assert!(!torch.rotatable);
+        assert_eq!(torch.resolution, ModelResolution::Low);
 
-        // Check stick exists (design coord 3,0,3 scaled 2x -> 6,0,6)
-        assert_ne!(torch.get_voxel(6, 0, 6), 0);
+        // Check stick exists at design coord (3,0,3) - native 8³
+        assert_ne!(torch.get_voxel(3, 0, 3), 0);
 
-        // Check flame exists (design coord 3,6,3 scaled 2x -> 6,12,6)
-        assert_ne!(torch.get_voxel(6, 12, 6), 0);
+        // Check flame exists at design coord (3,6,3) - native 8³
+        assert_ne!(torch.get_voxel(3, 6, 3), 0);
     }
 
     #[test]
@@ -1382,13 +1853,16 @@ mod tests {
         let bottom = create_slab_bottom();
         let top = create_slab_top();
 
-        // Bottom slab: filled y=0-7 (design 0-3 scaled 2x), empty y=8-15
-        assert_ne!(bottom.get_voxel(0, 0, 0), 0);
-        assert_eq!(bottom.get_voxel(0, 8, 0), 0);
+        assert_eq!(bottom.resolution, ModelResolution::Low);
+        assert_eq!(top.resolution, ModelResolution::Low);
 
-        // Top slab: empty y=0-7, filled y=8-15 (design 4-7 scaled 2x)
+        // Bottom slab: filled y=0-3, empty y=4-7 (native 8³)
+        assert_ne!(bottom.get_voxel(0, 0, 0), 0);
+        assert_eq!(bottom.get_voxel(0, 4, 0), 0);
+
+        // Top slab: empty y=0-3, filled y=4-7 (native 8³)
         assert_eq!(top.get_voxel(0, 0, 0), 0);
-        assert_ne!(top.get_voxel(0, 8, 0), 0);
+        assert_ne!(top.get_voxel(0, 4, 0), 0);
     }
 
     #[test]

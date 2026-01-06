@@ -6,25 +6,28 @@ A GPU-accelerated voxel sandbox using Vulkan compute shaders for real-time ray m
 
 ### Rendering
 - **Vulkan Compute Shader Rendering** - Ray marching through voxel data entirely on GPU
-- **Sub-Voxel Model System** - 8³ resolution models for detailed blocks (torches, fences, gates, ladders)
+- **Sub-Voxel Model System** - 16³ resolution models for detailed blocks (torches, fences, gates, ladders, doors, crystals)
   - Model registry pattern: reusable models stored once, referenced by blocks
   - Per-model 16-color palettes with emission support
   - 4³ collision masks for accurate player/model collision
-  - LOD: sub-voxel detail rendered within 24 blocks
+  - LOD: sub-voxel detail rendered within configurable distance
   - Cyan glow highlighting when targeting sub-voxel models
   - **Fence System** - 16 fence variants that dynamically connect to neighbors
   - **Fence Gates** - 8 gate variants (open/closed) that connect to adjacent fences
   - **Ladder System** - Climbable ladders with auto-rotation toward player on placement
+  - **Door System** - 5 door types with upper/lower halves, hinge sides, open/closed states
+  - **Crystal Blocks** - 32 tinted crystal variants with colored point light emission
   - **Ground Support** - Fences, gates, torches, and ladders break when block below is removed
-- **Texture Atlas** - AI-generated seamless tileable textures (19 textures, 64x64 each)
+- **Texture Atlas** - AI-generated seamless tileable textures (23 textures, 64x64 each)
 - **Ambient Occlusion** - Classic voxel AO with smooth corner darkening
 - **Distance-Based LOD** - AO, shadows, and lighting optimized by distance for 90+ FPS
 - **Day/Night Cycle** - Dynamic sun position, sky colors, and lighting
-- **Torch Point Lighting** - Torches emit flickering light that illuminates nearby blocks
+- **Point Light System** - Torches, lava, glowstone, glowmushroom, and crystals emit dynamic light
 - **Animated Clouds** - Procedural clouds that drift with wind
 - **Stars at Night** - Twinkling stars visible after sunset
 - **Animated Water** - Flowing waves, caustics, and refraction effects
 - **Translucent Glass** - See-through glass with visible frame borders and fresnel reflections
+- **Tinted Glass** - 32 color variants with colored shadow casting
 - **Fog** - Distance-based atmospheric fog
 - **Shadow Rays** - Directional sunlight shadows
 - **Particle System** - Block break particles, water splashes, walking dust
@@ -45,7 +48,8 @@ A GPU-accelerated voxel sandbox using Vulkan compute shaders for real-time ray m
 - **Water Lakes** - Flat water surface at sea level (Y=28) fills valleys
 - **Sandy Beaches** - Sand at water's edge
 - **Trees** - Procedurally placed trees with rounded canopies
-- **17 Block Types** - Stone, dirt, grass, wood, glass, water, torch, bedrock, and more
+- **23 Block Types** - Stone, dirt, grass, wood, glass, water, lava, glowstone, crystal, and more
+- **Painted Blocks** - 19 textures × 32 tints = 608 customizable block variants
 - **Chunk Stats HUD** - Live display of loaded chunks, dirty chunks, and player position
 
 ### Creative Mode
@@ -64,6 +68,8 @@ A GPU-accelerated voxel sandbox using Vulkan compute shaders for real-time ray m
 - **Block Outline** - Cyan wireframe on targeted blocks; cyan glow for sub-voxel models
 - **Head Bob** - Subtle camera motion while walking
 - **Hotbar** - 9-slot block selection with textures
+- **Block Palette** - Full block selection with categories and tint picker
+- **In-Game Model Editor** - Create custom 16³ sub-voxel models (N key)
 - **Coordinates HUD** - Live X/Y/Z position display
 
 ### Block Physics
@@ -79,6 +85,7 @@ A GPU-accelerated voxel sandbox using Vulkan compute shaders for real-time ray m
   - Breaking blocks near water triggers flow into empty space
   - Water spreads ~7-10 blocks before becoming too thin and evaporating
   - Simulation runs only within 64 blocks of player for performance
+- **Lava Flow** - Similar to water but slower, with orange glow and light emission
 - **Frame-Distributed Updates** - Physics checks spread across frames to prevent FPS spikes
   - Priority queue processes nearby blocks first
   - Configurable updates per frame (16-128) via settings
@@ -132,6 +139,8 @@ make run
 | **F** | Toggle fly mode |
 | **B** | Toggle chunk boundaries |
 | **M** | Toggle minimap |
+| **N** | Open model editor |
+| **/** | Open console |
 | **Esc** | Release cursor / Open settings panel |
 
 ### Settings Panel
@@ -147,6 +156,8 @@ Press **Esc** to open the settings panel with:
 
 ### Hotbar Blocks
 
+Default hotbar (customizable via palette):
+
 | Slot | Block |
 |------|-------|
 | 1 | Stone |
@@ -154,35 +165,47 @@ Press **Esc** to open the settings panel with:
 | 3 | Grass |
 | 4 | Sand |
 | 5 | Log |
-| 6 | Fence (8³ sub-voxel model, connects to neighbors) |
-| 7 | Gate (8³ sub-voxel model, connects to fences) |
-| 8 | Ladder (8³ sub-voxel model, climbable) |
-| 9 | Torch (8³ sub-voxel model with flame) |
+| 6 | Fence (16³ sub-voxel model, connects to neighbors) |
+| 7 | Gate (16³ sub-voxel model, connects to fences) |
+| 8 | Ladder (16³ sub-voxel model, climbable) |
+| 9 | Torch (16³ sub-voxel model with flame) |
 
 ## Architecture
 
 ```
 src/
-├── main.rs          # Vulkan setup, render loop, input, physics, HUD
-├── block_update.rs  # Frame-distributed physics update queue
-├── chunk.rs         # Chunk storage (32³), BlockType enum, bit-packing
-├── chunk_loader.rs  # Async chunk generation with thread pool
-├── world.rs         # Multi-chunk management, terrain generation
-├── camera.rs        # Pixel-to-ray matrix for GPU ray casting
-├── raycast.rs       # CPU-side DDA for block picking
-├── falling_block.rs # Falling block entities with physics
-├── particles.rs     # Particle system (break effects, splashes)
-├── sub_voxel.rs     # Sub-voxel model system (8³ models, registry, palettes)
-├── svt.rs           # SVT-64 sparse voxel tree for ray skipping
-├── water.rs         # Water flow simulation (cellular automata)
-└── hot_reload.rs    # Shader hot reloading
+├── main.rs              # Vulkan setup, render loop, input handling
+├── block_interaction.rs # Block placement/breaking, hotbar, palette UI
+├── block_update.rs      # Frame-distributed physics update queue
+├── chunk.rs             # Chunk storage (32³), BlockType enum, bit-packing
+├── chunk_loader.rs      # Async chunk generation with thread pool
+├── world.rs             # Multi-chunk management, terrain generation
+├── camera.rs            # Pixel-to-ray matrix for GPU ray casting
+├── raycast.rs           # CPU-side DDA for block picking
+├── falling_block.rs     # Falling block entities with physics
+├── particles.rs         # Particle system (break effects, splashes)
+├── sub_voxel.rs         # Sub-voxel model system (16³ models, registry, palettes)
+├── sub_voxel_builtins.rs # Built-in model definitions (doors, fences, etc.)
+├── svt.rs               # SVT-64 sparse voxel tree for ray skipping
+├── water.rs             # Water flow simulation (cellular automata)
+├── lava.rs              # Lava flow simulation
+├── hot_reload.rs        # Shader hot reloading
+├── editor/              # In-game sub-voxel model editor
+│   ├── mod.rs           # Editor state and tools
+│   ├── ui.rs            # egui interface
+│   └── rasterizer.rs    # Software renderer for preview
+└── console/             # Command console system
 
 shaders/
-├── traverse.comp    # GPU ray marching, lighting, AO, particles
+├── traverse.comp    # Main GPU ray marching shader
+├── common.glsl      # Block types, push constants, buffer layouts
+├── models.glsl      # Sub-voxel model ray marching
+├── lighting.glsl    # Point lights, shadows, AO
+├── materials.glsl   # Texture sampling, emission colors
 └── resample.comp    # Image resampling
 
 textures/
-└── texture_atlas.png  # Combined block textures (1216x64, 19 tiles)
+└── texture_atlas.png  # Combined block textures (1472x64, 23 tiles)
 ```
 
 ## Block Types
@@ -195,21 +218,27 @@ textures/
 | 3 | Grass | 0.5s | Green grass top, dirt sides |
 | 4 | Planks | 0.5s | Wooden floor planks |
 | 5 | Leaves | 0.15s | Tree foliage (transparent) |
-| 6 | Sand | 0.3s | Beach sand |
-| 7 | Gravel | 0.3s | Small rocks |
+| 6 | Sand | 0.3s | Beach sand (falls) |
+| 7 | Gravel | 0.3s | Small rocks (falls) |
 | 8 | Water | - | Blue water (swimmable) |
 | 9 | Glass | 0.5s | Transparent glass |
 | 10 | Log | 0.5s | Tree bark with rings on top |
-| 11 | Torch | 0.15s | 8³ sub-voxel model with flame, emits light |
+| 11 | Model | 0.15s | 16³ sub-voxel model blocks |
 | 12 | Brick | 0.8s | Red brick pattern |
 | 13 | Snow | 0.3s | White snow cover |
 | 14 | Cobblestone | 0.8s | Rough stone blocks |
 | 15 | Iron | 1.2s | Metallic iron block |
 | 16 | Bedrock | - | Indestructible foundation |
+| 17 | TintedGlass | 0.5s | Colored glass (32 tints) |
+| 18 | Painted | 0.5s | Textured block with tint |
+| 19 | Lava | - | Glowing orange fluid |
+| 20 | GlowStone | 0.5s | Bright warm light source |
+| 21 | GlowMushroom | 0.15s | Soft cyan cave light |
+| 22 | Crystal | 0.5s | Tinted crystal with light emission |
 
 ## Render Modes
 
-Cycle through with **M** key:
+Selectable in settings panel:
 
 - **Textured** (default) - Full rendering with textures, lighting, shadows, and AO
 - **Normal** - Surface normal visualization (RGB = XYZ)

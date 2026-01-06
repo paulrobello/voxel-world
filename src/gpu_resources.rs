@@ -32,7 +32,7 @@ use crate::chunk::{BlockType, CHUNK_SIZE};
 use crate::constants::{LOADED_CHUNKS_X, LOADED_CHUNKS_Z, WORLD_CHUNKS_Y};
 use crate::falling_block::{GpuFallingBlock, MAX_FALLING_BLOCKS};
 use crate::particles;
-use crate::sub_voxel::{MAX_MODELS, ModelRegistry, PALETTE_SIZE, SUB_VOXEL_SIZE};
+use crate::sub_voxel::{MAX_MODELS, ModelRegistry, PALETTE_SIZE};
 
 /// Helper to allocate a storage buffer with the common flags used across GPU resources.
 fn make_storage_buffer<T: BufferContents>(
@@ -782,10 +782,12 @@ pub const BRICK_DIST_WORDS: usize = TOTAL_CHUNKS * 16;
 /// Layout:
 /// - Binding 0: Brick masks - 64 bits per chunk (2 u32 words per chunk)
 /// - Binding 1: Brick distances - 64 bytes per chunk (distance to nearest solid brick)
-/// - Binding 2: Model atlas - (16*SUB_VOXEL_SIZE)×SUB_VOXEL_SIZE×(16*SUB_VOXEL_SIZE), R8_UINT palette indices
-/// - Binding 3: Model palettes - 256×16 (256 models × 16 colors), RGBA8
-/// - Binding 4: Model metadata - model_id (R) + rotation (G) per block
-/// - Binding 5: Model properties - collision mask, emission, flags per model
+/// - Binding 2: Model atlas (8³) - 128×8×128, R8_UINT palette indices
+/// - Binding 3: Model atlas (16³) - 256×16×256, R8_UINT palette indices
+/// - Binding 4: Model atlas (32³) - 512×32×512, R8_UINT palette indices
+/// - Binding 5: Model palettes - 256×32 (256 models × 32 colors), RGBA8
+/// - Binding 6: Model metadata - model_id (R) + rotation (G) per block
+/// - Binding 7: Model properties - collision mask, emission, flags, resolution per model
 #[allow(clippy::type_complexity)]
 pub fn get_brick_and_model_set(
     memory_allocator: Arc<StandardMemoryAllocator>,
@@ -798,7 +800,9 @@ pub fn get_brick_and_model_set(
 ) -> (
     Subbuffer<[u32]>,                // brick_mask_buffer
     Subbuffer<[u32]>,                // brick_dist_buffer
-    Arc<Image>,                      // model_atlas
+    Arc<Image>,                      // model_atlas_8 (8³ resolution tier)
+    Arc<Image>,                      // model_atlas_16 (16³ resolution tier)
+    Arc<Image>,                      // model_atlas_32 (32³ resolution tier)
     Arc<Image>,                      // model_palettes
     Arc<Image>,                      // model_metadata
     Subbuffer<[GpuModelProperties]>, // model_properties_buffer
@@ -812,23 +816,79 @@ pub fn get_brick_and_model_set(
     // Create buffer for brick distances (64 bytes per chunk)
     let brick_dist_buffer = make_storage_buffer::<u32>(&memory_allocator, BRICK_DIST_WORDS as u64);
 
-    // === Model resources (bindings 2-5) ===
+    // === Model resources (bindings 2-7) ===
 
-    // Create model atlas 3D texture (R8_UINT, 128×8×128)
-    let model_atlas = Image::new(
+    // Create three tiered model atlas 3D textures (R8_UINT)
+    // Tier 0: 8³ resolution (128×8×128)
+    let model_atlas_8 = Image::new(
         memory_allocator.clone(),
         ImageCreateInfo {
             image_type: ImageType::Dim3d,
             format: Format::R8_UINT,
-            extent: [MODEL_ATLAS_WIDTH, MODEL_ATLAS_HEIGHT, MODEL_ATLAS_DEPTH],
+            extent: [
+                MODEL_ATLAS_8_WIDTH,
+                MODEL_ATLAS_8_HEIGHT,
+                MODEL_ATLAS_8_DEPTH,
+            ],
+            mip_levels: 1,
+            array_layers: 1,
             usage: ImageUsage::STORAGE | ImageUsage::TRANSFER_DST,
             ..Default::default()
         },
-        AllocationCreateInfo::default(),
+        AllocationCreateInfo {
+            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE,
+            ..Default::default()
+        },
     )
     .unwrap();
 
-    // Create model palette 2D texture (RGBA8, 256×16)
+    // Tier 1: 16³ resolution (256×16×256)
+    let model_atlas_16 = Image::new(
+        memory_allocator.clone(),
+        ImageCreateInfo {
+            image_type: ImageType::Dim3d,
+            format: Format::R8_UINT,
+            extent: [
+                MODEL_ATLAS_16_WIDTH,
+                MODEL_ATLAS_16_HEIGHT,
+                MODEL_ATLAS_16_DEPTH,
+            ],
+            mip_levels: 1,
+            array_layers: 1,
+            usage: ImageUsage::STORAGE | ImageUsage::TRANSFER_DST,
+            ..Default::default()
+        },
+        AllocationCreateInfo {
+            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    // Tier 2: 32³ resolution (512×32×512)
+    let model_atlas_32 = Image::new(
+        memory_allocator.clone(),
+        ImageCreateInfo {
+            image_type: ImageType::Dim3d,
+            format: Format::R8_UINT,
+            extent: [
+                MODEL_ATLAS_32_WIDTH,
+                MODEL_ATLAS_32_HEIGHT,
+                MODEL_ATLAS_32_DEPTH,
+            ],
+            mip_levels: 1,
+            array_layers: 1,
+            usage: ImageUsage::STORAGE | ImageUsage::TRANSFER_DST,
+            ..Default::default()
+        },
+        AllocationCreateInfo {
+            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    // Create model palette 2D texture (RGBA8, 256×32)
     let model_palettes = Image::new(
         memory_allocator.clone(),
         ImageCreateInfo {
@@ -872,13 +932,15 @@ pub fn get_brick_and_model_set(
     )
     .unwrap();
 
-    // Upload model registry data to GPU
+    // Upload model registry data to GPU (all three atlas tiers)
     upload_model_registry(
         memory_allocator.clone(),
         command_buffer_allocator.clone(),
         queue,
         model_registry,
-        &model_atlas,
+        &model_atlas_8,
+        &model_atlas_16,
+        &model_atlas_32,
         &model_palettes,
         &model_properties_buffer,
     );
@@ -905,10 +967,10 @@ pub fn get_brick_and_model_set(
         .wait(None)
         .unwrap();
 
-    // Create image views
-    let atlas_view = ImageView::new(
-        model_atlas.clone(),
-        ImageViewCreateInfo::from_image(&model_atlas),
+    // Create image view for the 16³ atlas (all models resampled to this resolution)
+    let atlas_16_view = ImageView::new(
+        model_atlas_16.clone(),
+        ImageViewCreateInfo::from_image(&model_atlas_16),
     )
     .unwrap();
 
@@ -945,8 +1007,8 @@ pub fn get_brick_and_model_set(
             // Brick metadata (bindings 0-1)
             WriteDescriptorSet::buffer(0, brick_mask_buffer.clone()),
             WriteDescriptorSet::buffer(1, brick_dist_buffer.clone()),
-            // Model resources (bindings 2-5)
-            WriteDescriptorSet::image_view(2, atlas_view),
+            // Model resources (bindings 2-5) - single 16³ atlas
+            WriteDescriptorSet::image_view(2, atlas_16_view),
             WriteDescriptorSet::image_view_sampler(3, palette_view, palette_sampler),
             WriteDescriptorSet::image_view(4, metadata_view),
             WriteDescriptorSet::buffer(5, model_properties_buffer.clone()),
@@ -956,7 +1018,9 @@ pub fn get_brick_and_model_set(
     (
         brick_mask_buffer,
         brick_dist_buffer,
-        model_atlas,
+        model_atlas_8,
+        model_atlas_16,
+        model_atlas_32,
         model_palettes,
         model_metadata,
         model_properties_buffer,
@@ -977,34 +1041,53 @@ pub struct GpuModelProperties {
     pub aabb_max: u32,
     /// Light emission color (RGB) and intensity (A).
     pub emission: [f32; 4],
-    /// Flags: bit 0 = rotatable, bit 1 = light_blocking_partial, bit 2 = light_blocking_full.
+    /// Flags: bit 0 = rotatable, bit 1-2 = light_blocking, bit 3 = is_light_source, bits 4-7 = light_mode.
     pub flags: u32,
-    /// Padding to align to 16 bytes (total 48 bytes).
-    pub _pad2: [u32; 3],
+    /// Model resolution (8, 16, or 32).
+    pub resolution: u32,
+    /// Light radius in blocks.
+    pub light_radius: f32,
+    /// Light intensity multiplier.
+    pub light_intensity: f32,
 }
 
-/// Model atlas dimensions: 16 models per row, 16 rows = 256 models.
-/// Each model is SUB_VOXEL_SIZE³, arranged in a 16×16 grid.
-pub const MODEL_ATLAS_WIDTH: u32 = 16 * SUB_VOXEL_SIZE as u32;
-pub const MODEL_ATLAS_DEPTH: u32 = 16 * SUB_VOXEL_SIZE as u32;
-pub const MODEL_ATLAS_HEIGHT: u32 = SUB_VOXEL_SIZE as u32;
+/// Model atlas dimensions for each resolution tier.
+/// Each tier holds up to 256 models in a 16×16 grid.
+/// Tier 0 (8³): 128×8×128
+pub const MODEL_ATLAS_8_WIDTH: u32 = 16 * 8;
+pub const MODEL_ATLAS_8_HEIGHT: u32 = 8;
+pub const MODEL_ATLAS_8_DEPTH: u32 = 16 * 8;
+
+/// Tier 1 (16³): 256×16×256
+pub const MODEL_ATLAS_16_WIDTH: u32 = 16 * 16;
+pub const MODEL_ATLAS_16_HEIGHT: u32 = 16;
+pub const MODEL_ATLAS_16_DEPTH: u32 = 16 * 16;
+
+/// Tier 2 (32³): 512×32×512
+pub const MODEL_ATLAS_32_WIDTH: u32 = 16 * 32;
+pub const MODEL_ATLAS_32_HEIGHT: u32 = 32;
+pub const MODEL_ATLAS_32_DEPTH: u32 = 16 * 32;
 
 /// Uploads model registry data (atlas, palettes, properties) to GPU.
+/// All models are resampled to 16³ resolution for the GPU atlas.
+#[allow(clippy::too_many_arguments)]
 pub fn upload_model_registry(
     memory_allocator: Arc<StandardMemoryAllocator>,
     command_buffer_allocator: Arc<StandardCommandBufferAllocator>,
     queue: &Arc<Queue>,
     registry: &ModelRegistry,
-    atlas: &Arc<Image>,
+    _atlas_8: &Arc<Image>,
+    atlas_16: &Arc<Image>,
+    _atlas_32: &Arc<Image>,
     palettes: &Arc<Image>,
     properties_buffer: &Subbuffer<[GpuModelProperties]>,
 ) {
-    // Pack model voxels into atlas layout
+    // Pack all models to 16³ atlas (resampling as needed)
     let atlas_data = registry.pack_voxels_for_gpu();
     let palette_data = registry.pack_palettes_for_gpu();
     let properties_data = registry.pack_properties_for_gpu();
 
-    // Reuse host-visible staging buffers for atlas and palettes
+    // Reuse host-visible staging buffers
     thread_local! {
         static ATLAS_POOL: std::cell::RefCell<Vec<Subbuffer<[u8]>>> = const { std::cell::RefCell::new(Vec::new()) };
         static PALETTE_POOL: std::cell::RefCell<Vec<Subbuffer<[u8]>>> = const { std::cell::RefCell::new(Vec::new()) };
@@ -1040,11 +1123,13 @@ pub fn upload_model_registry(
         .unwrap()
     }
 
+    // Allocate staging buffers
     let atlas_staging =
         ATLAS_POOL.with(|pool| take_or_alloc_host(pool, atlas_data.len(), &memory_allocator));
     let palette_staging =
         PALETTE_POOL.with(|pool| take_or_alloc_host(pool, palette_data.len(), &memory_allocator));
 
+    // Write data to staging buffers
     {
         let mut write = atlas_staging.write().unwrap();
         write[..atlas_data.len()].copy_from_slice(&atlas_data);
@@ -1083,6 +1168,17 @@ pub fn upload_model_registry(
 
                 // flags (4 bytes)
                 props.flags = u32::from_le_bytes([chunk[32], chunk[33], chunk[34], chunk[35]]);
+
+                // resolution (4 bytes)
+                props.resolution = u32::from_le_bytes([chunk[36], chunk[37], chunk[38], chunk[39]]);
+
+                // light_radius (4 bytes)
+                props.light_radius =
+                    f32::from_le_bytes([chunk[40], chunk[41], chunk[42], chunk[43]]);
+
+                // light_intensity (4 bytes)
+                props.light_intensity =
+                    f32::from_le_bytes([chunk[44], chunk[45], chunk[46], chunk[47]]);
             }
             props
         })
@@ -1105,16 +1201,16 @@ pub fn upload_model_registry(
     )
     .unwrap();
 
-    // Copy atlas data
+    // Copy atlas data (16³ unified atlas)
     command_buffer_builder
         .copy_buffer_to_image(CopyBufferToImageInfo {
             regions: [BufferImageCopy {
-                image_subresource: atlas.subresource_layers(),
-                image_extent: atlas.extent(),
+                image_subresource: atlas_16.subresource_layers(),
+                image_extent: atlas_16.extent(),
                 ..Default::default()
             }]
             .into(),
-            ..CopyBufferToImageInfo::buffer_image(atlas_staging.clone(), atlas.clone())
+            ..CopyBufferToImageInfo::buffer_image(atlas_staging.clone(), atlas_16.clone())
         })
         .unwrap();
 

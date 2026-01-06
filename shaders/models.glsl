@@ -1,13 +1,13 @@
+// Sample voxel from the model atlas (all models are resampled to 16³ for GPU).
+// Model layout: 16 models per row, 16 rows = 256 models max.
 uint sampleModelVoxel(uint model_id, ivec3 local_pos) {
-    // Model atlas layout: 16 models per row, 16 rows = 256 models max
-    // Each model is SUB_VOXEL_SIZE³, atlas is (16*SUB_VOXEL_SIZE) × SUB_VOXEL_SIZE × (16*SUB_VOXEL_SIZE)
     uint model_x = model_id % 16u;
     uint model_z = model_id / 16u;
 
     ivec3 atlas_pos = ivec3(
-        int(model_x * SUB_VOXEL_SIZE) + local_pos.x,
+        int(model_x * 16u) + local_pos.x,
         local_pos.y,
-        int(model_z * SUB_VOXEL_SIZE) + local_pos.z
+        int(model_z * 16u) + local_pos.z
     );
 
     return imageLoad(modelAtlas, atlas_pos).r;
@@ -15,19 +15,25 @@ uint sampleModelVoxel(uint model_id, ivec3 local_pos) {
 
 // Get model color from palette
 // model_id: 0-255
-// palette_idx: 0-15 (palette index within the model)
+// palette_idx: 0-31 (palette index within the model, 32 colors per model)
 vec4 getModelPaletteColor(uint model_id, uint palette_idx) {
-    // Palette texture is 256×16 (model_id × palette_idx)
+    // Palette texture is 256×32 (model_id × palette_idx)
     vec2 uv = vec2(
         (float(model_id) + 0.5) / 256.0,
-        (float(palette_idx) + 0.5) / 16.0
+        (float(palette_idx) + 0.5) / 32.0
     );
     return texture(modelPalettes, uv);
 }
 
+// Get model resolution (always 16 on GPU - models are resampled)
+uint getModelResolution(uint model_id) {
+    return SUB_VOXEL_SIZE;
+}
+
 // Rotate a position within the model based on rotation value (0-3 = 0°/90°/180°/270°)
-ivec3 rotateModelPos(ivec3 pos, uint rotation) {
-    int cx = int(SUB_VOXEL_SIZE) / 2;  // Center = 4
+// res: model resolution (8, 16, or 32)
+ivec3 rotateModelPos(ivec3 pos, uint rotation, uint res) {
+    int cx = int(res) / 2;  // Center of model
     int px = pos.x - cx;
     int pz = pos.z - cx;
 
@@ -88,12 +94,13 @@ vec3 inverseRotateDirection(vec3 d, uint rotation) {
 
 // Sample a model voxel with rotation and bounds checks.
 // Returns true if the rotated position is inside the model and non-empty.
+// All models use 16³ resolution on GPU.
 bool sampleModelFilled(uint model_id, ivec3 local_pos, uint rotation) {
-    if (any(lessThan(local_pos, ivec3(0))) || any(greaterThanEqual(local_pos, ivec3(int(SUB_VOXEL_SIZE))))) {
+    if (any(lessThan(local_pos, ivec3(0))) || any(greaterThanEqual(local_pos, ivec3(SUB_VOXEL_SIZE)))) {
         return false;
     }
-    ivec3 rotated = rotateModelPos(local_pos, rotation);
-    rotated = clamp(rotated, ivec3(0), ivec3(int(SUB_VOXEL_SIZE) - 1));
+    ivec3 rotated = rotateModelPos(local_pos, rotation, SUB_VOXEL_SIZE);
+    rotated = clamp(rotated, ivec3(0), ivec3(SUB_VOXEL_SIZE - 1));
     return sampleModelVoxel(model_id, rotated) != 0u;
 }
 
@@ -101,7 +108,7 @@ bool sampleModelFilled(uint model_id, ivec3 local_pos, uint rotation) {
 // Returns 1.0 for a solid voxel inside this model, 0.0 otherwise.
 float sampleModelOcclusion(uint model_id, ivec3 local_pos, uint rotation) {
     bool inside = all(greaterThanEqual(local_pos, ivec3(0))) &&
-                  all(lessThan(local_pos, ivec3(int(SUB_VOXEL_SIZE))));
+                  all(lessThan(local_pos, ivec3(SUB_VOXEL_SIZE)));
     if (inside) {
         return sampleModelFilled(model_id, local_pos, rotation) ? 1.0 : 0.0;
     }
@@ -204,12 +211,17 @@ bool marchSubVoxelModel(
     out float out_t,
     out float out_alpha
 ) {
+    // All models use 16³ resolution on GPU (fixed for performance)
+    uint res = SUB_VOXEL_SIZE;
+    float fres = 16.0;
+    int maxSteps = 48; // SUB_VOXEL_SIZE * 3
+
     // Initialize alpha for translucency accumulation
     out_alpha = 0.0;
     vec3 accumulatedColor = vec3(0.0);
     float accumulatedAlpha = 0.0;
-    // Scale to sub-voxel coordinates (0 to SUB_VOXEL_SIZE)
-    vec3 pos = origin * float(SUB_VOXEL_SIZE);
+    // Scale to sub-voxel coordinates (0 to 16)
+    vec3 pos = origin * fres;
 
     // Avoid infinities / NaNs for near-zero components
     vec3 safeDir = dir;
@@ -221,7 +233,7 @@ bool marchSubVoxelModel(
 
     // Calculate entry t (may need to enter the model box from outside)
     vec3 tMin = (vec3(-SUB_VOXEL_EPS) - pos) * invDir;
-    vec3 tMax = (vec3(float(SUB_VOXEL_SIZE) + SUB_VOXEL_EPS) - pos) * invDir;
+    vec3 tMax = (vec3(fres + SUB_VOXEL_EPS) - pos) * invDir;
 
     vec3 t1 = min(tMin, tMax);
     vec3 t2 = max(tMin, tMax);
@@ -249,11 +261,11 @@ bool marchSubVoxelModel(
     vec3 startPos = pos + dir * startT;
     // Nudge slightly along the ray to land inside first cell and avoid boundary misses
     startPos += safeDir * SUB_VOXEL_EPS;
-    startPos = clamp(startPos, vec3(SUB_VOXEL_EPS), vec3(float(SUB_VOXEL_SIZE) - SUB_VOXEL_EPS));
+    startPos = clamp(startPos, vec3(SUB_VOXEL_EPS), vec3(fres - SUB_VOXEL_EPS));
 
     // Current voxel position
     ivec3 voxel = ivec3(floor(startPos));
-    voxel = clamp(voxel, ivec3(0), ivec3(int(SUB_VOXEL_SIZE) - 1));
+    voxel = clamp(voxel, ivec3(0), ivec3(int(res) - 1));
 
     // Step direction and initial t values
     ivec3 step = ivec3(sign(safeDir));
@@ -277,15 +289,15 @@ bool marchSubVoxelModel(
     uint prev_palette_idx = 0u;
 
     // March through sub-voxels
-    for (int i = 0; i < SUB_VOXEL_MAX_STEPS; i++) {
+    for (int i = 0; i < maxSteps; i++) {
         // Check bounds
-        if (any(lessThan(voxel, ivec3(0))) || any(greaterThanEqual(voxel, ivec3(int(SUB_VOXEL_SIZE))))) {
+        if (any(lessThan(voxel, ivec3(0))) || any(greaterThanEqual(voxel, ivec3(int(res))))) {
             break;
         }
 
         // Apply rotation and sample
-        ivec3 rotatedPos = rotateModelPos(voxel, rotation);
-        rotatedPos = clamp(rotatedPos, ivec3(0), ivec3(int(SUB_VOXEL_SIZE) - 1));
+        ivec3 rotatedPos = rotateModelPos(voxel, rotation, res);
+        rotatedPos = clamp(rotatedPos, ivec3(0), ivec3(int(res) - 1));
         uint palette_idx = sampleModelVoxel(model_id, rotatedPos);
 
         // Hit if not air (palette index 0 = transparent)
@@ -305,7 +317,7 @@ bool marchSubVoxelModel(
             vec3 hitNormal = vec3(0.0);
             hitNormal[hitAxis] = -float(step[hitAxis]);
             float voxelDist = (i == 0) ? 0.0 : (tMaxAxis[stepped_axis] - tDelta[stepped_axis]);
-            float hitT = (startT + voxelDist) / float(SUB_VOXEL_SIZE);
+            float hitT = (startT + voxelDist) / fres;
 
             // Check if this voxel is translucent (alpha < 1.0)
             if (paletteColor.a < 0.99) {
@@ -400,26 +412,30 @@ float marchSubVoxelShadow(
 ) {
     accumulatedTint = vec3(1.0);
 
+    // All models use 16³ resolution on GPU (fixed for performance)
+    uint res = SUB_VOXEL_SIZE;
+    float fres = 16.0;
+
     // Early out using coarse mask
     if (!modelMaskBlocksRay(origin, dir, model_id, rotation)) {
         return 1.0; // No blocking
     }
 
     // Clamp step budget to the maximum possible voxels we could traverse.
-    int stepsLeft = clamp(maxSteps, 1, SUB_VOXEL_MAX_STEPS);
+    int stepsLeft = clamp(maxSteps, 1, 48); // 48 = SUB_VOXEL_SIZE * 3
 
     // Track accumulated transmission (starts at 1.0 = full light)
     float transmission = 1.0;
 
-    // Scale to sub-voxel coordinates (0 to SUB_VOXEL_SIZE)
-    vec3 pos = origin * float(SUB_VOXEL_SIZE);
+    // Scale to sub-voxel coordinates (0 to 16)
+    vec3 pos = origin * fres;
 
     vec3 safeDir = makeSafeDir(dir);
     vec3 invDir = 1.0 / safeDir;
 
     // Calculate entry t into the model cube
     vec3 tMin = (vec3(-SUB_VOXEL_EPS) - pos) * invDir;
-    vec3 tMax = (vec3(float(SUB_VOXEL_SIZE) + SUB_VOXEL_EPS) - pos) * invDir;
+    vec3 tMax = (vec3(fres + SUB_VOXEL_EPS) - pos) * invDir;
 
     vec3 t1 = min(tMin, tMax);
     vec3 t2 = max(tMin, tMax);
@@ -433,9 +449,9 @@ float marchSubVoxelShadow(
     float startT = max(tNear, 0.0);
     vec3 startPos = pos + dir * startT;
     startPos += safeDir * SUB_VOXEL_EPS;
-    startPos = clamp(startPos, vec3(SUB_VOXEL_EPS), vec3(float(SUB_VOXEL_SIZE) - SUB_VOXEL_EPS));
+    startPos = clamp(startPos, vec3(SUB_VOXEL_EPS), vec3(fres - SUB_VOXEL_EPS));
 
-    ivec3 voxel = ivec3(clamp(floor(startPos), vec3(0.0), vec3(float(SUB_VOXEL_SIZE - 1))));
+    ivec3 voxel = ivec3(clamp(floor(startPos), vec3(0.0), vec3(float(res - 1u))));
 
     ivec3 step = ivec3(sign(safeDir));
     vec3 tDelta = abs(invDir);
@@ -455,12 +471,12 @@ float marchSubVoxelShadow(
     uint prev_palette_idx = 0u;
 
     for (int i = 0; i < stepsLeft; i++) {
-        if (any(lessThan(voxel, ivec3(0))) || any(greaterThanEqual(voxel, ivec3(int(SUB_VOXEL_SIZE))))) {
+        if (any(lessThan(voxel, ivec3(0))) || any(greaterThanEqual(voxel, ivec3(int(res))))) {
             break;
         }
 
-        ivec3 rotatedPos = rotateModelPos(voxel, rotation);
-        rotatedPos = clamp(rotatedPos, ivec3(0), ivec3(int(SUB_VOXEL_SIZE) - 1));
+        ivec3 rotatedPos = rotateModelPos(voxel, rotation, res);
+        rotatedPos = clamp(rotatedPos, ivec3(0), ivec3(int(res) - 1));
         uint palette_idx = sampleModelVoxel(model_id, rotatedPos);
         if (palette_idx != 0u) {
             // Get color and alpha from palette for translucency

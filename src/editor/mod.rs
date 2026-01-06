@@ -15,7 +15,7 @@ pub mod ui;
 #[cfg(test)]
 use crate::sub_voxel::SUB_VOXEL_MAX;
 use crate::sub_voxel::{
-    Color, SUB_VOXEL_BOUNDS_F32, SUB_VOXEL_CENTER_F32, SUB_VOXEL_SIZE, SUB_VOXEL_VOLUME,
+    Color, ModelResolution, SUB_VOXEL_BOUNDS_F32, SUB_VOXEL_CENTER_F32, SUB_VOXEL_SIZE,
     SubVoxelModel,
 };
 use nalgebra::Vector3;
@@ -25,13 +25,13 @@ pub use ui::{EditorAction, draw_editor_ui, draw_model_preview};
 /// Maximum number of undo states to keep per stack.
 const MAX_UNDO_HISTORY: usize = 100;
 
-/// Type alias for voxel state snapshot.
-type VoxelSnapshot = [u8; SUB_VOXEL_VOLUME];
+/// Type alias for voxel state snapshot (variable size based on resolution).
+type VoxelSnapshot = Vec<u8>;
 
 /// Manages undo/redo history for the model editor.
 ///
 /// Uses a dual-stack approach with separate undo and redo stacks.
-/// Each stack stores full voxel array snapshots (SUB_VOXEL_VOLUME bytes each).
+/// Each stack stores full voxel snapshots (variable size based on resolution).
 #[derive(Debug, Clone)]
 pub struct UndoHistory {
     /// Stack of states you can undo to.
@@ -55,15 +55,21 @@ impl UndoHistory {
         }
     }
 
+    /// Clears all history (call when resolution changes).
+    pub fn clear(&mut self) {
+        self.undo_stack.clear();
+        self.redo_stack.clear();
+    }
+
     /// Saves the current state before a modification.
     ///
     /// This clears the redo stack since we're branching from this point.
-    pub fn save(&mut self, current_voxels: VoxelSnapshot) {
+    pub fn save(&mut self, current_voxels: &[u8]) {
         // Clear redo stack - we're branching
         self.redo_stack.clear();
 
         // Add to undo stack
-        self.undo_stack.push(current_voxels);
+        self.undo_stack.push(current_voxels.to_vec());
 
         // Trim oldest states if we exceed max
         if self.undo_stack.len() > MAX_UNDO_HISTORY {
@@ -75,10 +81,10 @@ impl UndoHistory {
     ///
     /// Takes the current state and returns the previous state to restore.
     /// Returns `None` if there's nothing to undo.
-    pub fn undo(&mut self, current_voxels: VoxelSnapshot) -> Option<VoxelSnapshot> {
+    pub fn undo(&mut self, current_voxels: &[u8]) -> Option<VoxelSnapshot> {
         if let Some(previous) = self.undo_stack.pop() {
             // Save current for redo
-            self.redo_stack.push(current_voxels);
+            self.redo_stack.push(current_voxels.to_vec());
             Some(previous)
         } else {
             None
@@ -89,10 +95,10 @@ impl UndoHistory {
     ///
     /// Takes the current state and returns the next state to restore.
     /// Returns `None` if there's nothing to redo.
-    pub fn redo(&mut self, current_voxels: VoxelSnapshot) -> Option<VoxelSnapshot> {
+    pub fn redo(&mut self, current_voxels: &[u8]) -> Option<VoxelSnapshot> {
         if let Some(next) = self.redo_stack.pop() {
             // Save current for undo
-            self.undo_stack.push(current_voxels);
+            self.undo_stack.push(current_voxels.to_vec());
             Some(next)
         } else {
             None
@@ -107,12 +113,6 @@ impl UndoHistory {
     /// Returns true if redo is available.
     pub fn can_redo(&self) -> bool {
         !self.redo_stack.is_empty()
-    }
-
-    /// Clears all history.
-    pub fn clear(&mut self) {
-        self.undo_stack.clear();
-        self.redo_stack.clear();
     }
 
     /// Returns the number of undo steps available.
@@ -194,6 +194,12 @@ pub struct EditorState {
     /// Whether to show the overwrite confirmation dialog.
     pub show_overwrite_confirm: bool,
 
+    /// Whether to show the new model resolution dialog.
+    pub show_new_model_dialog: bool,
+
+    /// Selected resolution for new model dialog.
+    pub new_model_resolution: ModelResolution,
+
     /// Undo/redo history for voxel operations.
     pub history: UndoHistory,
 
@@ -244,6 +250,8 @@ impl EditorState {
             hovered_normal: None,
             saved_target_pos: None,
             show_overwrite_confirm: false,
+            show_new_model_dialog: false,
+            new_model_resolution: ModelResolution::Medium,
             history: UndoHistory::new(),
             shape_size: 3, // Default 3x3 cube/sphere
         }
@@ -268,11 +276,24 @@ impl EditorState {
 
     /// Resets the scratch pad to a new empty model.
     pub fn new_model(&mut self, name: &str) {
+        self.new_model_with_resolution(name, ModelResolution::Medium);
+    }
+
+    /// Creates a new model with a specific resolution.
+    pub fn new_model_with_resolution(&mut self, name: &str, resolution: ModelResolution) {
         let palette = self.scratch_pad.palette;
-        self.scratch_pad = SubVoxelModel::new(name);
+        let palette_emission = self.scratch_pad.palette_emission;
+        self.scratch_pad = SubVoxelModel::with_resolution_and_name(resolution, name);
         self.scratch_pad.palette = palette;
+        self.scratch_pad.palette_emission = palette_emission;
         self.hovered_voxel = None;
         self.history.clear();
+        // Adjust camera distance based on resolution
+        self.orbit_distance = match resolution {
+            ModelResolution::Low => 12.0,
+            ModelResolution::Medium => 20.0,
+            ModelResolution::High => 35.0,
+        };
     }
 
     /// Loads a model into the scratch pad for editing.
@@ -286,14 +307,14 @@ impl EditorState {
     ///
     /// Call this before making any modifications to the model.
     pub fn save_state(&mut self) {
-        self.history.save(self.scratch_pad.voxels);
+        self.history.save(&self.scratch_pad.voxels);
     }
 
     /// Undoes the last voxel operation.
     ///
     /// Returns true if an undo was performed.
     pub fn undo(&mut self) -> bool {
-        if let Some(previous) = self.history.undo(self.scratch_pad.voxels) {
+        if let Some(previous) = self.history.undo(&self.scratch_pad.voxels) {
             self.scratch_pad.voxels = previous;
             true
         } else {
@@ -305,7 +326,7 @@ impl EditorState {
     ///
     /// Returns true if a redo was performed.
     pub fn redo(&mut self) -> bool {
-        if let Some(next) = self.history.redo(self.scratch_pad.voxels) {
+        if let Some(next) = self.history.redo(&self.scratch_pad.voxels) {
             self.scratch_pad.voxels = next;
             true
         } else {
@@ -971,19 +992,19 @@ impl EditorState {
     pub fn rotate_model_y90(&mut self) {
         self.save_state();
 
-        let mut new_voxels = [0u8; SUB_VOXEL_SIZE * SUB_VOXEL_SIZE * SUB_VOXEL_SIZE];
+        let size = self.scratch_pad.size();
+        let mut new_voxels = vec![0u8; self.scratch_pad.volume()];
 
-        for z in 0..SUB_VOXEL_SIZE {
-            for y in 0..SUB_VOXEL_SIZE {
-                for x in 0..SUB_VOXEL_SIZE {
-                    let old_idx = x + y * SUB_VOXEL_SIZE + z * SUB_VOXEL_SIZE * SUB_VOXEL_SIZE;
+        for z in 0..size {
+            for y in 0..size {
+                for x in 0..size {
+                    let old_idx = x + y * size + z * size * size;
                     let voxel = self.scratch_pad.voxels[old_idx];
 
                     // Rotate 90° CW around Y: (x, y, z) -> (SIZE-1-z, y, x)
-                    let new_x = SUB_VOXEL_SIZE - 1 - z;
+                    let new_x = size - 1 - z;
                     let new_z = x;
-                    let new_idx =
-                        new_x + y * SUB_VOXEL_SIZE + new_z * SUB_VOXEL_SIZE * SUB_VOXEL_SIZE;
+                    let new_idx = new_x + y * size + new_z * size * size;
 
                     new_voxels[new_idx] = voxel;
                 }
@@ -1001,7 +1022,7 @@ impl EditorState {
         let has_voxels = self.scratch_pad.voxels.iter().any(|&v| v != 0);
         if has_voxels {
             self.save_state();
-            self.scratch_pad.voxels = [0; SUB_VOXEL_SIZE * SUB_VOXEL_SIZE * SUB_VOXEL_SIZE];
+            self.scratch_pad.voxels = vec![0; self.scratch_pad.volume()];
         }
     }
 
@@ -1114,26 +1135,27 @@ mod tests {
     #[test]
     fn test_undo_history_basic() {
         let mut history = UndoHistory::new();
-        let state1 = [1u8; SUB_VOXEL_VOLUME];
-        let state2 = [2u8; SUB_VOXEL_VOLUME];
-        let current = [3u8; SUB_VOXEL_VOLUME];
+        // Use small test vectors for simplicity
+        let state1 = vec![1u8; 64];
+        let state2 = vec![2u8; 64];
+        let current = vec![3u8; 64];
 
         // Initially empty
         assert!(!history.can_undo());
         assert!(!history.can_redo());
 
         // Save a state
-        history.save(state1);
+        history.save(&state1);
         assert!(history.can_undo());
         assert!(!history.can_redo());
         assert_eq!(history.undo_count(), 1);
 
         // Save another state
-        history.save(state2);
+        history.save(&state2);
         assert_eq!(history.undo_count(), 2);
 
         // Undo once
-        let restored = history.undo(current);
+        let restored = history.undo(&current);
         assert!(restored.is_some());
         assert_eq!(restored.unwrap(), state2);
         assert!(history.can_undo());
@@ -1142,14 +1164,14 @@ mod tests {
         assert_eq!(history.redo_count(), 1);
 
         // Undo again
-        let restored = history.undo([3u8; SUB_VOXEL_VOLUME]);
+        let restored = history.undo(&vec![3u8; 64]);
         assert!(restored.is_some());
         assert_eq!(restored.unwrap(), state1);
         assert!(!history.can_undo());
         assert!(history.can_redo());
 
         // Redo
-        let restored = history.redo([1u8; SUB_VOXEL_VOLUME]);
+        let restored = history.redo(&vec![1u8; 64]);
         assert!(restored.is_some());
         assert!(history.can_undo());
     }
@@ -1157,24 +1179,25 @@ mod tests {
     #[test]
     fn test_undo_redo_truncates_on_new_action() {
         let mut history = UndoHistory::new();
-        let state1 = [1u8; SUB_VOXEL_VOLUME];
-        let state2 = [2u8; SUB_VOXEL_VOLUME];
-        let state3 = [3u8; SUB_VOXEL_VOLUME];
-        let current = [4u8; SUB_VOXEL_VOLUME];
+        // Use small test vectors for simplicity
+        let state1 = vec![1u8; 64];
+        let state2 = vec![2u8; 64];
+        let state3 = vec![3u8; 64];
+        let current = vec![4u8; 64];
 
         // Build up some history
-        history.save(state1);
-        history.save(state2);
-        history.save(state3);
+        history.save(&state1);
+        history.save(&state2);
+        history.save(&state3);
         assert_eq!(history.undo_count(), 3);
 
         // Undo twice
-        history.undo(current);
-        history.undo([3u8; SUB_VOXEL_VOLUME]);
+        history.undo(&current);
+        history.undo(&vec![3u8; 64]);
         assert_eq!(history.redo_count(), 2);
 
         // Save a new state - should clear redo stack
-        history.save([5u8; SUB_VOXEL_VOLUME]);
+        history.save(&vec![5u8; 64]);
         assert!(!history.can_redo());
         assert_eq!(history.redo_count(), 0);
     }

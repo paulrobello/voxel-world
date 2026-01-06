@@ -130,7 +130,9 @@ pub fn run(_args: &Args, event_loop: &EventLoop<()>) -> Result<(), Box<dyn Error
     let (
         brick_mask_buffer,
         _brick_dist_buffer,
-        _model_atlas,
+        _model_atlas_8,
+        _model_atlas_16,
+        _model_atlas_32,
         _model_palettes,
         model_metadata_image,
         _model_properties_buffer,

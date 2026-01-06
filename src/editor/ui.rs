@@ -3,7 +3,7 @@
 use super::rasterizer::render_model;
 use super::{EditorState, EditorTool, MirrorAxis};
 use crate::storage::model_format::LibraryManager;
-use crate::sub_voxel::{Color, PALETTE_SIZE};
+use crate::sub_voxel::{Color, ModelResolution, PALETTE_SIZE};
 use egui_winit_vulkano::egui;
 
 /// Draws all editor UI panels.
@@ -139,6 +139,13 @@ pub fn draw_editor_ui(
 
             // Model properties
             ui.collapsing("Properties", |ui| {
+                // Resolution display (read-only after creation)
+                ui.horizontal(|ui| {
+                    ui.label("Resolution:");
+                    let res = editor.scratch_pad.resolution;
+                    ui.label(format!("{}³ ({} voxels)", res.size(), res.volume()));
+                });
+
                 ui.checkbox(&mut editor.scratch_pad.rotatable, "Rotatable");
                 ui.checkbox(
                     &mut editor.scratch_pad.requires_ground_support,
@@ -171,6 +178,79 @@ pub fn draw_editor_ui(
                         }
                     });
                 }
+
+                // Light source settings
+                ui.separator();
+                ui.checkbox(&mut editor.scratch_pad.is_light_source, "Light Source");
+                if editor.scratch_pad.is_light_source {
+                    // Light mode selector
+                    ui.horizontal(|ui| {
+                        ui.label("Mode:");
+                        egui::ComboBox::from_id_salt("light_mode")
+                            .selected_text(format!("{:?}", editor.scratch_pad.light_mode))
+                            .show_ui(ui, |ui| {
+                                use crate::sub_voxel::LightMode;
+                                ui.selectable_value(
+                                    &mut editor.scratch_pad.light_mode,
+                                    LightMode::Steady,
+                                    "Steady",
+                                );
+                                ui.selectable_value(
+                                    &mut editor.scratch_pad.light_mode,
+                                    LightMode::Pulse,
+                                    "Pulse",
+                                );
+                                ui.selectable_value(
+                                    &mut editor.scratch_pad.light_mode,
+                                    LightMode::Flicker,
+                                    "Flicker",
+                                );
+                                ui.selectable_value(
+                                    &mut editor.scratch_pad.light_mode,
+                                    LightMode::Candle,
+                                    "Candle",
+                                );
+                                ui.selectable_value(
+                                    &mut editor.scratch_pad.light_mode,
+                                    LightMode::Strobe,
+                                    "Strobe",
+                                );
+                                ui.selectable_value(
+                                    &mut editor.scratch_pad.light_mode,
+                                    LightMode::Breathe,
+                                    "Breathe",
+                                );
+                                ui.selectable_value(
+                                    &mut editor.scratch_pad.light_mode,
+                                    LightMode::Sparkle,
+                                    "Sparkle",
+                                );
+                                ui.selectable_value(
+                                    &mut editor.scratch_pad.light_mode,
+                                    LightMode::Wave,
+                                    "Wave",
+                                );
+                                ui.selectable_value(
+                                    &mut editor.scratch_pad.light_mode,
+                                    LightMode::WarmUp,
+                                    "Warm Up",
+                                );
+                                ui.selectable_value(
+                                    &mut editor.scratch_pad.light_mode,
+                                    LightMode::Arc,
+                                    "Arc",
+                                );
+                            });
+                    });
+                    ui.add(
+                        egui::Slider::new(&mut editor.scratch_pad.light_radius, 1.0..=32.0)
+                            .text("Radius"),
+                    );
+                    ui.add(
+                        egui::Slider::new(&mut editor.scratch_pad.light_intensity, 0.1..=2.0)
+                            .text("Intensity"),
+                    );
+                }
             });
 
             ui.separator();
@@ -200,8 +280,8 @@ pub fn draw_editor_ui(
 
             // Actions
             ui.horizontal(|ui| {
-                if ui.button("New").clicked() {
-                    editor.new_model("untitled");
+                if ui.button("New...").clicked() {
+                    editor.show_new_model_dialog = true;
                 }
                 if ui.button("Clear").clicked() {
                     editor.clear_voxels();
@@ -227,14 +307,15 @@ pub fn draw_editor_ui(
                 }
             });
 
-            // Voxel count
+            // Voxel count - use model's actual volume
             let voxel_count: usize = editor
                 .scratch_pad
                 .voxels
                 .iter()
                 .filter(|&&v| v != 0)
                 .count();
-            ui.label(format!("Voxels: {}/4096", voxel_count));
+            let max_voxels = editor.scratch_pad.resolution.volume();
+            ui.label(format!("Voxels: {}/{}", voxel_count, max_voxels));
         });
 
     // Palette window
@@ -280,15 +361,61 @@ pub fn draw_editor_ui(
             });
     }
 
+    // New model dialog with resolution selection
+    if editor.show_new_model_dialog {
+        egui::Window::new("New Model")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+            .show(ctx, |ui| {
+                ui.label("Select resolution for new model:");
+                ui.add_space(10.0);
+
+                // Resolution radio buttons
+                ui.horizontal(|ui| {
+                    ui.selectable_value(
+                        &mut editor.new_model_resolution,
+                        ModelResolution::Low,
+                        "8³ (512 voxels)",
+                    );
+                });
+                ui.horizontal(|ui| {
+                    ui.selectable_value(
+                        &mut editor.new_model_resolution,
+                        ModelResolution::Medium,
+                        "16³ (4,096 voxels)",
+                    );
+                });
+                ui.horizontal(|ui| {
+                    ui.selectable_value(
+                        &mut editor.new_model_resolution,
+                        ModelResolution::High,
+                        "32³ (32,768 voxels)",
+                    );
+                });
+
+                ui.add_space(10.0);
+                ui.horizontal(|ui| {
+                    if ui.button("Create").clicked() {
+                        editor.show_new_model_dialog = false;
+                        editor.new_model_with_resolution("untitled", editor.new_model_resolution);
+                    }
+                    if ui.button("Cancel").clicked() {
+                        editor.show_new_model_dialog = false;
+                    }
+                });
+            });
+    }
+
     action
 }
 
-/// Draws the 16-color palette grid with color editing.
+/// Draws the 32-color palette grid with color editing.
 fn draw_palette_grid(ui: &mut egui::Ui, editor: &mut EditorState) {
     ui.label("Select Color (click to select, right-click to edit):");
 
-    // 4x4 grid of palette colors
-    for row in 0..4 {
+    // 4x8 grid of palette colors (32 total)
+    for row in 0..8 {
         ui.horizontal(|ui| {
             for col in 0..4 {
                 let idx = row * 4 + col;

@@ -5,18 +5,20 @@
 
 #![allow(dead_code)] // WIP: Editor integration pending
 
-use crate::sub_voxel::{Color, LightBlocking, PALETTE_SIZE, SUB_VOXEL_VOLUME, SubVoxelModel};
+use crate::sub_voxel::{
+    Color, LightBlocking, LightMode, ModelResolution, PALETTE_SIZE, SubVoxelModel,
+};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
 use std::io::{self, BufReader, BufWriter};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// Magic bytes for VXM format "VXM1"
-const VXM_MAGIC: [u8; 4] = *b"VXM1";
+/// Magic bytes for VXM format "VXM2"
+const VXM_MAGIC: [u8; 4] = *b"VXM2";
 
 /// Current version of the VXM format.
-const VXM_VERSION: u16 = 1;
+const VXM_VERSION: u16 = 2;
 
 /// A portable file format for sub-voxel models (.vxm).
 /// This allows models to be shared between worlds and users.
@@ -24,11 +26,13 @@ const VXM_VERSION: u16 = 1;
 pub struct VxmFile {
     pub magic: [u8; 4],
     pub version: u16,
+    pub resolution: u8, // 8, 16, or 32
     pub name: String,
     pub author: String,
     pub creation_date: u64,
-    pub palette: Vec<u32>, // RGBA8888 packed (16 entries)
-    pub voxels: Vec<u8>,   // 8³ = 512 palette indices
+    pub palette: Vec<u32>,          // RGBA8888 packed (32 entries)
+    pub palette_emission: Vec<f32>, // Per-slot emission intensity (32 entries)
+    pub voxels: Vec<u8>,            // resolution³ palette indices
     pub properties: ModelProps,
 }
 
@@ -36,9 +40,14 @@ pub struct VxmFile {
 pub struct ModelProps {
     pub collision_mask: u64,
     pub is_transparent: bool, // Derived from LightBlocking != None
-    pub light_emission: u32,  // RGBA packed, 0 = none
+    pub light_emission: u32,  // RGBA packed, 0 = none (legacy, kept for compat)
     pub rotatable: bool,
     pub requires_ground_support: bool,
+    // Light source properties
+    pub is_light_source: bool,
+    pub light_mode: u8,       // LightMode as u8
+    pub light_radius: f32,    // Light radius in blocks
+    pub light_intensity: f32, // Light intensity multiplier
 }
 
 impl VxmFile {
@@ -64,17 +73,23 @@ impl VxmFile {
         Self {
             magic: VXM_MAGIC,
             version: VXM_VERSION,
+            resolution: model.resolution as u8,
             name: model.name.clone(),
             author,
             creation_date: timestamp,
             palette: palette_packed,
-            voxels: model.voxels.to_vec(),
+            palette_emission: model.palette_emission.to_vec(),
+            voxels: model.voxels.clone(),
             properties: ModelProps {
                 collision_mask: model.collision_mask,
                 is_transparent: model.light_blocking != LightBlocking::Full,
                 light_emission: emission_packed,
                 rotatable: model.rotatable,
                 requires_ground_support: model.requires_ground_support,
+                is_light_source: model.is_light_source,
+                light_mode: model.light_mode as u8,
+                light_radius: model.light_radius,
+                light_intensity: model.light_intensity,
             },
         }
     }
@@ -82,16 +97,29 @@ impl VxmFile {
     /// Converts this VxmFile back to a runtime SubVoxelModel.
     /// Note: The ID is not set here (it's assigned by the registry).
     pub fn to_model(&self) -> SubVoxelModel {
+        // Parse resolution from file
+        let resolution = match self.resolution {
+            8 => ModelResolution::Low,
+            16 => ModelResolution::Medium,
+            32 => ModelResolution::High,
+            _ => ModelResolution::Medium, // Default fallback
+        };
+
+        // Load palette colors
         let mut palette = [Color::default(); PALETTE_SIZE];
         for (i, &packed) in self.palette.iter().take(PALETTE_SIZE).enumerate() {
             let [r, g, b, a] = packed.to_le_bytes();
             palette[i] = Color { r, g, b, a };
         }
 
-        let mut voxels = [0u8; SUB_VOXEL_VOLUME];
-        for (i, &v) in self.voxels.iter().take(SUB_VOXEL_VOLUME).enumerate() {
-            voxels[i] = v;
+        // Load palette emission values
+        let mut palette_emission = [0.0f32; PALETTE_SIZE];
+        for (i, &emission) in self.palette_emission.iter().take(PALETTE_SIZE).enumerate() {
+            palette_emission[i] = emission;
         }
+
+        // Voxels are stored as Vec, copy directly
+        let voxels = self.voxels.clone();
 
         let emission = if self.properties.light_emission != 0 {
             let [r, g, b, a] = self.properties.light_emission.to_le_bytes();
@@ -101,24 +129,42 @@ impl VxmFile {
         };
 
         let light_blocking = if self.properties.is_transparent {
-            // Heuristic: if transparent, assume Partial (like glass/leaves)
-            // unless it's empty? For now, map transparent -> Partial.
-            // Ideally we'd store the enum variant directly, but bool is simpler for V1.
             LightBlocking::Partial
         } else {
             LightBlocking::Full
         };
 
+        // Parse light mode from u8
+        let light_mode = match self.properties.light_mode {
+            0 => LightMode::Steady,
+            1 => LightMode::Pulse,
+            2 => LightMode::Flicker,
+            3 => LightMode::Candle,
+            4 => LightMode::Strobe,
+            5 => LightMode::Breathe,
+            6 => LightMode::Sparkle,
+            7 => LightMode::Wave,
+            8 => LightMode::WarmUp,
+            9 => LightMode::Arc,
+            _ => LightMode::Steady,
+        };
+
         SubVoxelModel {
             id: 0, // Assigned by registry
             name: self.name.clone(),
+            resolution,
             voxels,
             palette,
+            palette_emission,
             collision_mask: self.properties.collision_mask,
             light_blocking,
             rotatable: self.properties.rotatable,
             emission,
             requires_ground_support: self.properties.requires_ground_support,
+            is_light_source: self.properties.is_light_source,
+            light_mode,
+            light_radius: self.properties.light_radius,
+            light_intensity: self.properties.light_intensity,
         }
     }
 }

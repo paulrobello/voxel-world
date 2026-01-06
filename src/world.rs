@@ -975,10 +975,6 @@ impl World {
                         let connections = self.calculate_fence_connections(neighbor_pos);
                         let new_model_id = ModelRegistry::fence_model_id(connections);
                         if new_model_id != data.model_id {
-                            println!(
-                                "[DEBUG] Updating fence at {:?} to ID {}",
-                                neighbor_pos, new_model_id
-                            );
                             // Force rotation 0 for fences as their orientation is in the model_id
                             self.set_model_block(neighbor_pos, new_model_id, 0, data.waterlogged);
                         }

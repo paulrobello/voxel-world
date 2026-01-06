@@ -1,11 +1,11 @@
-use crate::sub_voxel::{Color, LightBlocking, SUB_VOXEL_SIZE, SubVoxelModel};
+use crate::sub_voxel::{Color, LightBlocking, ModelResolution, SubVoxelModel};
 
 /// The design space size (8³) - models are designed in this space.
+/// All built-in models use Low (8³) resolution for optimal performance.
 const DESIGN_SIZE: usize = 8;
 
-/// Scale factor for converting 8³ model coordinates to current resolution.
-/// When SUB_VOXEL_SIZE is 16, this is 2 (each old voxel becomes 2×2×2).
-const SCALE: usize = SUB_VOXEL_SIZE / DESIGN_SIZE;
+/// Scale factor - now 1 since we render at native 8³ resolution.
+const SCALE: usize = 1;
 
 /// Places a scaled voxel. In 8³ mode (SCALE=1), places a single voxel.
 /// In 16³ mode (SCALE=2), places a 2×2×2 block at scaled coordinates.
@@ -48,15 +48,16 @@ fn fill_scaled(
 
 /// Creates an inverted (flipped on Y) copy of a model with a new name.
 fn inverted_copy(base: &SubVoxelModel, name: &str) -> SubVoxelModel {
-    let mut model = SubVoxelModel::new(name);
+    let mut model = SubVoxelModel::with_resolution_and_name(base.resolution, name);
     model.palette = base.palette;
 
-    for x in 0..SUB_VOXEL_SIZE {
-        for y in 0..SUB_VOXEL_SIZE {
-            for z in 0..SUB_VOXEL_SIZE {
+    let size = base.resolution.size();
+    for x in 0..size {
+        for y in 0..size {
+            for z in 0..size {
                 let v = base.get_voxel(x, y, z);
                 if v != 0 {
-                    model.set_voxel(x, SUB_VOXEL_SIZE - 1 - y, z, v);
+                    model.set_voxel(x, size - 1 - y, z, v);
                 }
             }
         }
@@ -72,12 +73,12 @@ fn inverted_copy(base: &SubVoxelModel, name: &str) -> SubVoxelModel {
 
 /// Creates an empty model (placeholder, id 0).
 pub fn create_empty() -> SubVoxelModel {
-    SubVoxelModel::new("empty")
+    SubVoxelModel::with_resolution_and_name(ModelResolution::Low, "empty")
 }
 
 /// Creates a torch model with stick and flame.
 pub fn create_torch() -> SubVoxelModel {
-    let mut model = SubVoxelModel::new("torch");
+    let mut model = SubVoxelModel::with_resolution_and_name(ModelResolution::Low, "torch");
 
     // Palette
     model.palette[1] = Color::rgb(101, 67, 33); // Dark wood brown
@@ -125,7 +126,7 @@ pub fn create_torch() -> SubVoxelModel {
 
 /// Creates a bottom slab (half-block on bottom).
 pub fn create_slab_bottom() -> SubVoxelModel {
-    let mut model = SubVoxelModel::new("slab_bottom");
+    let mut model = SubVoxelModel::with_resolution_and_name(ModelResolution::Low, "slab_bottom");
     model.palette[1] = Color::rgb(128, 128, 128); // Stone gray
     fill_scaled(&mut model, 0, 0, 0, 7, 3, 7, 1);
     model.light_blocking = LightBlocking::Partial;
@@ -136,7 +137,7 @@ pub fn create_slab_bottom() -> SubVoxelModel {
 
 /// Creates a top slab (half-block on top).
 pub fn create_slab_top() -> SubVoxelModel {
-    let mut model = SubVoxelModel::new("slab_top");
+    let mut model = SubVoxelModel::with_resolution_and_name(ModelResolution::Low, "slab_top");
     model.palette[1] = Color::rgb(128, 128, 128); // Stone gray
     fill_scaled(&mut model, 0, 4, 0, 7, 7, 7, 1);
     model.light_blocking = LightBlocking::Partial;
@@ -148,7 +149,7 @@ pub fn create_slab_top() -> SubVoxelModel {
 /// Creates a fence with the specified connection mask.
 pub fn create_fence(connections: u8) -> SubVoxelModel {
     let name = format!("fence_{}", connections);
-    let mut model = SubVoxelModel::new(&name);
+    let mut model = SubVoxelModel::with_resolution_and_name(ModelResolution::Low, &name);
 
     model.palette[1] = Color::rgb(139, 90, 43); // Wood brown (post)
     model.palette[2] = Color::rgb(160, 110, 60); // Lighter brown (rails)
@@ -184,7 +185,7 @@ pub fn create_fence(connections: u8) -> SubVoxelModel {
 /// Creates a fence gate with connection mask (closed state).
 pub fn create_gate_closed(connections: u8) -> SubVoxelModel {
     let name = format!("gate_closed_{}", connections);
-    let mut model = SubVoxelModel::new(&name);
+    let mut model = SubVoxelModel::with_resolution_and_name(ModelResolution::Low, &name);
 
     model.palette[1] = Color::rgb(139, 90, 43); // Wood brown (posts)
     model.palette[2] = Color::rgb(160, 110, 60); // Lighter brown (door)
@@ -218,7 +219,7 @@ pub fn create_gate_closed(connections: u8) -> SubVoxelModel {
 /// Creates a fence gate with connection mask (open state).
 pub fn create_gate_open(connections: u8) -> SubVoxelModel {
     let name = format!("gate_open_{}", connections);
-    let mut model = SubVoxelModel::new(&name);
+    let mut model = SubVoxelModel::with_resolution_and_name(ModelResolution::Low, &name);
 
     model.palette[1] = Color::rgb(139, 90, 43); // Wood brown (posts)
     model.palette[2] = Color::rgb(160, 110, 60); // Lighter brown (door)
@@ -249,7 +250,7 @@ pub fn create_gate_open(connections: u8) -> SubVoxelModel {
 
 /// Creates stairs facing north (step in back/+Z).
 pub fn create_stairs_north() -> SubVoxelModel {
-    let mut model = SubVoxelModel::new("stairs_north");
+    let mut model = SubVoxelModel::with_resolution_and_name(ModelResolution::Low, "stairs_north");
     model.palette[1] = Color::rgb(128, 128, 128); // Stone gray
     fill_scaled(&mut model, 0, 0, 0, 7, 3, 7, 1);
     fill_scaled(&mut model, 0, 4, 4, 7, 7, 7, 1);
@@ -267,7 +268,7 @@ pub fn create_stairs_north_inverted() -> SubVoxelModel {
 
 /// Creates a ladder (thin vertical rungs against wall).
 pub fn create_ladder() -> SubVoxelModel {
-    let mut model = SubVoxelModel::new("ladder");
+    let mut model = SubVoxelModel::with_resolution_and_name(ModelResolution::Low, "ladder");
     model.palette[1] = Color::rgb(139, 90, 43); // Wood brown
     for y in 0..8 {
         set_scaled(&mut model, 1, y, 7, 1);
@@ -287,7 +288,8 @@ pub fn create_ladder() -> SubVoxelModel {
 
 /// Creates an inner-corner stairs (concave), missing front-left quadrant (relative to facing).
 pub fn create_stairs_inner_left() -> SubVoxelModel {
-    let mut model = SubVoxelModel::new("stairs_inner_left");
+    let mut model =
+        SubVoxelModel::with_resolution_and_name(ModelResolution::Low, "stairs_inner_left");
     model.palette[1] = Color::rgb(128, 128, 128); // Stone gray
 
     // Bottom half solid
@@ -312,7 +314,8 @@ pub fn create_stairs_inner_left() -> SubVoxelModel {
 
 /// Inner-corner stairs missing front-right quadrant (relative to facing).
 pub fn create_stairs_inner_right() -> SubVoxelModel {
-    let mut model = SubVoxelModel::new("stairs_inner_right");
+    let mut model =
+        SubVoxelModel::with_resolution_and_name(ModelResolution::Low, "stairs_inner_right");
     model.palette[1] = Color::rgb(128, 128, 128); // Stone gray
 
     // Bottom half solid
@@ -337,7 +340,8 @@ pub fn create_stairs_inner_right() -> SubVoxelModel {
 
 /// Creates an outer-corner stairs (convex), filled back-left (relative to facing).
 pub fn create_stairs_outer_left() -> SubVoxelModel {
-    let mut model = SubVoxelModel::new("stairs_outer_left");
+    let mut model =
+        SubVoxelModel::with_resolution_and_name(ModelResolution::Low, "stairs_outer_left");
     model.palette[1] = Color::rgb(128, 128, 128); // Stone gray
 
     // Bottom half solid
@@ -360,7 +364,8 @@ pub fn create_stairs_outer_left() -> SubVoxelModel {
 
 /// Creates an outer-corner stairs (convex), filled back-right (relative to facing).
 pub fn create_stairs_outer_right() -> SubVoxelModel {
-    let mut model = SubVoxelModel::new("stairs_outer_right");
+    let mut model =
+        SubVoxelModel::with_resolution_and_name(ModelResolution::Low, "stairs_outer_right");
     model.palette[1] = Color::rgb(128, 128, 128); // Stone gray
 
     // Bottom half solid
@@ -412,7 +417,8 @@ pub fn create_stairs_outer_right_inverted() -> SubVoxelModel {
 /// Creates a door lower half (closed, hinge on left when facing +Z).
 /// Door is 2 voxels thick in Z, full width in X.
 pub fn create_door_lower_closed_left() -> SubVoxelModel {
-    let mut model = SubVoxelModel::new("door_lower_closed_left");
+    let mut model =
+        SubVoxelModel::with_resolution_and_name(ModelResolution::Low, "door_lower_closed_left");
 
     model.palette[1] = Color::rgb(100, 70, 40); // Hinge (darker wood/metal)
     model.palette[2] = Color::rgb(139, 90, 43); // Wood
@@ -433,7 +439,8 @@ pub fn create_door_lower_closed_left() -> SubVoxelModel {
 
 /// Creates a door lower half (closed, hinge on right when facing +Z).
 pub fn create_door_lower_closed_right() -> SubVoxelModel {
-    let mut model = SubVoxelModel::new("door_lower_closed_right");
+    let mut model =
+        SubVoxelModel::with_resolution_and_name(ModelResolution::Low, "door_lower_closed_right");
 
     model.palette[1] = Color::rgb(100, 70, 40); // Hinge (darker wood/metal)
     model.palette[2] = Color::rgb(139, 90, 43); // Wood
@@ -454,7 +461,8 @@ pub fn create_door_lower_closed_right() -> SubVoxelModel {
 
 /// Creates a door upper half (closed, hinge on left).
 pub fn create_door_upper_closed_left() -> SubVoxelModel {
-    let mut model = SubVoxelModel::new("door_upper_closed_left");
+    let mut model =
+        SubVoxelModel::with_resolution_and_name(ModelResolution::Low, "door_upper_closed_left");
 
     model.palette[1] = Color::rgb(100, 70, 40); // Hinge (darker wood/metal)
     model.palette[2] = Color::rgb(139, 90, 43); // Wood
@@ -475,7 +483,8 @@ pub fn create_door_upper_closed_left() -> SubVoxelModel {
 
 /// Creates a door upper half (closed, hinge on right).
 pub fn create_door_upper_closed_right() -> SubVoxelModel {
-    let mut model = SubVoxelModel::new("door_upper_closed_right");
+    let mut model =
+        SubVoxelModel::with_resolution_and_name(ModelResolution::Low, "door_upper_closed_right");
 
     model.palette[1] = Color::rgb(100, 70, 40); // Hinge (darker wood/metal)
     model.palette[2] = Color::rgb(139, 90, 43); // Wood
@@ -496,7 +505,8 @@ pub fn create_door_upper_closed_right() -> SubVoxelModel {
 
 /// Creates a door lower half (open, hinge on left - door swings to +Z side).
 pub fn create_door_lower_open_left() -> SubVoxelModel {
-    let mut model = SubVoxelModel::new("door_lower_open_left");
+    let mut model =
+        SubVoxelModel::with_resolution_and_name(ModelResolution::Low, "door_lower_open_left");
 
     model.palette[1] = Color::rgb(100, 70, 40); // Hinge (darker wood/metal)
     model.palette[2] = Color::rgb(139, 90, 43); // Wood
@@ -517,7 +527,8 @@ pub fn create_door_lower_open_left() -> SubVoxelModel {
 
 /// Creates a door lower half (open, hinge on right - door swings to +Z side).
 pub fn create_door_lower_open_right() -> SubVoxelModel {
-    let mut model = SubVoxelModel::new("door_lower_open_right");
+    let mut model =
+        SubVoxelModel::with_resolution_and_name(ModelResolution::Low, "door_lower_open_right");
 
     model.palette[1] = Color::rgb(100, 70, 40); // Hinge (darker wood/metal)
     model.palette[2] = Color::rgb(139, 90, 43); // Wood
@@ -538,7 +549,8 @@ pub fn create_door_lower_open_right() -> SubVoxelModel {
 
 /// Creates a door upper half (open, hinge on left).
 pub fn create_door_upper_open_left() -> SubVoxelModel {
-    let mut model = SubVoxelModel::new("door_upper_open_left");
+    let mut model =
+        SubVoxelModel::with_resolution_and_name(ModelResolution::Low, "door_upper_open_left");
 
     model.palette[1] = Color::rgb(100, 70, 40); // Hinge (darker wood/metal)
     model.palette[2] = Color::rgb(139, 90, 43); // Wood
@@ -559,7 +571,8 @@ pub fn create_door_upper_open_left() -> SubVoxelModel {
 
 /// Creates a door upper half (open, hinge on right).
 pub fn create_door_upper_open_right() -> SubVoxelModel {
-    let mut model = SubVoxelModel::new("door_upper_open_right");
+    let mut model =
+        SubVoxelModel::with_resolution_and_name(ModelResolution::Low, "door_upper_open_right");
 
     model.palette[1] = Color::rgb(100, 70, 40); // Hinge (darker wood/metal)
     model.palette[2] = Color::rgb(139, 90, 43); // Wood
@@ -584,7 +597,10 @@ pub fn create_door_upper_open_right() -> SubVoxelModel {
 
 /// Creates a windowed door lower half (closed, hinge on left).
 pub fn create_windowed_door_lower_closed_left() -> SubVoxelModel {
-    let mut model = SubVoxelModel::new("windowed_door_lower_closed_left");
+    let mut model = SubVoxelModel::with_resolution_and_name(
+        ModelResolution::Low,
+        "windowed_door_lower_closed_left",
+    );
 
     model.palette[1] = Color::rgb(100, 70, 40); // Hinge
     model.palette[2] = Color::rgb(139, 90, 43); // Wood
@@ -611,7 +627,10 @@ pub fn create_windowed_door_lower_closed_left() -> SubVoxelModel {
 
 /// Creates a windowed door lower half (closed, hinge on right).
 pub fn create_windowed_door_lower_closed_right() -> SubVoxelModel {
-    let mut model = SubVoxelModel::new("windowed_door_lower_closed_right");
+    let mut model = SubVoxelModel::with_resolution_and_name(
+        ModelResolution::Low,
+        "windowed_door_lower_closed_right",
+    );
 
     model.palette[1] = Color::rgb(100, 70, 40);
     model.palette[2] = Color::rgb(139, 90, 43);
@@ -634,7 +653,10 @@ pub fn create_windowed_door_lower_closed_right() -> SubVoxelModel {
 
 /// Creates a windowed door upper half (closed, hinge on left).
 pub fn create_windowed_door_upper_closed_left() -> SubVoxelModel {
-    let mut model = SubVoxelModel::new("windowed_door_upper_closed_left");
+    let mut model = SubVoxelModel::with_resolution_and_name(
+        ModelResolution::Low,
+        "windowed_door_upper_closed_left",
+    );
 
     model.palette[1] = Color::rgb(100, 70, 40);
     model.palette[2] = Color::rgb(139, 90, 43);
@@ -659,7 +681,10 @@ pub fn create_windowed_door_upper_closed_left() -> SubVoxelModel {
 
 /// Creates a windowed door upper half (closed, hinge on right).
 pub fn create_windowed_door_upper_closed_right() -> SubVoxelModel {
-    let mut model = SubVoxelModel::new("windowed_door_upper_closed_right");
+    let mut model = SubVoxelModel::with_resolution_and_name(
+        ModelResolution::Low,
+        "windowed_door_upper_closed_right",
+    );
 
     model.palette[1] = Color::rgb(100, 70, 40);
     model.palette[2] = Color::rgb(139, 90, 43);
@@ -680,7 +705,10 @@ pub fn create_windowed_door_upper_closed_right() -> SubVoxelModel {
 
 /// Creates a windowed door lower half (open, hinge on left).
 pub fn create_windowed_door_lower_open_left() -> SubVoxelModel {
-    let mut model = SubVoxelModel::new("windowed_door_lower_open_left");
+    let mut model = SubVoxelModel::with_resolution_and_name(
+        ModelResolution::Low,
+        "windowed_door_lower_open_left",
+    );
 
     model.palette[1] = Color::rgb(100, 70, 40);
     model.palette[2] = Color::rgb(139, 90, 43);
@@ -703,7 +731,10 @@ pub fn create_windowed_door_lower_open_left() -> SubVoxelModel {
 
 /// Creates a windowed door lower half (open, hinge on right).
 pub fn create_windowed_door_lower_open_right() -> SubVoxelModel {
-    let mut model = SubVoxelModel::new("windowed_door_lower_open_right");
+    let mut model = SubVoxelModel::with_resolution_and_name(
+        ModelResolution::Low,
+        "windowed_door_lower_open_right",
+    );
 
     model.palette[1] = Color::rgb(100, 70, 40);
     model.palette[2] = Color::rgb(139, 90, 43);
@@ -726,7 +757,10 @@ pub fn create_windowed_door_lower_open_right() -> SubVoxelModel {
 
 /// Creates a windowed door upper half (open, hinge on left).
 pub fn create_windowed_door_upper_open_left() -> SubVoxelModel {
-    let mut model = SubVoxelModel::new("windowed_door_upper_open_left");
+    let mut model = SubVoxelModel::with_resolution_and_name(
+        ModelResolution::Low,
+        "windowed_door_upper_open_left",
+    );
 
     model.palette[1] = Color::rgb(100, 70, 40);
     model.palette[2] = Color::rgb(139, 90, 43);
@@ -747,7 +781,10 @@ pub fn create_windowed_door_upper_open_left() -> SubVoxelModel {
 
 /// Creates a windowed door upper half (open, hinge on right).
 pub fn create_windowed_door_upper_open_right() -> SubVoxelModel {
-    let mut model = SubVoxelModel::new("windowed_door_upper_open_right");
+    let mut model = SubVoxelModel::with_resolution_and_name(
+        ModelResolution::Low,
+        "windowed_door_upper_open_right",
+    );
 
     model.palette[1] = Color::rgb(100, 70, 40);
     model.palette[2] = Color::rgb(139, 90, 43);
@@ -772,7 +809,10 @@ pub fn create_windowed_door_upper_open_right() -> SubVoxelModel {
 
 /// Creates a paneled door lower half (closed, hinge on left).
 pub fn create_paneled_door_lower_closed_left() -> SubVoxelModel {
-    let mut model = SubVoxelModel::new("paneled_door_lower_closed_left");
+    let mut model = SubVoxelModel::with_resolution_and_name(
+        ModelResolution::Low,
+        "paneled_door_lower_closed_left",
+    );
 
     model.palette[1] = Color::rgb(100, 70, 40);
     model.palette[2] = Color::rgb(139, 90, 43);
@@ -796,7 +836,10 @@ pub fn create_paneled_door_lower_closed_left() -> SubVoxelModel {
 
 /// Creates a paneled door lower half (closed, hinge on right).
 pub fn create_paneled_door_lower_closed_right() -> SubVoxelModel {
-    let mut model = SubVoxelModel::new("paneled_door_lower_closed_right");
+    let mut model = SubVoxelModel::with_resolution_and_name(
+        ModelResolution::Low,
+        "paneled_door_lower_closed_right",
+    );
 
     model.palette[1] = Color::rgb(100, 70, 40);
     model.palette[2] = Color::rgb(139, 90, 43);
@@ -819,7 +862,10 @@ pub fn create_paneled_door_lower_closed_right() -> SubVoxelModel {
 
 /// Creates a paneled door upper half (closed, hinge on left).
 pub fn create_paneled_door_upper_closed_left() -> SubVoxelModel {
-    let mut model = SubVoxelModel::new("paneled_door_upper_closed_left");
+    let mut model = SubVoxelModel::with_resolution_and_name(
+        ModelResolution::Low,
+        "paneled_door_upper_closed_left",
+    );
 
     model.palette[1] = Color::rgb(100, 70, 40);
     model.palette[2] = Color::rgb(139, 90, 43);
@@ -843,7 +889,10 @@ pub fn create_paneled_door_upper_closed_left() -> SubVoxelModel {
 
 /// Creates a paneled door upper half (closed, hinge on right).
 pub fn create_paneled_door_upper_closed_right() -> SubVoxelModel {
-    let mut model = SubVoxelModel::new("paneled_door_upper_closed_right");
+    let mut model = SubVoxelModel::with_resolution_and_name(
+        ModelResolution::Low,
+        "paneled_door_upper_closed_right",
+    );
 
     model.palette[1] = Color::rgb(100, 70, 40);
     model.palette[2] = Color::rgb(139, 90, 43);
@@ -866,7 +915,10 @@ pub fn create_paneled_door_upper_closed_right() -> SubVoxelModel {
 
 /// Creates a paneled door lower half (open, hinge on left).
 pub fn create_paneled_door_lower_open_left() -> SubVoxelModel {
-    let mut model = SubVoxelModel::new("paneled_door_lower_open_left");
+    let mut model = SubVoxelModel::with_resolution_and_name(
+        ModelResolution::Low,
+        "paneled_door_lower_open_left",
+    );
 
     model.palette[1] = Color::rgb(100, 70, 40);
     model.palette[2] = Color::rgb(139, 90, 43);
@@ -889,7 +941,10 @@ pub fn create_paneled_door_lower_open_left() -> SubVoxelModel {
 
 /// Creates a paneled door lower half (open, hinge on right).
 pub fn create_paneled_door_lower_open_right() -> SubVoxelModel {
-    let mut model = SubVoxelModel::new("paneled_door_lower_open_right");
+    let mut model = SubVoxelModel::with_resolution_and_name(
+        ModelResolution::Low,
+        "paneled_door_lower_open_right",
+    );
 
     model.palette[1] = Color::rgb(100, 70, 40);
     model.palette[2] = Color::rgb(139, 90, 43);
@@ -912,7 +967,10 @@ pub fn create_paneled_door_lower_open_right() -> SubVoxelModel {
 
 /// Creates a paneled door upper half (open, hinge on left).
 pub fn create_paneled_door_upper_open_left() -> SubVoxelModel {
-    let mut model = SubVoxelModel::new("paneled_door_upper_open_left");
+    let mut model = SubVoxelModel::with_resolution_and_name(
+        ModelResolution::Low,
+        "paneled_door_upper_open_left",
+    );
 
     model.palette[1] = Color::rgb(100, 70, 40);
     model.palette[2] = Color::rgb(139, 90, 43);
@@ -935,7 +993,10 @@ pub fn create_paneled_door_upper_open_left() -> SubVoxelModel {
 
 /// Creates a paneled door upper half (open, hinge on right).
 pub fn create_paneled_door_upper_open_right() -> SubVoxelModel {
-    let mut model = SubVoxelModel::new("paneled_door_upper_open_right");
+    let mut model = SubVoxelModel::with_resolution_and_name(
+        ModelResolution::Low,
+        "paneled_door_upper_open_right",
+    );
 
     model.palette[1] = Color::rgb(100, 70, 40);
     model.palette[2] = Color::rgb(139, 90, 43);
@@ -962,7 +1023,10 @@ pub fn create_paneled_door_upper_open_right() -> SubVoxelModel {
 
 /// Creates a windowed+paneled door lower half (closed, hinge on left).
 pub fn create_fancy_door_lower_closed_left() -> SubVoxelModel {
-    let mut model = SubVoxelModel::new("fancy_door_lower_closed_left");
+    let mut model = SubVoxelModel::with_resolution_and_name(
+        ModelResolution::Low,
+        "fancy_door_lower_closed_left",
+    );
 
     model.palette[1] = Color::rgb(100, 70, 40);
     model.palette[2] = Color::rgb(139, 90, 43);
@@ -985,7 +1049,10 @@ pub fn create_fancy_door_lower_closed_left() -> SubVoxelModel {
 
 /// Creates a windowed+paneled door lower half (closed, hinge on right).
 pub fn create_fancy_door_lower_closed_right() -> SubVoxelModel {
-    let mut model = SubVoxelModel::new("fancy_door_lower_closed_right");
+    let mut model = SubVoxelModel::with_resolution_and_name(
+        ModelResolution::Low,
+        "fancy_door_lower_closed_right",
+    );
 
     model.palette[1] = Color::rgb(100, 70, 40);
     model.palette[2] = Color::rgb(139, 90, 43);
@@ -1008,7 +1075,10 @@ pub fn create_fancy_door_lower_closed_right() -> SubVoxelModel {
 
 /// Creates a windowed+paneled door upper half (closed, hinge on left).
 pub fn create_fancy_door_upper_closed_left() -> SubVoxelModel {
-    let mut model = SubVoxelModel::new("fancy_door_upper_closed_left");
+    let mut model = SubVoxelModel::with_resolution_and_name(
+        ModelResolution::Low,
+        "fancy_door_upper_closed_left",
+    );
 
     model.palette[1] = Color::rgb(100, 70, 40);
     model.palette[2] = Color::rgb(139, 90, 43);
@@ -1030,7 +1100,10 @@ pub fn create_fancy_door_upper_closed_left() -> SubVoxelModel {
 
 /// Creates a windowed+paneled door upper half (closed, hinge on right).
 pub fn create_fancy_door_upper_closed_right() -> SubVoxelModel {
-    let mut model = SubVoxelModel::new("fancy_door_upper_closed_right");
+    let mut model = SubVoxelModel::with_resolution_and_name(
+        ModelResolution::Low,
+        "fancy_door_upper_closed_right",
+    );
 
     model.palette[1] = Color::rgb(100, 70, 40);
     model.palette[2] = Color::rgb(139, 90, 43);
@@ -1051,7 +1124,8 @@ pub fn create_fancy_door_upper_closed_right() -> SubVoxelModel {
 
 /// Creates a windowed+paneled door lower half (open, hinge on left).
 pub fn create_fancy_door_lower_open_left() -> SubVoxelModel {
-    let mut model = SubVoxelModel::new("fancy_door_lower_open_left");
+    let mut model =
+        SubVoxelModel::with_resolution_and_name(ModelResolution::Low, "fancy_door_lower_open_left");
 
     model.palette[1] = Color::rgb(100, 70, 40);
     model.palette[2] = Color::rgb(139, 90, 43);
@@ -1074,7 +1148,10 @@ pub fn create_fancy_door_lower_open_left() -> SubVoxelModel {
 
 /// Creates a windowed+paneled door lower half (open, hinge on right).
 pub fn create_fancy_door_lower_open_right() -> SubVoxelModel {
-    let mut model = SubVoxelModel::new("fancy_door_lower_open_right");
+    let mut model = SubVoxelModel::with_resolution_and_name(
+        ModelResolution::Low,
+        "fancy_door_lower_open_right",
+    );
 
     model.palette[1] = Color::rgb(100, 70, 40);
     model.palette[2] = Color::rgb(139, 90, 43);
@@ -1097,7 +1174,8 @@ pub fn create_fancy_door_lower_open_right() -> SubVoxelModel {
 
 /// Creates a windowed+paneled door upper half (open, hinge on left).
 pub fn create_fancy_door_upper_open_left() -> SubVoxelModel {
-    let mut model = SubVoxelModel::new("fancy_door_upper_open_left");
+    let mut model =
+        SubVoxelModel::with_resolution_and_name(ModelResolution::Low, "fancy_door_upper_open_left");
 
     model.palette[1] = Color::rgb(100, 70, 40);
     model.palette[2] = Color::rgb(139, 90, 43);
@@ -1118,7 +1196,10 @@ pub fn create_fancy_door_upper_open_left() -> SubVoxelModel {
 
 /// Creates a windowed+paneled door upper half (open, hinge on right).
 pub fn create_fancy_door_upper_open_right() -> SubVoxelModel {
-    let mut model = SubVoxelModel::new("fancy_door_upper_open_right");
+    let mut model = SubVoxelModel::with_resolution_and_name(
+        ModelResolution::Low,
+        "fancy_door_upper_open_right",
+    );
 
     model.palette[1] = Color::rgb(100, 70, 40);
     model.palette[2] = Color::rgb(139, 90, 43);
@@ -1143,7 +1224,10 @@ pub fn create_fancy_door_upper_open_right() -> SubVoxelModel {
 
 /// Creates a full glass door lower half (closed, hinge on left).
 pub fn create_glass_door_lower_closed_left() -> SubVoxelModel {
-    let mut model = SubVoxelModel::new("glass_door_lower_closed_left");
+    let mut model = SubVoxelModel::with_resolution_and_name(
+        ModelResolution::Low,
+        "glass_door_lower_closed_left",
+    );
 
     model.palette[1] = Color::rgb(100, 70, 40);
     model.palette[2] = Color::rgb(139, 90, 43);
@@ -1168,7 +1252,10 @@ pub fn create_glass_door_lower_closed_left() -> SubVoxelModel {
 
 /// Creates a full glass door lower half (closed, hinge on right).
 pub fn create_glass_door_lower_closed_right() -> SubVoxelModel {
-    let mut model = SubVoxelModel::new("glass_door_lower_closed_right");
+    let mut model = SubVoxelModel::with_resolution_and_name(
+        ModelResolution::Low,
+        "glass_door_lower_closed_right",
+    );
 
     model.palette[1] = Color::rgb(100, 70, 40);
     model.palette[2] = Color::rgb(139, 90, 43);
@@ -1191,7 +1278,10 @@ pub fn create_glass_door_lower_closed_right() -> SubVoxelModel {
 
 /// Creates a full glass door upper half (closed, hinge on left).
 pub fn create_glass_door_upper_closed_left() -> SubVoxelModel {
-    let mut model = SubVoxelModel::new("glass_door_upper_closed_left");
+    let mut model = SubVoxelModel::with_resolution_and_name(
+        ModelResolution::Low,
+        "glass_door_upper_closed_left",
+    );
 
     model.palette[1] = Color::rgb(100, 70, 40);
     model.palette[2] = Color::rgb(139, 90, 43);
@@ -1214,7 +1304,10 @@ pub fn create_glass_door_upper_closed_left() -> SubVoxelModel {
 
 /// Creates a full glass door upper half (closed, hinge on right).
 pub fn create_glass_door_upper_closed_right() -> SubVoxelModel {
-    let mut model = SubVoxelModel::new("glass_door_upper_closed_right");
+    let mut model = SubVoxelModel::with_resolution_and_name(
+        ModelResolution::Low,
+        "glass_door_upper_closed_right",
+    );
 
     model.palette[1] = Color::rgb(100, 70, 40);
     model.palette[2] = Color::rgb(139, 90, 43);
@@ -1237,7 +1330,8 @@ pub fn create_glass_door_upper_closed_right() -> SubVoxelModel {
 
 /// Creates a full glass door lower half (open, hinge on left).
 pub fn create_glass_door_lower_open_left() -> SubVoxelModel {
-    let mut model = SubVoxelModel::new("glass_door_lower_open_left");
+    let mut model =
+        SubVoxelModel::with_resolution_and_name(ModelResolution::Low, "glass_door_lower_open_left");
 
     model.palette[1] = Color::rgb(100, 70, 40);
     model.palette[2] = Color::rgb(139, 90, 43);
@@ -1260,7 +1354,10 @@ pub fn create_glass_door_lower_open_left() -> SubVoxelModel {
 
 /// Creates a full glass door lower half (open, hinge on right).
 pub fn create_glass_door_lower_open_right() -> SubVoxelModel {
-    let mut model = SubVoxelModel::new("glass_door_lower_open_right");
+    let mut model = SubVoxelModel::with_resolution_and_name(
+        ModelResolution::Low,
+        "glass_door_lower_open_right",
+    );
 
     model.palette[1] = Color::rgb(100, 70, 40);
     model.palette[2] = Color::rgb(139, 90, 43);
@@ -1283,7 +1380,8 @@ pub fn create_glass_door_lower_open_right() -> SubVoxelModel {
 
 /// Creates a full glass door upper half (open, hinge on left).
 pub fn create_glass_door_upper_open_left() -> SubVoxelModel {
-    let mut model = SubVoxelModel::new("glass_door_upper_open_left");
+    let mut model =
+        SubVoxelModel::with_resolution_and_name(ModelResolution::Low, "glass_door_upper_open_left");
 
     model.palette[1] = Color::rgb(100, 70, 40);
     model.palette[2] = Color::rgb(139, 90, 43);
@@ -1306,7 +1404,10 @@ pub fn create_glass_door_upper_open_left() -> SubVoxelModel {
 
 /// Creates a full glass door upper half (open, hinge on right).
 pub fn create_glass_door_upper_open_right() -> SubVoxelModel {
-    let mut model = SubVoxelModel::new("glass_door_upper_open_right");
+    let mut model = SubVoxelModel::with_resolution_and_name(
+        ModelResolution::Low,
+        "glass_door_upper_open_right",
+    );
 
     model.palette[1] = Color::rgb(100, 70, 40);
     model.palette[2] = Color::rgb(139, 90, 43);
@@ -1334,7 +1435,8 @@ pub fn create_glass_door_upper_open_right() -> SubVoxelModel {
 /// Creates a trapdoor (closed, attached to floor).
 /// Fills bottom 1 voxel of the block.
 pub fn create_trapdoor_floor_closed() -> SubVoxelModel {
-    let mut model = SubVoxelModel::new("trapdoor_floor_closed");
+    let mut model =
+        SubVoxelModel::with_resolution_and_name(ModelResolution::Low, "trapdoor_floor_closed");
 
     model.palette[1] = Color::rgb(139, 90, 43); // Wood brown
     model.palette[2] = Color::rgb(160, 110, 60); // Lighter brown
@@ -1357,7 +1459,8 @@ pub fn create_trapdoor_floor_closed() -> SubVoxelModel {
 /// Creates a trapdoor (closed, attached to ceiling).
 /// Fills top 1 voxel of the block.
 pub fn create_trapdoor_ceiling_closed() -> SubVoxelModel {
-    let mut model = SubVoxelModel::new("trapdoor_ceiling_closed");
+    let mut model =
+        SubVoxelModel::with_resolution_and_name(ModelResolution::Low, "trapdoor_ceiling_closed");
 
     model.palette[1] = Color::rgb(139, 90, 43);
     model.palette[2] = Color::rgb(160, 110, 60);
@@ -1377,7 +1480,8 @@ pub fn create_trapdoor_ceiling_closed() -> SubVoxelModel {
 
 /// Creates a trapdoor (open, hinged at -Z, panel now vertical).
 pub fn create_trapdoor_floor_open() -> SubVoxelModel {
-    let mut model = SubVoxelModel::new("trapdoor_floor_open");
+    let mut model =
+        SubVoxelModel::with_resolution_and_name(ModelResolution::Low, "trapdoor_floor_open");
 
     model.palette[1] = Color::rgb(139, 90, 43);
     model.palette[2] = Color::rgb(160, 110, 60);
@@ -1395,7 +1499,8 @@ pub fn create_trapdoor_floor_open() -> SubVoxelModel {
 
 /// Creates a trapdoor (open, hinged at -Z from ceiling, panel now vertical).
 pub fn create_trapdoor_ceiling_open() -> SubVoxelModel {
-    let mut model = SubVoxelModel::new("trapdoor_ceiling_open");
+    let mut model =
+        SubVoxelModel::with_resolution_and_name(ModelResolution::Low, "trapdoor_ceiling_open");
 
     model.palette[1] = Color::rgb(139, 90, 43);
     model.palette[2] = Color::rgb(160, 110, 60);
@@ -1419,7 +1524,7 @@ pub fn create_trapdoor_ceiling_open() -> SubVoxelModel {
 /// Connection bitmask: N=1, S=2, E=4, W=8 (same as fences).
 pub fn create_window(connections: u8) -> SubVoxelModel {
     let name = format!("window_{}", connections);
-    let mut model = SubVoxelModel::new(&name);
+    let mut model = SubVoxelModel::with_resolution_and_name(ModelResolution::Low, &name);
 
     model.palette[1] = Color::rgb(80, 80, 85); // Frame (dark gray)
     model.palette[2] = Color::rgba(180, 210, 255, 160); // Glass (light blue tinted)
@@ -1465,7 +1570,7 @@ pub fn create_window(connections: u8) -> SubVoxelModel {
 /// The model consists of multiple pointed crystal spires of varying heights.
 /// Used by ModelRegistry for crystal blocks (tinted by shader based on block metadata).
 pub fn create_crystal(color: Color) -> SubVoxelModel {
-    let mut model = SubVoxelModel::new("crystal");
+    let mut model = SubVoxelModel::with_resolution_and_name(ModelResolution::Low, "crystal");
 
     // Palette: darker base, main crystal color, bright highlight
     let (r, g, b) = (color.r, color.g, color.b);

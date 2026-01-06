@@ -387,13 +387,8 @@ float getSkyExposure(vec3 origin) {
     return accumulatedPartialExposure;  // Apply partial blockers if ray completed without full block
 }
 
-// Light animation modes (encoded in intensity: mode = floor(intensity), actual = fract(intensity) * 2)
-// Mode 0: Steady (no animation)
-// Mode 1: Slow pulse (gentle breathing)
-// Mode 2: Torch flicker (fast, erratic)
-const uint LIGHT_MODE_STEADY = 0;
-const uint LIGHT_MODE_PULSE = 1;
-const uint LIGHT_MODE_FLICKER = 2;
+// Light animation modes are defined in common.glsl:
+// LIGHT_MODE_STEADY, LIGHT_MODE_PULSE, LIGHT_MODE_FLICKER, etc.
 
 // Point light accumulation
 vec3 calculatePointLights(vec3 worldPos, vec3 normal) {

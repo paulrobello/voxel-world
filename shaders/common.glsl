@@ -202,31 +202,50 @@ layout(set = 7, binding = 0) readonly buffer BrickMasks { uint brick_masks[]; };
 layout(set = 7, binding = 1) readonly buffer BrickDistances { uint brick_distances[]; };
 
 // Sub-voxel models (set 7, bindings 2-5)
+// Single 16³ atlas - all models resampled to this resolution for performance
 layout(set = 7, binding = 2, r8ui) readonly uniform uimage3D modelAtlas;
 layout(set = 7, binding = 3) uniform sampler2D modelPalettes;
 layout(set = 7, binding = 4, rg8ui) readonly uniform uimage3D modelMetadata;
 struct ModelProperties {
-    uvec2 collision_mask;
-    uint aabb_min;
-    uint aabb_max;
-    vec4 emission;
-    uint flags;
-    uint _pad0;
-    uint _pad1;
-    uint _pad2;
+    uvec2 collision_mask;   // 8 bytes - 4×4×4 collision grid
+    uint aabb_min;          // 4 bytes - packed xyz
+    uint aabb_max;          // 4 bytes - packed xyz
+    vec4 emission;          // 16 bytes - RGB + intensity
+    uint flags;             // 4 bytes - rotatable, light_blocking, is_light_source, light_mode
+    uint resolution;        // 4 bytes - 8, 16, or 32
+    float light_radius;     // 4 bytes - light radius in blocks
+    float light_intensity;  // 4 bytes - light intensity multiplier
 };
 layout(set = 7, binding = 5) readonly buffer ModelPropertiesBuffer {
     ModelProperties model_properties[];
 };
 
 // Sub-voxel constants
+// Default resolution (medium) - for backward compatibility
 const uint SUB_VOXEL_SIZE = 16;
 const float SUB_VOXEL_SCALE = 1.0 / float(SUB_VOXEL_SIZE);
 const float SUB_VOXEL_EPS = 1e-3;
 const int SUB_VOXEL_MAX_STEPS = int(SUB_VOXEL_SIZE) * 3;  // Max DDA steps through model
+
+// Model flags (must match Rust pack_properties_for_gpu)
 const uint MODEL_FLAG_ROTATABLE = 1u << 0;
-const uint MODEL_FLAG_LIGHT_BLOCK_FULL = 1u << 2;
 const uint MODEL_FLAG_LIGHT_BLOCK_PARTIAL = 1u << 1;
+const uint MODEL_FLAG_LIGHT_BLOCK_FULL = 1u << 2;
+const uint MODEL_FLAG_IS_LIGHT_SOURCE = 1u << 3;
+// Light mode is in bits 4-7: (flags >> 4) & 0xF
+
+// Light modes (must match Rust LightMode enum)
+const uint LIGHT_MODE_STEADY = 0u;
+const uint LIGHT_MODE_PULSE = 1u;
+const uint LIGHT_MODE_FLICKER = 2u;
+const uint LIGHT_MODE_CANDLE = 3u;
+const uint LIGHT_MODE_STROBE = 4u;
+const uint LIGHT_MODE_BREATHE = 5u;
+const uint LIGHT_MODE_SPARKLE = 6u;
+const uint LIGHT_MODE_WAVE = 7u;
+const uint LIGHT_MODE_WARMUP = 8u;
+const uint LIGHT_MODE_ARC = 9u;
+
 const float SUB_VOXEL_LOD_DISTANCE = 32.0;
 const float SUB_VOXEL_MIN_DISTANCE = 0.4;
 
