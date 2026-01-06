@@ -243,7 +243,7 @@ impl EditorState {
             mirror_axes: [false, false, false],
             orbit_yaw: std::f32::consts::FRAC_PI_4,
             orbit_pitch: std::f32::consts::FRAC_PI_6,
-            orbit_distance: 20.0, // Default zoom for 16³ models
+            orbit_distance: 30.0, // Default zoom for 16³ models
             is_dragging: false,
             last_mouse_pos: None,
             hovered_voxel: None,
@@ -291,9 +291,9 @@ impl EditorState {
         self.history.clear();
         // Adjust camera distance based on resolution
         self.orbit_distance = match resolution {
-            ModelResolution::Low => 12.0,
-            ModelResolution::Medium => 20.0,
-            ModelResolution::High => 35.0,
+            ModelResolution::Low => 18.0,
+            ModelResolution::Medium => 30.0,
+            ModelResolution::High => 50.0,
         };
     }
 
@@ -304,9 +304,9 @@ impl EditorState {
         self.history.clear();
         // Adjust camera distance based on loaded model's resolution
         self.orbit_distance = match model.resolution {
-            ModelResolution::Low => 12.0,
-            ModelResolution::Medium => 20.0,
-            ModelResolution::High => 35.0,
+            ModelResolution::Low => 18.0,
+            ModelResolution::Medium => 30.0,
+            ModelResolution::High => 50.0,
         };
     }
 
@@ -323,9 +323,9 @@ impl EditorState {
             self.history.clear();
             // Adjust camera distance for new resolution
             self.orbit_distance = match target {
-                ModelResolution::Low => 12.0,
-                ModelResolution::Medium => 20.0,
-                ModelResolution::High => 35.0,
+                ModelResolution::Low => 18.0,
+                ModelResolution::Medium => 30.0,
+                ModelResolution::High => 50.0,
             };
             true
         } else {

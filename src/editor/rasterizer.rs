@@ -157,7 +157,7 @@ impl Rasterizer {
 }
 
 /// Default orbit distance for zoom calculations.
-pub const DEFAULT_ORBIT_DISTANCE: f32 = 20.0;
+pub const DEFAULT_ORBIT_DISTANCE: f32 = 30.0;
 
 /// Renders the model and returns render info for interaction.
 pub struct RenderResult {

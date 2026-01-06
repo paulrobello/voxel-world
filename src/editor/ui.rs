@@ -669,9 +669,9 @@ pub fn draw_model_preview(ctx: &egui::Context, editor: &mut EditorState) {
                     editor.orbit_distance -= scroll_delta * 0.05;
                     // Clamp to reasonable range based on model resolution
                     let (min_zoom, max_zoom) = match editor.scratch_pad.resolution {
-                        ModelResolution::Low => (6.0, 25.0),
-                        ModelResolution::Medium => (8.0, 40.0),
-                        ModelResolution::High => (15.0, 70.0),
+                        ModelResolution::Low => (8.0, 35.0),
+                        ModelResolution::Medium => (12.0, 55.0),
+                        ModelResolution::High => (20.0, 90.0),
                     };
                     editor.orbit_distance = editor.orbit_distance.clamp(min_zoom, max_zoom);
                 }
