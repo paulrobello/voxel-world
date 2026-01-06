@@ -980,20 +980,17 @@ impl WaterGrid {
 
         let texture_height = TEXTURE_SIZE_Y as i32;
 
-        // Sync dirty positions: if world has Water block but grid has no cell, create one.
-        // This ensures water blocks placed by terrain or other systems can drain.
-        // Always run this (not throttled) so block placement is immediately responsive.
-        let dirty_to_check: Vec<_> = self.dirty_positions.iter().copied().collect();
-        for pos in dirty_to_check {
-            if pos.y >= 0 && pos.y < texture_height {
-                if let std::collections::hash_map::Entry::Vacant(e) = self.cells.entry(pos) {
-                    if let Some(BlockType::Water) = world.get_block(pos) {
-                        e.insert(WaterCell::new(MAX_MASS));
-                        self.active.insert(pos);
-                    }
-                }
-            }
-        }
+        // NOTE: We no longer auto-sync terrain Water blocks into the simulation grid.
+        // Terrain water (lakes, oceans) stays STATIC and doesn't simulate unless
+        // explicitly activated via activate_adjacent_terrain_water() when a player
+        // breaks a block next to water. This prevents cascade activation through
+        // entire lake/cave systems (which caused 40k+ active cells and performance issues).
+        //
+        // Player-placed water sources go through place_source() which adds them properly.
+        // Terrain water acts as infinite static water - it renders but doesn't flow
+        // until disturbed.
+        //
+        // We DO still use dirty_positions to wake up EXISTING water cells in the grid.
 
         // Throttle simulation ticks based on tick_interval_ms
         if !self.should_tick() {

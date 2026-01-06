@@ -513,7 +513,7 @@ impl HUDRenderer {
             .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-10.0, 10.0))
             .show(ctx, |ui| {
                 Self::overlay_frame().show(ui, |ui| {
-                    ui.set_min_width(100.0);
+                    ui.set_min_width(150.0);
                     ui.label(
                         egui::RichText::new(format!("FPS: {}", fps))
                             .color(egui::Color32::WHITE)
