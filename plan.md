@@ -167,10 +167,10 @@
 - [ ] Mountain caves: deep networks, lava lakes at low depths (<20)
 - [ ] Stalactites/Stalagmites: new sub-voxel models, connect over time
 
-#### 15.5 Debug Visualization
-- [ ] Console command: `/biome_debug [on|off]`
-- [ ] Overlay HUD: show current elevation, temperature, rainfall values
-- [ ] Minimap mode: color-coded biome map (red=desert, green=grassland, etc.)
+#### 15.5 Debug Visualization ✅
+- [x] Console command: `/biome_debug [on|off]`
+- [x] Overlay HUD: show current elevation, temperature, rainfall values
+- [x] Minimap mode: color-coded biome map (red=desert, green=grassland, etc.)
 - [ ] Noise map export: save elevation/temp/rainfall as PNG for external editing
 - [ ] Hot-reload biome rules without restarting
 
@@ -711,13 +711,14 @@ git commit -m "type: description"
   - Added `no_collision` flag for walk-through models (grass, flowers, mushrooms)
   - Added new models and painted block variants to HUD Palette
   - Added "No Collision" checkbox to in-game model editor properties
-- **Build System**:
-  - Set default seed `12345` for `make new-*`, `make run`, and `make auto-profile-*` targets
-  - Added `make new-normal` target for quick normal world generation
+- **Bug Fixes**:
+  - Fixed invisible ground cover by ensuring collision mask is computed for rendering even when physics collision is disabled
+  - Fixed palette icons and hotbar names for new painted blocks (Cactus, Mud, Sandstone, Ice)
+  - Fixed minimap black/grey artifacts by invalidating cache on chunk load
+  - Verified no ground cover or caves spawn in flat worlds (explicitly documented)
 
 **Next Actions:**
-1. Implement Cave Biome Integration (ice caves, flooded swamp caves)
-2. Add debug visualization for biomes (overlay HUD)
+1. Add cave biome integration
 
 ---
 
