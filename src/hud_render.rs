@@ -424,7 +424,7 @@ impl HUDRenderer {
         hotbar_index: &mut usize,
         dragging_item: &mut Option<PaletteItem>,
     ) {
-        const ATLAS_TILE_COUNT: f32 = 19.0;
+        const ATLAS_TILE_COUNT: f32 = 27.0;
         let block_idx = Self::atlas_tile_for(item.block, item.model_id, item.paint_texture_idx);
         let uv_left = block_idx / ATLAS_TILE_COUNT;
         let uv_right = (block_idx + 1.0) / ATLAS_TILE_COUNT;
@@ -762,7 +762,7 @@ impl HUDRenderer {
                             egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
                         )
                     } else {
-                        const ATLAS_TILE_COUNT: f32 = 19.0;
+                        const ATLAS_TILE_COUNT: f32 = 27.0;
                         let block_idx =
                             Self::atlas_tile_for(item.block, item.model_id, item.paint_texture_idx);
                         let uv_left = block_idx / ATLAS_TILE_COUNT;
@@ -1476,7 +1476,7 @@ impl HUDRenderer {
             }
 
             // Hotbar HUD at bottom center - 9 slots
-            const ATLAS_TILE_COUNT: f32 = 19.0;
+            const ATLAS_TILE_COUNT: f32 = 27.0;
             const SLOT_SIZE: f32 = 40.0;
             let pointer_released =
                 ctx.input(|i| i.pointer.button_released(egui::PointerButton::Primary));
@@ -1694,11 +1694,17 @@ impl HUDRenderer {
                                         WaterType::Spring => "Spring Water".to_string(),
                                     }
                                 } else if selected_block == BlockType::Painted {
-                                    format!(
-                                        "Painted (tex {}, tint {})",
-                                        hotbar_paint_textures[*hotbar_index],
-                                        hotbar_tint_indices[*hotbar_index]
-                                    )
+                                    let tex = hotbar_paint_textures[*hotbar_index];
+                                    match tex {
+                                        23 => "Cactus".to_string(),
+                                        24 => "Mud".to_string(),
+                                        25 => "Sandstone".to_string(),
+                                        26 => "Ice".to_string(),
+                                        _ => format!(
+                                            "Painted (tex {}, tint {})",
+                                            tex, hotbar_tint_indices[*hotbar_index]
+                                        ),
+                                    }
                                 } else {
                                     format!("{:?}", selected_block)
                                 };
