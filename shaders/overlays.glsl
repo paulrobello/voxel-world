@@ -156,7 +156,7 @@ bool renderPreviewBlock(vec3 origin, vec3 dir, inout vec3 color, float sceneHitD
     else if (abs(hitNormal.z) > 0.5) steppedAxis = 2;
 
     vec3 hitPoint = origin + dir * t;
-    vec3 previewColor = getBlockColor(pc.preview_block_type, localHit, hitNormal, steppedAxis, hitPoint);
+    vec3 previewColor = getBlockColor(pc.preview_block_type, localHit, hitNormal, steppedAxis, hitPoint, 0u);
 
     vec3 sunDir = getCurrentSunDir();
     float daylight = getDaylightFactor(pc.time_of_day);

@@ -163,14 +163,13 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
 
         if (any(greaterThanEqual(coord, worldSizeU()))) {
             if (inWater && pc.player_in_water == 0) {
-                waterDepth = (min(min(t.x, t.y), t.z) - waterEntryT) * length(dir);
-                float clarity = getWaterClarity(currentWaterType);
-                float depthFactor = 1.0 - exp(-waterDepth / clarity);
-                vec3 waterTint = getWaterTint(currentWaterType);
-                color = mix(WATER_COLOR * waterTint, WATER_DEEP_COLOR * waterTint, depthFactor);
-                hitDistance = waterEntryT * length(dir);
-                return true;
-            }
+                            waterDepth = (min(min(t.x, t.y), t.z) - waterEntryT) * length(dir);
+                            float clarity = getWaterClarity(uint(currentWaterType));
+                            float depthFactor = 1.0 - exp(-waterDepth / clarity);
+                            vec3 waterTint = getWaterTintFn(uint(currentWaterType));
+                            color = mix(WATER_COLOR * waterTint, WATER_DEEP_COLOR * waterTint, depthFactor);
+                            hitDistance = waterEntryT * length(dir);
+                            return true;            }
             // Pass tint state back to caller
             outPassedTintedGlass = passedTintedGlass;
             outAccumulatedTint = accumulatedTint;
@@ -447,9 +446,9 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
         if (inWater && pc.player_in_water == 0) {
             float currentT = min(min(t.x, t.y), t.z);
             waterDepth = (currentT - waterEntryT) * length(dir);
-            float clarity = getWaterClarity(currentWaterType);
+            float clarity = getWaterClarity(uint(currentWaterType));
             float depthFactor = 1.0 - exp(-waterDepth / clarity);
-            vec3 waterTint = getWaterTint(currentWaterType);
+            vec3 waterTint = getWaterTintFn(uint(currentWaterType));
             color = mix(WATER_COLOR * waterTint, WATER_DEEP_COLOR * waterTint, depthFactor);
             hitDistance = waterEntryT * length(dir);
             return true;
@@ -752,14 +751,14 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
         vec3 reflectDir = reflect(normalize(dir), finalNormal);
         vec3 reflectionColor = getSkyColor(reflectDir);
         // Apply tint to reflection slightly
-        vec3 tint = getWaterTint(currentWaterType);
+        vec3 tint = getWaterTintFn(uint(currentWaterType));
         color = mix(color, reflectionColor * tint, fresnel * 0.6);
     }
 
     if (inWater && waterDepth > 0.0) {
-        float clarity = getWaterClarity(currentWaterType);
+        float clarity = getWaterClarity(uint(currentWaterType));
         float depthFactor = 1.0 - exp(-waterDepth / clarity);
-        vec3 tint = getWaterTint(currentWaterType);
+        vec3 tint = getWaterTintFn(uint(currentWaterType));
         vec3 waterColor = mix(WATER_COLOR * tint, WATER_DEEP_COLOR * tint, depthFactor * 0.5);
         color = mix(color, waterColor, depthFactor * 0.7);
     }

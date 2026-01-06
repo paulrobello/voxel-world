@@ -58,6 +58,41 @@ float getEmissionStrength(uint blockType) {
     }
 }
 
+// Water rendering settings
+const vec3 WATER_COLOR = vec3(0.2, 0.5, 0.8);
+const vec3 WATER_DEEP_COLOR = vec3(0.05, 0.15, 0.3);
+const float WATER_CLARITY = 8.0;
+const float WATER_REFLECTIVITY = 0.3;
+const float WATER_FRESNEL_POWER = 3.0;
+
+// Water type definitions (colors)
+// Ocean: Deep blue
+const vec3 WATER_TINT_OCEAN = vec3(1.0, 1.0, 1.0); // Base color
+// Lake: Blue-green
+const vec3 WATER_TINT_LAKE = vec3(0.7, 1.0, 0.9);
+// River: Light blue
+const vec3 WATER_TINT_RIVER = vec3(0.9, 1.0, 1.1);
+// Swamp: Murky green-brown
+const vec3 WATER_TINT_SWAMP = vec3(0.6, 0.7, 0.4);
+// Spring: Crystal clear
+const vec3 WATER_TINT_SPRING = vec3(1.0, 1.1, 1.2);
+
+// Get tint color for a water type
+vec3 getWaterTintFn(uint waterType) {
+    if (waterType == WATER_TYPE_LAKE) return WATER_TINT_LAKE;
+    if (waterType == WATER_TYPE_RIVER) return WATER_TINT_RIVER;
+    if (waterType == WATER_TYPE_SWAMP) return WATER_TINT_SWAMP;
+    if (waterType == WATER_TYPE_SPRING) return WATER_TINT_SPRING;
+    return WATER_TINT_OCEAN;
+}
+
+// Get clarity for a water type
+float getWaterClarity(uint waterType) {
+    if (waterType == WATER_TYPE_SWAMP) return 3.0; // Murky
+    if (waterType == WATER_TYPE_SPRING) return 12.0; // Clear
+    return WATER_CLARITY;
+}
+
 // Sample a specific texture from the atlas
 vec3 sampleTexture(uint textureIndex, vec2 uv) {
     float atlasU = (float(textureIndex) + fract(uv.x)) * ATLAS_TILE_SIZE;
@@ -141,7 +176,7 @@ vec3 getBlockColor(uint blockType, vec3 local_hit, vec3 normal, uint stepped_axi
             waterColor += vec3(caustics);
         }
         // Apply water tint based on type
-        return waterColor * getWaterTint(extraData);
+        return waterColor * getWaterTintFn(extraData);
     } else if (blockType == BLOCK_LAVA) {
         // Animated lava surface with slow flow
         float t = pc.animation_time * 0.3;
@@ -156,41 +191,6 @@ vec3 getBlockColor(uint blockType, vec3 local_hit, vec3 normal, uint stepped_axi
     }
 
     return sampleTexture(textureIndex, uv);
-}
-
-// Water rendering settings
-const vec3 WATER_COLOR = vec3(0.2, 0.5, 0.8);
-const vec3 WATER_DEEP_COLOR = vec3(0.05, 0.15, 0.3);
-const float WATER_CLARITY = 8.0;
-const float WATER_REFLECTIVITY = 0.3;
-const float WATER_FRESNEL_POWER = 3.0;
-
-// Water type definitions (colors)
-// Ocean: Deep blue
-const vec3 WATER_TINT_OCEAN = vec3(1.0, 1.0, 1.0); // Base color
-// Lake: Blue-green
-const vec3 WATER_TINT_LAKE = vec3(0.7, 1.0, 0.9);
-// River: Light blue
-const vec3 WATER_TINT_RIVER = vec3(0.9, 1.0, 1.1);
-// Swamp: Murky green-brown
-const vec3 WATER_TINT_SWAMP = vec3(0.6, 0.7, 0.4);
-// Spring: Crystal clear
-const vec3 WATER_TINT_SPRING = vec3(1.0, 1.1, 1.2);
-
-// Get tint color for a water type
-vec3 getWaterTint(uint waterType) {
-    if (waterType == WATER_TYPE_LAKE) return WATER_TINT_LAKE;
-    if (waterType == WATER_TYPE_RIVER) return WATER_TINT_RIVER;
-    if (waterType == WATER_TYPE_SWAMP) return WATER_TINT_SWAMP;
-    if (waterType == WATER_TYPE_SPRING) return WATER_TINT_SPRING;
-    return WATER_TINT_OCEAN;
-}
-
-// Get clarity for a water type
-float getWaterClarity(uint waterType) {
-    if (waterType == WATER_TYPE_SWAMP) return 3.0; // Murky
-    if (waterType == WATER_TYPE_SPRING) return 12.0; // Clear
-    return WATER_CLARITY;
 }
 
 const float WAVE_SPEED = 1.2;
