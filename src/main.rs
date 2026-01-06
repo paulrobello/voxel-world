@@ -1457,6 +1457,36 @@ impl App {
             self.ui.console.pending_force_water_active = false;
         }
 
+        // Handle pending water analyze from console
+        if self.ui.console.pending_water_analyze {
+            let player_block = self
+                .sim
+                .player
+                .feet_pos(self.sim.world_extent, self.sim.texture_origin)
+                .map(|c| c.floor() as i32);
+            let world = &self.sim.world;
+            let is_solid =
+                |pos: Vector3<i32>| world.get_block(pos).map(|b| b.is_solid()).unwrap_or(true);
+            let is_out_of_bounds = |pos: Vector3<i32>| world.get_block(pos).is_none();
+            let has_world_water = |pos: Vector3<i32>| {
+                world
+                    .get_block(pos)
+                    .map(|b| matches!(b, crate::chunk::BlockType::Water))
+                    .unwrap_or(false)
+            };
+
+            let analysis = self.sim.water_grid.debug_flow_analysis(
+                player_block,
+                is_solid,
+                is_out_of_bounds,
+                &has_world_water,
+            );
+            for line in analysis.lines() {
+                self.ui.console.info(line);
+            }
+            self.ui.console.pending_water_analyze = false;
+        }
+
         let render_extent = rcx.render_image.extent();
         let resample_extent = rcx.resample_image.extent();
         self.sim.player.camera.extent = [render_extent[0] as f64, render_extent[1] as f64];

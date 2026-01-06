@@ -70,6 +70,8 @@ pub enum CommandResult {
     FluidDebug,
     /// Force all water cells to become active (for debugging stuck water).
     ForceWaterActive,
+    /// Analyze water flow at player position.
+    WaterAnalyze,
 }
 
 /// Pending command awaiting confirmation.
@@ -115,6 +117,8 @@ pub struct ConsoleState {
     pub pending_fluid_debug: bool,
     /// Pending force water active request.
     pub pending_force_water_active: bool,
+    /// Pending water analyze request.
+    pub pending_water_analyze: bool,
 }
 
 /// Maximum number of command history entries to persist.
@@ -135,6 +139,7 @@ impl ConsoleState {
             pending_teleport: None,
             pending_fluid_debug: false,
             pending_force_water_active: false,
+            pending_water_analyze: false,
         }
     }
 
@@ -337,6 +342,10 @@ impl ConsoleState {
                 // Signal that caller should force all water cells active
                 self.pending_force_water_active = true;
             }
+            CommandResult::WaterAnalyze => {
+                // Signal that caller should analyze water at player position
+                self.pending_water_analyze = true;
+            }
         }
     }
 
@@ -360,9 +369,11 @@ impl ConsoleState {
             "help" | "?" => commands::help(),
             "fill" => commands::fill(args, world, player_pos, confirmed),
             "sphere" => commands::sphere(args, world, player_pos, confirmed),
+            "boxme" => commands::boxme(args, world, player_pos, confirmed),
             "tp" | "teleport" => commands::tp(args, player_pos),
             "waterdebug" | "wd" => CommandResult::FluidDebug,
             "waterforce" | "wf" => CommandResult::ForceWaterActive,
+            "wateranalyze" | "wa" => CommandResult::WaterAnalyze,
             "clear" => {
                 self.output.clear();
                 CommandResult::Success("Console cleared.".to_string())

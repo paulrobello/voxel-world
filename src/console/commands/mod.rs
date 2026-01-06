@@ -2,10 +2,12 @@
 //!
 //! Each command function takes arguments and returns a `CommandResult`.
 
+mod boxme;
 mod fill;
 mod sphere;
 mod tp;
 
+pub use boxme::boxme;
 pub use fill::fill;
 pub use sphere::sphere;
 pub use tp::tp;
@@ -25,6 +27,10 @@ pub fn help() -> CommandResult {
     Coordinates support ~ for relative positions.
     'hollow' flag creates a shell with air inside.
 
+  boxme <block> <size>
+    Create a hollow box around you (shortcut for fill hollow).
+    Equivalent to: fill <block> ~-size ~ ~-size ~size ~size ~size hollow
+
   tp <x> <y> <z>
     Teleport to coordinates. Y must be 0-255.
 
@@ -33,6 +39,9 @@ pub fn help() -> CommandResult {
 
   waterforce, wf
     Force ALL water cells to become active (unstick water).
+
+  wateranalyze, wa
+    Analyze water flow at player position (debug).
 
   clear
     Clear console output
@@ -46,6 +55,7 @@ Examples:
   fill brick ~ ~-1 ~ ~10 ~3 ~10 hollow
   sphere stone ~ ~5 ~ 10
   sphere glass ~ ~ ~ 15 hollow
+  boxme brick 5
   tp 100 64 200
   tp ~ ~10 ~"#;
 

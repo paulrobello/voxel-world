@@ -24,7 +24,8 @@ pub const MAX_COMPRESS: f32 = 0.02;
 pub const MIN_MASS: f32 = 0.001;
 
 /// Minimum flow amount (don't bother flowing tiny amounts).
-pub const MIN_FLOW: f32 = 0.01;
+/// Set to MIN_MASS to ensure any measurable water can flow and drain.
+pub const MIN_FLOW: f32 = MIN_MASS;
 
 /// Flow damping factor to prevent oscillation (0.0 to 1.0).
 /// Lower values = more damping = slower but more stable flow.
@@ -360,17 +361,24 @@ impl WaterGrid {
         // 1. Flow DOWN (gravity) - highest priority
         // Special case: if below is out of bounds, water drains into void
         if is_out_of_bounds(below) {
-            // Drain all water into the void
-            result.down = remaining * FLOW_DAMPING;
-            remaining -= result.down;
+            // Drain all water into the void - no damping needed
+            result.down = remaining;
+            remaining = 0.0;
         } else if !is_solid(below) {
             // Use effective mass to see pending changes from earlier this tick
             let below_mass = self.get_effective_mass(below, has_world_water);
             let space_below = (MAX_MASS + MAX_COMPRESS) - below_mass;
-            if space_below > MIN_FLOW {
-                // Flow as much as possible down
-                let flow = remaining.min(space_below) * FLOW_DAMPING;
-                if flow > MIN_FLOW {
+            if space_below > MIN_MASS {
+                // Gravity always wins - water falls without damping when there's space
+                // Only apply damping when filling into existing water (to prevent oscillation)
+                let flow = if below_mass < MIN_MASS {
+                    // Falling into air/empty - transfer all mass that fits
+                    remaining.min(space_below)
+                } else {
+                    // Filling into existing water - apply damping
+                    remaining.min(space_below) * FLOW_DAMPING
+                };
+                if flow > MIN_MASS {
                     result.down = flow;
                     remaining -= flow;
                 }
@@ -401,8 +409,18 @@ impl WaterGrid {
                 // Flow to neighbors below average
                 for (_, neighbor_mass, flow_ref) in lower_neighbors {
                     if neighbor_mass < avg_mass {
-                        let flow = (avg_mass - neighbor_mass) * FLOW_DAMPING;
-                        if flow > MIN_FLOW && remaining > flow {
+                        let mut flow = (avg_mass - neighbor_mass) * FLOW_DAMPING;
+
+                        // CRITICAL FIX: Ensure minimum flow to maintain gradient propagation.
+                        // When equalization produces tiny flow values (< MIN_FLOW), we still
+                        // need to flow SOMETHING to prevent water from getting "stuck".
+                        // This is especially important for drain scenarios where mass
+                        // differences become very small but water should still drain.
+                        if flow < MIN_FLOW && remaining > MIN_FLOW * 2.0 {
+                            flow = MIN_FLOW;
+                        }
+
+                        if flow >= MIN_FLOW && remaining > flow {
                             *flow_ref = flow;
                             remaining -= flow;
                         }
@@ -536,6 +554,13 @@ impl WaterGrid {
         for &pos in active_list.iter().take(process_count) {
             let flow = self.calculate_flow(pos, &is_solid, &is_out_of_bounds, &has_world_water);
 
+            // Evaporation constants
+            const EVAPORATION_THRESHOLD: f32 = 0.3;
+            const EVAPORATION_RATE: f32 = 0.005;
+            // Very thin water evaporates even while flowing to break circulation deadlocks
+            // (e.g., water trapped in 1x1 pits that keeps pushing tiny amounts up/down)
+            const VERY_THIN_THRESHOLD: f32 = 0.1;
+
             if flow.has_flow() {
                 // Record outflow from this cell
                 let total_out = flow.total_outflow();
@@ -589,6 +614,18 @@ impl WaterGrid {
                 // Reset stability counter
                 if let Some(cell) = self.cells.get_mut(&pos) {
                     cell.stable_ticks = 0;
+
+                    // Even while flowing, very thin water evaporates to break deadlocks
+                    // This handles circulation loops where tiny amounts bounce back and forth
+                    if !cell.is_source && cell.mass < VERY_THIN_THRESHOLD {
+                        cell.mass -= EVAPORATION_RATE;
+                        if cell.mass <= MIN_MASS {
+                            self.cells.remove(&pos);
+                            self.active.remove(&pos);
+                            changed_positions.push(pos);
+                            continue;
+                        }
+                    }
                 }
 
                 // When water flows OUT of this cell, wake up all neighbors
@@ -599,10 +636,29 @@ impl WaterGrid {
                     self.dirty_positions.insert(pos + Vector3::new(dx, dy, dz));
                 }
             } else {
-                // No flow - increment stability counter
+                // No flow - increment stability counter and apply evaporation
                 if let Some(cell) = self.cells.get_mut(&pos) {
                     cell.stable_ticks = cell.stable_ticks.saturating_add(1);
-                    if cell.is_stable() {
+
+                    // Thin water evaporates slowly when stable (simulates absorption/evaporation)
+                    // This cleans up residual puddles that can't drain
+                    let is_evaporating = !cell.is_source
+                        && cell.mass < EVAPORATION_THRESHOLD
+                        && cell.stable_ticks > 5;
+
+                    if is_evaporating {
+                        cell.mass -= EVAPORATION_RATE;
+                        if cell.mass <= MIN_MASS {
+                            self.cells.remove(&pos);
+                            self.active.remove(&pos);
+                            changed_positions.push(pos);
+                            continue;
+                        }
+                        changed_positions.push(pos);
+                    }
+
+                    // Don't deactivate cells that are still evaporating
+                    if cell.is_stable() && !is_evaporating {
                         deactivate.push(pos);
                     }
                 }
@@ -651,6 +707,174 @@ impl WaterGrid {
             }
         }
         count
+    }
+
+    /// Debug: Get detailed info about water cells near a position.
+    /// Returns a vector of (position, mass, is_active, stable_ticks) for cells within radius.
+    pub fn debug_sample_cells(
+        &self,
+        center: Vector3<i32>,
+        radius: i32,
+    ) -> Vec<(Vector3<i32>, f32, bool, u8)> {
+        let mut samples = Vec::new();
+        for dy in -radius..=radius {
+            for dx in -radius..=radius {
+                for dz in -radius..=radius {
+                    let pos = center + Vector3::new(dx, dy, dz);
+                    if let Some(cell) = self.cells.get(&pos) {
+                        samples.push((
+                            pos,
+                            cell.mass,
+                            self.active.contains(&pos),
+                            cell.stable_ticks,
+                        ));
+                    }
+                }
+            }
+        }
+        // Sort by Y descending (top to bottom) for easier reading
+        samples.sort_by(|a, b| b.0.y.cmp(&a.0.y));
+        samples
+    }
+
+    /// Debug: Analyze why a specific cell isn't flowing.
+    /// Returns detailed diagnostic info.
+    pub fn debug_flow_analysis<F, B, W>(
+        &self,
+        pos: Vector3<i32>,
+        is_solid: F,
+        is_out_of_bounds: B,
+        has_world_water: &W,
+    ) -> String
+    where
+        F: Fn(Vector3<i32>) -> bool,
+        B: Fn(Vector3<i32>) -> bool,
+        W: Fn(Vector3<i32>) -> bool,
+    {
+        let mut info = format!("=== Flow Analysis for {:?} ===\n", pos);
+
+        // Check if cell exists
+        match self.cells.get(&pos) {
+            None => {
+                info.push_str("No water cell at this position\n");
+                if has_world_water(pos) {
+                    info.push_str("BUT world has Water block here!\n");
+                }
+                return info;
+            }
+            Some(cell) => {
+                info.push_str(&format!(
+                    "Cell: mass={:.3}, source={}, stable_ticks={}\n",
+                    cell.mass, cell.is_source, cell.stable_ticks
+                ));
+                info.push_str(&format!("Active: {}\n", self.active.contains(&pos)));
+            }
+        }
+
+        let below = pos + Vector3::new(0, -1, 0);
+        let above = pos + Vector3::new(0, 1, 0);
+
+        // Check below
+        info.push_str(&format!("\nBELOW {:?}:\n", below));
+        info.push_str(&format!(
+            "  is_out_of_bounds: {}\n",
+            is_out_of_bounds(below)
+        ));
+        info.push_str(&format!("  is_solid: {}\n", is_solid(below)));
+        info.push_str(&format!("  has_world_water: {}\n", has_world_water(below)));
+        let below_mass = self.get_effective_mass(below, has_world_water);
+        info.push_str(&format!("  effective_mass: {:.3}\n", below_mass));
+        let space = (MAX_MASS + MAX_COMPRESS) - below_mass;
+        info.push_str(&format!("  space_available: {:.3}\n", space));
+        if let Some(cell) = self.cells.get(&below) {
+            info.push_str(&format!("  cell_mass: {:.3}\n", cell.mass));
+        } else {
+            info.push_str("  no cell exists\n");
+        }
+        if let Some(&pending) = self.pending_changes.get(&below) {
+            info.push_str(&format!("  pending_changes: {:.3}\n", pending));
+        }
+
+        // Check above
+        info.push_str(&format!("\nABOVE {:?}:\n", above));
+        info.push_str(&format!("  is_solid: {}\n", is_solid(above)));
+        info.push_str(&format!(
+            "  effective_mass: {:.3}\n",
+            self.get_effective_mass(above, has_world_water)
+        ));
+
+        // Check horizontal neighbors
+        for (name, offset) in [
+            ("+X", Vector3::new(1, 0, 0)),
+            ("-X", Vector3::new(-1, 0, 0)),
+            ("+Z", Vector3::new(0, 0, 1)),
+            ("-Z", Vector3::new(0, 0, -1)),
+        ] {
+            let neighbor = pos + offset;
+            info.push_str(&format!("\n{} {:?}:\n", name, neighbor));
+            info.push_str(&format!("  is_solid: {}\n", is_solid(neighbor)));
+            info.push_str(&format!(
+                "  effective_mass: {:.3}\n",
+                self.get_effective_mass(neighbor, has_world_water)
+            ));
+        }
+
+        // Calculate what flow WOULD happen
+        let flow = self.calculate_flow(pos, &is_solid, is_out_of_bounds, has_world_water);
+        info.push_str(&format!(
+            "\nCalculated flow: down={:.3}, up={:.3}, +x={:.3}, -x={:.3}, +z={:.3}, -z={:.3}\n",
+            flow.down, flow.up, flow.pos_x, flow.neg_x, flow.pos_z, flow.neg_z
+        ));
+        info.push_str(&format!("has_flow: {}\n", flow.has_flow()));
+
+        // Global stats
+        info.push_str(&format!(
+            "\nGlobal: {} cells, {} active\n",
+            self.cells.len(),
+            self.active.len()
+        ));
+
+        // Mass distribution of nearby cells (within 5 blocks)
+        let mut nearby_masses: Vec<f32> = Vec::new();
+        let mut nearby_with_air_neighbor = 0;
+        for (cell_pos, cell) in &self.cells {
+            let dx = (cell_pos.x - pos.x).abs();
+            let dy = (cell_pos.y - pos.y).abs();
+            let dz = (cell_pos.z - pos.z).abs();
+            if dx <= 5 && dy <= 5 && dz <= 5 {
+                nearby_masses.push(cell.mass);
+                // Check if this cell has any non-solid, non-water neighbor
+                for (ddx, ddy, ddz) in ORTHO_DIRS {
+                    let neighbor = *cell_pos + Vector3::new(ddx, ddy, ddz);
+                    if !is_solid(neighbor)
+                        && self.get_effective_mass(neighbor, has_world_water) < MIN_FLOW
+                    {
+                        nearby_with_air_neighbor += 1;
+                        break;
+                    }
+                }
+            }
+        }
+        if !nearby_masses.is_empty() {
+            nearby_masses.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            let min = nearby_masses.first().unwrap();
+            let max = nearby_masses.last().unwrap();
+            let sum: f32 = nearby_masses.iter().sum();
+            let avg = sum / nearby_masses.len() as f32;
+            info.push_str(&format!(
+                "Nearby (5 block radius): {} cells, mass min={:.3} max={:.3} avg={:.3}\n",
+                nearby_masses.len(),
+                min,
+                max,
+                avg
+            ));
+            info.push_str(&format!(
+                "Nearby cells with air neighbor: {}\n",
+                nearby_with_air_neighbor
+            ));
+        }
+
+        info
     }
 
     /// Prunes active and dirty sets to a maximum radius from player to avoid unbounded growth.
