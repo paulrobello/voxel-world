@@ -956,26 +956,29 @@ git commit -m "type: description"
 
 ## Current Work (2026-01-06)
 
-**Status**: Phase 14 (Enhanced Water System) Core Features COMPLETE. Moving to biome integration.
+**Status**: Phase 14 (Enhanced Water System) COMPLETE. Moving to Phase 15 (Biome Generation).
 
 **Recent Work:**
 - Implemented `WaterType` enum and metadata storage in chunks
 - Added GPU support for per-voxel water types (color, clarity, fog)
 - Implemented variable flow rates for River (fast), Swamp (slow), Lake (medium)
+- Integrated water types into Palette and Hotbar for user placement
 - Updated shaders to render murky swamp water and clear springs
 
 **Next Actions:**
 1. Begin Phase 15: Biome Generation System
 2. Implement noise maps for elevation, temperature, rainfall
-3. Integrate biome-specific water types (Swamp biome -> Swamp water)
+3. Implement `BiomeGenerator` struct
+4. Integrate water types into terrain generation (14.5 moved here)
 
 ---
 
 ## Done Recently
 
-- **Phase 14: Enhanced Water System** (2026-01-06): ✅ CORE COMPLETE
+- **Phase 14: Enhanced Water System** (2026-01-06): ✅ COMPLETE
   - Ocean, Lake, River, Swamp, Spring water types
   - Visual differentiation (color/fog) and physical differentiation (flow rate)
+  - Palette integration: Place specific water types from the "Blocks" tab
 - **Phase 13: Advanced Lighting System** (2026-01-05): ✅ COMPLETE
   - Lava, GlowStone, GlowMushroom, Crystal blocks with emission
   - Point light system with tinted colors for crystals
