@@ -305,6 +305,10 @@ fn generate_flat_chunk(chunk_pos: Vector3<i32>) -> Chunk {
         }
     }
 
+    // Explicitly do NOT generate trees or ground cover for flat worlds
+    // generate_trees(...);
+    // generate_ground_cover(...);
+
     chunk.update_metadata();
     chunk.persistence_dirty = false;
     chunk
