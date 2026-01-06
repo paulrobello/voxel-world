@@ -168,6 +168,8 @@ pub fn draw_editor_ui(
                     &mut editor.scratch_pad.requires_ground_support,
                     "Requires Ground",
                 );
+                ui.checkbox(&mut editor.scratch_pad.no_collision, "No Collision")
+                    .on_hover_text("Disable physics collision (walk-through)");
 
                 // Light emission toggle
                 let has_emission = editor.scratch_pad.emission.is_some();
