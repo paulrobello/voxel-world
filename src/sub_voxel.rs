@@ -591,9 +591,6 @@ impl SubVoxelModel {
     /// A bit is set if ANY voxel in that region is solid (non-zero).
     pub fn compute_collision_mask(&mut self) {
         self.collision_mask = 0;
-        if self.no_collision {
-            return;
-        }
         let cell_size = self.size() / 4;
 
         for cz in 0..4 {
@@ -631,6 +628,10 @@ impl SubVoxelModel {
     /// Point coordinates are in model-local space (0.0 to 1.0).
     #[inline]
     pub fn point_collides(&self, x: f32, y: f32, z: f32) -> bool {
+        if self.no_collision {
+            return false;
+        }
+
         let range = 0.0_f32..1.0_f32;
         if !range.contains(&x) || !range.contains(&y) || !range.contains(&z) {
             return false;

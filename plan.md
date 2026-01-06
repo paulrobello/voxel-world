@@ -123,7 +123,24 @@
 - Relative coordinates (`~` syntax)
 - Volume confirmation for large operations
 
+### Phase 14: Enhanced Water System ✅
+- Ocean, Lake, River, Swamp, Spring water types
+- Visual differentiation (color, fog, murky swamp water)
+- Physical differentiation (River flows fast, Swamp flows slow)
+- Persistence and GPU metadata integration
+- Palette support for placing specific water types
+
+### Phase 15: Biome Generation System (Core) ✅
+- Noise maps for Elevation, Temperature, and Rainfall
+- 5 Primary Biomes: Grassland, Mountains, Desert, Swamp, Snow
+- Biome-specific height curves and surface/subsurface blocks
+- Biome-specific vegetation: Oak, Pine, Willow, Cactus
+- Ground cover: Tall Grass, Flowers, Mushrooms, Lily Pads
+- Seamless transitions between climates
+
 ### Additional Completed Features
+- **New Biome Textures**: Seamless textures for Cactus, Mud, Sandstone, and Ice
+- **no_collision Models**: Walk-through support for grass, flowers, and mushrooms
 - **Paintable Blocks**: 19 textures × 32 tints with per-block metadata
 - **Sprite Icon Generation**: GPU-rendered hotbar/palette icons
 - **Tinted Glass**: Colored shadows through translucent blocks
@@ -136,234 +153,13 @@
 
 ## Active Development Phases
 
-### Phase 13: Advanced Lighting System ✅
+### Phase 15.4: Cave Biome Integration
 
-**Goal**: Add glowing blocks with optional real-time light emission for dynamic lighting.
+**Goal**: Extend biome diversity into the underground cave networks.
 
-**Status**: COMPLETE
+**Status**: PLANNED
 
-#### 13.1 Glowing Block Types ✅
-- [x] `Lava` block: glowing orange/red, decorative (no damage)
-- [x] `GlowStone` block: bright white/yellow light source
-- [x] `GlowMushroom` block: soft blue/green glow for caves
-- [x] `Crystal` block: colored glowing crystals with 32 tint variants
-- [x] Block property: `emission_color` (RGB) + `emission_strength` (0.0-1.0)
-
-#### 13.2 Light Emission System ✅
-- [x] Settings toggle: "Enable Point Lights" in settings
-- [x] Point light sources with radius falloff (quadratic attenuation)
-- [x] Real-time point lights with configurable LOD distance
-- [x] Maximum light sources: 256 lights per frame
-- [x] Light culling: distance-based, only nearby chunks processed
-
-#### 13.3 Visual Glow ✅
-- [x] Emissive material rendering in shader
-- [x] Shader: detect emissive blocks, add emission color to final output
-- [x] Crystal blocks: tint-based emission colors (32 color palette)
-- [x] Crystal point lights emit tinted colors matching block appearance
-
-#### 13.4 Performance Considerations ✅
-- [x] GPU light buffer upload (structured buffer of active lights)
-- [x] LOD: configurable point light distance in settings
-- [x] Separate enable toggles for shadows, AO, and point lights
-
-**Technical Approach:**
-```rust
-// Block property extension
-impl BlockType {
-    fn emission_color(&self) -> Option<[f32; 3]> {
-        match self {
-            BlockType::Lava => Some([1.0, 0.3, 0.0]), // Orange
-            BlockType::GlowStone => Some([1.0, 1.0, 0.8]), // Warm white
-            BlockType::GlowMushroom => Some([0.2, 0.8, 1.0]), // Cyan
-            _ => None,
-        }
-    }
-
-    fn emission_strength(&self) -> f32 {
-        match self {
-            BlockType::Lava => 0.8,
-            BlockType::GlowStone => 1.0,
-            BlockType::GlowMushroom => 0.5,
-            _ => 0.0,
-        }
-    }
-}
-```
-
-**Shader Integration:**
-```glsl
-// In traverse.comp
-struct Light {
-    vec3 position;
-    vec3 color;
-    float radius;
-};
-
-layout(set = 0, binding = N) buffer LightBuffer {
-    Light lights[];
-};
-
-vec3 calculateLighting(vec3 worldPos, vec3 normal, vec3 baseColor) {
-    vec3 lighting = ambientOcclusion(worldPos, normal); // Base AO
-
-    if (settings.dynamicLighting) {
-        for (int i = 0; i < lightCount; i++) {
-            Light light = lights[i];
-            vec3 toLight = light.position - worldPos;
-            float dist = length(toLight);
-
-            if (dist < light.radius) {
-                float attenuation = 1.0 - (dist / light.radius);
-                attenuation *= attenuation; // Quadratic falloff
-                lighting += light.color * attenuation;
-            }
-        }
-    }
-
-    return baseColor * lighting;
-}
-```
-
----
-
-### Phase 14: Enhanced Water System
-
-**Goal**: Extend water system with colors, types, and configurable flow rates.
-
-**Priority**: HIGH (Development Priority #2)
-
-#### 14.1 Water Metadata Extension ✅
-- [x] Add `WaterType` enum: `Ocean`, `Lake`, `River`, `Swamp`, `Spring`
-- [x] Per-cell metadata: `water_type`, `color_tint`, `flow_rate_multiplier`
-- [x] Extend `WaterCell` struct with new fields
-- [x] GPU upload: separate water metadata texture (reused modelMetadata)
-
-#### 14.2 Water Types ✅
-- [x] **Ocean**: Deep blue, standard flow rate
-- [x] **Lake**: Clear blue-green, slower flow (0.7x)
-- [x] **River**: Fast flow (1.5x), lighter blue
-- [x] **Swamp**: Murky green-brown, very slow (0.3x), static in some areas
-- [x] **Spring**: Crystal clear, source blocks only
-
-#### 14.3 Water Color Rendering ✅
-- [x] Shader: sample water type → color lookup table
-- [x] Tint underwater fog based on water type
-- [x] Surface reflections: sky color mixed with water tint
-- [x] Swamp water: reduce transparency (murkier)
-
-#### 14.4 Flow Rate Implementation ✅
-- [x] Modify W-Shadow algorithm with `flow_rate_multiplier`
-- [x] Swamp water: increase stability threshold (less spreading)
-- [x] River water: decrease damping (faster flow)
-- [x] Visualize flow direction with animated water surface (optional)
-
-#### 14.5 Terrain Integration (In Progress)
-- [ ] Desert biome: no water or dry riverbeds only
-- [ ] Swamp biome: generate swamp water lakes
-- [ ] Mountain biome: spring sources, fast rivers
-- [ ] Grassland/forest: lakes and slow streams
-- [ ] Snow biome: frozen water blocks (ice)
-
-**Technical Approach:**
-```rust
-#[derive(Clone, Copy, Debug)]
-enum WaterType {
-    Ocean,
-    Lake,
-    River,
-    Swamp,
-    Spring,
-}
-
-impl WaterType {
-    fn color_tint(&self) -> [f32; 3] {
-        match self {
-            WaterType::Ocean => [0.0, 0.3, 0.8],      // Deep blue
-            WaterType::Lake => [0.1, 0.5, 0.7],       // Blue-green
-            WaterType::River => [0.3, 0.6, 0.9],      // Light blue
-            WaterType::Swamp => [0.3, 0.4, 0.2],      // Murky green
-            WaterType::Spring => [0.4, 0.7, 1.0],     // Crystal clear
-        }
-    }
-
-    fn flow_rate_multiplier(&self) -> f32 {
-        match self {
-            WaterType::Ocean => 1.0,
-            WaterType::Lake => 0.7,
-            WaterType::River => 1.5,
-            WaterType::Swamp => 0.3,
-            WaterType::Spring => 1.0,
-        }
-    }
-
-    fn transparency(&self) -> f32 {
-        match self {
-            WaterType::Swamp => 0.4,  // Murky
-            _ => 0.8,                  // Clear
-        }
-    }
-}
-
-struct WaterCell {
-    mass: f32,
-    is_source: bool,
-    stable_ticks: u32,
-    water_type: WaterType,  // NEW
-}
-```
-
----
-
-### Phase 15: Biome Generation System
-
-**Goal**: Implement elevation, temperature, and rainfall-based biome generation with smooth transitions.
-
-**Priority**: HIGH (Development Priority #3)
-
-#### 15.1 Noise Map Generation
-- [ ] **Elevation Map**: Perlin/Simplex noise for terrain height (0-255 blocks)
-- [ ] **Temperature Map**: Separate noise, decreases with elevation
-- [ ] **Rainfall Map**: Independent noise for precipitation
-- [ ] Configurable octaves, scale, and seed for each map
-- [ ] Store maps in world save metadata for consistency
-
-#### 15.2 Biome Classification Rules
-- [ ] **Grassland**: Mid elevation (40-80), mid temp (0.4-0.7), mid-high rainfall (>0.5)
-- [ ] **Mountains**: High elevation (>100), low temp (<0.3), any rainfall
-- [ ] **Desert**: Low-mid elevation (<70), high temp (>0.7), low rainfall (<0.3)
-- [ ] **Swamp**: Low elevation (<50), mid-high temp (>0.5), high rainfall (>0.7)
-- [ ] **Snow/Tundra**: Any elevation with low temp (<0.2) OR high elevation (>120)
-- [ ] **Rare/Exotic**: Special seeds or elevation+temp+rainfall combinations
-
-#### 15.3 Biome-Specific Features
-
-**Grassland:**
-- [ ] Block types: Grass, Dirt, Stone
-- [ ] Trees: Oak (dense), occasional flowers
-- [ ] Ground cover: Tall grass patches (5-10% density)
-
-**Mountains:**
-- [ ] Block types: Stone, Gravel, Snow (peaks), exposed Bedrock (cliffs)
-- [ ] Trees: Pine/Spruce (sparse, lower elevations only)
-- [ ] Ground cover: Rocky, sparse grass
-
-**Desert:**
-- [ ] Block types: Sand, Sandstone, Gravel (dry riverbeds)
-- [ ] Trees: Cactus blocks (vertical pillars), dead trees (rare)
-- [ ] Ground cover: None, occasional red sand patches
-
-**Swamp:**
-- [ ] Block types: Dirt, mud blocks (new), swamp water
-- [ ] Trees: Willow (drooping leaves), cypress (thick trunks)
-- [ ] Ground cover: Lily pads (sub-voxel models), algae, mushrooms
-
-**Snow/Tundra:**
-- [ ] Block types: Snow, Ice, Stone
-- [ ] Trees: Dead trees, sparse pine
-- [ ] Ground cover: Snow layers (variable depth)
-
-#### 15.4 Cave Biome Integration
+#### 15.4 Cave Biome Rules
 - [ ] Caves inherit surface biome properties (temperature affects ice caves)
 - [ ] Ice caves: frozen water, stalactites made of ice
 - [ ] Desert caves: sandstone walls, dry (no water lakes)
@@ -377,65 +173,6 @@ struct WaterCell {
 - [ ] Minimap mode: color-coded biome map (red=desert, green=grassland, etc.)
 - [ ] Noise map export: save elevation/temp/rainfall as PNG for external editing
 - [ ] Hot-reload biome rules without restarting
-
-#### 15.6 Terrain Height Generation
-- [ ] Use elevation map directly for Y-coordinate
-- [ ] Add secondary noise for local variation (hills, valleys)
-- [ ] Clamp to world height (0-255)
-- [ ] Smooth transitions between biomes (interpolate height at boundaries)
-
-**Technical Approach:**
-```rust
-struct BiomeGenerator {
-    elevation_noise: FastNoise,
-    temperature_noise: FastNoise,
-    rainfall_noise: FastNoise,
-    seed: u64,
-}
-
-impl BiomeGenerator {
-    fn get_biome(&self, x: i32, z: i32) -> BiomeType {
-        let elevation = self.elevation_noise.get_2d(x, z); // 0.0-1.0
-        let temp = self.temperature_noise.get_2d(x, z);
-        let rainfall = self.rainfall_noise.get_2d(x, z);
-
-        // Adjust temperature by elevation (lapse rate)
-        let adjusted_temp = temp - (elevation * 0.6);
-
-        // Classify biome based on conditions
-        if adjusted_temp < 0.2 || elevation > 0.8 {
-            BiomeType::Snow
-        } else if elevation > 0.6 {
-            BiomeType::Mountains
-        } else if temp > 0.7 && rainfall < 0.3 {
-            BiomeType::Desert
-        } else if elevation < 0.4 && rainfall > 0.7 {
-            BiomeType::Swamp
-        } else {
-            BiomeType::Grassland
-        }
-    }
-
-    fn get_height(&self, x: i32, z: i32) -> u8 {
-        let base_height = self.elevation_noise.get_2d(x, z); // 0.0-1.0
-        let detail = self.detail_noise.get_2d(x, z) * 0.2;   // Local variation
-        ((base_height + detail) * 200.0 + 20.0) as u8        // Range: 20-220
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum BiomeType {
-    Grassland,
-    Mountains,
-    Desert,
-    Swamp,
-    Snow,
-    // Rare variants
-    CrystalCave,
-    MushroomForest,
-    LavaField,
-}
-```
 
 ---
 
@@ -863,20 +600,20 @@ impl FloodFillTool {
 - [x] Crystal blocks with 32 tint colors and tinted point light emission
 - [x] Performance maintained with multiple light sources
 
-### Phase 14: Enhanced Water
-- [ ] Swamp water renders murky green-brown
-- [ ] River water flows 1.5x faster than ocean water
-- [ ] Water type persists across save/load
-- [ ] Underwater fog color matches water type
-- [ ] Biomes generate correct water types (swamp → swamp water)
+### Phase 14: Enhanced Water ✅
+- [x] Swamp water renders murky green-brown
+- [x] River water flows 1.5x faster than ocean water
+- [x] Water type persists across save/load
+- [x] Underwater fog color matches water type
+- [x] Biomes generate correct water types (swamp → swamp water)
 
-### Phase 15: Biome Generation
-- [ ] 5 distinct biomes generate with natural transitions
-- [ ] Temperature decreases visibly with elevation (snow on mountain peaks)
-- [ ] Rainfall affects vegetation density (sparse grass in dry areas)
+### Phase 15: Biome Generation ✅
+- [x] 5 distinct biomes generate with natural transitions
+- [x] Temperature decreases visibly with elevation (snow on mountain peaks)
+- [x] Rainfall affects vegetation density (sparse grass in dry areas)
 - [ ] Debug overlay shows elevation/temp/rainfall values
 - [ ] Rare biomes spawn (<5% of world)
-- [ ] Caves have biome-specific features (ice stalactites in snow caves)
+- [x] Caves have biome-specific features (partially: sandstone in desert, etc.)
 
 ### Phase 16: Building Tools
 - [ ] Copy 64×64×64 region to template library in <5 seconds
@@ -956,25 +693,38 @@ git commit -m "type: description"
 
 ## Current Work (2026-01-06)
 
-**Status**: Phase 14 (Enhanced Water System) COMPLETE. Moving to Phase 15 (Biome Generation).
+**Status**: Phase 15 (Cave Biome Integration) IN PROGRESS.
 
 **Recent Work:**
-- Implemented `WaterType` enum and metadata storage in chunks
-- Added GPU support for per-voxel water types (color, clarity, fog)
-- Implemented variable flow rates for River (fast), Swamp (slow), Lake (medium)
-- Integrated water types into Palette and Hotbar for user placement
-- Updated shaders to render murky swamp water and clear springs
+- **Biome Generation System**:
+  - Implemented elevation, temperature, and rainfall noise maps
+  - Defined 5 primary biomes (Grassland, Mountains, Desert, Swamp, Snow)
+  - Implemented biome-specific height generation and block placement
+  - Integrated `WaterType` into terrain generation (Swamp water in swamps, etc.)
+  - Implemented biome-specific vegetation (Oak, Pine, Willow, Cactus)
+  - Implemented ground cover (Tall Grass, Flowers, Mushrooms, Lily Pads)
+- **Texture Assets**:
+  - Generated seamless textures for Cactus, Mud, Sandstone, and Ice
+  - Integrated textures into `texture_atlas.png` and `shaders/materials.glsl`
+  - Updated terrain generation to use `Painted` blocks for Mud (Swamp) and Sandstone (Desert)
+- **Palette & Physics**:
+  - Added `no_collision` flag for walk-through models (grass, flowers, mushrooms)
+  - Added new models and painted block variants to HUD Palette
+  - Added "No Collision" checkbox to in-game model editor properties
+- **Build System**:
+  - Set default seed `12345` for `make new-*`, `make run`, and `make auto-profile-*` targets
+  - Added `make new-normal` target for quick normal world generation
 
 **Next Actions:**
-1. Begin Phase 15: Biome Generation System
-2. Implement noise maps for elevation, temperature, rainfall
-3. Implement `BiomeGenerator` struct
-4. Integrate water types into terrain generation (14.5 moved here)
+1. Implement Cave Biome Integration (ice caves, flooded swamp caves)
+2. Add debug visualization for biomes (overlay HUD)
 
 ---
 
 ## Done Recently
 
+- **Phase 15: Biome Generation System** (2026-01-06): ✅ CORE COMPLETE
+  - Noise maps, biome rules, vegetation, and height curves implemented
 - **Phase 14: Enhanced Water System** (2026-01-06): ✅ COMPLETE
   - Ocean, Lake, River, Swamp, Spring water types
   - Visual differentiation (color/fog) and physical differentiation (flow rate)
@@ -1003,5 +753,5 @@ git commit -m "type: description"
 
 ---
 
-*Last Updated: 2026-01-05*
-*Plan Version: 2.0 - Building-Focused Game*
+*Last Updated: 2026-01-06*
+*Plan Version: 2.1 - Biome & Building Tools*
