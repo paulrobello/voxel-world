@@ -223,6 +223,14 @@ float getCrackPattern(vec2 uv, float progress) {
 // Ambient occlusion for a face
 float calculateAO(ivec3 blockCoord, vec3 normal, vec2 uv) {
     ivec3 inormal = ivec3(normal);
+    ivec3 facePos = blockCoord + inormal;
+
+    // Early exit: if the chunk containing the face is empty, no AO needed
+    ivec3 chunkPos = facePos / int(CHUNK_SIZE);
+    if (isChunkEmpty(chunkPos)) {
+        return 1.0;  // No occlusion in empty chunk
+    }
+
     ivec3 tangent1, tangent2;
 
     if (abs(inormal.x) > 0) {
@@ -235,8 +243,6 @@ float calculateAO(ivec3 blockCoord, vec3 normal, vec2 uv) {
         tangent1 = ivec3(1, 0, 0);
         tangent2 = ivec3(0, 1, 0);
     }
-
-    ivec3 facePos = blockCoord + inormal;
 
     float ao[4];
     for (int i = 0; i < 4; i++) {

@@ -128,23 +128,29 @@ float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFl
     int maxSteps = int(clamp(min(maxTravel * maxAbsDir + 4.0, baseSteps), 32.0, float(pc.shadow_max_steps)));
 
     for (int i = 0; i < maxSteps; i++) {
-        // Chunk skipping: safe even with model shadows (we check current position for models)
+        // Chunk skipping: check chunk emptiness FIRST (cheap), then model metadata only if needed
         if (allowChunkSkip) {
             ivec3 chunkPos = pos / int(CHUNK_SIZE);
-            uvec2 metaHere = readModelMetadata(pos);
-            bool hasModelHere = metaHere.r != 0u;
-            if (isChunkEmpty(chunkPos) && !hasModelHere) {
-                vec3 chunkMin = vec3(chunkPos) * float(CHUNK_SIZE);
-                vec3 chunkMax = chunkMin + float(CHUNK_SIZE);
-                vec3 tExit = mix((chunkMin - rayPos) * inv_dir,
-                                 (chunkMax - rayPos) * inv_dir,
-                                 step(vec3(0.0), dir));
-                float minExit = min(min(tExit.x, tExit.y), tExit.z);
-                rayPos += dir * (minExit + 0.001);
-                pos = ivec3(floor(rayPos));
-                tMax = (vec3(pos) + 0.5 + 0.5 * vec3(stepDir) - rayPos) * inv_dir;
-                totalDist += minExit;
-                continue;
+            if (isChunkEmpty(chunkPos)) {
+                // Empty chunk - check for standalone model only if model shadows enabled
+                bool hasModelHere = false;
+                if (pc.enable_model_shadows != 0u) {
+                    uvec2 metaHere = readModelMetadata(pos);
+                    hasModelHere = metaHere.r != 0u;
+                }
+                if (!hasModelHere) {
+                    vec3 chunkMin = vec3(chunkPos) * float(CHUNK_SIZE);
+                    vec3 chunkMax = chunkMin + float(CHUNK_SIZE);
+                    vec3 tExit = mix((chunkMin - rayPos) * inv_dir,
+                                     (chunkMax - rayPos) * inv_dir,
+                                     step(vec3(0.0), dir));
+                    float minExit = min(min(tExit.x, tExit.y), tExit.z);
+                    rayPos += dir * (minExit + 0.001);
+                    pos = ivec3(floor(rayPos));
+                    tMax = (vec3(pos) + 0.5 + 0.5 * vec3(stepDir) - rayPos) * inv_dir;
+                    totalDist += minExit;
+                    continue;
+                }
             }
         }
         // Brick skipping disabled when model shadows enabled (models can be anywhere in brick)
@@ -315,17 +321,22 @@ float getSkyExposure(vec3 origin) {
             return accumulatedPartialExposure;  // Apply partial blockers if ray escaped
         }
 
-        // Chunk skipping optimization: if chunk is empty and no model here, skip to chunk top
+        // Chunk skipping: check emptiness FIRST (cheap), then model only if needed
         ivec3 chunkPos = pos / int(CHUNK_SIZE);
-        uvec2 metaHere = readModelMetadata(pos);
-        bool hasModelHere = metaHere.r != 0u;
-        if (isChunkEmpty(chunkPos) && !hasModelHere) {
-            // Jump to top of this chunk (only moving in +Y)
-            int chunkTopY = (chunkPos.y + 1) * int(CHUNK_SIZE);
-            pos.y = chunkTopY;
-            rayPos.y = float(chunkTopY);
-            tMax.y = 1.0;  // Reset to step 1 block at a time
-            continue;
+        if (isChunkEmpty(chunkPos)) {
+            bool hasModelHere = false;
+            if (pc.enable_model_shadows != 0u) {
+                uvec2 metaHere = readModelMetadata(pos);
+                hasModelHere = metaHere.r != 0u;
+            }
+            if (!hasModelHere) {
+                // Jump to top of this chunk (only moving in +Y)
+                int chunkTopY = (chunkPos.y + 1) * int(CHUNK_SIZE);
+                pos.y = chunkTopY;
+                rayPos.y = float(chunkTopY);
+                tMax.y = 1.0;
+                continue;
+            }
         }
 
         vec3 blockOrigin = rayPos + dir * 0.01;
