@@ -1,4 +1,4 @@
-use crate::chunk::{BlockType, CHUNK_SIZE, Chunk};
+use crate::chunk::{BlockType, CHUNK_SIZE, Chunk, WaterType};
 use crate::config::WorldGenType;
 use nalgebra::Vector3;
 use noise::{Fbm, MultiFractal, NoiseFn, Perlin, RidgedMulti};
@@ -7,13 +7,36 @@ use noise::{Fbm, MultiFractal, NoiseFn, Perlin, RidgedMulti};
 /// Sea level for water filling (blocks below this in valleys become water)
 pub const SEA_LEVEL: i32 = 28;
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum BiomeType {
+    Grassland,
+    Mountains,
+    Desert,
+    Swamp,
+    Snow,
+}
+
+impl BiomeType {
+    pub fn water_type(&self) -> WaterType {
+        match self {
+            BiomeType::Grassland => WaterType::Lake,
+            BiomeType::Mountains => WaterType::Spring,
+            BiomeType::Desert => WaterType::River, // Sparse rivers in desert
+            BiomeType::Swamp => WaterType::Swamp,
+            BiomeType::Snow => WaterType::River, // Icy rivers
+        }
+    }
+}
+
 /// Terrain generator using multiple noise layers for varied landscapes
 #[derive(Clone)]
 pub struct TerrainGenerator {
     height_noise: Fbm<Perlin>,
     detail_noise: Perlin,
     mountain_noise: RidgedMulti<Perlin>,
-    biome_noise: Perlin,
+    // biome_noise replaced by temperature/rainfall logic
+    temperature_noise: Perlin,
+    rainfall_noise: Perlin,
     cave_noise: Perlin,
     cave_mask_noise: Perlin,
     entrance_noise: Perlin,
@@ -37,9 +60,10 @@ impl TerrainGenerator {
             .set_lacunarity(2.2)
             .set_persistence(0.5);
 
-        // Biome noise - determines flat plains vs hilly vs mountainous regions
-        // Very low frequency for large biome regions
-        let biome_noise = Perlin::new(seed.wrapping_add(6));
+        // Temperature noise - large scale variation
+        let temperature_noise = Perlin::new(seed.wrapping_add(6));
+        // Rainfall noise - large scale variation
+        let rainfall_noise = Perlin::new(seed.wrapping_add(7));
 
         // 3D noise for cave carving
         let cave_noise = Perlin::new(seed.wrapping_add(3));
@@ -54,10 +78,48 @@ impl TerrainGenerator {
             height_noise,
             detail_noise,
             mountain_noise,
-            biome_noise,
+            temperature_noise,
+            rainfall_noise,
             cave_noise,
             cave_mask_noise,
             entrance_noise,
+        }
+    }
+
+    /// Get biome type at world coordinates
+    pub fn get_biome(&self, world_x: i32, world_z: i32) -> BiomeType {
+        let x = world_x as f64;
+        let z = world_z as f64;
+
+        // Base noise values (-1.0 to 1.0)
+        let temp_raw = self.temperature_noise.get([x * 0.002, z * 0.002]);
+        let rain_raw = self.rainfall_noise.get([x * 0.002, z * 0.002]);
+
+        // Normalize to 0.0 to 1.0
+        let temp = temp_raw * 0.5 + 0.5;
+        let rain = rain_raw * 0.5 + 0.5;
+
+        // Get approximate height for temperature lapse rate
+        // We use a simplified height lookup to avoid recursion (since get_height calls this in future)
+        // For now, assume sea level for biome distribution, modify later if needed.
+        // Or better: Use height noise directly here without full detail.
+        let base_height = self.height_noise.get([x, z]); // -1 to 1
+
+        // Adjust temperature by elevation (higher = colder)
+        // base_height of 1.0 (mountain) reduces temp by 0.4
+        let elevation_cooling = base_height.max(0.0) * 0.4;
+        let adjusted_temp = (temp - elevation_cooling).clamp(0.0, 1.0);
+
+        if adjusted_temp < 0.3 {
+            BiomeType::Snow
+        } else if adjusted_temp > 0.7 && rain < 0.3 {
+            BiomeType::Desert
+        } else if adjusted_temp > 0.6 && rain > 0.7 {
+            BiomeType::Swamp
+        } else if base_height > 0.6 {
+            BiomeType::Mountains
+        } else {
+            BiomeType::Grassland
         }
     }
 
@@ -65,21 +127,6 @@ impl TerrainGenerator {
     pub fn get_height(&self, world_x: i32, world_z: i32) -> i32 {
         let x = world_x as f64;
         let z = world_z as f64;
-
-        // Biome type: determines flat plains (-1) vs rolling hills (0) vs mountains (+1)
-        // Very low frequency for large coherent regions
-        let biome_raw = self.biome_noise.get([x * 0.004, z * 0.004]);
-
-        // Create distinct biome zones with sharper transitions
-        // Values < -0.3 = flat plains, > 0.3 = mountains, between = rolling hills
-        let biome_type = if biome_raw < -0.3 {
-            0.0 // Flat plains
-        } else if biome_raw > 0.3 {
-            1.0 // Mountains
-        } else {
-            // Smooth transition zone (rolling hills)
-            ((biome_raw + 0.3) / 0.6).clamp(0.0, 1.0)
-        };
 
         // Base continental terrain (large smooth features)
         let base = self.height_noise.get([x, z]);
@@ -90,32 +137,20 @@ impl TerrainGenerator {
         // Detail noise for subtle variation
         let detail = self.detail_noise.get([x * 0.02, z * 0.02]);
 
-        // Calculate height based on biome type:
-        // - Flat plains: height 32-36 with minimal variation
-        // - Rolling hills: height 28-45 with moderate variation
-        // - Mountains: height 32-90 with dramatic peaks
-        let height = if biome_type < 0.1 {
-            // Flat plains - very little variation
-            32.0 + detail * 2.0
-        } else if biome_type > 0.9 {
-            // Mountain biome - dramatic peaks
-            let mountain_height = ridges * 55.0;
-            32.0 + base * 6.0 + mountain_height
-        } else {
-            // Transition zone - blend between plains and mountains
-            let plains_height = 32.0 + detail * 2.0;
-            let hills_height = 32.0 + base * 10.0 + detail * 3.0;
-            let mountain_height = 32.0 + base * 6.0 + ridges * 55.0;
+        let biome = self.get_biome(world_x, world_z);
 
-            // Smooth blend based on biome_type
-            if biome_type < 0.5 {
-                // Plains to hills transition
-                let t = biome_type / 0.5;
-                plains_height * (1.0 - t) + hills_height * t
-            } else {
-                // Hills to mountains transition
-                let t = (biome_type - 0.5) / 0.5;
-                hills_height * (1.0 - t) + mountain_height * t
+        let height = match biome {
+            BiomeType::Grassland => 32.0 + detail * 2.0 + base * 4.0,
+            BiomeType::Mountains => 32.0 + base * 10.0 + ridges * 55.0,
+            BiomeType::Desert => 32.0 + detail * 1.0 + base * 2.0, // Flatter
+            BiomeType::Swamp => 28.0 + detail * 1.0,               // Low, near sea level (28)
+            BiomeType::Snow => {
+                // High peaks or flat tundra depending on base height
+                if base > 0.5 {
+                    32.0 + base * 8.0 + ridges * 40.0 // Snowy peaks
+                } else {
+                    32.0 + detail * 2.0 // Tundra
+                }
             }
         };
 
@@ -250,6 +285,7 @@ fn generate_normal_chunk(terrain: &TerrainGenerator, chunk_pos: Vector3<i32>) ->
             let world_x = chunk_world_x + lx as i32;
             let world_z = chunk_world_z + lz as i32;
             let height = terrain.get_height(world_x, world_z);
+            let biome = terrain.get_biome(world_x, world_z);
 
             for ly in 0..CHUNK_SIZE {
                 let world_y = chunk_world_y + ly as i32;
@@ -261,7 +297,7 @@ fn generate_normal_chunk(terrain: &TerrainGenerator, chunk_pos: Vector3<i32>) ->
                     // Above terrain and above sea level = air
                     BlockType::Air
                 } else if world_y > height && world_y <= SEA_LEVEL {
-                    // Above terrain but below sea level = water (flat lake surface)
+                    // Above terrain but below sea level = water
                     BlockType::Water
                 } else if terrain.is_cave(world_x, world_y, world_z, height) {
                     // Carved out cave - fill with water if below sea level
@@ -271,43 +307,71 @@ fn generate_normal_chunk(terrain: &TerrainGenerator, chunk_pos: Vector3<i32>) ->
                         BlockType::Air
                     }
                 } else if world_y == height {
-                    // Surface block - varies by elevation (biome)
-                    if height > 70 {
-                        BlockType::Snow // Snow-capped peaks
-                    } else if height > 55 {
-                        BlockType::Stone // Rocky mountain surface
-                    } else if height <= SEA_LEVEL + 2 {
-                        BlockType::Sand // Beach/shore near water level
-                    } else {
-                        BlockType::Grass // Normal grassland
+                    // Surface block - varies by biome
+                    match biome {
+                        BiomeType::Snow => BlockType::Snow,
+                        BiomeType::Desert => BlockType::Sand,
+                        BiomeType::Mountains => BlockType::Stone,
+                        BiomeType::Swamp => {
+                            if world_y <= SEA_LEVEL + 1 {
+                                BlockType::Dirt // Muddy look
+                            } else {
+                                BlockType::Grass
+                            }
+                        }
+                        BiomeType::Grassland => {
+                            if world_y <= SEA_LEVEL + 2 {
+                                BlockType::Sand // Beach
+                            } else {
+                                BlockType::Grass
+                            }
+                        }
                     }
                 } else if world_y > height - 3 {
                     // Subsurface layer
-                    if height > 55 {
-                        BlockType::Stone // Mountains: stone all the way
-                    } else if height <= SEA_LEVEL + 2 {
-                        BlockType::Sand // Sandy beach substrate
-                    } else {
-                        BlockType::Dirt // Normal: dirt layer
+                    match biome {
+                        BiomeType::Desert => BlockType::Sand,
+                        BiomeType::Mountains => BlockType::Stone,
+                        BiomeType::Snow => BlockType::Stone,
+                        _ => {
+                            if height <= SEA_LEVEL + 2 {
+                                BlockType::Sand // Beach substrate
+                            } else {
+                                BlockType::Dirt
+                            }
+                        }
                     }
                 } else {
                     BlockType::Stone // Deep underground
                 };
-                chunk.set_block(lx, ly, lz, block_type);
+
+                if block_type == BlockType::Water {
+                    chunk.set_water_block(lx, ly, lz, biome.water_type());
+                } else {
+                    chunk.set_block(lx, ly, lz, block_type);
+                }
             }
         }
     }
 
     // Add trees deterministically based on chunk position
-    // Trees are placed if hash of position within chunk meets threshold
     for lx in (2..CHUNK_SIZE - 2).step_by(8) {
         for lz in (2..CHUNK_SIZE - 2).step_by(8) {
             let world_x = chunk_world_x + lx as i32;
             let world_z = chunk_world_z + lz as i32;
             let height = terrain.get_height(world_x, world_z);
+            let biome = terrain.get_biome(world_x, world_z);
 
-            // Only place trees in grassland areas (not on mountains)
-            if height > 55 {
+            // Determine if tree should spawn
+            let should_spawn = match biome {
+                BiomeType::Grassland => true,
+                BiomeType::Swamp => true,
+                BiomeType::Snow => height < 60, // Only lower elevation trees
+                BiomeType::Mountains => false,
+                BiomeType::Desert => false,
+            };
+
+            if !should_spawn {
                 continue;
             }
 
