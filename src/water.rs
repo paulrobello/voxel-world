@@ -12,6 +12,7 @@
 use crate::constants::ORTHO_DIRS;
 use nalgebra::Vector3;
 use std::collections::{HashMap, HashSet};
+use std::time::Instant;
 
 /// Maximum water mass a cell can hold before it's considered "full".
 /// Values above this indicate pressure (compressed water).
@@ -37,6 +38,11 @@ pub const DEFAULT_WATER_UPDATES_PER_FRAME: usize = 1024;
 /// Default simulation radius in blocks (water outside this range is dormant).
 /// This ensures water is only simulated in loaded chunks near the player.
 pub const DEFAULT_SIMULATION_RADIUS: f32 = 64.0;
+
+/// Default tick interval in milliseconds.
+/// Lower = faster simulation, higher = slower/smoother.
+/// 50ms = 20 ticks/second (Minecraft-like)
+pub const DEFAULT_TICK_INTERVAL_MS: u64 = 50;
 
 /// A single water cell with mass and properties.
 #[derive(Debug, Clone, Copy)]
@@ -166,6 +172,12 @@ pub struct WaterGrid {
     /// Simulation radius in blocks. Water outside this radius from the player is dormant.
     /// This ensures water is only simulated in loaded chunks near the player.
     pub simulation_radius: f32,
+
+    /// Tick interval in milliseconds. Controls simulation speed.
+    pub tick_interval_ms: u64,
+
+    /// Last time a simulation tick was run.
+    last_tick: Instant,
 }
 
 impl Default for WaterGrid {
@@ -184,7 +196,20 @@ impl WaterGrid {
             dirty_positions: HashSet::with_capacity(256),
             max_updates_per_frame: DEFAULT_WATER_UPDATES_PER_FRAME,
             simulation_radius: DEFAULT_SIMULATION_RADIUS,
+            tick_interval_ms: DEFAULT_TICK_INTERVAL_MS,
+            last_tick: Instant::now(),
         }
+    }
+
+    /// Returns true if enough time has passed for a simulation tick.
+    /// Call this before process_simulation to throttle updates.
+    pub fn should_tick(&self) -> bool {
+        self.last_tick.elapsed().as_millis() >= self.tick_interval_ms as u128
+    }
+
+    /// Marks that a tick just occurred. Called automatically by process_simulation.
+    fn mark_tick(&mut self) {
+        self.last_tick = Instant::now();
     }
 
     /// Gets the water mass at a position (0.0 if no water).
@@ -908,6 +933,7 @@ impl WaterGrid {
     }
 
     /// Processes water flow simulation.
+    /// Uses tick_interval_ms to throttle simulation speed.
     pub fn process_simulation(
         &mut self,
         world: &mut crate::world::World,
@@ -921,6 +947,7 @@ impl WaterGrid {
 
         // Sync dirty positions: if world has Water block but grid has no cell, create one.
         // This ensures water blocks placed by terrain or other systems can drain.
+        // Always run this (not throttled) so block placement is immediately responsive.
         let dirty_to_check: Vec<_> = self.dirty_positions.iter().copied().collect();
         for pos in dirty_to_check {
             if pos.y >= 0 && pos.y < texture_height {
@@ -932,6 +959,12 @@ impl WaterGrid {
                 }
             }
         }
+
+        // Throttle simulation ticks based on tick_interval_ms
+        if !self.should_tick() {
+            return;
+        }
+        self.mark_tick();
 
         // Create a closure that checks if a block is solid
         // Also returns true for unloaded chunks (blocks water flow until chunk loads)

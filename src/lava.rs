@@ -11,6 +11,7 @@ use crate::chunk::BlockType;
 use crate::constants::ORTHO_DIRS;
 use nalgebra::Vector3;
 use std::collections::{HashMap, HashSet};
+use std::time::Instant;
 
 /// Maximum lava mass a cell can hold.
 pub const MAX_MASS: f32 = 1.0;
@@ -29,6 +30,11 @@ pub const DEFAULT_LAVA_UPDATES_PER_FRAME: usize = 128;
 
 /// Default simulation radius in blocks.
 pub const DEFAULT_SIMULATION_RADIUS: f32 = 48.0;
+
+/// Default tick interval in milliseconds.
+/// Lava is slower than water, so use a longer interval.
+/// 100ms = 10 ticks/second
+pub const DEFAULT_TICK_INTERVAL_MS: u64 = 100;
 
 /// A single lava cell with mass and properties.
 #[derive(Debug, Clone, Copy)]
@@ -124,6 +130,10 @@ pub struct LavaGrid {
     dirty_positions: HashSet<Vector3<i32>>,
     pub max_updates_per_frame: usize,
     pub simulation_radius: f32,
+    /// Tick interval in milliseconds. Controls simulation speed.
+    pub tick_interval_ms: u64,
+    /// Last time a simulation tick was run.
+    last_tick: Instant,
 }
 
 impl Default for LavaGrid {
@@ -141,7 +151,19 @@ impl LavaGrid {
             dirty_positions: HashSet::with_capacity(128),
             max_updates_per_frame: DEFAULT_LAVA_UPDATES_PER_FRAME,
             simulation_radius: DEFAULT_SIMULATION_RADIUS,
+            tick_interval_ms: DEFAULT_TICK_INTERVAL_MS,
+            last_tick: Instant::now(),
         }
+    }
+
+    /// Returns true if enough time has passed for a simulation tick.
+    pub fn should_tick(&self) -> bool {
+        self.last_tick.elapsed().as_millis() >= self.tick_interval_ms as u128
+    }
+
+    /// Marks that a tick just occurred.
+    fn mark_tick(&mut self) {
+        self.last_tick = Instant::now();
     }
 
     #[inline]
@@ -577,6 +599,7 @@ impl LavaGrid {
     }
 
     /// Processes lava flow simulation.
+    /// Uses tick_interval_ms to throttle simulation speed.
     pub fn process_simulation(
         &mut self,
         world: &mut crate::world::World,
@@ -588,6 +611,7 @@ impl LavaGrid {
         let texture_height = TEXTURE_SIZE_Y as i32;
 
         // Sync dirty positions: if world has Lava block but grid has no cell, create one.
+        // Always run this (not throttled) so block placement is immediately responsive.
         let dirty_to_check: Vec<_> = self.dirty_positions.iter().copied().collect();
         for pos in dirty_to_check {
             if pos.y >= 0 && pos.y < texture_height {
@@ -599,6 +623,12 @@ impl LavaGrid {
                 }
             }
         }
+
+        // Throttle simulation ticks based on tick_interval_ms
+        if !self.should_tick() {
+            return;
+        }
+        self.mark_tick();
 
         let is_solid = |pos: Vector3<i32>| -> bool {
             if pos.y < 0 || pos.y >= texture_height {
