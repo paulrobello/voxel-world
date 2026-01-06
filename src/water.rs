@@ -51,6 +51,10 @@ pub struct WaterCell {
     /// Can exceed 1.0 for pressurized water (underwater columns).
     pub mass: f32,
 
+    /// Visual mass for smooth rendering. Lerps toward actual mass each frame.
+    /// This prevents strobing/flickering at water edges.
+    pub display_mass: f32,
+
     /// If true, this cell generates infinite water (ocean surface, springs).
     /// Source cells always maintain mass = MAX_MASS.
     pub is_source: bool,
@@ -63,6 +67,7 @@ impl Default for WaterCell {
     fn default() -> Self {
         Self {
             mass: 0.0,
+            display_mass: 0.0,
             is_source: false,
             stable_ticks: 0,
         }
@@ -74,6 +79,7 @@ impl WaterCell {
     pub fn new(mass: f32) -> Self {
         Self {
             mass,
+            display_mass: mass,
             is_source: false,
             stable_ticks: 0,
         }
@@ -83,6 +89,7 @@ impl WaterCell {
     pub fn source() -> Self {
         Self {
             mass: MAX_MASS,
+            display_mass: MAX_MASS,
             is_source: true,
             stable_ticks: 0,
         }
@@ -107,9 +114,20 @@ impl WaterCell {
     }
 
     /// Returns the visual water height (0.0 to 1.0) for rendering.
+    /// Uses display_mass for smooth transitions.
     #[inline]
     pub fn visual_height(&self) -> f32 {
-        self.mass.clamp(0.0, 1.0)
+        self.display_mass.clamp(0.0, 1.0)
+    }
+
+    /// Updates the display mass toward the actual mass for smooth visuals.
+    /// Call this every frame with delta_time in seconds.
+    #[inline]
+    pub fn update_display(&mut self, delta_time: f32) {
+        // Lerp speed - higher = faster catch-up (10.0 = ~100ms to reach target)
+        const LERP_SPEED: f32 = 10.0;
+        let t = (LERP_SPEED * delta_time).min(1.0);
+        self.display_mass = self.display_mass + (self.mass - self.display_mass) * t;
     }
 }
 
@@ -210,6 +228,22 @@ impl WaterGrid {
     /// Marks that a tick just occurred. Called automatically by process_simulation.
     fn mark_tick(&mut self) {
         self.last_tick = Instant::now();
+    }
+
+    /// Updates display masses for all water cells for smooth visual transitions.
+    /// Call this every frame with delta_time in seconds.
+    /// Returns positions where display mass changed significantly (for GPU update).
+    pub fn update_visuals(&mut self, delta_time: f32) -> Vec<Vector3<i32>> {
+        let mut changed = Vec::new();
+        for (pos, cell) in self.cells.iter_mut() {
+            let old_display = cell.display_mass;
+            cell.update_display(delta_time);
+            // Only mark as changed if the visual height changed noticeably
+            if (cell.display_mass - old_display).abs() > 0.001 {
+                changed.push(*pos);
+            }
+        }
+        changed
     }
 
     /// Gets the water mass at a position (0.0 if no water).
@@ -493,6 +527,7 @@ impl WaterGrid {
                     pos,
                     WaterCell {
                         mass: delta,
+                        display_mass: delta,
                         is_source: false,
                         stable_ticks: 0,
                     },
@@ -1196,6 +1231,7 @@ mod tests {
             Vector3::new(10, 0, 0),
             WaterCell {
                 mass: 1.0,
+                display_mass: 1.0,
                 is_source: false,
                 stable_ticks: 0,
             },
@@ -1208,6 +1244,7 @@ mod tests {
             Vector3::new(1, 0, 0),
             WaterCell {
                 mass: 1.0,
+                display_mass: 1.0,
                 is_source: false,
                 stable_ticks: 0,
             },
