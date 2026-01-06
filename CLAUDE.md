@@ -125,17 +125,20 @@ Extra texture slots: 17=grass_side, 18=log_top
 Models support three resolutions (8³, 16³, 32³) with 32-color palettes and per-slot emission. Key types in `sub_voxel.rs`:
 - `ModelResolution` - Low (8³), Medium (16³), High (32³)
 - `LightMode` - 10 animated light modes (Steady, Pulse, Flicker, Candle, Strobe, Breathe, Sparkle, Wave, WarmUp, Arc)
-- `FIRST_CUSTOM_MODEL_ID = 100` - IDs 0-99 reserved for built-ins
+- `FIRST_CUSTOM_MODEL_ID = 106` - IDs 0-105 reserved for built-ins
 - Built-in models use Low (8³) resolution for optimal performance
 
 **Model IDs:**
-- 0-19: Torch variants (rotation × flame states)
-- 20-35: Fence variants (connection states)
-- 36-51: Fence gate variants
-- 52-67: Ladder variants
-- 68-98: Door/trapdoor variants
+- 0: Empty/placeholder
+- 1: Torch
+- 2-3: Slabs
+- 4-19: Fence variants (connection states)
+- 20-27: Gate variants (closed/open)
+- 28-38: Stairs variants (straight/corners, floor/ceiling)
+- 39-98: Door and window variants (plain, windowed, paneled, fancy, glass, trapdoors, windows)
 - 99: Crystal model (tinted by block metadata)
-- 100+: Custom user models
+- 100-105: Vegetation models (grass, flowers, lily pad, mushrooms)
+- 106+: Custom user models
 
 **Adding built-in models:** Edit `sub_voxel_builtins.rs`, call `create_*()` functions in `register_builtins()`.
 

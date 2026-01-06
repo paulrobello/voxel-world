@@ -268,6 +268,39 @@ impl LibraryManager {
         let path = self.root_path.join(format!("{}.vxm", safe_name));
         path.exists()
     }
+
+    /// Deletes a model from the library.
+    ///
+    /// # Arguments
+    /// * `name` - The name of the model to delete (without .vxm extension)
+    ///
+    /// # Returns
+    /// Ok(()) if deleted successfully, or an error if the file doesn't exist or deletion fails
+    pub fn delete_model(&self, name: &str) -> io::Result<()> {
+        // Sanitize filename the same way save_model does
+        let safe_name: String = name
+            .chars()
+            .map(|c| {
+                if c.is_alphanumeric() || c == '_' || c == '-' {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+
+        let path = self.root_path.join(format!("{}.vxm", safe_name));
+
+        if !path.exists() {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("Model '{}' not found in library", name),
+            ));
+        }
+
+        fs::remove_file(path)?;
+        Ok(())
+    }
 }
 
 /// Persisted model registry for a world.
