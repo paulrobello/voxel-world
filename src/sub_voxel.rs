@@ -837,6 +837,149 @@ impl SubVoxelModel {
         }
         data
     }
+
+    /// Upscales the model to a higher resolution by subdividing each voxel.
+    ///
+    /// Each voxel becomes a cube of voxels in the new resolution:
+    /// - 8³ → 16³: each voxel becomes 2×2×2 (8 voxels)
+    /// - 8³ → 32³: each voxel becomes 4×4×4 (64 voxels)
+    /// - 16³ → 32³: each voxel becomes 2×2×2 (8 voxels)
+    ///
+    /// Returns None if target resolution is not higher than current.
+    pub fn upscale(&self, target: ModelResolution) -> Option<Self> {
+        let old_size = self.size();
+        let new_size = target.size();
+
+        if new_size <= old_size {
+            return None;
+        }
+
+        let scale = new_size / old_size;
+        let mut new_voxels = vec![0u8; target.volume()];
+
+        // For each voxel in the old model, fill a scale×scale×scale cube in the new model
+        for oz in 0..old_size {
+            for oy in 0..old_size {
+                for ox in 0..old_size {
+                    let palette_idx = self.get_voxel(ox, oy, oz);
+                    if palette_idx == 0 {
+                        continue; // Air stays air
+                    }
+
+                    // Fill the corresponding cube in new model
+                    let base_x = ox * scale;
+                    let base_y = oy * scale;
+                    let base_z = oz * scale;
+
+                    for dz in 0..scale {
+                        for dy in 0..scale {
+                            for dx in 0..scale {
+                                let nx = base_x + dx;
+                                let ny = base_y + dy;
+                                let nz = base_z + dz;
+                                new_voxels[nx + ny * new_size + nz * new_size * new_size] =
+                                    palette_idx;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut new_model = Self {
+            id: self.id,
+            name: self.name.clone(),
+            resolution: target,
+            voxels: new_voxels,
+            palette: self.palette,
+            palette_emission: self.palette_emission,
+            collision_mask: 0, // Will recompute
+            light_blocking: self.light_blocking,
+            rotatable: self.rotatable,
+            emission: self.emission,
+            is_light_source: self.is_light_source,
+            light_mode: self.light_mode,
+            light_radius: self.light_radius,
+            light_intensity: self.light_intensity,
+            requires_ground_support: self.requires_ground_support,
+        };
+        new_model.compute_collision_mask();
+
+        Some(new_model)
+    }
+
+    /// Downscales the model to a lower resolution by sampling.
+    ///
+    /// Uses nearest-neighbor sampling (takes the voxel at the center of each region).
+    /// This may lose detail - consider warning the user before downscaling.
+    ///
+    /// - 16³ → 8³: samples every 2nd voxel
+    /// - 32³ → 8³: samples every 4th voxel
+    /// - 32³ → 16³: samples every 2nd voxel
+    ///
+    /// Returns None if target resolution is not lower than current.
+    pub fn downscale(&self, target: ModelResolution) -> Option<Self> {
+        let old_size = self.size();
+        let new_size = target.size();
+
+        if new_size >= old_size {
+            return None;
+        }
+
+        let scale = old_size / new_size;
+        let offset = scale / 2; // Sample from center of each region
+        let mut new_voxels = vec![0u8; target.volume()];
+
+        // For each voxel in the new model, sample from center of corresponding region
+        for nz in 0..new_size {
+            for ny in 0..new_size {
+                for nx in 0..new_size {
+                    let ox = nx * scale + offset;
+                    let oy = ny * scale + offset;
+                    let oz = nz * scale + offset;
+
+                    let palette_idx = self.get_voxel(ox, oy, oz);
+                    new_voxels[nx + ny * new_size + nz * new_size * new_size] = palette_idx;
+                }
+            }
+        }
+
+        let mut new_model = Self {
+            id: self.id,
+            name: self.name.clone(),
+            resolution: target,
+            voxels: new_voxels,
+            palette: self.palette,
+            palette_emission: self.palette_emission,
+            collision_mask: 0, // Will recompute
+            light_blocking: self.light_blocking,
+            rotatable: self.rotatable,
+            emission: self.emission,
+            is_light_source: self.is_light_source,
+            light_mode: self.light_mode,
+            light_radius: self.light_radius,
+            light_intensity: self.light_intensity,
+            requires_ground_support: self.requires_ground_support,
+        };
+        new_model.compute_collision_mask();
+
+        Some(new_model)
+    }
+
+    /// Changes resolution, using upscale (subdivide) or downscale (sample) as appropriate.
+    ///
+    /// Returns the new model, or None if resolution is unchanged.
+    pub fn change_resolution(&self, target: ModelResolution) -> Option<Self> {
+        if target == self.resolution {
+            return None;
+        }
+
+        if target.size() > self.size() {
+            self.upscale(target)
+        } else {
+            self.downscale(target)
+        }
+    }
 }
 
 /// Global registry of all sub-voxel models.
@@ -1892,5 +2035,106 @@ mod tests {
 
         let props = registry.pack_properties_for_gpu();
         assert_eq!(props.len(), MAX_MODELS * 48);
+    }
+
+    #[test]
+    fn test_upscale_8_to_16() {
+        let mut model = SubVoxelModel::with_resolution(ModelResolution::Low);
+        // Place a voxel at (1, 2, 3) in 8³ model
+        model.set_voxel(1, 2, 3, 5);
+
+        let upscaled = model.upscale(ModelResolution::Medium).unwrap();
+        assert_eq!(upscaled.resolution, ModelResolution::Medium);
+        assert_eq!(upscaled.size(), 16);
+
+        // Each voxel becomes 2×2×2, so (1,2,3) → (2-3, 4-5, 6-7)
+        // Check all 8 voxels in the 2×2×2 cube are filled
+        for dz in 0..2 {
+            for dy in 0..2 {
+                for dx in 0..2 {
+                    assert_eq!(upscaled.get_voxel(2 + dx, 4 + dy, 6 + dz), 5);
+                }
+            }
+        }
+
+        // Adjacent voxel should be empty
+        assert_eq!(upscaled.get_voxel(0, 0, 0), 0);
+        assert_eq!(upscaled.get_voxel(4, 4, 6), 0);
+    }
+
+    #[test]
+    fn test_upscale_8_to_32() {
+        let mut model = SubVoxelModel::with_resolution(ModelResolution::Low);
+        model.set_voxel(0, 0, 0, 3);
+
+        let upscaled = model.upscale(ModelResolution::High).unwrap();
+        assert_eq!(upscaled.resolution, ModelResolution::High);
+        assert_eq!(upscaled.size(), 32);
+
+        // Each voxel becomes 4×4×4, so (0,0,0) → (0-3, 0-3, 0-3)
+        for dz in 0..4 {
+            for dy in 0..4 {
+                for dx in 0..4 {
+                    assert_eq!(upscaled.get_voxel(dx, dy, dz), 3);
+                }
+            }
+        }
+
+        // Outside the 4×4×4 cube should be empty
+        assert_eq!(upscaled.get_voxel(4, 0, 0), 0);
+    }
+
+    #[test]
+    fn test_downscale_16_to_8() {
+        let mut model = SubVoxelModel::with_resolution(ModelResolution::Medium);
+        // Fill a 2×2×2 region at (2-3, 4-5, 6-7) - this corresponds to (1,2,3) in 8³
+        for dz in 0..2 {
+            for dy in 0..2 {
+                for dx in 0..2 {
+                    model.set_voxel(2 + dx, 4 + dy, 6 + dz, 7);
+                }
+            }
+        }
+
+        let downscaled = model.downscale(ModelResolution::Low).unwrap();
+        assert_eq!(downscaled.resolution, ModelResolution::Low);
+        assert_eq!(downscaled.size(), 8);
+
+        // Sampling from center of each 2×2×2 region (offset=1)
+        // Region (1,2,3) samples from (2+1, 4+1, 6+1) = (3, 5, 7) which is filled
+        assert_eq!(downscaled.get_voxel(1, 2, 3), 7);
+
+        // Other voxels should be empty
+        assert_eq!(downscaled.get_voxel(0, 0, 0), 0);
+    }
+
+    #[test]
+    fn test_upscale_returns_none_for_same_or_lower() {
+        let model = SubVoxelModel::with_resolution(ModelResolution::Medium);
+        assert!(model.upscale(ModelResolution::Medium).is_none());
+        assert!(model.upscale(ModelResolution::Low).is_none());
+    }
+
+    #[test]
+    fn test_downscale_returns_none_for_same_or_higher() {
+        let model = SubVoxelModel::with_resolution(ModelResolution::Medium);
+        assert!(model.downscale(ModelResolution::Medium).is_none());
+        assert!(model.downscale(ModelResolution::High).is_none());
+    }
+
+    #[test]
+    fn test_change_resolution() {
+        let model = SubVoxelModel::with_resolution(ModelResolution::Low);
+
+        // Upscale
+        let up = model.change_resolution(ModelResolution::High).unwrap();
+        assert_eq!(up.resolution, ModelResolution::High);
+
+        // Downscale
+        let down = up.change_resolution(ModelResolution::Medium).unwrap();
+        assert_eq!(down.resolution, ModelResolution::Medium);
+
+        // Same resolution returns None
+        assert!(down.change_resolution(ModelResolution::Medium).is_none());
     }
 }

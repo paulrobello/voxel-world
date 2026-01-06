@@ -310,6 +310,29 @@ impl EditorState {
         };
     }
 
+    /// Changes the model resolution, preserving voxel data when possible.
+    ///
+    /// - Upscaling (higher res): subdivides each voxel into a cube
+    /// - Downscaling (lower res): samples from center of each region (may lose detail)
+    ///
+    /// Returns true if resolution was changed.
+    pub fn change_resolution(&mut self, target: ModelResolution) -> bool {
+        if let Some(new_model) = self.scratch_pad.change_resolution(target) {
+            self.scratch_pad = new_model;
+            self.hovered_voxel = None;
+            self.history.clear();
+            // Adjust camera distance for new resolution
+            self.orbit_distance = match target {
+                ModelResolution::Low => 12.0,
+                ModelResolution::Medium => 20.0,
+                ModelResolution::High => 35.0,
+            };
+            true
+        } else {
+            false
+        }
+    }
+
     /// Saves the current voxel state to the undo history.
     ///
     /// Call this before making any modifications to the model.

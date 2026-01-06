@@ -426,22 +426,28 @@ pub fn draw_editor_ui(
 
     // Resolution change confirmation dialog
     if let Some(new_res) = editor.pending_resolution_change {
+        let current_res = editor.scratch_pad.resolution;
+        let is_upscale = new_res.size() > current_res.size();
+
         egui::Window::new("Change Resolution?")
             .collapsible(false)
             .resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
             .show(ctx, |ui| {
-                ui.label("Changing resolution will clear all voxels.");
-                ui.label(format!(
-                    "Change to {}³ ({} voxels)?",
-                    new_res.size(),
-                    new_res.volume()
-                ));
+                if is_upscale {
+                    ui.label("Upscaling will subdivide each voxel.");
+                    ui.label("Your model will be preserved at higher detail.");
+                } else {
+                    ui.label("Downscaling will sample the model.");
+                    ui.label("Some detail may be lost.");
+                }
+                ui.add_space(5.0);
+                ui.label(format!("{}³ → {}³", current_res.size(), new_res.size()));
                 ui.add_space(10.0);
                 ui.horizontal(|ui| {
-                    if ui.button("Change").clicked() {
-                        let name = editor.scratch_pad.name.clone();
-                        editor.new_model_with_resolution(&name, new_res);
+                    let button_text = if is_upscale { "Upscale" } else { "Downscale" };
+                    if ui.button(button_text).clicked() {
+                        editor.change_resolution(new_res);
                         editor.pending_resolution_change = None;
                     }
                     if ui.button("Cancel").clicked() {
