@@ -121,24 +121,6 @@ float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFl
     float exitDist = min(min(tExitWorld.x, tExitWorld.y), tExitWorld.z);
     float maxTravel = min(MAX_SHADOW_DIST, max(exitDist, 0.0));
 
-    // Early exit: if sun is above horizon and vertical column is clear, shadow ray reaches sky
-    // Only valid when model shadows disabled (models could be in "empty" chunks)
-    if (sunDir.y > 0.1 && pc.enable_model_shadows == 0u) {
-        ivec3 startChunkPos = pos / int(CHUNK_SIZE);
-        bool columnClear = true;
-        // Check from the chunk ABOVE the starting position (skip current chunk which may have ground)
-        for (int cy = startChunkPos.y + 1; cy < int(CHUNKS_Y); cy++) {
-            if (!isChunkEmpty(ivec3(startChunkPos.x, cy, startChunkPos.z))) {
-                columnClear = false;
-                break;
-            }
-        }
-        if (columnClear) {
-            debugFlag = 7u;  // Sky reached
-            return 1.0;
-        }
-    }
-
     // Distance-based step reduction: fewer steps for shadows far from camera
     float camDist = length(origin + textureOrigin() - pc.camera_pos.xyz);
     float distanceFactor = clamp(1.0 - (camDist - 16.0) / 64.0, 0.4, 1.0); // 100% at <16, 40% at >80
