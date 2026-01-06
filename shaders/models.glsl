@@ -1,6 +1,6 @@
 uint sampleModelVoxel(uint model_id, ivec3 local_pos) {
-    // Model atlas layout: 16 models per row, 16 rows
-    // Each model is 8×8×8, so atlas is 128×8×128
+    // Model atlas layout: 16 models per row, 16 rows = 256 models max
+    // Each model is SUB_VOXEL_SIZE³, atlas is (16*SUB_VOXEL_SIZE) × SUB_VOXEL_SIZE × (16*SUB_VOXEL_SIZE)
     uint model_x = model_id % 16u;
     uint model_z = model_id / 16u;
 
@@ -113,8 +113,8 @@ void modelCollisionBounds(uint model_id, out vec3 minB, out vec3 maxB) {
     ModelProperties props = model_properties[model_id];
     uvec3 minU = uvec3(props.aabb_min & 0xFF, (props.aabb_min >> 8) & 0xFF, (props.aabb_min >> 16) & 0xFF);
     uvec3 maxU = uvec3(props.aabb_max & 0xFF, (props.aabb_max >> 8) & 0xFF, (props.aabb_max >> 16) & 0xFF);
-    minB = vec3(minU) / 8.0;
-    maxB = vec3(maxU) / 8.0;
+    minB = vec3(minU) / float(SUB_VOXEL_SIZE);
+    maxB = vec3(maxU) / float(SUB_VOXEL_SIZE);
 }
 
 // Quick coarse 4x4x4 mask ray test (block-local 0-1 space). Returns true on hit.
@@ -208,7 +208,7 @@ bool marchSubVoxelModel(
     out_alpha = 0.0;
     vec3 accumulatedColor = vec3(0.0);
     float accumulatedAlpha = 0.0;
-    // Scale to sub-voxel coordinates (0-8)
+    // Scale to sub-voxel coordinates (0 to SUB_VOXEL_SIZE)
     vec3 pos = origin * float(SUB_VOXEL_SIZE);
 
     // Avoid infinities / NaNs for near-zero components
@@ -219,7 +219,7 @@ bool marchSubVoxelModel(
     safeDir.z = (abs(safeDir.z) < DIR_EPS) ? (safeDir.z >= 0.0 ? DIR_EPS : -DIR_EPS) : safeDir.z;
     vec3 invDir = 1.0 / safeDir;
 
-    // Calculate entry t (may need to enter the 0-8 box from outside)
+    // Calculate entry t (may need to enter the model box from outside)
     vec3 tMin = (vec3(-SUB_VOXEL_EPS) - pos) * invDir;
     vec3 tMax = (vec3(float(SUB_VOXEL_SIZE) + SUB_VOXEL_EPS) - pos) * invDir;
 
@@ -277,7 +277,7 @@ bool marchSubVoxelModel(
     uint prev_palette_idx = 0u;
 
     // March through sub-voxels
-    for (int i = 0; i < 24; i++) {  // 8*3 max steps
+    for (int i = 0; i < SUB_VOXEL_MAX_STEPS; i++) {
         // Check bounds
         if (any(lessThan(voxel, ivec3(0))) || any(greaterThanEqual(voxel, ivec3(int(SUB_VOXEL_SIZE))))) {
             break;
@@ -405,19 +405,19 @@ float marchSubVoxelShadow(
         return 1.0; // No blocking
     }
 
-    // Clamp step budget to the maximum possible voxels we could traverse in 8^3 grid.
-    int stepsLeft = clamp(maxSteps, 1, 24);
+    // Clamp step budget to the maximum possible voxels we could traverse.
+    int stepsLeft = clamp(maxSteps, 1, SUB_VOXEL_MAX_STEPS);
 
     // Track accumulated transmission (starts at 1.0 = full light)
     float transmission = 1.0;
 
-    // Scale to sub-voxel coordinates (0-8)
+    // Scale to sub-voxel coordinates (0 to SUB_VOXEL_SIZE)
     vec3 pos = origin * float(SUB_VOXEL_SIZE);
 
     vec3 safeDir = makeSafeDir(dir);
     vec3 invDir = 1.0 / safeDir;
 
-    // Calculate entry t into the 0-8 cube
+    // Calculate entry t into the model cube
     vec3 tMin = (vec3(-SUB_VOXEL_EPS) - pos) * invDir;
     vec3 tMax = (vec3(float(SUB_VOXEL_SIZE) + SUB_VOXEL_EPS) - pos) * invDir;
 

@@ -35,6 +35,9 @@ const uint BLOCK_GLOWSTONE = 20;
 const uint BLOCK_GLOWMUSHROOM = 21;
 const uint BLOCK_CRYSTAL = 22;
 
+// Sub-voxel model IDs (must match Rust ModelRegistry IDs)
+const uint CRYSTAL_MODEL_ID = 99u;
+
 // Emission colors for emissive blocks (RGB)
 const vec3 EMISSION_LAVA = vec3(1.0, 0.4, 0.1);        // Orange-red
 const vec3 EMISSION_GLOWSTONE = vec3(1.0, 0.95, 0.8);  // Warm white
@@ -217,9 +220,10 @@ layout(set = 7, binding = 5) readonly buffer ModelPropertiesBuffer {
 };
 
 // Sub-voxel constants
-const uint SUB_VOXEL_SIZE = 8;
+const uint SUB_VOXEL_SIZE = 16;
 const float SUB_VOXEL_SCALE = 1.0 / float(SUB_VOXEL_SIZE);
 const float SUB_VOXEL_EPS = 1e-3;
+const int SUB_VOXEL_MAX_STEPS = int(SUB_VOXEL_SIZE) * 3;  // Max DDA steps through model
 const uint MODEL_FLAG_ROTATABLE = 1u << 0;
 const uint MODEL_FLAG_LIGHT_BLOCK_FULL = 1u << 2;
 const uint MODEL_FLAG_LIGHT_BLOCK_PARTIAL = 1u << 1;

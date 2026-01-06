@@ -3,7 +3,7 @@
 //! Renders 3D voxel cubes to a 2D image with proper depth testing,
 //! avoiding the depth sorting issues of painter's algorithm.
 
-use crate::sub_voxel::{SUB_VOXEL_SIZE, SubVoxelModel};
+use crate::sub_voxel::{SUB_VOXEL_CENTER_F32, SUB_VOXEL_SIZE, SubVoxelModel};
 use egui_winit_vulkano::egui;
 use image::{ImageBuffer, Rgba};
 use std::path::Path;
@@ -143,8 +143,9 @@ impl Rasterizer {
 
             if x >= 0 && x < self.width as i32 && y >= 0 && y < self.height as i32 {
                 let idx = y as usize * self.width + x as usize;
-                // Lines get slight depth bias to draw on top
-                if z - 0.001 < self.depth_buffer[idx] {
+                // Normal depth testing - lines get occluded by closer surfaces
+                if z < self.depth_buffer[idx] {
+                    self.depth_buffer[idx] = z;
                     self.color_buffer[idx * 4] = v0.color[0];
                     self.color_buffer[idx * 4 + 1] = v0.color[1];
                     self.color_buffer[idx * 4 + 2] = v0.color[2];
@@ -154,6 +155,9 @@ impl Rasterizer {
         }
     }
 }
+
+/// Default orbit distance for zoom calculations.
+pub const DEFAULT_ORBIT_DISTANCE: f32 = 20.0;
 
 /// Renders the model and returns render info for interaction.
 pub struct RenderResult {
@@ -210,11 +214,13 @@ pub struct HitInfo {
 }
 
 /// Renders the model with proper 3D and returns interactive hit information.
+#[allow(clippy::too_many_arguments)]
 pub fn render_model(
     model: &SubVoxelModel,
     width: usize,
     height: usize,
     orbit_yaw: f32,
+    orbit_distance: f32,
     hovered_voxel: Option<[i32; 3]>,
     hovered_normal: Option<[i32; 3]>,
     mirror_axes: [bool; 3],
@@ -227,7 +233,9 @@ pub fn render_model(
 
     // Isometric projection setup
     let size = width.min(height) as f32 - 20.0;
-    let cell_size = size / 16.0; // Zoomed out slightly to fit rotated models
+    // Scale cell_size based on orbit_distance (closer = larger cells, farther = smaller)
+    let zoom_factor = DEFAULT_ORBIT_DISTANCE / orbit_distance;
+    let cell_size = (size / 16.0) * zoom_factor;
     let center_x = width as f32 / 2.0;
     let center_y = height as f32 / 2.0;
 
@@ -249,7 +257,7 @@ pub fn render_model(
         base_x[1] * sin_yaw + base_z[1] * cos_yaw,
     ];
 
-    let model_center = 4.0;
+    let model_center = SUB_VOXEL_CENTER_F32;
 
     // Project 3D point to screen coordinates with depth
     let project = |x: f32, y: f32, z: f32| -> [f32; 3] {
@@ -312,10 +320,10 @@ pub fn render_model(
     }
 
     // Draw mirror plane indicators (wireframe only)
-    let mirror_center = 4.0; // Center of 8x8x8 grid
-    let mirror_size = 8.0;
+    let mirror_center = SUB_VOXEL_CENTER_F32;
+    let mirror_size = SUB_VOXEL_SIZE as f32;
 
-    // X mirror plane (YZ plane at x=4) - Red wireframe
+    // X mirror plane (YZ plane at x=center) - Red wireframe
     if mirror_axes[0] {
         let line_color = [255, 80, 80, 255];
         let l0 = make_vertex(mirror_center, 0.0, 0.0, line_color);
@@ -781,7 +789,8 @@ pub fn generate_model_sprite(model: &SubVoxelModel, output_path: &Path) -> std::
     rasterizer.clear([0, 0, 0, 0]);
 
     // Isometric projection setup - 3/4 view like GPU sprites
-    let cell_size = size as f32 / 12.0;
+    // Scale based on model size so 16³ models fit the same as 8³ did
+    let cell_size = size as f32 / (SUB_VOXEL_SIZE as f32 * 1.5);
     let center_x = size as f32 / 2.0;
     let center_y = size as f32 / 2.0 + size as f32 * 0.1;
 
@@ -803,7 +812,7 @@ pub fn generate_model_sprite(model: &SubVoxelModel, output_path: &Path) -> std::
         base_x[1] * sin_yaw + base_z[1] * cos_yaw,
     ];
 
-    let model_center = 4.0;
+    let model_center = SUB_VOXEL_CENTER_F32;
 
     // Project 3D point to screen coordinates with depth
     let project = |x: f32, y: f32, z: f32| -> [f32; 3] {

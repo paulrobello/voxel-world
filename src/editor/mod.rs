@@ -1,4 +1,4 @@
-//! In-game model editor for creating 8x8x8 sub-voxel models.
+//! In-game model editor for creating sub-voxel models.
 //!
 //! When active, the editor:
 //! - Disables player movement and physics
@@ -12,7 +12,12 @@
 pub mod rasterizer;
 pub mod ui;
 
-use crate::sub_voxel::{Color, SUB_VOXEL_SIZE, SubVoxelModel};
+#[cfg(test)]
+use crate::sub_voxel::SUB_VOXEL_MAX;
+use crate::sub_voxel::{
+    Color, SUB_VOXEL_BOUNDS_F32, SUB_VOXEL_CENTER_F32, SUB_VOXEL_SIZE, SUB_VOXEL_VOLUME,
+    SubVoxelModel,
+};
 use nalgebra::Vector3;
 
 pub use ui::{EditorAction, draw_editor_ui, draw_model_preview};
@@ -21,12 +26,12 @@ pub use ui::{EditorAction, draw_editor_ui, draw_model_preview};
 const MAX_UNDO_HISTORY: usize = 100;
 
 /// Type alias for voxel state snapshot.
-type VoxelSnapshot = [u8; SUB_VOXEL_SIZE * SUB_VOXEL_SIZE * SUB_VOXEL_SIZE];
+type VoxelSnapshot = [u8; SUB_VOXEL_VOLUME];
 
 /// Manages undo/redo history for the model editor.
 ///
 /// Uses a dual-stack approach with separate undo and redo stacks.
-/// Each stack stores full voxel array snapshots (512 bytes each).
+/// Each stack stores full voxel array snapshots (SUB_VOXEL_VOLUME bytes each).
 #[derive(Debug, Clone)]
 pub struct UndoHistory {
     /// Stack of states you can undo to.
@@ -129,6 +134,10 @@ pub enum EditorTool {
     Eraser,
     Fill,
     Eyedropper,
+    /// Place a filled cube shape.
+    Cube,
+    /// Place a filled sphere shape.
+    Sphere,
 }
 
 /// Mirror axis for symmetrical editing.
@@ -187,6 +196,9 @@ pub struct EditorState {
 
     /// Undo/redo history for voxel operations.
     pub history: UndoHistory,
+
+    /// Size of shapes when using Cube or Sphere tool (diameter in voxels).
+    pub shape_size: usize,
 }
 
 impl Default for EditorState {
@@ -225,7 +237,7 @@ impl EditorState {
             mirror_axes: [false, false, false],
             orbit_yaw: std::f32::consts::FRAC_PI_4,
             orbit_pitch: std::f32::consts::FRAC_PI_6,
-            orbit_distance: 12.0,
+            orbit_distance: 20.0, // Default zoom for 16³ models
             is_dragging: false,
             last_mouse_pos: None,
             hovered_voxel: None,
@@ -233,6 +245,7 @@ impl EditorState {
             saved_target_pos: None,
             show_overwrite_confirm: false,
             history: UndoHistory::new(),
+            shape_size: 3, // Default 3x3 cube/sphere
         }
     }
 
@@ -312,7 +325,11 @@ impl EditorState {
 
     /// Calculates the orbit camera position.
     pub fn camera_position(&self) -> Vector3<f32> {
-        let center = Vector3::new(4.0, 4.0, 4.0); // Center of 8x8x8 grid
+        let center = Vector3::new(
+            SUB_VOXEL_CENTER_F32,
+            SUB_VOXEL_CENTER_F32,
+            SUB_VOXEL_CENTER_F32,
+        );
 
         let cos_pitch = self.orbit_pitch.cos();
         let sin_pitch = self.orbit_pitch.sin();
@@ -330,7 +347,11 @@ impl EditorState {
 
     /// Gets the camera look-at target (center of model).
     pub fn camera_target(&self) -> Vector3<f32> {
-        Vector3::new(4.0, 4.0, 4.0)
+        Vector3::new(
+            SUB_VOXEL_CENTER_F32,
+            SUB_VOXEL_CENTER_F32,
+            SUB_VOXEL_CENTER_F32,
+        )
     }
 
     /// Updates orbit camera based on mouse drag.
@@ -351,7 +372,7 @@ impl EditorState {
         self.last_mouse_pos = Some(mouse_pos);
     }
 
-    /// Performs a ray-voxel intersection test against the 8x8x8 grid.
+    /// Performs a ray-voxel intersection test against the sub-voxel grid.
     ///
     /// Returns (voxel_pos, face_normal) if a solid voxel was hit.
     pub fn raycast_voxel(
@@ -359,7 +380,7 @@ impl EditorState {
         origin: Vector3<f32>,
         direction: Vector3<f32>,
     ) -> Option<(Vector3<i32>, Vector3<i32>)> {
-        // DDA algorithm for 8x8x8 grid
+        // DDA algorithm for sub-voxel grid
         let dir = direction.normalize();
 
         // Avoid division by zero
@@ -383,9 +404,14 @@ impl EditorState {
 
         let inv_dir = Vector3::new(1.0 / safe_dir.x, 1.0 / safe_dir.y, 1.0 / safe_dir.z);
 
-        // Calculate entry/exit t for the 0-8 cube
+        // Calculate entry/exit t for the sub-voxel cube
         let t_min_v = (Vector3::new(-0.001, -0.001, -0.001) - origin).component_mul(&inv_dir);
-        let t_max_v = (Vector3::new(8.001, 8.001, 8.001) - origin).component_mul(&inv_dir);
+        let t_max_v = (Vector3::new(
+            SUB_VOXEL_BOUNDS_F32,
+            SUB_VOXEL_BOUNDS_F32,
+            SUB_VOXEL_BOUNDS_F32,
+        ) - origin)
+            .component_mul(&inv_dir);
 
         let t1 = Vector3::new(
             t_min_v.x.min(t_max_v.x),
@@ -417,7 +443,7 @@ impl EditorState {
         let start_t = t_near.max(0.0);
         let mut current_pos = origin + safe_dir * start_t;
         current_pos += safe_dir * 0.001; // nudge
-        current_pos = current_pos.map(|v| v.clamp(0.001, 7.999));
+        current_pos = current_pos.map(|v| v.clamp(0.001, SUB_VOXEL_SIZE as f32 - 0.001));
 
         let mut voxel = Vector3::new(
             current_pos.x.floor() as i32,
@@ -458,14 +484,15 @@ impl EditorState {
         );
 
         let mut stepped_axis = entry_axis;
+        const MAX_STEPS: usize = SUB_VOXEL_SIZE * 3;
 
-        for i in 0..24 {
+        for i in 0..MAX_STEPS {
             if voxel.x < 0
-                || voxel.x >= 8
+                || voxel.x >= SUB_VOXEL_SIZE as i32
                 || voxel.y < 0
-                || voxel.y >= 8
+                || voxel.y >= SUB_VOXEL_SIZE as i32
                 || voxel.z < 0
-                || voxel.z >= 8
+                || voxel.z >= SUB_VOXEL_SIZE as i32
             {
                 break;
             }
@@ -680,6 +707,150 @@ impl EditorState {
         }
     }
 
+    /// Places a filled cube centered at the given position.
+    ///
+    /// The cube size is determined by `shape_size` (diameter).
+    /// Saves state to undo history before placing.
+    pub fn place_cube(&mut self, center: Vector3<i32>) {
+        let half = (self.shape_size / 2) as i32;
+        let mut any_change = false;
+
+        // Check if any position will actually change
+        for dz in -(half)..=(half) {
+            for dy in -(half)..=(half) {
+                for dx in -(half)..=(half) {
+                    let pos = center + Vector3::new(dx, dy, dz);
+                    if pos.x >= 0
+                        && pos.x < SUB_VOXEL_SIZE as i32
+                        && pos.y >= 0
+                        && pos.y < SUB_VOXEL_SIZE as i32
+                        && pos.z >= 0
+                        && pos.z < SUB_VOXEL_SIZE as i32
+                    {
+                        let current = self.scratch_pad.get_voxel(
+                            pos.x as usize,
+                            pos.y as usize,
+                            pos.z as usize,
+                        );
+                        if current != self.selected_palette_index {
+                            any_change = true;
+                            break;
+                        }
+                    }
+                }
+                if any_change {
+                    break;
+                }
+            }
+            if any_change {
+                break;
+            }
+        }
+
+        if any_change {
+            self.save_state();
+            for dz in -(half)..=(half) {
+                for dy in -(half)..=(half) {
+                    for dx in -(half)..=(half) {
+                        let pos = center + Vector3::new(dx, dy, dz);
+                        if pos.x >= 0
+                            && pos.x < SUB_VOXEL_SIZE as i32
+                            && pos.y >= 0
+                            && pos.y < SUB_VOXEL_SIZE as i32
+                            && pos.z >= 0
+                            && pos.z < SUB_VOXEL_SIZE as i32
+                        {
+                            self.scratch_pad.set_voxel(
+                                pos.x as usize,
+                                pos.y as usize,
+                                pos.z as usize,
+                                self.selected_palette_index,
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Places a filled sphere centered at the given position.
+    ///
+    /// The sphere diameter is determined by `shape_size`.
+    /// Saves state to undo history before placing.
+    pub fn place_sphere(&mut self, center: Vector3<i32>) {
+        let radius = self.shape_size as f32 / 2.0;
+        let radius_sq = radius * radius;
+        let half = (self.shape_size / 2) as i32 + 1; // +1 to include edge voxels
+        let mut any_change = false;
+
+        // Check if any position will actually change
+        for dz in -(half)..=(half) {
+            for dy in -(half)..=(half) {
+                for dx in -(half)..=(half) {
+                    let dist_sq = (dx as f32 + 0.5).powi(2)
+                        + (dy as f32 + 0.5).powi(2)
+                        + (dz as f32 + 0.5).powi(2);
+                    if dist_sq <= radius_sq {
+                        let pos = center + Vector3::new(dx, dy, dz);
+                        if pos.x >= 0
+                            && pos.x < SUB_VOXEL_SIZE as i32
+                            && pos.y >= 0
+                            && pos.y < SUB_VOXEL_SIZE as i32
+                            && pos.z >= 0
+                            && pos.z < SUB_VOXEL_SIZE as i32
+                        {
+                            let current = self.scratch_pad.get_voxel(
+                                pos.x as usize,
+                                pos.y as usize,
+                                pos.z as usize,
+                            );
+                            if current != self.selected_palette_index {
+                                any_change = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if any_change {
+                    break;
+                }
+            }
+            if any_change {
+                break;
+            }
+        }
+
+        if any_change {
+            self.save_state();
+            for dz in -(half)..=(half) {
+                for dy in -(half)..=(half) {
+                    for dx in -(half)..=(half) {
+                        let dist_sq = (dx as f32 + 0.5).powi(2)
+                            + (dy as f32 + 0.5).powi(2)
+                            + (dz as f32 + 0.5).powi(2);
+                        if dist_sq <= radius_sq {
+                            let pos = center + Vector3::new(dx, dy, dz);
+                            if pos.x >= 0
+                                && pos.x < SUB_VOXEL_SIZE as i32
+                                && pos.y >= 0
+                                && pos.y < SUB_VOXEL_SIZE as i32
+                                && pos.z >= 0
+                                && pos.z < SUB_VOXEL_SIZE as i32
+                            {
+                                self.scratch_pad.set_voxel(
+                                    pos.x as usize,
+                                    pos.y as usize,
+                                    pos.z as usize,
+                                    self.selected_palette_index,
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /// Handles a left-click action based on current tool.
     pub fn on_left_click(&mut self) {
         match self.tool {
@@ -725,6 +896,56 @@ impl EditorState {
             }
             EditorTool::Fill => {
                 // TODO: Implement flood fill
+            }
+            EditorTool::Cube => {
+                if let Some(voxel) = self.hovered_voxel {
+                    // Check if there's already a voxel at this position
+                    let existing = self.scratch_pad.get_voxel(
+                        voxel.x as usize,
+                        voxel.y as usize,
+                        voxel.z as usize,
+                    );
+                    if existing != 0 {
+                        // Place adjacent to existing voxel based on hovered face normal
+                        if let Some(normal) = self.hovered_normal {
+                            let place_pos = voxel + normal;
+                            // Offset center so shape doesn't clip into existing voxel
+                            let half = (self.shape_size / 2) as i32;
+                            let center = place_pos + normal * half;
+                            self.place_cube(center);
+                        }
+                    } else {
+                        // Place at empty/floor position - offset so bottom touches floor
+                        let half = (self.shape_size / 2) as i32;
+                        let center = voxel + Vector3::new(0, half, 0);
+                        self.place_cube(center);
+                    }
+                }
+            }
+            EditorTool::Sphere => {
+                if let Some(voxel) = self.hovered_voxel {
+                    // Check if there's already a voxel at this position
+                    let existing = self.scratch_pad.get_voxel(
+                        voxel.x as usize,
+                        voxel.y as usize,
+                        voxel.z as usize,
+                    );
+                    if existing != 0 {
+                        // Place adjacent to existing voxel based on hovered face normal
+                        if let Some(normal) = self.hovered_normal {
+                            let place_pos = voxel + normal;
+                            // Offset center so shape doesn't clip into existing voxel
+                            let half = (self.shape_size / 2) as i32;
+                            let center = place_pos + normal * half;
+                            self.place_sphere(center);
+                        }
+                    } else {
+                        // Place at empty/floor position - offset so bottom touches floor
+                        let half = (self.shape_size / 2) as i32;
+                        let center = voxel + Vector3::new(0, half, 0);
+                        self.place_sphere(center);
+                    }
+                }
             }
         }
     }
@@ -817,7 +1038,11 @@ mod tests {
         let editor = EditorState::new();
         let pos = editor.camera_position();
         // Should be some distance from center
-        let center = Vector3::new(4.0, 4.0, 4.0);
+        let center = Vector3::new(
+            SUB_VOXEL_CENTER_F32,
+            SUB_VOXEL_CENTER_F32,
+            SUB_VOXEL_CENTER_F32,
+        );
         let dist = (pos - center).magnitude();
         assert!((dist - editor.orbit_distance).abs() < 0.1);
     }
@@ -889,9 +1114,9 @@ mod tests {
     #[test]
     fn test_undo_history_basic() {
         let mut history = UndoHistory::new();
-        let state1 = [1u8; 512];
-        let state2 = [2u8; 512];
-        let current = [3u8; 512];
+        let state1 = [1u8; SUB_VOXEL_VOLUME];
+        let state2 = [2u8; SUB_VOXEL_VOLUME];
+        let current = [3u8; SUB_VOXEL_VOLUME];
 
         // Initially empty
         assert!(!history.can_undo());
@@ -917,14 +1142,14 @@ mod tests {
         assert_eq!(history.redo_count(), 1);
 
         // Undo again
-        let restored = history.undo([3u8; 512]);
+        let restored = history.undo([3u8; SUB_VOXEL_VOLUME]);
         assert!(restored.is_some());
         assert_eq!(restored.unwrap(), state1);
         assert!(!history.can_undo());
         assert!(history.can_redo());
 
         // Redo
-        let restored = history.redo([1u8; 512]);
+        let restored = history.redo([1u8; SUB_VOXEL_VOLUME]);
         assert!(restored.is_some());
         assert!(history.can_undo());
     }
@@ -932,10 +1157,10 @@ mod tests {
     #[test]
     fn test_undo_redo_truncates_on_new_action() {
         let mut history = UndoHistory::new();
-        let state1 = [1u8; 512];
-        let state2 = [2u8; 512];
-        let state3 = [3u8; 512];
-        let current = [4u8; 512];
+        let state1 = [1u8; SUB_VOXEL_VOLUME];
+        let state2 = [2u8; SUB_VOXEL_VOLUME];
+        let state3 = [3u8; SUB_VOXEL_VOLUME];
+        let current = [4u8; SUB_VOXEL_VOLUME];
 
         // Build up some history
         history.save(state1);
@@ -945,11 +1170,11 @@ mod tests {
 
         // Undo twice
         history.undo(current);
-        history.undo([3u8; 512]);
+        history.undo([3u8; SUB_VOXEL_VOLUME]);
         assert_eq!(history.redo_count(), 2);
 
         // Save a new state - should clear redo stack
-        history.save([5u8; 512]);
+        history.save([5u8; SUB_VOXEL_VOLUME]);
         assert!(!history.can_redo());
         assert_eq!(history.redo_count(), 0);
     }
@@ -1006,6 +1231,7 @@ mod tests {
     #[test]
     fn test_editor_undo_rotate() {
         let mut editor = EditorState::new();
+        let max = SUB_VOXEL_MAX as i32;
 
         // Place a voxel at corner
         editor.place_voxel(Vector3::new(0, 0, 0));
@@ -1014,16 +1240,16 @@ mod tests {
         // Clear history
         editor.history.clear();
 
-        // Rotate - voxel should move from (0,0,0) to (7,0,0) after 90° CW rotation
+        // Rotate - voxel should move from (0,0,0) to (max,0,0) after 90° CW rotation
         editor.rotate_model_y90();
         assert_eq!(editor.scratch_pad.get_voxel(0, 0, 0), 0);
-        assert_eq!(editor.scratch_pad.get_voxel(7, 0, 0), 1);
+        assert_eq!(editor.scratch_pad.get_voxel(max as usize, 0, 0), 1);
         assert!(editor.can_undo());
 
         // Undo rotation
         editor.undo();
         assert_eq!(editor.scratch_pad.get_voxel(0, 0, 0), 1);
-        assert_eq!(editor.scratch_pad.get_voxel(7, 0, 0), 0);
+        assert_eq!(editor.scratch_pad.get_voxel(max as usize, 0, 0), 0);
     }
 
     #[test]
@@ -1088,54 +1314,58 @@ mod tests {
     #[test]
     fn test_mirror_x_axis() {
         let mut editor = EditorState::new();
+        let mirror_x = SUB_VOXEL_MAX - 1; // Mirror of 1
 
         // Enable X mirroring
         editor.toggle_mirror(super::MirrorAxis::X);
         assert!(editor.mirror_axes[0]);
         assert!(editor.is_mirror_enabled());
 
-        // Place voxel at (1, 2, 3) - should also place at (6, 2, 3)
+        // Place voxel at (1, 2, 3) - should also place at (mirror_x, 2, 3)
         editor.place_voxel(Vector3::new(1, 2, 3));
         assert_eq!(editor.scratch_pad.get_voxel(1, 2, 3), 1);
-        assert_eq!(editor.scratch_pad.get_voxel(6, 2, 3), 1); // 7 - 1 = 6
+        assert_eq!(editor.scratch_pad.get_voxel(mirror_x, 2, 3), 1);
 
         // Erase should also be mirrored
         editor.erase_voxel(Vector3::new(1, 2, 3));
         assert_eq!(editor.scratch_pad.get_voxel(1, 2, 3), 0);
-        assert_eq!(editor.scratch_pad.get_voxel(6, 2, 3), 0);
+        assert_eq!(editor.scratch_pad.get_voxel(mirror_x, 2, 3), 0);
     }
 
     #[test]
     fn test_mirror_y_axis() {
         let mut editor = EditorState::new();
+        let mirror_y = SUB_VOXEL_MAX - 1; // Mirror of 1
 
         // Enable Y mirroring
         editor.toggle_mirror(super::MirrorAxis::Y);
         assert!(editor.mirror_axes[1]);
 
-        // Place voxel at (2, 1, 3) - should also place at (2, 6, 3)
+        // Place voxel at (2, 1, 3) - should also place at (2, mirror_y, 3)
         editor.place_voxel(Vector3::new(2, 1, 3));
         assert_eq!(editor.scratch_pad.get_voxel(2, 1, 3), 1);
-        assert_eq!(editor.scratch_pad.get_voxel(2, 6, 3), 1); // 7 - 1 = 6
+        assert_eq!(editor.scratch_pad.get_voxel(2, mirror_y, 3), 1);
     }
 
     #[test]
     fn test_mirror_z_axis() {
         let mut editor = EditorState::new();
+        let mirror_z = SUB_VOXEL_MAX - 1; // Mirror of 1
 
         // Enable Z mirroring
         editor.toggle_mirror(super::MirrorAxis::Z);
         assert!(editor.mirror_axes[2]);
 
-        // Place voxel at (2, 3, 1) - should also place at (2, 3, 6)
+        // Place voxel at (2, 3, 1) - should also place at (2, 3, mirror_z)
         editor.place_voxel(Vector3::new(2, 3, 1));
         assert_eq!(editor.scratch_pad.get_voxel(2, 3, 1), 1);
-        assert_eq!(editor.scratch_pad.get_voxel(2, 3, 6), 1); // 7 - 1 = 6
+        assert_eq!(editor.scratch_pad.get_voxel(2, 3, mirror_z), 1);
     }
 
     #[test]
     fn test_mirror_multiple_axes() {
         let mut editor = EditorState::new();
+        let m = SUB_VOXEL_MAX - 1; // Mirror of 1
 
         // Enable X and Y mirroring (should place 4 voxels)
         editor.toggle_mirror(super::MirrorAxis::X);
@@ -1146,14 +1376,15 @@ mod tests {
 
         // Should have 4 voxels: original + X mirror + Y mirror + XY mirror
         assert_eq!(editor.scratch_pad.get_voxel(1, 1, 3), 1); // Original
-        assert_eq!(editor.scratch_pad.get_voxel(6, 1, 3), 1); // X mirror
-        assert_eq!(editor.scratch_pad.get_voxel(1, 6, 3), 1); // Y mirror
-        assert_eq!(editor.scratch_pad.get_voxel(6, 6, 3), 1); // XY mirror
+        assert_eq!(editor.scratch_pad.get_voxel(m, 1, 3), 1); // X mirror
+        assert_eq!(editor.scratch_pad.get_voxel(1, m, 3), 1); // Y mirror
+        assert_eq!(editor.scratch_pad.get_voxel(m, m, 3), 1); // XY mirror
     }
 
     #[test]
     fn test_mirror_all_axes() {
         let mut editor = EditorState::new();
+        let m = SUB_VOXEL_MAX - 1; // Mirror of 1
 
         // Enable all three axes (should place 8 voxels)
         editor.toggle_mirror(super::MirrorAxis::X);
@@ -1165,27 +1396,29 @@ mod tests {
 
         // Should have 8 voxels (2^3)
         assert_eq!(editor.scratch_pad.get_voxel(1, 1, 1), 1); // Original
-        assert_eq!(editor.scratch_pad.get_voxel(6, 1, 1), 1); // X
-        assert_eq!(editor.scratch_pad.get_voxel(1, 6, 1), 1); // Y
-        assert_eq!(editor.scratch_pad.get_voxel(1, 1, 6), 1); // Z
-        assert_eq!(editor.scratch_pad.get_voxel(6, 6, 1), 1); // XY
-        assert_eq!(editor.scratch_pad.get_voxel(6, 1, 6), 1); // XZ
-        assert_eq!(editor.scratch_pad.get_voxel(1, 6, 6), 1); // YZ
-        assert_eq!(editor.scratch_pad.get_voxel(6, 6, 6), 1); // XYZ
+        assert_eq!(editor.scratch_pad.get_voxel(m, 1, 1), 1); // X
+        assert_eq!(editor.scratch_pad.get_voxel(1, m, 1), 1); // Y
+        assert_eq!(editor.scratch_pad.get_voxel(1, 1, m), 1); // Z
+        assert_eq!(editor.scratch_pad.get_voxel(m, m, 1), 1); // XY
+        assert_eq!(editor.scratch_pad.get_voxel(m, 1, m), 1); // XZ
+        assert_eq!(editor.scratch_pad.get_voxel(1, m, m), 1); // YZ
+        assert_eq!(editor.scratch_pad.get_voxel(m, m, m), 1); // XYZ
     }
 
     #[test]
     fn test_mirror_center_voxel() {
         let mut editor = EditorState::new();
+        let near_center = SUB_VOXEL_SIZE / 2 - 1;
+        let mirror_near_center = SUB_VOXEL_MAX - near_center;
 
         // Enable X mirroring
         editor.toggle_mirror(super::MirrorAxis::X);
 
-        // Place voxel at center X (3 or 4) - mirror should be at same position
-        // Since we use 7 - x, position 3 mirrors to 4 and vice versa
-        editor.place_voxel(Vector3::new(3, 3, 3));
-        assert_eq!(editor.scratch_pad.get_voxel(3, 3, 3), 1);
-        assert_eq!(editor.scratch_pad.get_voxel(4, 3, 3), 1); // 7 - 3 = 4
+        // Place voxel near center X - mirror should be symmetric
+        // Since we use SUB_VOXEL_MAX - x, position near_center mirrors to mirror_near_center
+        editor.place_voxel(Vector3::new(near_center as i32, 3, 3));
+        assert_eq!(editor.scratch_pad.get_voxel(near_center, 3, 3), 1);
+        assert_eq!(editor.scratch_pad.get_voxel(mirror_near_center, 3, 3), 1);
     }
 
     #[test]
@@ -1209,6 +1442,7 @@ mod tests {
     #[test]
     fn test_mirror_undo_all_placements() {
         let mut editor = EditorState::new();
+        let m = SUB_VOXEL_MAX - 1; // Mirror of 1
 
         // Enable X mirroring
         editor.toggle_mirror(super::MirrorAxis::X);
@@ -1216,12 +1450,12 @@ mod tests {
         // Place voxel (should create 2 voxels)
         editor.place_voxel(Vector3::new(1, 2, 3));
         assert_eq!(editor.scratch_pad.get_voxel(1, 2, 3), 1);
-        assert_eq!(editor.scratch_pad.get_voxel(6, 2, 3), 1);
+        assert_eq!(editor.scratch_pad.get_voxel(m, 2, 3), 1);
         assert_eq!(editor.history.undo_count(), 1); // Only one undo entry
 
         // Undo should remove both voxels
         editor.undo();
         assert_eq!(editor.scratch_pad.get_voxel(1, 2, 3), 0);
-        assert_eq!(editor.scratch_pad.get_voxel(6, 2, 3), 0);
+        assert_eq!(editor.scratch_pad.get_voxel(m, 2, 3), 0);
     }
 }

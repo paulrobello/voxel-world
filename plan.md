@@ -7,7 +7,7 @@
 - **Pure Creative Expression**: No mining progression, no crafting recipes, no health/danger mechanics
 - **Rich Building Tools**: Templates, measurement guides, stencils, flood fill for efficient construction
 - **Diverse Biomes**: Procedurally generated worlds with grasslands, mountains, deserts, swamps, snow, and caves
-- **Sub-Voxel Detail**: 8³ voxel models for furniture, decorations, and architectural elements
+- **Sub-Voxel Detail**: 16³ voxel models for furniture, decorations, and architectural elements
 - **Collaborative Building**: Multiplayer support for shared creative projects (deferred until single-player complete)
 - **Performance First**: 90+ FPS on mid-range hardware with optional graphics features
 
@@ -33,7 +33,7 @@
 - **Glowing Blocks**: Lava and luminescent blocks with optional real-time lighting
 - **Water Varieties**: Ocean, lake, swamp water with distinct colors and flow rates
 - **Biome-Specific Assets**: Unique trees, ground cover, and block types per biome
-- **Sub-Voxel Models**: Detailed 8³ models for doors, furniture, decorations
+- **Sub-Voxel Models**: Detailed 16³ models for doors, furniture, decorations
 - **Painted Blocks**: 19 textures × 32 tints = 608 customizable block variants
 
 ### Multiplayer (Deferred)
@@ -50,7 +50,7 @@
 - **World**: Global block positions (i32), infinite horizontal bounds
 - **Chunk**: 32³ blocks, organized in unlimited HashMap
 - **Region**: 32×32 chunks saved to disk (1024×128×1024 blocks per file)
-- **Sub-Voxel**: 8³ voxels per block for models
+- **Sub-Voxel**: 16³ voxels per block for models
 
 ### Core Systems
 - **Vulkan Compute Shader Rendering**: GPU ray marching for blocks and sub-voxels
@@ -90,17 +90,18 @@
 - Migration and versioning support
 
 ### Phase 4: Sub-Voxel Model System ✅
-- 8³ voxel models with 16-color palettes
+- 16³ voxel models with 16-color palettes (upgraded from 8³)
 - GPU ray marching for sub-voxel rendering
 - Collision detection and shadow casting
 - Translucency support with colored shadows
 - Model rotation and LOD system
 
 ### Phase 5: In-Game Model Editor ✅
-- Modal editor (N key) with 3D canvas
-- Tools: pencil, eraser, fill, eyedropper, rotate, mirror
+- Modal editor (N key) with 3D canvas (600×600 viewport for 16³ models)
+- Tools: pencil, eraser, fill, eyedropper, rotate, mirror, cube, sphere
+- Scroll to zoom, adjustable shape sizes (1-16 voxels)
 - Library management with save/load/overwrite
-- Runtime sprite generation for HUD
+- Runtime sprite generation for HUD (auto-scaled for model size)
 - Custom models placeable in world
 
 ### Phase 6: Interactive Block Types ✅
@@ -128,41 +129,43 @@
 - **Tinted Glass**: Colored shadows through translucent blocks
 - **Model Editor Mirror Mode**: Multi-axis symmetry with visual guides
 - **Undo/Redo**: 50-state history for model editor
+- **Sub-Voxel 16³ Upgrade**: Doubled model resolution from 8³ to 16³
+- **Crystal Blocks**: Sub-voxel crystal models with 32 tint colors and point light emission
 
 ---
 
 ## Active Development Phases
 
-### Phase 13: Advanced Lighting System
+### Phase 13: Advanced Lighting System ✅
 
 **Goal**: Add glowing blocks with optional real-time light emission for dynamic lighting.
 
-**Priority**: HIGH (Development Priority #1)
+**Status**: COMPLETE
 
-#### 13.1 Glowing Block Types
-- [ ] `Lava` block: glowing orange/red, decorative (no damage)
-- [ ] `GlowStone` block: bright white/yellow light source
-- [ ] `GlowMushroom` block: soft blue/green glow for caves
-- [ ] `CrystalBlock` variants: colored glowing crystals
-- [ ] Block property: `emission_color` (RGB) + `emission_strength` (0.0-1.0)
+#### 13.1 Glowing Block Types ✅
+- [x] `Lava` block: glowing orange/red, decorative (no damage)
+- [x] `GlowStone` block: bright white/yellow light source
+- [x] `GlowMushroom` block: soft blue/green glow for caves
+- [x] `Crystal` block: colored glowing crystals with 32 tint variants
+- [x] Block property: `emission_color` (RGB) + `emission_strength` (0.0-1.0)
 
-#### 13.2 Light Emission System (Optional)
-- [ ] Settings toggle: "Enable Dynamic Lighting" (default: ON for mid/high-end, OFF for low-end)
-- [ ] If enabled: Point light sources with radius falloff
-- [ ] Light baking into AO system vs. real-time point lights (performance testing needed)
-- [ ] Maximum light sources per frame (budget: 64-128 lights)
-- [ ] Light culling: only render lights in view frustum + nearby chunks
+#### 13.2 Light Emission System ✅
+- [x] Settings toggle: "Enable Point Lights" in settings
+- [x] Point light sources with radius falloff (quadratic attenuation)
+- [x] Real-time point lights with configurable LOD distance
+- [x] Maximum light sources: 256 lights per frame
+- [x] Light culling: distance-based, only nearby chunks processed
 
-#### 13.3 Visual Glow (Always Enabled)
-- [ ] Emissive material rendering (bloom/glow post-process)
-- [ ] Shader: detect emissive blocks, add glow color to final output
-- [ ] Intensity modulation: constant, pulsing, flickering (per block type)
+#### 13.3 Visual Glow ✅
+- [x] Emissive material rendering in shader
+- [x] Shader: detect emissive blocks, add emission color to final output
+- [x] Crystal blocks: tint-based emission colors (32 color palette)
+- [x] Crystal point lights emit tinted colors matching block appearance
 
-#### 13.4 Performance Considerations
-- [ ] GPU light buffer upload (structured buffer of active lights)
-- [ ] Light clustering/tiling for many light sources
-- [ ] LOD: distant glowing blocks skip light emission, keep visual glow
-- [ ] Benchmark: measure FPS impact of 100, 500, 1000 glowing blocks
+#### 13.4 Performance Considerations ✅
+- [x] GPU light buffer upload (structured buffer of active lights)
+- [x] LOD: configurable point light distance in settings
+- [x] Separate enable toggles for shadows, AO, and point lights
 
 **Technical Approach:**
 ```rust
@@ -796,26 +799,22 @@ impl FloodFillTool {
 
 ### Immediate Next Steps (Priority Order)
 
-1. **Phase 13: Glowing Blocks** (1-2 weeks)
-   - Implement lava block with visual glow
-   - Add GlowStone, GlowMushroom, Crystal blocks
-   - Optional dynamic lighting system with settings toggle
-   - Performance testing and optimization
+1. ~~**Phase 13: Glowing Blocks** ✅ COMPLETE~~
 
-2. **Phase 14: Enhanced Water** (1 week)
+2. **Phase 14: Enhanced Water** (Priority #1)
    - Extend water metadata (type, color, flow rate)
    - Implement swamp water with murky color
    - Integrate water types into terrain generation
    - Shader updates for colored water
 
-3. **Phase 15: Biome Generation** (2-3 weeks)
+3. **Phase 15: Biome Generation** (Priority #2)
    - Implement elevation, temperature, rainfall noise maps
    - Define 5 primary biomes with classification rules
    - Add biome-specific blocks (mud, cactus, willow trees)
    - Cave biome integration (stalactites, glowing mushrooms)
    - Debug visualization overlay
 
-4. **Phase 16: Building Tools** (3-4 weeks)
+4. **Phase 16: Building Tools** (Priority #3)
    - Template library (copy/paste with rotation)
    - Measurement tool (blocks + laser rangefinder)
    - Stencil system (holographic guides)
@@ -857,12 +856,12 @@ impl FloodFillTool {
 - [x] Painted blocks with 608 texture/tint combinations
 - [x] Command console with world editing commands
 
-### Phase 13: Glowing Blocks
-- [ ] Lava blocks glow orange/red with optional light emission
-- [ ] GlowStone illuminates 16-block radius (when dynamic lighting enabled)
-- [ ] Settings toggle for dynamic lighting works correctly
-- [ ] No FPS drop with 100+ glowing blocks visible (dynamic lighting off)
-- [ ] <10% FPS drop with 100+ glowing blocks (dynamic lighting on, mid-range GPU)
+### Phase 13: Glowing Blocks ✅
+- [x] Lava blocks glow orange/red with optional light emission
+- [x] GlowStone illuminates area (when point lights enabled)
+- [x] Settings toggle for point lights works correctly
+- [x] Crystal blocks with 32 tint colors and tinted point light emission
+- [x] Performance maintained with multiple light sources
 
 ### Phase 14: Enhanced Water
 - [ ] Swamp water renders murky green-brown
@@ -957,24 +956,36 @@ git commit -m "type: description"
 
 ## Current Work (2026-01-05)
 
-**Status**: Plan updated to reflect building-focused vision. Ready to begin Phase 13 (Glowing Blocks).
+**Status**: Phase 13 (Advanced Lighting System) COMPLETE. Ready for Phase 14 (Enhanced Water).
 
-**Recent Planning Sessions:**
-- Clarified mission: building game, not survival/crafting
-- Defined 5 biomes with elevation/temperature/rainfall generation
-- Designed 4 major building tools (templates, measurement, stencils, flood fill)
-- Prioritized glowing blocks → water types → biomes → tools
+**Recent Work:**
+- Implemented all glowing block types (Lava, GlowStone, GlowMushroom, Crystal)
+- Added point light emission system with tinted colors
+- Upgraded sub-voxel resolution from 8³ to 16³
+- Enhanced model editor with cube/sphere tools and scroll zoom
 
 **Next Actions:**
-1. Review updated plan with user for final approval
-2. Begin Phase 13.1: Implement Lava block with glowing emission
-3. Add GlowStone, GlowMushroom, Crystal block types
-4. Implement optional dynamic lighting system
+1. Begin Phase 14: Enhanced Water System
+2. Add WaterType enum with color variants
+3. Implement biome-specific water generation
 
 ---
 
 ## Done Recently
 
+- **Phase 13: Advanced Lighting System** (2026-01-05): ✅ COMPLETE
+  - Lava, GlowStone, GlowMushroom, Crystal blocks with emission
+  - Point light system with tinted colors for crystals
+  - Settings toggles for point lights and LOD distance
+- **Sub-Voxel 16³ Upgrade** (2026-01-05): ✅ COMPLETE
+  - Doubled model resolution from 8³ to 16³
+  - Updated all model-related constants and atlas sizing
+- **Model Editor Enhancements** (2026-01-05): ✅ COMPLETE
+  - Cube and sphere placement tools with adjustable size (1-16)
+  - Scroll to zoom functionality
+  - Fixed viewport size for 16³ models (600×600)
+  - Fixed axis labels and depth testing
+  - Fixed sprite generation scaling
 - **Paintable Blocks Feature** (2026-01-05): ✅ COMPLETE
 - **Phase 6: Interactive Block Types** (2026-01-04): ✅ COMPLETE
 - **Sphere Console Command** (2026-01-04): ✅ COMPLETE

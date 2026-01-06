@@ -87,8 +87,8 @@ impl App {
                     let color = block_type.color();
                     let mut particle_color = nalgebra::Vector3::new(color[0], color[1], color[2]);
 
-                    // Apply tint color for TintedGlass blocks
-                    if block_type == BlockType::TintedGlass {
+                    // Apply tint color for TintedGlass and Crystal blocks
+                    if block_type == BlockType::TintedGlass || block_type == BlockType::Crystal {
                         if let Some(tint_index) = self.sim.world.get_tint_index(target) {
                             let tint = crate::chunk::tint_color(tint_index);
                             particle_color = nalgebra::Vector3::new(tint[0], tint[1], tint[2]);
@@ -918,6 +918,10 @@ impl App {
             // TintedGlass needs the tint_index from the hotbar
             let tint_index = self.ui.hotbar_tint_indices[self.ui.hotbar_index];
             self.sim.world.set_tinted_glass_block(place_pos, tint_index);
+        } else if block_to_place == BlockType::Crystal {
+            // Crystal needs the tint_index from the hotbar for color
+            let tint_index = self.ui.hotbar_tint_indices[self.ui.hotbar_index];
+            self.sim.world.set_crystal_block(place_pos, tint_index);
         } else if block_to_place == BlockType::Painted {
             let texture_idx = self.ui.hotbar_paint_textures[self.ui.hotbar_index];
             let tint_idx = self.ui.hotbar_tint_indices[self.ui.hotbar_index];

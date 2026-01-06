@@ -55,6 +55,39 @@ pub fn draw_editor_ui(
                     editor.tool = EditorTool::Eyedropper;
                 }
             });
+            ui.horizontal(|ui| {
+                if ui
+                    .selectable_label(editor.tool == EditorTool::Cube, "⬜ Cube")
+                    .on_hover_text("Place filled cube shapes")
+                    .clicked()
+                {
+                    editor.tool = EditorTool::Cube;
+                }
+                if ui
+                    .selectable_label(editor.tool == EditorTool::Sphere, "⚪ Sphere")
+                    .on_hover_text("Place filled sphere shapes")
+                    .clicked()
+                {
+                    editor.tool = EditorTool::Sphere;
+                }
+            });
+            // Shape size slider (only shown for Cube/Sphere tools)
+            if editor.tool == EditorTool::Cube || editor.tool == EditorTool::Sphere {
+                use crate::sub_voxel::SUB_VOXEL_SIZE;
+                ui.horizontal(|ui| {
+                    ui.label("Size:");
+                    let mut size = editor.shape_size as i32;
+                    if ui
+                        .add(
+                            egui::Slider::new(&mut size, 1..=SUB_VOXEL_SIZE as i32)
+                                .suffix(" voxels"),
+                        )
+                        .changed()
+                    {
+                        editor.shape_size = size as usize;
+                    }
+                });
+            }
 
             ui.separator();
 
@@ -201,7 +234,7 @@ pub fn draw_editor_ui(
                 .iter()
                 .filter(|&&v| v != 0)
                 .count();
-            ui.label(format!("Voxels: {}/512", voxel_count));
+            ui.label(format!("Voxels: {}/4096", voxel_count));
         });
 
     // Palette window
@@ -425,10 +458,10 @@ pub fn draw_model_preview(ctx: &egui::Context, editor: &mut EditorState) {
         return;
     }
 
-    // 3D Viewport window
+    // 3D Viewport window - larger default size to accommodate 16³ models
     egui::Window::new("3D Viewport")
         .default_pos(egui::pos2(270.0, 320.0))
-        .default_size(egui::vec2(400.0, 400.0))
+        .default_size(egui::vec2(600.0, 600.0))
         .resizable(true)
         .show(ctx, |ui| {
             let available = ui.available_size();
@@ -451,6 +484,17 @@ pub fn draw_model_preview(ctx: &egui::Context, editor: &mut EditorState) {
                 editor.orbit_yaw += delta.x * 0.01;
             }
 
+            // Handle scroll to zoom
+            if response.hovered() {
+                let scroll_delta = ui.input(|i| i.raw_scroll_delta.y);
+                if scroll_delta != 0.0 {
+                    // Zoom in/out based on scroll direction
+                    editor.orbit_distance -= scroll_delta * 0.05;
+                    // Clamp to reasonable range for 16³ model
+                    editor.orbit_distance = editor.orbit_distance.clamp(8.0, 40.0);
+                }
+            }
+
             // Get hovered voxel/normal for highlight rendering
             let hovered_voxel = editor.hovered_voxel.map(|v| [v.x, v.y, v.z]);
             let hovered_normal = editor.hovered_normal.map(|n| [n.x, n.y, n.z]);
@@ -461,6 +505,7 @@ pub fn draw_model_preview(ctx: &egui::Context, editor: &mut EditorState) {
                 render_width,
                 render_height,
                 editor.orbit_yaw,
+                editor.orbit_distance,
                 hovered_voxel,
                 hovered_normal,
                 editor.mirror_axes,
@@ -483,7 +528,7 @@ pub fn draw_model_preview(ctx: &egui::Context, editor: &mut EditorState) {
             );
 
             // Draw axis labels on top of the rendered image
-            draw_axis_labels(ui, &painter, rect, editor.orbit_yaw);
+            draw_axis_labels(ui, &painter, rect, editor.orbit_yaw, editor.orbit_distance);
 
             // Handle mouse interaction using hit map
             if let Some(pointer_pos) = response.hover_pos() {
@@ -557,12 +602,23 @@ pub fn draw_model_preview(ctx: &egui::Context, editor: &mut EditorState) {
 }
 
 /// Draws axis labels on top of the rendered viewport.
-fn draw_axis_labels(_ui: &egui::Ui, painter: &egui::Painter, rect: egui::Rect, orbit_yaw: f32) {
+fn draw_axis_labels(
+    _ui: &egui::Ui,
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    orbit_yaw: f32,
+    orbit_distance: f32,
+) {
+    use super::rasterizer::DEFAULT_ORBIT_DISTANCE;
+    use crate::sub_voxel::SUB_VOXEL_CENTER_F32;
+
     // Calculate where axis endpoints would be in screen space
+    // Must match the projection in render_model exactly
     let size = rect.width().min(rect.height()) - 20.0;
-    let cell_size = size / 14.0;
+    let zoom_factor = DEFAULT_ORBIT_DISTANCE / orbit_distance;
+    let cell_size = (size / 16.0) * zoom_factor;
     let center_x = rect.center().x;
-    let center_y = rect.center().y - size * 0.1;
+    let center_y = rect.center().y;
 
     let cos_yaw = orbit_yaw.cos();
     let sin_yaw = orbit_yaw.sin();
@@ -580,7 +636,7 @@ fn draw_axis_labels(_ui: &egui::Ui, painter: &egui::Painter, rect: egui::Rect, o
     ];
     let iso_y = [0.0, -cell_size];
 
-    let model_center = 4.0;
+    let model_center = SUB_VOXEL_CENTER_F32;
 
     // Project function for label positions
     let project = |x: f32, y: f32, z: f32| -> egui::Pos2 {
@@ -593,9 +649,10 @@ fn draw_axis_labels(_ui: &egui::Ui, painter: &egui::Painter, rect: egui::Rect, o
         )
     };
 
-    let x_end = project(2.5, 0.0, 0.0);
-    let y_end = project(0.0, 2.5, 0.0);
-    let z_end = project(0.0, 0.0, 2.5);
+    // Labels at end of axis lines (which go from 0 to 2.0)
+    let x_end = project(2.0, 0.0, 0.0);
+    let y_end = project(0.0, 2.0, 0.0);
+    let z_end = project(0.0, 0.0, 2.0);
 
     painter.text(
         x_end + egui::vec2(5.0, 0.0),

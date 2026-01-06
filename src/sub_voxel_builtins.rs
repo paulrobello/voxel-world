@@ -1,5 +1,51 @@
 use crate::sub_voxel::{Color, LightBlocking, SUB_VOXEL_SIZE, SubVoxelModel};
 
+/// The design space size (8³) - models are designed in this space.
+const DESIGN_SIZE: usize = 8;
+
+/// Scale factor for converting 8³ model coordinates to current resolution.
+/// When SUB_VOXEL_SIZE is 16, this is 2 (each old voxel becomes 2×2×2).
+const SCALE: usize = SUB_VOXEL_SIZE / DESIGN_SIZE;
+
+/// Places a scaled voxel. In 8³ mode (SCALE=1), places a single voxel.
+/// In 16³ mode (SCALE=2), places a 2×2×2 block at scaled coordinates.
+fn set_scaled(model: &mut SubVoxelModel, x: usize, y: usize, z: usize, v: u8) {
+    let sx = x * SCALE;
+    let sy = y * SCALE;
+    let sz = z * SCALE;
+    for dx in 0..SCALE {
+        for dy in 0..SCALE {
+            for dz in 0..SCALE {
+                model.set_voxel(sx + dx, sy + dy, sz + dz, v);
+            }
+        }
+    }
+}
+
+/// Fills a scaled box. Coordinates are in 8³ space and get scaled up.
+/// Note: The max coordinates are inclusive (as in fill_box), and scaling
+/// is applied to make the box proportionally larger.
+#[allow(clippy::too_many_arguments)]
+fn fill_scaled(
+    model: &mut SubVoxelModel,
+    x0: usize,
+    y0: usize,
+    z0: usize,
+    x1: usize,
+    y1: usize,
+    z1: usize,
+    v: u8,
+) {
+    // Scale and adjust for inclusive bounds: (x1+1)*SCALE - 1 = scaled inclusive max
+    let sx0 = x0 * SCALE;
+    let sy0 = y0 * SCALE;
+    let sz0 = z0 * SCALE;
+    let sx1 = (x1 + 1) * SCALE - 1;
+    let sy1 = (y1 + 1) * SCALE - 1;
+    let sz1 = (z1 + 1) * SCALE - 1;
+    model.fill_box(sx0, sy0, sz0, sx1, sy1, sz1, v);
+}
+
 /// Creates an inverted (flipped on Y) copy of a model with a new name.
 fn inverted_copy(base: &SubVoxelModel, name: &str) -> SubVoxelModel {
     let mut model = SubVoxelModel::new(name);
@@ -41,31 +87,31 @@ pub fn create_torch() -> SubVoxelModel {
 
     // Stick (center, bottom 5 voxels) - 2×2 cross-section
     for y in 0..5 {
-        model.set_voxel(3, y, 3, 1);
-        model.set_voxel(4, y, 3, 2);
-        model.set_voxel(3, y, 4, 2);
-        model.set_voxel(4, y, 4, 1);
+        set_scaled(&mut model, 3, y, 3, 1);
+        set_scaled(&mut model, 4, y, 3, 2);
+        set_scaled(&mut model, 3, y, 4, 2);
+        set_scaled(&mut model, 4, y, 4, 1);
     }
 
     // Flame core (voxels 5-7)
     for y in 5..8 {
         for dx in 3..5 {
             for dz in 3..5 {
-                model.set_voxel(dx, y, dz, 3);
+                set_scaled(&mut model, dx, y, dz, 3);
             }
         }
     }
 
     // Flame outer (y=5,6 expanded)
     for y in 5..7 {
-        model.set_voxel(2, y, 3, 4);
-        model.set_voxel(5, y, 3, 4);
-        model.set_voxel(3, y, 2, 4);
-        model.set_voxel(3, y, 5, 4);
-        model.set_voxel(4, y, 2, 4);
-        model.set_voxel(4, y, 5, 4);
-        model.set_voxel(2, y, 4, 4);
-        model.set_voxel(5, y, 4, 4);
+        set_scaled(&mut model, 2, y, 3, 4);
+        set_scaled(&mut model, 5, y, 3, 4);
+        set_scaled(&mut model, 3, y, 2, 4);
+        set_scaled(&mut model, 3, y, 5, 4);
+        set_scaled(&mut model, 4, y, 2, 4);
+        set_scaled(&mut model, 4, y, 5, 4);
+        set_scaled(&mut model, 2, y, 4, 4);
+        set_scaled(&mut model, 5, y, 4, 4);
     }
 
     model.emission = Some(Color::rgb(255, 180, 80));
@@ -81,7 +127,7 @@ pub fn create_torch() -> SubVoxelModel {
 pub fn create_slab_bottom() -> SubVoxelModel {
     let mut model = SubVoxelModel::new("slab_bottom");
     model.palette[1] = Color::rgb(128, 128, 128); // Stone gray
-    model.fill_box(0, 0, 0, 7, 3, 7, 1);
+    fill_scaled(&mut model, 0, 0, 0, 7, 3, 7, 1);
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = false;
     model.compute_collision_mask();
@@ -92,7 +138,7 @@ pub fn create_slab_bottom() -> SubVoxelModel {
 pub fn create_slab_top() -> SubVoxelModel {
     let mut model = SubVoxelModel::new("slab_top");
     model.palette[1] = Color::rgb(128, 128, 128); // Stone gray
-    model.fill_box(0, 4, 0, 7, 7, 7, 1);
+    fill_scaled(&mut model, 0, 4, 0, 7, 7, 7, 1);
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = false;
     model.compute_collision_mask();
@@ -108,23 +154,23 @@ pub fn create_fence(connections: u8) -> SubVoxelModel {
     model.palette[2] = Color::rgb(160, 110, 60); // Lighter brown (rails)
 
     // Center post (2×8×2 at center)
-    model.fill_box(3, 0, 3, 4, 7, 4, 1);
+    fill_scaled(&mut model, 3, 0, 3, 4, 7, 4, 1);
 
     // Add rails based on connections
     let rail_y_ranges = [(2, 3), (5, 6)];
 
     for &(y0, y1) in &rail_y_ranges {
         if connections & 1 != 0 {
-            model.fill_box(3, y0, 0, 4, y1, 2, 2);
+            fill_scaled(&mut model, 3, y0, 0, 4, y1, 2, 2);
         }
         if connections & 2 != 0 {
-            model.fill_box(3, y0, 5, 4, y1, 7, 2);
+            fill_scaled(&mut model, 3, y0, 5, 4, y1, 7, 2);
         }
         if connections & 4 != 0 {
-            model.fill_box(5, y0, 3, 7, y1, 4, 2);
+            fill_scaled(&mut model, 5, y0, 3, 7, y1, 4, 2);
         }
         if connections & 8 != 0 {
-            model.fill_box(0, y0, 3, 2, y1, 4, 2);
+            fill_scaled(&mut model, 0, y0, 3, 2, y1, 4, 2);
         }
     }
 
@@ -144,23 +190,23 @@ pub fn create_gate_closed(connections: u8) -> SubVoxelModel {
     model.palette[2] = Color::rgb(160, 110, 60); // Lighter brown (door)
     model.palette[3] = Color::rgb(60, 60, 65); // Iron gray (hardware)
 
-    model.fill_box(0, 0, 3, 1, 7, 4, 1);
-    model.fill_box(6, 0, 3, 7, 7, 4, 1);
+    fill_scaled(&mut model, 0, 0, 3, 1, 7, 4, 1);
+    fill_scaled(&mut model, 6, 0, 3, 7, 7, 4, 1);
 
-    model.fill_box(2, 2, 3, 3, 3, 4, 2);
-    model.fill_box(2, 5, 3, 3, 6, 4, 2);
-    model.fill_box(3, 4, 3, 3, 4, 4, 2);
+    fill_scaled(&mut model, 2, 2, 3, 3, 3, 4, 2);
+    fill_scaled(&mut model, 2, 5, 3, 3, 6, 4, 2);
+    fill_scaled(&mut model, 3, 4, 3, 3, 4, 4, 2);
 
-    model.fill_box(4, 2, 3, 5, 3, 4, 2);
-    model.fill_box(4, 5, 3, 5, 6, 4, 2);
-    model.fill_box(4, 4, 3, 4, 4, 4, 2);
+    fill_scaled(&mut model, 4, 2, 3, 5, 3, 4, 2);
+    fill_scaled(&mut model, 4, 5, 3, 5, 6, 4, 2);
+    fill_scaled(&mut model, 4, 4, 3, 4, 4, 4, 2);
 
-    model.set_voxel(1, 3, 2, 3);
-    model.set_voxel(1, 5, 2, 3);
-    model.set_voxel(6, 3, 2, 3);
-    model.set_voxel(6, 5, 2, 3);
-    model.set_voxel(3, 4, 2, 3);
-    model.set_voxel(4, 4, 2, 3);
+    set_scaled(&mut model, 1, 3, 2, 3);
+    set_scaled(&mut model, 1, 5, 2, 3);
+    set_scaled(&mut model, 6, 3, 2, 3);
+    set_scaled(&mut model, 6, 5, 2, 3);
+    set_scaled(&mut model, 3, 4, 2, 3);
+    set_scaled(&mut model, 4, 4, 2, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -178,21 +224,21 @@ pub fn create_gate_open(connections: u8) -> SubVoxelModel {
     model.palette[2] = Color::rgb(160, 110, 60); // Lighter brown (door)
     model.palette[3] = Color::rgb(60, 60, 65); // Iron gray (hardware)
 
-    model.fill_box(0, 0, 3, 1, 7, 4, 1);
-    model.fill_box(6, 0, 3, 7, 7, 4, 1);
+    fill_scaled(&mut model, 0, 0, 3, 1, 7, 4, 1);
+    fill_scaled(&mut model, 6, 0, 3, 7, 7, 4, 1);
 
-    model.fill_box(0, 2, 0, 1, 3, 2, 2);
-    model.fill_box(0, 5, 0, 1, 6, 2, 2);
-    model.fill_box(0, 4, 0, 1, 4, 0, 2);
+    fill_scaled(&mut model, 0, 2, 0, 1, 3, 2, 2);
+    fill_scaled(&mut model, 0, 5, 0, 1, 6, 2, 2);
+    fill_scaled(&mut model, 0, 4, 0, 1, 4, 0, 2);
 
-    model.fill_box(6, 2, 0, 7, 3, 2, 2);
-    model.fill_box(6, 5, 0, 7, 6, 2, 2);
-    model.fill_box(6, 4, 0, 7, 4, 0, 2);
+    fill_scaled(&mut model, 6, 2, 0, 7, 3, 2, 2);
+    fill_scaled(&mut model, 6, 5, 0, 7, 6, 2, 2);
+    fill_scaled(&mut model, 6, 4, 0, 7, 4, 0, 2);
 
-    model.set_voxel(1, 3, 2, 3);
-    model.set_voxel(1, 5, 2, 3);
-    model.set_voxel(6, 3, 2, 3);
-    model.set_voxel(6, 5, 2, 3);
+    set_scaled(&mut model, 1, 3, 2, 3);
+    set_scaled(&mut model, 1, 5, 2, 3);
+    set_scaled(&mut model, 6, 3, 2, 3);
+    set_scaled(&mut model, 6, 5, 2, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -205,8 +251,8 @@ pub fn create_gate_open(connections: u8) -> SubVoxelModel {
 pub fn create_stairs_north() -> SubVoxelModel {
     let mut model = SubVoxelModel::new("stairs_north");
     model.palette[1] = Color::rgb(128, 128, 128); // Stone gray
-    model.fill_box(0, 0, 0, 7, 3, 7, 1);
-    model.fill_box(0, 4, 4, 7, 7, 7, 1);
+    fill_scaled(&mut model, 0, 0, 0, 7, 3, 7, 1);
+    fill_scaled(&mut model, 0, 4, 4, 7, 7, 7, 1);
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
     model.compute_collision_mask();
@@ -224,12 +270,12 @@ pub fn create_ladder() -> SubVoxelModel {
     let mut model = SubVoxelModel::new("ladder");
     model.palette[1] = Color::rgb(139, 90, 43); // Wood brown
     for y in 0..8 {
-        model.set_voxel(1, y, 7, 1);
-        model.set_voxel(6, y, 7, 1);
+        set_scaled(&mut model, 1, y, 7, 1);
+        set_scaled(&mut model, 6, y, 7, 1);
     }
     for y in [1, 3, 5, 7] {
         for x in 2..6 {
-            model.set_voxel(x, y, 7, 1);
+            set_scaled(&mut model, x, y, 7, 1);
         }
     }
     model.light_blocking = LightBlocking::Partial;
@@ -245,14 +291,14 @@ pub fn create_stairs_inner_left() -> SubVoxelModel {
     model.palette[1] = Color::rgb(128, 128, 128); // Stone gray
 
     // Bottom half solid
-    model.fill_box(0, 0, 0, 7, 3, 7, 1);
+    fill_scaled(&mut model, 0, 0, 0, 7, 3, 7, 1);
 
     // Upper L: high where z>=4 OR x>=4 (concave interior) leaving front-left void
-    for z in 0..SUB_VOXEL_SIZE {
-        for y in 4..SUB_VOXEL_SIZE {
-            for x in 0..SUB_VOXEL_SIZE {
+    for z in 0..DESIGN_SIZE {
+        for y in 4..DESIGN_SIZE {
+            for x in 0..DESIGN_SIZE {
                 if x >= 4 || z >= 4 {
-                    model.set_voxel(x, y, z, 1);
+                    set_scaled(&mut model, x, y, z, 1);
                 }
             }
         }
@@ -270,14 +316,14 @@ pub fn create_stairs_inner_right() -> SubVoxelModel {
     model.palette[1] = Color::rgb(128, 128, 128); // Stone gray
 
     // Bottom half solid
-    model.fill_box(0, 0, 0, 7, 3, 7, 1);
+    fill_scaled(&mut model, 0, 0, 0, 7, 3, 7, 1);
 
     // Upper L: high where z>=4 OR x<=3 (mirror)
-    for z in 0..SUB_VOXEL_SIZE {
-        for y in 4..SUB_VOXEL_SIZE {
-            for x in 0..SUB_VOXEL_SIZE {
+    for z in 0..DESIGN_SIZE {
+        for y in 4..DESIGN_SIZE {
+            for x in 0..DESIGN_SIZE {
                 if x <= 3 || z >= 4 {
-                    model.set_voxel(x, y, z, 1);
+                    set_scaled(&mut model, x, y, z, 1);
                 }
             }
         }
@@ -295,13 +341,13 @@ pub fn create_stairs_outer_left() -> SubVoxelModel {
     model.palette[1] = Color::rgb(128, 128, 128); // Stone gray
 
     // Bottom half solid
-    model.fill_box(0, 0, 0, 7, 3, 7, 1);
+    fill_scaled(&mut model, 0, 0, 0, 7, 3, 7, 1);
 
     // Upper quarter: only back-left corner (x<=3 AND z>=4)
-    for z in 4..SUB_VOXEL_SIZE {
-        for y in 4..SUB_VOXEL_SIZE {
+    for z in 4..DESIGN_SIZE {
+        for y in 4..DESIGN_SIZE {
             for x in 0..=3 {
-                model.set_voxel(x, y, z, 1);
+                set_scaled(&mut model, x, y, z, 1);
             }
         }
     }
@@ -318,13 +364,13 @@ pub fn create_stairs_outer_right() -> SubVoxelModel {
     model.palette[1] = Color::rgb(128, 128, 128); // Stone gray
 
     // Bottom half solid
-    model.fill_box(0, 0, 0, 7, 3, 7, 1);
+    fill_scaled(&mut model, 0, 0, 0, 7, 3, 7, 1);
 
     // Upper quarter: only back-right corner (x>=4 AND z>=4)
-    for z in 4..SUB_VOXEL_SIZE {
-        for y in 4..SUB_VOXEL_SIZE {
-            for x in 4..SUB_VOXEL_SIZE {
-                model.set_voxel(x, y, z, 1);
+    for z in 4..DESIGN_SIZE {
+        for y in 4..DESIGN_SIZE {
+            for x in 4..DESIGN_SIZE {
+                set_scaled(&mut model, x, y, z, 1);
             }
         }
     }
@@ -373,11 +419,11 @@ pub fn create_door_lower_closed_left() -> SubVoxelModel {
     model.palette[3] = Color::rgb(0, 0, 0); // Handle (black)
 
     // Hinge column at x=0 (1 voxel thick at z=0)
-    model.fill_box(7, 0, 0, 7, 7, 0, 1);
+    fill_scaled(&mut model, 7, 0, 0, 7, 7, 0, 1);
     // Wood body at x=1-7 (1 voxel thick at z=0)
-    model.fill_box(0, 0, 0, 6, 7, 0, 2);
+    fill_scaled(&mut model, 0, 0, 0, 6, 7, 0, 2);
     // Handle at right edge, top of lower door
-    model.set_voxel(0, 7, 0, 3);
+    set_scaled(&mut model, 0, 7, 0, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -394,11 +440,11 @@ pub fn create_door_lower_closed_right() -> SubVoxelModel {
     model.palette[3] = Color::rgb(0, 0, 0); // Handle (black)
 
     // Hinge column at x=7 (1 voxel thick at z=0)
-    model.fill_box(0, 0, 0, 0, 7, 0, 1);
+    fill_scaled(&mut model, 0, 0, 0, 0, 7, 0, 1);
     // Wood body at x=0-6 (1 voxel thick at z=0)
-    model.fill_box(1, 0, 0, 7, 7, 0, 2);
+    fill_scaled(&mut model, 1, 0, 0, 7, 7, 0, 2);
     // Handle at left edge, top of lower door
-    model.set_voxel(7, 7, 0, 3);
+    set_scaled(&mut model, 7, 7, 0, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -415,11 +461,11 @@ pub fn create_door_upper_closed_left() -> SubVoxelModel {
     model.palette[3] = Color::rgb(0, 0, 0); // Handle (black)
 
     // Hinge column at x=0 (1 voxel thick at z=0)
-    model.fill_box(7, 0, 0, 7, 7, 0, 1);
+    fill_scaled(&mut model, 7, 0, 0, 7, 7, 0, 1);
     // Wood body at x=1-7 (1 voxel thick at z=0)
-    model.fill_box(0, 0, 0, 6, 7, 0, 2);
+    fill_scaled(&mut model, 0, 0, 0, 6, 7, 0, 2);
     // Handle at right edge, bottom of upper door
-    model.set_voxel(0, 0, 0, 3);
+    set_scaled(&mut model, 0, 0, 0, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -436,11 +482,11 @@ pub fn create_door_upper_closed_right() -> SubVoxelModel {
     model.palette[3] = Color::rgb(0, 0, 0); // Handle (black)
 
     // Hinge column at x=7 (1 voxel thick at z=0)
-    model.fill_box(0, 0, 0, 0, 7, 0, 1);
+    fill_scaled(&mut model, 0, 0, 0, 0, 7, 0, 1);
     // Wood body at x=0-6 (1 voxel thick at z=0)
-    model.fill_box(1, 0, 0, 7, 7, 0, 2);
+    fill_scaled(&mut model, 1, 0, 0, 7, 7, 0, 2);
     // Handle at left edge, bottom of upper door
-    model.set_voxel(7, 0, 0, 3);
+    set_scaled(&mut model, 7, 0, 0, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -457,11 +503,11 @@ pub fn create_door_lower_open_left() -> SubVoxelModel {
     model.palette[3] = Color::rgb(0, 0, 0); // Handle (black)
 
     // Hinge at x=0, z=0 (pivot point - 1 voxel)
-    model.fill_box(7, 0, 0, 7, 7, 0, 1);
+    fill_scaled(&mut model, 7, 0, 0, 7, 7, 0, 1);
     // Wood body at x=0, z=1-7 (1 voxel thick in x)
-    model.fill_box(7, 0, 1, 7, 7, 7, 2);
+    fill_scaled(&mut model, 7, 0, 1, 7, 7, 7, 2);
     // Handle at swung end (x=0, z=7, top of lower door)
-    model.set_voxel(7, 7, 7, 3);
+    set_scaled(&mut model, 7, 7, 7, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -478,11 +524,11 @@ pub fn create_door_lower_open_right() -> SubVoxelModel {
     model.palette[3] = Color::rgb(0, 0, 0); // Handle (black)
 
     // Hinge at x=7, z=0 (pivot point - 1 voxel)
-    model.fill_box(0, 0, 0, 0, 7, 0, 1);
+    fill_scaled(&mut model, 0, 0, 0, 0, 7, 0, 1);
     // Wood body at x=7, z=1-7 (1 voxel thick in x)
-    model.fill_box(0, 0, 1, 0, 7, 7, 2);
+    fill_scaled(&mut model, 0, 0, 1, 0, 7, 7, 2);
     // Handle at swung end (x=7, z=7, top of lower door)
-    model.set_voxel(0, 7, 7, 3);
+    set_scaled(&mut model, 0, 7, 7, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -499,11 +545,11 @@ pub fn create_door_upper_open_left() -> SubVoxelModel {
     model.palette[3] = Color::rgb(0, 0, 0); // Handle (black)
 
     // Hinge at x=0, z=0 (pivot point - 1 voxel)
-    model.fill_box(7, 0, 0, 7, 7, 0, 1);
+    fill_scaled(&mut model, 7, 0, 0, 7, 7, 0, 1);
     // Wood body at x=0, z=1-7 (1 voxel thick in x)
-    model.fill_box(7, 0, 1, 7, 7, 7, 2);
+    fill_scaled(&mut model, 7, 0, 1, 7, 7, 7, 2);
     // Handle at swung end (x=0, z=7, bottom of upper door)
-    model.set_voxel(7, 0, 7, 3);
+    set_scaled(&mut model, 7, 0, 7, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -520,11 +566,11 @@ pub fn create_door_upper_open_right() -> SubVoxelModel {
     model.palette[3] = Color::rgb(0, 0, 0); // Handle (black)
 
     // Hinge at x=7, z=0 (pivot point - 1 voxel)
-    model.fill_box(0, 0, 0, 0, 7, 0, 1);
+    fill_scaled(&mut model, 0, 0, 0, 0, 7, 0, 1);
     // Wood body at x=7, z=1-7 (1 voxel thick in x)
-    model.fill_box(0, 0, 1, 0, 7, 7, 2);
+    fill_scaled(&mut model, 0, 0, 1, 0, 7, 7, 2);
     // Handle at swung end (x=7, z=7, bottom of upper door)
-    model.set_voxel(0, 0, 7, 3);
+    set_scaled(&mut model, 0, 0, 7, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -546,16 +592,16 @@ pub fn create_windowed_door_lower_closed_left() -> SubVoxelModel {
     model.palette[4] = Color::rgb(90, 70, 50); // Darker wood panels
 
     // Hinge column at x=0
-    model.fill_box(7, 0, 0, 7, 7, 0, 1);
+    fill_scaled(&mut model, 7, 0, 0, 7, 7, 0, 1);
     // Wood body at x=1-7
-    model.fill_box(0, 0, 0, 6, 7, 0, 2);
+    fill_scaled(&mut model, 0, 0, 0, 6, 7, 0, 2);
     // Decorative panels (lower half)
-    model.fill_box(4, 1, 0, 5, 2, 0, 4);
-    model.fill_box(1, 1, 0, 2, 2, 0, 4);
-    model.fill_box(4, 4, 0, 5, 5, 0, 4);
-    model.fill_box(1, 4, 0, 2, 5, 0, 4);
+    fill_scaled(&mut model, 4, 1, 0, 5, 2, 0, 4);
+    fill_scaled(&mut model, 1, 1, 0, 2, 2, 0, 4);
+    fill_scaled(&mut model, 4, 4, 0, 5, 5, 0, 4);
+    fill_scaled(&mut model, 1, 4, 0, 2, 5, 0, 4);
     // Handle
-    model.set_voxel(0, 7, 0, 3);
+    set_scaled(&mut model, 0, 7, 0, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -572,13 +618,13 @@ pub fn create_windowed_door_lower_closed_right() -> SubVoxelModel {
     model.palette[3] = Color::rgb(0, 0, 0);
     model.palette[4] = Color::rgb(90, 70, 50);
 
-    model.fill_box(0, 0, 0, 0, 7, 0, 1);
-    model.fill_box(1, 0, 0, 7, 7, 0, 2);
-    model.fill_box(5, 1, 0, 6, 2, 0, 4);
-    model.fill_box(2, 1, 0, 3, 2, 0, 4);
-    model.fill_box(5, 4, 0, 6, 5, 0, 4);
-    model.fill_box(2, 4, 0, 3, 5, 0, 4);
-    model.set_voxel(7, 7, 0, 3);
+    fill_scaled(&mut model, 0, 0, 0, 0, 7, 0, 1);
+    fill_scaled(&mut model, 1, 0, 0, 7, 7, 0, 2);
+    fill_scaled(&mut model, 5, 1, 0, 6, 2, 0, 4);
+    fill_scaled(&mut model, 2, 1, 0, 3, 2, 0, 4);
+    fill_scaled(&mut model, 5, 4, 0, 6, 5, 0, 4);
+    fill_scaled(&mut model, 2, 4, 0, 3, 5, 0, 4);
+    set_scaled(&mut model, 7, 7, 0, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -596,14 +642,14 @@ pub fn create_windowed_door_upper_closed_left() -> SubVoxelModel {
     model.palette[4] = Color::rgba(200, 220, 255, 160); // Glass
 
     // Hinge column at x=0
-    model.fill_box(7, 0, 0, 7, 7, 0, 1);
+    fill_scaled(&mut model, 7, 0, 0, 7, 7, 0, 1);
     // Wood body at x=1-7
-    model.fill_box(0, 0, 0, 6, 7, 0, 2);
+    fill_scaled(&mut model, 0, 0, 0, 6, 7, 0, 2);
     // Glass windows (upper half)
-    model.fill_box(4, 3, 0, 5, 5, 0, 4);
-    model.fill_box(1, 3, 0, 2, 5, 0, 4);
+    fill_scaled(&mut model, 4, 3, 0, 5, 5, 0, 4);
+    fill_scaled(&mut model, 1, 3, 0, 2, 5, 0, 4);
     // Handle
-    model.set_voxel(0, 0, 0, 3);
+    set_scaled(&mut model, 0, 0, 0, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -620,11 +666,11 @@ pub fn create_windowed_door_upper_closed_right() -> SubVoxelModel {
     model.palette[3] = Color::rgb(0, 0, 0);
     model.palette[4] = Color::rgba(200, 220, 255, 160);
 
-    model.fill_box(0, 0, 0, 0, 7, 0, 1);
-    model.fill_box(1, 0, 0, 7, 7, 0, 2);
-    model.fill_box(5, 3, 0, 6, 5, 0, 4);
-    model.fill_box(2, 3, 0, 3, 5, 0, 4);
-    model.set_voxel(7, 0, 0, 3);
+    fill_scaled(&mut model, 0, 0, 0, 0, 7, 0, 1);
+    fill_scaled(&mut model, 1, 0, 0, 7, 7, 0, 2);
+    fill_scaled(&mut model, 5, 3, 0, 6, 5, 0, 4);
+    fill_scaled(&mut model, 2, 3, 0, 3, 5, 0, 4);
+    set_scaled(&mut model, 7, 0, 0, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -641,13 +687,13 @@ pub fn create_windowed_door_lower_open_left() -> SubVoxelModel {
     model.palette[3] = Color::rgb(0, 0, 0);
     model.palette[4] = Color::rgb(90, 70, 50);
 
-    model.fill_box(7, 0, 0, 7, 7, 0, 1);
-    model.fill_box(7, 0, 1, 7, 7, 7, 2);
-    model.fill_box(7, 1, 1, 7, 2, 2, 4);
-    model.fill_box(7, 1, 4, 7, 2, 5, 4);
-    model.fill_box(7, 4, 1, 7, 5, 2, 4);
-    model.fill_box(7, 4, 4, 7, 5, 5, 4);
-    model.set_voxel(7, 7, 7, 3);
+    fill_scaled(&mut model, 7, 0, 0, 7, 7, 0, 1);
+    fill_scaled(&mut model, 7, 0, 1, 7, 7, 7, 2);
+    fill_scaled(&mut model, 7, 1, 1, 7, 2, 2, 4);
+    fill_scaled(&mut model, 7, 1, 4, 7, 2, 5, 4);
+    fill_scaled(&mut model, 7, 4, 1, 7, 5, 2, 4);
+    fill_scaled(&mut model, 7, 4, 4, 7, 5, 5, 4);
+    set_scaled(&mut model, 7, 7, 7, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -664,13 +710,13 @@ pub fn create_windowed_door_lower_open_right() -> SubVoxelModel {
     model.palette[3] = Color::rgb(0, 0, 0);
     model.palette[4] = Color::rgb(90, 70, 50);
 
-    model.fill_box(0, 0, 0, 0, 7, 0, 1);
-    model.fill_box(0, 0, 1, 0, 7, 7, 2);
-    model.fill_box(0, 1, 1, 0, 2, 2, 4);
-    model.fill_box(0, 1, 4, 0, 2, 5, 4);
-    model.fill_box(0, 4, 1, 0, 5, 2, 4);
-    model.fill_box(0, 4, 4, 0, 5, 5, 4);
-    model.set_voxel(0, 7, 7, 3);
+    fill_scaled(&mut model, 0, 0, 0, 0, 7, 0, 1);
+    fill_scaled(&mut model, 0, 0, 1, 0, 7, 7, 2);
+    fill_scaled(&mut model, 0, 1, 1, 0, 2, 2, 4);
+    fill_scaled(&mut model, 0, 1, 4, 0, 2, 5, 4);
+    fill_scaled(&mut model, 0, 4, 1, 0, 5, 2, 4);
+    fill_scaled(&mut model, 0, 4, 4, 0, 5, 5, 4);
+    set_scaled(&mut model, 0, 7, 7, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -687,11 +733,11 @@ pub fn create_windowed_door_upper_open_left() -> SubVoxelModel {
     model.palette[3] = Color::rgb(0, 0, 0);
     model.palette[4] = Color::rgba(200, 220, 255, 160);
 
-    model.fill_box(7, 0, 0, 7, 7, 0, 1);
-    model.fill_box(7, 0, 1, 7, 7, 7, 2);
-    model.fill_box(7, 3, 1, 7, 5, 2, 4);
-    model.fill_box(7, 3, 4, 7, 5, 5, 4);
-    model.set_voxel(7, 0, 7, 3);
+    fill_scaled(&mut model, 7, 0, 0, 7, 7, 0, 1);
+    fill_scaled(&mut model, 7, 0, 1, 7, 7, 7, 2);
+    fill_scaled(&mut model, 7, 3, 1, 7, 5, 2, 4);
+    fill_scaled(&mut model, 7, 3, 4, 7, 5, 5, 4);
+    set_scaled(&mut model, 7, 0, 7, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -708,11 +754,11 @@ pub fn create_windowed_door_upper_open_right() -> SubVoxelModel {
     model.palette[3] = Color::rgb(0, 0, 0);
     model.palette[4] = Color::rgba(200, 220, 255, 160);
 
-    model.fill_box(0, 0, 0, 0, 7, 0, 1);
-    model.fill_box(0, 0, 1, 0, 7, 7, 2);
-    model.fill_box(0, 3, 1, 0, 5, 2, 4);
-    model.fill_box(0, 3, 4, 0, 5, 5, 4);
-    model.set_voxel(0, 0, 7, 3);
+    fill_scaled(&mut model, 0, 0, 0, 0, 7, 0, 1);
+    fill_scaled(&mut model, 0, 0, 1, 0, 7, 7, 2);
+    fill_scaled(&mut model, 0, 3, 1, 0, 5, 2, 4);
+    fill_scaled(&mut model, 0, 3, 4, 0, 5, 5, 4);
+    set_scaled(&mut model, 0, 0, 7, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -733,14 +779,14 @@ pub fn create_paneled_door_lower_closed_left() -> SubVoxelModel {
     model.palette[3] = Color::rgb(0, 0, 0);
     model.palette[4] = Color::rgb(110, 75, 35); // Panel detail
 
-    model.fill_box(7, 0, 0, 7, 7, 0, 1);
-    model.fill_box(0, 0, 0, 6, 7, 0, 2);
+    fill_scaled(&mut model, 7, 0, 0, 7, 7, 0, 1);
+    fill_scaled(&mut model, 0, 0, 0, 6, 7, 0, 2);
     // Decorative panels (lower door)
-    model.fill_box(4, 1, 0, 5, 3, 0, 4);
-    model.fill_box(1, 1, 0, 2, 3, 0, 4);
-    model.fill_box(4, 4, 0, 5, 6, 0, 4);
-    model.fill_box(1, 4, 0, 2, 6, 0, 4);
-    model.set_voxel(0, 7, 0, 3);
+    fill_scaled(&mut model, 4, 1, 0, 5, 3, 0, 4);
+    fill_scaled(&mut model, 1, 1, 0, 2, 3, 0, 4);
+    fill_scaled(&mut model, 4, 4, 0, 5, 6, 0, 4);
+    fill_scaled(&mut model, 1, 4, 0, 2, 6, 0, 4);
+    set_scaled(&mut model, 0, 7, 0, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -757,13 +803,13 @@ pub fn create_paneled_door_lower_closed_right() -> SubVoxelModel {
     model.palette[3] = Color::rgb(0, 0, 0);
     model.palette[4] = Color::rgb(110, 75, 35);
 
-    model.fill_box(0, 0, 0, 0, 7, 0, 1);
-    model.fill_box(1, 0, 0, 7, 7, 0, 2);
-    model.fill_box(5, 1, 0, 6, 3, 0, 4);
-    model.fill_box(2, 1, 0, 3, 3, 0, 4);
-    model.fill_box(5, 4, 0, 6, 6, 0, 4);
-    model.fill_box(2, 4, 0, 3, 6, 0, 4);
-    model.set_voxel(7, 7, 0, 3);
+    fill_scaled(&mut model, 0, 0, 0, 0, 7, 0, 1);
+    fill_scaled(&mut model, 1, 0, 0, 7, 7, 0, 2);
+    fill_scaled(&mut model, 5, 1, 0, 6, 3, 0, 4);
+    fill_scaled(&mut model, 2, 1, 0, 3, 3, 0, 4);
+    fill_scaled(&mut model, 5, 4, 0, 6, 6, 0, 4);
+    fill_scaled(&mut model, 2, 4, 0, 3, 6, 0, 4);
+    set_scaled(&mut model, 7, 7, 0, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -780,14 +826,14 @@ pub fn create_paneled_door_upper_closed_left() -> SubVoxelModel {
     model.palette[3] = Color::rgb(0, 0, 0);
     model.palette[4] = Color::rgb(110, 75, 35);
 
-    model.fill_box(7, 0, 0, 7, 7, 0, 1);
-    model.fill_box(0, 0, 0, 6, 7, 0, 2);
+    fill_scaled(&mut model, 7, 0, 0, 7, 7, 0, 1);
+    fill_scaled(&mut model, 0, 0, 0, 6, 7, 0, 2);
     // Decorative panels (upper door - solid wood, no glass)
-    model.fill_box(4, 1, 0, 5, 3, 0, 4);
-    model.fill_box(1, 1, 0, 2, 3, 0, 4);
-    model.fill_box(4, 4, 0, 5, 6, 0, 4);
-    model.fill_box(1, 4, 0, 2, 6, 0, 4);
-    model.set_voxel(0, 0, 0, 3);
+    fill_scaled(&mut model, 4, 1, 0, 5, 3, 0, 4);
+    fill_scaled(&mut model, 1, 1, 0, 2, 3, 0, 4);
+    fill_scaled(&mut model, 4, 4, 0, 5, 6, 0, 4);
+    fill_scaled(&mut model, 1, 4, 0, 2, 6, 0, 4);
+    set_scaled(&mut model, 0, 0, 0, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -804,13 +850,13 @@ pub fn create_paneled_door_upper_closed_right() -> SubVoxelModel {
     model.palette[3] = Color::rgb(0, 0, 0);
     model.palette[4] = Color::rgb(110, 75, 35);
 
-    model.fill_box(0, 0, 0, 0, 7, 0, 1);
-    model.fill_box(1, 0, 0, 7, 7, 0, 2);
-    model.fill_box(5, 1, 0, 6, 3, 0, 4);
-    model.fill_box(2, 1, 0, 3, 3, 0, 4);
-    model.fill_box(5, 4, 0, 6, 6, 0, 4);
-    model.fill_box(2, 4, 0, 3, 6, 0, 4);
-    model.set_voxel(7, 0, 0, 3);
+    fill_scaled(&mut model, 0, 0, 0, 0, 7, 0, 1);
+    fill_scaled(&mut model, 1, 0, 0, 7, 7, 0, 2);
+    fill_scaled(&mut model, 5, 1, 0, 6, 3, 0, 4);
+    fill_scaled(&mut model, 2, 1, 0, 3, 3, 0, 4);
+    fill_scaled(&mut model, 5, 4, 0, 6, 6, 0, 4);
+    fill_scaled(&mut model, 2, 4, 0, 3, 6, 0, 4);
+    set_scaled(&mut model, 7, 0, 0, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -827,13 +873,13 @@ pub fn create_paneled_door_lower_open_left() -> SubVoxelModel {
     model.palette[3] = Color::rgb(0, 0, 0);
     model.palette[4] = Color::rgb(110, 75, 35);
 
-    model.fill_box(7, 0, 0, 7, 7, 0, 1);
-    model.fill_box(7, 0, 1, 7, 7, 7, 2);
-    model.fill_box(7, 1, 1, 7, 3, 2, 4);
-    model.fill_box(7, 1, 4, 7, 3, 5, 4);
-    model.fill_box(7, 4, 1, 7, 6, 2, 4);
-    model.fill_box(7, 4, 4, 7, 6, 5, 4);
-    model.set_voxel(7, 7, 7, 3);
+    fill_scaled(&mut model, 7, 0, 0, 7, 7, 0, 1);
+    fill_scaled(&mut model, 7, 0, 1, 7, 7, 7, 2);
+    fill_scaled(&mut model, 7, 1, 1, 7, 3, 2, 4);
+    fill_scaled(&mut model, 7, 1, 4, 7, 3, 5, 4);
+    fill_scaled(&mut model, 7, 4, 1, 7, 6, 2, 4);
+    fill_scaled(&mut model, 7, 4, 4, 7, 6, 5, 4);
+    set_scaled(&mut model, 7, 7, 7, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -850,13 +896,13 @@ pub fn create_paneled_door_lower_open_right() -> SubVoxelModel {
     model.palette[3] = Color::rgb(0, 0, 0);
     model.palette[4] = Color::rgb(110, 75, 35);
 
-    model.fill_box(0, 0, 0, 0, 7, 0, 1);
-    model.fill_box(0, 0, 1, 0, 7, 7, 2);
-    model.fill_box(0, 1, 1, 0, 3, 2, 4);
-    model.fill_box(0, 1, 4, 0, 3, 5, 4);
-    model.fill_box(0, 4, 1, 0, 6, 2, 4);
-    model.fill_box(0, 4, 4, 0, 6, 5, 4);
-    model.set_voxel(0, 7, 7, 3);
+    fill_scaled(&mut model, 0, 0, 0, 0, 7, 0, 1);
+    fill_scaled(&mut model, 0, 0, 1, 0, 7, 7, 2);
+    fill_scaled(&mut model, 0, 1, 1, 0, 3, 2, 4);
+    fill_scaled(&mut model, 0, 1, 4, 0, 3, 5, 4);
+    fill_scaled(&mut model, 0, 4, 1, 0, 6, 2, 4);
+    fill_scaled(&mut model, 0, 4, 4, 0, 6, 5, 4);
+    set_scaled(&mut model, 0, 7, 7, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -873,13 +919,13 @@ pub fn create_paneled_door_upper_open_left() -> SubVoxelModel {
     model.palette[3] = Color::rgb(0, 0, 0);
     model.palette[4] = Color::rgb(110, 75, 35);
 
-    model.fill_box(7, 0, 0, 7, 7, 0, 1);
-    model.fill_box(7, 0, 1, 7, 7, 7, 2);
-    model.fill_box(7, 1, 1, 7, 3, 2, 4);
-    model.fill_box(7, 1, 4, 7, 3, 5, 4);
-    model.fill_box(7, 4, 1, 7, 6, 2, 4);
-    model.fill_box(7, 4, 4, 7, 6, 5, 4);
-    model.set_voxel(7, 0, 7, 3);
+    fill_scaled(&mut model, 7, 0, 0, 7, 7, 0, 1);
+    fill_scaled(&mut model, 7, 0, 1, 7, 7, 7, 2);
+    fill_scaled(&mut model, 7, 1, 1, 7, 3, 2, 4);
+    fill_scaled(&mut model, 7, 1, 4, 7, 3, 5, 4);
+    fill_scaled(&mut model, 7, 4, 1, 7, 6, 2, 4);
+    fill_scaled(&mut model, 7, 4, 4, 7, 6, 5, 4);
+    set_scaled(&mut model, 7, 0, 7, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -896,13 +942,13 @@ pub fn create_paneled_door_upper_open_right() -> SubVoxelModel {
     model.palette[3] = Color::rgb(0, 0, 0);
     model.palette[4] = Color::rgb(110, 75, 35);
 
-    model.fill_box(0, 0, 0, 0, 7, 0, 1);
-    model.fill_box(0, 0, 1, 0, 7, 7, 2);
-    model.fill_box(0, 1, 1, 0, 3, 2, 4);
-    model.fill_box(0, 1, 4, 0, 3, 5, 4);
-    model.fill_box(0, 4, 1, 0, 6, 2, 4);
-    model.fill_box(0, 4, 4, 0, 6, 5, 4);
-    model.set_voxel(0, 0, 7, 3);
+    fill_scaled(&mut model, 0, 0, 0, 0, 7, 0, 1);
+    fill_scaled(&mut model, 0, 0, 1, 0, 7, 7, 2);
+    fill_scaled(&mut model, 0, 1, 1, 0, 3, 2, 4);
+    fill_scaled(&mut model, 0, 1, 4, 0, 3, 5, 4);
+    fill_scaled(&mut model, 0, 4, 1, 0, 6, 2, 4);
+    fill_scaled(&mut model, 0, 4, 4, 0, 6, 5, 4);
+    set_scaled(&mut model, 0, 0, 7, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -923,13 +969,13 @@ pub fn create_fancy_door_lower_closed_left() -> SubVoxelModel {
     model.palette[3] = Color::rgb(0, 0, 0);
     model.palette[4] = Color::rgb(110, 75, 35); // Panel detail
 
-    model.fill_box(7, 0, 0, 7, 7, 0, 1);
-    model.fill_box(0, 0, 0, 6, 7, 0, 2);
-    model.fill_box(4, 1, 0, 5, 3, 0, 4);
-    model.fill_box(1, 1, 0, 2, 3, 0, 4);
-    model.fill_box(4, 4, 0, 5, 6, 0, 4);
-    model.fill_box(1, 4, 0, 2, 6, 0, 4);
-    model.set_voxel(0, 7, 0, 3);
+    fill_scaled(&mut model, 7, 0, 0, 7, 7, 0, 1);
+    fill_scaled(&mut model, 0, 0, 0, 6, 7, 0, 2);
+    fill_scaled(&mut model, 4, 1, 0, 5, 3, 0, 4);
+    fill_scaled(&mut model, 1, 1, 0, 2, 3, 0, 4);
+    fill_scaled(&mut model, 4, 4, 0, 5, 6, 0, 4);
+    fill_scaled(&mut model, 1, 4, 0, 2, 6, 0, 4);
+    set_scaled(&mut model, 0, 7, 0, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -946,13 +992,13 @@ pub fn create_fancy_door_lower_closed_right() -> SubVoxelModel {
     model.palette[3] = Color::rgb(0, 0, 0);
     model.palette[4] = Color::rgb(110, 75, 35);
 
-    model.fill_box(0, 0, 0, 0, 7, 0, 1);
-    model.fill_box(1, 0, 0, 7, 7, 0, 2);
-    model.fill_box(5, 1, 0, 6, 3, 0, 4);
-    model.fill_box(2, 1, 0, 3, 3, 0, 4);
-    model.fill_box(5, 4, 0, 6, 6, 0, 4);
-    model.fill_box(2, 4, 0, 3, 6, 0, 4);
-    model.set_voxel(7, 7, 0, 3);
+    fill_scaled(&mut model, 0, 0, 0, 0, 7, 0, 1);
+    fill_scaled(&mut model, 1, 0, 0, 7, 7, 0, 2);
+    fill_scaled(&mut model, 5, 1, 0, 6, 3, 0, 4);
+    fill_scaled(&mut model, 2, 1, 0, 3, 3, 0, 4);
+    fill_scaled(&mut model, 5, 4, 0, 6, 6, 0, 4);
+    fill_scaled(&mut model, 2, 4, 0, 3, 6, 0, 4);
+    set_scaled(&mut model, 7, 7, 0, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -969,12 +1015,12 @@ pub fn create_fancy_door_upper_closed_left() -> SubVoxelModel {
     model.palette[3] = Color::rgb(0, 0, 0);
     model.palette[4] = Color::rgba(200, 220, 255, 160); // Glass
 
-    model.fill_box(7, 0, 0, 7, 7, 0, 1);
-    model.fill_box(0, 0, 0, 6, 7, 0, 2);
+    fill_scaled(&mut model, 7, 0, 0, 7, 7, 0, 1);
+    fill_scaled(&mut model, 0, 0, 0, 6, 7, 0, 2);
     // Glass windows (upper half)
-    model.fill_box(4, 3, 0, 5, 5, 0, 4);
-    model.fill_box(1, 3, 0, 2, 5, 0, 4);
-    model.set_voxel(0, 0, 0, 3);
+    fill_scaled(&mut model, 4, 3, 0, 5, 5, 0, 4);
+    fill_scaled(&mut model, 1, 3, 0, 2, 5, 0, 4);
+    set_scaled(&mut model, 0, 0, 0, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -991,11 +1037,11 @@ pub fn create_fancy_door_upper_closed_right() -> SubVoxelModel {
     model.palette[3] = Color::rgb(0, 0, 0);
     model.palette[4] = Color::rgba(200, 220, 255, 160);
 
-    model.fill_box(0, 0, 0, 0, 7, 0, 1);
-    model.fill_box(1, 0, 0, 7, 7, 0, 2);
-    model.fill_box(5, 3, 0, 6, 5, 0, 4);
-    model.fill_box(2, 3, 0, 3, 5, 0, 4);
-    model.set_voxel(7, 0, 0, 3);
+    fill_scaled(&mut model, 0, 0, 0, 0, 7, 0, 1);
+    fill_scaled(&mut model, 1, 0, 0, 7, 7, 0, 2);
+    fill_scaled(&mut model, 5, 3, 0, 6, 5, 0, 4);
+    fill_scaled(&mut model, 2, 3, 0, 3, 5, 0, 4);
+    set_scaled(&mut model, 7, 0, 0, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -1012,13 +1058,13 @@ pub fn create_fancy_door_lower_open_left() -> SubVoxelModel {
     model.palette[3] = Color::rgb(0, 0, 0);
     model.palette[4] = Color::rgb(110, 75, 35);
 
-    model.fill_box(7, 0, 0, 7, 7, 0, 1);
-    model.fill_box(7, 0, 1, 7, 7, 7, 2);
-    model.fill_box(7, 1, 1, 7, 3, 2, 4);
-    model.fill_box(7, 1, 4, 7, 3, 5, 4);
-    model.fill_box(7, 4, 1, 7, 6, 2, 4);
-    model.fill_box(7, 4, 4, 7, 6, 5, 4);
-    model.set_voxel(7, 7, 7, 3);
+    fill_scaled(&mut model, 7, 0, 0, 7, 7, 0, 1);
+    fill_scaled(&mut model, 7, 0, 1, 7, 7, 7, 2);
+    fill_scaled(&mut model, 7, 1, 1, 7, 3, 2, 4);
+    fill_scaled(&mut model, 7, 1, 4, 7, 3, 5, 4);
+    fill_scaled(&mut model, 7, 4, 1, 7, 6, 2, 4);
+    fill_scaled(&mut model, 7, 4, 4, 7, 6, 5, 4);
+    set_scaled(&mut model, 7, 7, 7, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -1035,13 +1081,13 @@ pub fn create_fancy_door_lower_open_right() -> SubVoxelModel {
     model.palette[3] = Color::rgb(0, 0, 0);
     model.palette[4] = Color::rgb(110, 75, 35);
 
-    model.fill_box(0, 0, 0, 0, 7, 0, 1);
-    model.fill_box(0, 0, 1, 0, 7, 7, 2);
-    model.fill_box(0, 1, 1, 0, 3, 2, 4);
-    model.fill_box(0, 1, 4, 0, 3, 5, 4);
-    model.fill_box(0, 4, 1, 0, 6, 2, 4);
-    model.fill_box(0, 4, 4, 0, 6, 5, 4);
-    model.set_voxel(0, 7, 7, 3);
+    fill_scaled(&mut model, 0, 0, 0, 0, 7, 0, 1);
+    fill_scaled(&mut model, 0, 0, 1, 0, 7, 7, 2);
+    fill_scaled(&mut model, 0, 1, 1, 0, 3, 2, 4);
+    fill_scaled(&mut model, 0, 1, 4, 0, 3, 5, 4);
+    fill_scaled(&mut model, 0, 4, 1, 0, 6, 2, 4);
+    fill_scaled(&mut model, 0, 4, 4, 0, 6, 5, 4);
+    set_scaled(&mut model, 0, 7, 7, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -1058,11 +1104,11 @@ pub fn create_fancy_door_upper_open_left() -> SubVoxelModel {
     model.palette[3] = Color::rgb(0, 0, 0);
     model.palette[4] = Color::rgba(200, 220, 255, 160);
 
-    model.fill_box(7, 0, 0, 7, 7, 0, 1);
-    model.fill_box(7, 0, 1, 7, 7, 7, 2);
-    model.fill_box(7, 3, 1, 7, 5, 2, 4);
-    model.fill_box(7, 3, 4, 7, 5, 5, 4);
-    model.set_voxel(7, 0, 7, 3);
+    fill_scaled(&mut model, 7, 0, 0, 7, 7, 0, 1);
+    fill_scaled(&mut model, 7, 0, 1, 7, 7, 7, 2);
+    fill_scaled(&mut model, 7, 3, 1, 7, 5, 2, 4);
+    fill_scaled(&mut model, 7, 3, 4, 7, 5, 5, 4);
+    set_scaled(&mut model, 7, 0, 7, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -1079,11 +1125,11 @@ pub fn create_fancy_door_upper_open_right() -> SubVoxelModel {
     model.palette[3] = Color::rgb(0, 0, 0);
     model.palette[4] = Color::rgba(200, 220, 255, 160);
 
-    model.fill_box(0, 0, 0, 0, 7, 0, 1);
-    model.fill_box(0, 0, 1, 0, 7, 7, 2);
-    model.fill_box(0, 3, 1, 0, 5, 2, 4);
-    model.fill_box(0, 3, 4, 0, 5, 5, 4);
-    model.set_voxel(0, 0, 7, 3);
+    fill_scaled(&mut model, 0, 0, 0, 0, 7, 0, 1);
+    fill_scaled(&mut model, 0, 0, 1, 0, 7, 7, 2);
+    fill_scaled(&mut model, 0, 3, 1, 0, 5, 2, 4);
+    fill_scaled(&mut model, 0, 3, 4, 0, 5, 5, 4);
+    set_scaled(&mut model, 0, 0, 7, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -1104,15 +1150,15 @@ pub fn create_glass_door_lower_closed_left() -> SubVoxelModel {
     model.palette[3] = Color::rgb(0, 0, 0);
     model.palette[4] = Color::rgba(200, 220, 255, 160); // Glass
 
-    model.fill_box(7, 0, 0, 7, 7, 0, 1);
+    fill_scaled(&mut model, 7, 0, 0, 7, 7, 0, 1);
     // Wood frame edges
-    model.fill_box(0, 0, 0, 6, 0, 0, 2);
-    model.fill_box(0, 7, 0, 6, 7, 0, 2);
-    model.fill_box(6, 1, 0, 6, 6, 0, 2);
-    model.fill_box(0, 1, 0, 0, 6, 0, 2);
+    fill_scaled(&mut model, 0, 0, 0, 6, 0, 0, 2);
+    fill_scaled(&mut model, 0, 7, 0, 6, 7, 0, 2);
+    fill_scaled(&mut model, 6, 1, 0, 6, 6, 0, 2);
+    fill_scaled(&mut model, 0, 1, 0, 0, 6, 0, 2);
     // Glass center
-    model.fill_box(1, 1, 0, 5, 6, 0, 4);
-    model.set_voxel(0, 7, 0, 3);
+    fill_scaled(&mut model, 1, 1, 0, 5, 6, 0, 4);
+    set_scaled(&mut model, 0, 7, 0, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -1129,13 +1175,13 @@ pub fn create_glass_door_lower_closed_right() -> SubVoxelModel {
     model.palette[3] = Color::rgb(0, 0, 0);
     model.palette[4] = Color::rgba(200, 220, 255, 160);
 
-    model.fill_box(0, 0, 0, 0, 7, 0, 1);
-    model.fill_box(1, 0, 0, 7, 0, 0, 2);
-    model.fill_box(1, 7, 0, 7, 7, 0, 2);
-    model.fill_box(7, 1, 0, 7, 6, 0, 2);
-    model.fill_box(1, 1, 0, 1, 6, 0, 2);
-    model.fill_box(2, 1, 0, 6, 6, 0, 4);
-    model.set_voxel(7, 7, 0, 3);
+    fill_scaled(&mut model, 0, 0, 0, 0, 7, 0, 1);
+    fill_scaled(&mut model, 1, 0, 0, 7, 0, 0, 2);
+    fill_scaled(&mut model, 1, 7, 0, 7, 7, 0, 2);
+    fill_scaled(&mut model, 7, 1, 0, 7, 6, 0, 2);
+    fill_scaled(&mut model, 1, 1, 0, 1, 6, 0, 2);
+    fill_scaled(&mut model, 2, 1, 0, 6, 6, 0, 4);
+    set_scaled(&mut model, 7, 7, 0, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -1152,13 +1198,13 @@ pub fn create_glass_door_upper_closed_left() -> SubVoxelModel {
     model.palette[3] = Color::rgb(0, 0, 0);
     model.palette[4] = Color::rgba(200, 220, 255, 160);
 
-    model.fill_box(7, 0, 0, 7, 7, 0, 1);
-    model.fill_box(0, 0, 0, 6, 0, 0, 2);
-    model.fill_box(0, 7, 0, 6, 7, 0, 2);
-    model.fill_box(6, 1, 0, 6, 6, 0, 2);
-    model.fill_box(0, 1, 0, 0, 6, 0, 2);
-    model.fill_box(1, 1, 0, 5, 6, 0, 4);
-    model.set_voxel(0, 0, 0, 3);
+    fill_scaled(&mut model, 7, 0, 0, 7, 7, 0, 1);
+    fill_scaled(&mut model, 0, 0, 0, 6, 0, 0, 2);
+    fill_scaled(&mut model, 0, 7, 0, 6, 7, 0, 2);
+    fill_scaled(&mut model, 6, 1, 0, 6, 6, 0, 2);
+    fill_scaled(&mut model, 0, 1, 0, 0, 6, 0, 2);
+    fill_scaled(&mut model, 1, 1, 0, 5, 6, 0, 4);
+    set_scaled(&mut model, 0, 0, 0, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -1175,13 +1221,13 @@ pub fn create_glass_door_upper_closed_right() -> SubVoxelModel {
     model.palette[3] = Color::rgb(0, 0, 0);
     model.palette[4] = Color::rgba(200, 220, 255, 160);
 
-    model.fill_box(0, 0, 0, 0, 7, 0, 1);
-    model.fill_box(1, 0, 0, 7, 0, 0, 2);
-    model.fill_box(1, 7, 0, 7, 7, 0, 2);
-    model.fill_box(7, 1, 0, 7, 6, 0, 2);
-    model.fill_box(1, 1, 0, 1, 6, 0, 2);
-    model.fill_box(2, 1, 0, 6, 6, 0, 4);
-    model.set_voxel(7, 0, 0, 3);
+    fill_scaled(&mut model, 0, 0, 0, 0, 7, 0, 1);
+    fill_scaled(&mut model, 1, 0, 0, 7, 0, 0, 2);
+    fill_scaled(&mut model, 1, 7, 0, 7, 7, 0, 2);
+    fill_scaled(&mut model, 7, 1, 0, 7, 6, 0, 2);
+    fill_scaled(&mut model, 1, 1, 0, 1, 6, 0, 2);
+    fill_scaled(&mut model, 2, 1, 0, 6, 6, 0, 4);
+    set_scaled(&mut model, 7, 0, 0, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -1198,13 +1244,13 @@ pub fn create_glass_door_lower_open_left() -> SubVoxelModel {
     model.palette[3] = Color::rgb(0, 0, 0);
     model.palette[4] = Color::rgba(200, 220, 255, 160);
 
-    model.fill_box(7, 0, 0, 7, 7, 0, 1);
-    model.fill_box(7, 0, 1, 7, 0, 7, 2);
-    model.fill_box(7, 7, 1, 7, 7, 7, 2);
-    model.fill_box(7, 1, 1, 7, 6, 1, 2);
-    model.fill_box(7, 1, 7, 7, 6, 7, 2);
-    model.fill_box(7, 1, 2, 7, 6, 6, 4);
-    model.set_voxel(7, 7, 7, 3);
+    fill_scaled(&mut model, 7, 0, 0, 7, 7, 0, 1);
+    fill_scaled(&mut model, 7, 0, 1, 7, 0, 7, 2);
+    fill_scaled(&mut model, 7, 7, 1, 7, 7, 7, 2);
+    fill_scaled(&mut model, 7, 1, 1, 7, 6, 1, 2);
+    fill_scaled(&mut model, 7, 1, 7, 7, 6, 7, 2);
+    fill_scaled(&mut model, 7, 1, 2, 7, 6, 6, 4);
+    set_scaled(&mut model, 7, 7, 7, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -1221,13 +1267,13 @@ pub fn create_glass_door_lower_open_right() -> SubVoxelModel {
     model.palette[3] = Color::rgb(0, 0, 0);
     model.palette[4] = Color::rgba(200, 220, 255, 160);
 
-    model.fill_box(0, 0, 0, 0, 7, 0, 1);
-    model.fill_box(0, 0, 1, 0, 0, 7, 2);
-    model.fill_box(0, 7, 1, 0, 7, 7, 2);
-    model.fill_box(0, 1, 1, 0, 6, 1, 2);
-    model.fill_box(0, 1, 7, 0, 6, 7, 2);
-    model.fill_box(0, 1, 2, 0, 6, 6, 4);
-    model.set_voxel(0, 7, 7, 3);
+    fill_scaled(&mut model, 0, 0, 0, 0, 7, 0, 1);
+    fill_scaled(&mut model, 0, 0, 1, 0, 0, 7, 2);
+    fill_scaled(&mut model, 0, 7, 1, 0, 7, 7, 2);
+    fill_scaled(&mut model, 0, 1, 1, 0, 6, 1, 2);
+    fill_scaled(&mut model, 0, 1, 7, 0, 6, 7, 2);
+    fill_scaled(&mut model, 0, 1, 2, 0, 6, 6, 4);
+    set_scaled(&mut model, 0, 7, 7, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -1244,13 +1290,13 @@ pub fn create_glass_door_upper_open_left() -> SubVoxelModel {
     model.palette[3] = Color::rgb(0, 0, 0);
     model.palette[4] = Color::rgba(200, 220, 255, 160);
 
-    model.fill_box(7, 0, 0, 7, 7, 0, 1);
-    model.fill_box(7, 0, 1, 7, 0, 7, 2);
-    model.fill_box(7, 7, 1, 7, 7, 7, 2);
-    model.fill_box(7, 1, 1, 7, 6, 1, 2);
-    model.fill_box(7, 1, 7, 7, 6, 7, 2);
-    model.fill_box(7, 1, 2, 7, 6, 6, 4);
-    model.set_voxel(7, 0, 7, 3);
+    fill_scaled(&mut model, 7, 0, 0, 7, 7, 0, 1);
+    fill_scaled(&mut model, 7, 0, 1, 7, 0, 7, 2);
+    fill_scaled(&mut model, 7, 7, 1, 7, 7, 7, 2);
+    fill_scaled(&mut model, 7, 1, 1, 7, 6, 1, 2);
+    fill_scaled(&mut model, 7, 1, 7, 7, 6, 7, 2);
+    fill_scaled(&mut model, 7, 1, 2, 7, 6, 6, 4);
+    set_scaled(&mut model, 7, 0, 7, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -1267,13 +1313,13 @@ pub fn create_glass_door_upper_open_right() -> SubVoxelModel {
     model.palette[3] = Color::rgb(0, 0, 0);
     model.palette[4] = Color::rgba(200, 220, 255, 160);
 
-    model.fill_box(0, 0, 0, 0, 7, 0, 1);
-    model.fill_box(0, 0, 1, 0, 0, 7, 2);
-    model.fill_box(0, 7, 1, 0, 7, 7, 2);
-    model.fill_box(0, 1, 1, 0, 6, 1, 2);
-    model.fill_box(0, 1, 7, 0, 6, 7, 2);
-    model.fill_box(0, 1, 2, 0, 6, 6, 4);
-    model.set_voxel(0, 0, 7, 3);
+    fill_scaled(&mut model, 0, 0, 0, 0, 7, 0, 1);
+    fill_scaled(&mut model, 0, 0, 1, 0, 0, 7, 2);
+    fill_scaled(&mut model, 0, 7, 1, 0, 7, 7, 2);
+    fill_scaled(&mut model, 0, 1, 1, 0, 6, 1, 2);
+    fill_scaled(&mut model, 0, 1, 7, 0, 6, 7, 2);
+    fill_scaled(&mut model, 0, 1, 2, 0, 6, 6, 4);
+    set_scaled(&mut model, 0, 0, 7, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -1295,12 +1341,12 @@ pub fn create_trapdoor_floor_closed() -> SubVoxelModel {
     model.palette[3] = Color::rgb(60, 60, 65); // Iron
 
     // Main panel (1 voxel thick at y=0)
-    model.fill_box(0, 0, 0, 7, 0, 7, 1);
+    fill_scaled(&mut model, 0, 0, 0, 7, 0, 7, 1);
     // Inner panel detail
-    model.fill_box(1, 0, 1, 6, 0, 6, 2);
+    fill_scaled(&mut model, 1, 0, 1, 6, 0, 6, 2);
     // Handle
-    model.set_voxel(3, 1, 3, 3);
-    model.set_voxel(4, 1, 3, 3);
+    set_scaled(&mut model, 3, 1, 3, 3);
+    set_scaled(&mut model, 4, 1, 3, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -1318,10 +1364,10 @@ pub fn create_trapdoor_ceiling_closed() -> SubVoxelModel {
     model.palette[3] = Color::rgb(60, 60, 65);
 
     // Main panel (1 voxel thick at y=7)
-    model.fill_box(0, 7, 0, 7, 7, 7, 1);
-    model.fill_box(1, 7, 1, 6, 7, 6, 2);
-    model.set_voxel(3, 6, 3, 3);
-    model.set_voxel(4, 6, 3, 3);
+    fill_scaled(&mut model, 0, 7, 0, 7, 7, 7, 1);
+    fill_scaled(&mut model, 1, 7, 1, 6, 7, 6, 2);
+    set_scaled(&mut model, 3, 6, 3, 3);
+    set_scaled(&mut model, 4, 6, 3, 3);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -1338,8 +1384,8 @@ pub fn create_trapdoor_floor_open() -> SubVoxelModel {
     model.palette[3] = Color::rgb(60, 60, 65);
 
     // Vertical panel at z=0 (1 voxel thick, hinged at near edge)
-    model.fill_box(0, 0, 0, 7, 7, 0, 1);
-    model.fill_box(1, 1, 0, 6, 6, 0, 2);
+    fill_scaled(&mut model, 0, 0, 0, 7, 7, 0, 1);
+    fill_scaled(&mut model, 1, 1, 0, 6, 6, 0, 2);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -1356,8 +1402,8 @@ pub fn create_trapdoor_ceiling_open() -> SubVoxelModel {
     model.palette[3] = Color::rgb(60, 60, 65);
 
     // Vertical panel at z=0 (1 voxel thick, hinged at near edge)
-    model.fill_box(0, 0, 0, 7, 7, 0, 1);
-    model.fill_box(1, 1, 0, 6, 6, 0, 2);
+    fill_scaled(&mut model, 0, 0, 0, 7, 7, 0, 1);
+    fill_scaled(&mut model, 1, 1, 0, 6, 6, 0, 2);
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;
@@ -1384,29 +1430,29 @@ pub fn create_window(connections: u8) -> SubVoxelModel {
 
     if connections == 0 || (has_ns && has_ew) {
         // Center post for isolated pane or cross
-        model.fill_box(3, 0, 3, 4, 7, 4, 1);
+        fill_scaled(&mut model, 3, 0, 3, 4, 7, 4, 1);
     }
 
     // Glass panes based on connections (thin, 1 voxel thick)
     // North (-Z)
     if connections & 1 != 0 {
-        model.fill_box(3, 0, 0, 4, 7, 3, 1); // Frame edges
-        model.fill_box(3, 1, 1, 4, 6, 2, 2); // Glass
+        fill_scaled(&mut model, 3, 0, 0, 4, 7, 3, 1); // Frame edges
+        fill_scaled(&mut model, 3, 1, 1, 4, 6, 2, 2); // Glass
     }
     // South (+Z)
     if connections & 2 != 0 {
-        model.fill_box(3, 0, 4, 4, 7, 7, 1);
-        model.fill_box(3, 1, 5, 4, 6, 6, 2);
+        fill_scaled(&mut model, 3, 0, 4, 4, 7, 7, 1);
+        fill_scaled(&mut model, 3, 1, 5, 4, 6, 6, 2);
     }
     // East (+X)
     if connections & 4 != 0 {
-        model.fill_box(4, 0, 3, 7, 7, 4, 1);
-        model.fill_box(5, 1, 3, 6, 6, 4, 2);
+        fill_scaled(&mut model, 4, 0, 3, 7, 7, 4, 1);
+        fill_scaled(&mut model, 5, 1, 3, 6, 6, 4, 2);
     }
     // West (-X)
     if connections & 8 != 0 {
-        model.fill_box(0, 0, 3, 3, 7, 4, 1);
-        model.fill_box(1, 1, 3, 2, 6, 4, 2);
+        fill_scaled(&mut model, 0, 0, 3, 3, 7, 4, 1);
+        fill_scaled(&mut model, 1, 1, 3, 2, 6, 4, 2);
     }
 
     model.light_blocking = LightBlocking::Partial;
@@ -1417,7 +1463,7 @@ pub fn create_window(connections: u8) -> SubVoxelModel {
 
 /// Creates a crystal cluster model with the given color.
 /// The model consists of multiple pointed crystal spires of varying heights.
-#[allow(dead_code)]
+/// Used by ModelRegistry for crystal blocks (tinted by shader based on block metadata).
 pub fn create_crystal(color: Color) -> SubVoxelModel {
     let mut model = SubVoxelModel::new("crystal");
 
@@ -1434,50 +1480,50 @@ pub fn create_crystal(color: Color) -> SubVoxelModel {
 
     // Central tall crystal spire (tallest, center)
     // Base (2x2)
-    model.fill_box(3, 0, 3, 4, 1, 4, 1);
+    fill_scaled(&mut model, 3, 0, 3, 4, 1, 4, 1);
     // Body tapers up
-    model.fill_box(3, 2, 3, 4, 4, 4, 2);
-    model.set_voxel(3, 5, 3, 2);
-    model.set_voxel(4, 5, 4, 2);
-    model.set_voxel(3, 6, 4, 2);
-    model.set_voxel(4, 6, 3, 2);
+    fill_scaled(&mut model, 3, 2, 3, 4, 4, 4, 2);
+    set_scaled(&mut model, 3, 5, 3, 2);
+    set_scaled(&mut model, 4, 5, 4, 2);
+    set_scaled(&mut model, 3, 6, 4, 2);
+    set_scaled(&mut model, 4, 6, 3, 2);
     // Tip
-    model.set_voxel(3, 7, 3, 3);
-    model.set_voxel(4, 7, 4, 3);
+    set_scaled(&mut model, 3, 7, 3, 3);
+    set_scaled(&mut model, 4, 7, 4, 3);
 
     // Front-left crystal (medium height)
-    model.fill_box(1, 0, 1, 2, 0, 2, 1);
-    model.fill_box(1, 1, 1, 2, 3, 2, 2);
-    model.set_voxel(1, 4, 2, 2);
-    model.set_voxel(2, 4, 1, 2);
-    model.set_voxel(1, 5, 1, 3);
+    fill_scaled(&mut model, 1, 0, 1, 2, 0, 2, 1);
+    fill_scaled(&mut model, 1, 1, 1, 2, 3, 2, 2);
+    set_scaled(&mut model, 1, 4, 2, 2);
+    set_scaled(&mut model, 2, 4, 1, 2);
+    set_scaled(&mut model, 1, 5, 1, 3);
 
     // Back-right crystal (medium height)
-    model.fill_box(5, 0, 5, 6, 0, 6, 1);
-    model.fill_box(5, 1, 5, 6, 3, 6, 2);
-    model.set_voxel(5, 4, 6, 2);
-    model.set_voxel(6, 4, 5, 2);
-    model.set_voxel(6, 5, 6, 3);
+    fill_scaled(&mut model, 5, 0, 5, 6, 0, 6, 1);
+    fill_scaled(&mut model, 5, 1, 5, 6, 3, 6, 2);
+    set_scaled(&mut model, 5, 4, 6, 2);
+    set_scaled(&mut model, 6, 4, 5, 2);
+    set_scaled(&mut model, 6, 5, 6, 3);
 
     // Front-right small crystal
-    model.fill_box(5, 0, 1, 6, 0, 2, 1);
-    model.fill_box(5, 1, 1, 6, 2, 2, 2);
-    model.set_voxel(5, 3, 2, 3);
+    fill_scaled(&mut model, 5, 0, 1, 6, 0, 2, 1);
+    fill_scaled(&mut model, 5, 1, 1, 6, 2, 2, 2);
+    set_scaled(&mut model, 5, 3, 2, 3);
 
     // Back-left small crystal
-    model.fill_box(1, 0, 5, 2, 0, 6, 1);
-    model.fill_box(1, 1, 5, 2, 2, 6, 2);
-    model.set_voxel(2, 3, 5, 3);
+    fill_scaled(&mut model, 1, 0, 5, 2, 0, 6, 1);
+    fill_scaled(&mut model, 1, 1, 5, 2, 2, 6, 2);
+    set_scaled(&mut model, 2, 3, 5, 3);
 
     // Tiny accent crystals
-    model.set_voxel(0, 0, 3, 1);
-    model.set_voxel(0, 1, 3, 2);
-    model.set_voxel(7, 0, 4, 1);
-    model.set_voxel(7, 1, 4, 2);
-    model.set_voxel(3, 0, 7, 1);
-    model.set_voxel(3, 1, 7, 2);
-    model.set_voxel(4, 0, 0, 1);
-    model.set_voxel(4, 1, 0, 2);
+    set_scaled(&mut model, 0, 0, 3, 1);
+    set_scaled(&mut model, 0, 1, 3, 2);
+    set_scaled(&mut model, 7, 0, 4, 1);
+    set_scaled(&mut model, 7, 1, 4, 2);
+    set_scaled(&mut model, 3, 0, 7, 1);
+    set_scaled(&mut model, 3, 1, 7, 2);
+    set_scaled(&mut model, 4, 0, 0, 1);
+    set_scaled(&mut model, 4, 1, 0, 2);
 
     model.emission = Some(color);
     model.light_blocking = LightBlocking::Partial;

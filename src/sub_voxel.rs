@@ -1,10 +1,11 @@
-//! Sub-voxel model system for detailed 8³ block models.
+//! Sub-voxel model system for detailed block models.
 //!
 //! Models (torch, slab, fence, stairs, etc.) are stored once in a registry and
-//! referenced by blocks. Each model is an 8×8×8 voxel grid with a 16-color palette.
+//! referenced by blocks. Each model is an N×N×N voxel grid with a 16-color palette.
+//! Resolution is configurable via SUB_VOXEL_SIZE constant.
 //!
 //! Memory efficiency:
-//! - Registry footprint: ~256KB fixed for up to 256 models
+//! - Registry footprint scales with resolution (16³ = ~4MB for 256 models)
 //! - Sparse metadata: only Model blocks store model_id + rotation
 
 #![allow(dead_code)] // Some editor-facing APIs are still planned; rendering/interaction use this today.
@@ -13,11 +14,30 @@ use nalgebra::Vector3;
 use std::collections::HashMap;
 use std::path::Path;
 
-/// Resolution of sub-voxel models (8×8×8).
-pub const SUB_VOXEL_SIZE: usize = 8;
+// =============================================================================
+// SUB-VOXEL RESOLUTION CONFIGURATION
+// =============================================================================
+// Change SUB_VOXEL_SIZE to adjust model detail level. All derived constants
+// update automatically. Supported values: 8, 16, 32
+// After changing, rebuild builtin models and regenerate any saved .vxm files.
 
-/// Total voxels per model (8³ = 512).
+/// Resolution of sub-voxel models (N×N×N voxels per model).
+pub const SUB_VOXEL_SIZE: usize = 16;
+
+/// Total voxels per model (N³).
 pub const SUB_VOXEL_VOLUME: usize = SUB_VOXEL_SIZE * SUB_VOXEL_SIZE * SUB_VOXEL_SIZE;
+
+/// Center coordinate of the model grid (for mirroring, rotation, etc).
+pub const SUB_VOXEL_CENTER: usize = SUB_VOXEL_SIZE / 2;
+
+/// Maximum valid coordinate index (SIZE - 1).
+pub const SUB_VOXEL_MAX: usize = SUB_VOXEL_SIZE - 1;
+
+/// Center coordinate as f32 (for ray calculations).
+pub const SUB_VOXEL_CENTER_F32: f32 = SUB_VOXEL_SIZE as f32 / 2.0;
+
+/// Grid bounds with epsilon for ray intersection (SIZE + small epsilon).
+pub const SUB_VOXEL_BOUNDS_F32: f32 = SUB_VOXEL_SIZE as f32 + 0.001;
 
 /// Maximum unique models in registry.
 pub const MAX_MODELS: usize = 256;
@@ -43,7 +63,9 @@ pub const PALETTE_SIZE: usize = 16;
 /// - 75-82: Paneled Doors (8 variants)
 /// - 83-90: Windowed+Paneled Doors (8 variants)
 /// - 91-98: Full Glass Doors (8 variants)
-pub const FIRST_CUSTOM_MODEL_ID: u8 = 99;
+/// - 99: Crystal
+pub const CRYSTAL_MODEL_ID: u8 = 99;
+pub const FIRST_CUSTOM_MODEL_ID: u8 = 100;
 
 /// RGBA color for sub-voxel palette.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -105,7 +127,7 @@ pub enum StairShape {
 
 /// A single sub-voxel model definition.
 ///
-/// Models are 8×8×8 voxel grids where each voxel is a palette index (0 = air).
+/// Models are SUB_VOXEL_SIZE³ voxel grids where each voxel is a palette index (0 = air).
 /// The 16-color palette allows for efficient storage while providing enough
 /// variety for detailed models.
 #[derive(Debug, Clone)]
@@ -116,8 +138,8 @@ pub struct SubVoxelModel {
     /// Human-readable name for debugging and editor.
     pub name: String,
 
-    /// 8×8×8 voxel grid as palette indices (0 = air/transparent).
-    /// Index = x + y * 8 + z * 64.
+    /// SUB_VOXEL_SIZE³ voxel grid as palette indices (0 = air/transparent).
+    /// Index = x + y * SUB_VOXEL_SIZE + z * SUB_VOXEL_SIZE².
     pub voxels: [u8; SUB_VOXEL_VOLUME],
 
     /// 16-color palette for this model.
@@ -208,23 +230,24 @@ impl SubVoxelModel {
 
     /// Computes the 4×4×4 collision mask from the voxel data.
     ///
-    /// Each bit in the 64-bit mask represents a 2×2×2 region.
+    /// Each bit in the 64-bit mask represents a (SUB_VOXEL_SIZE/4)³ region.
     /// A bit is set if ANY voxel in that region is solid (non-zero).
     pub fn compute_collision_mask(&mut self) {
         self.collision_mask = 0;
+        const CELL_SIZE: usize = SUB_VOXEL_SIZE / 4;
 
         for cz in 0..4 {
             for cy in 0..4 {
                 for cx in 0..4 {
                     let mut has_solid = false;
 
-                    // Check 2×2×2 region
-                    'region: for dz in 0..2 {
-                        for dy in 0..2 {
-                            for dx in 0..2 {
-                                let vx = cx * 2 + dx;
-                                let vy = cy * 2 + dy;
-                                let vz = cz * 2 + dz;
+                    // Check CELL_SIZE³ region
+                    'region: for dz in 0..CELL_SIZE {
+                        for dy in 0..CELL_SIZE {
+                            for dx in 0..CELL_SIZE {
+                                let vx = cx * CELL_SIZE + dx;
+                                let vy = cy * CELL_SIZE + dy;
+                                let vz = cz * CELL_SIZE + dz;
 
                                 if self.get_voxel(vx, vy, vz) != 0 {
                                     has_solid = true;
@@ -274,18 +297,23 @@ impl SubVoxelModel {
         dir: Vector3<f32>,
         rotation: u8,
     ) -> Option<(f32, Vector3<i32>)> {
+        const CENTER: i32 = (SUB_VOXEL_SIZE / 2) as i32;
+        const SIZE: i32 = SUB_VOXEL_SIZE as i32;
+        const SIZE_F: f32 = SUB_VOXEL_SIZE as f32;
+        const MAX_STEPS: usize = SUB_VOXEL_SIZE * 3;
+
         fn rotate_pos(pos: Vector3<i32>, rotation: u8) -> Vector3<i32> {
-            let cx = 4;
-            let px = pos.x - cx;
-            let pz = pos.z - cx;
+            let px = pos.x - CENTER;
+            let pz = pos.z - CENTER;
             match rotation & 3 {
-                1 => Vector3::new(cx - pz - 1, pos.y, cx + px),
-                2 => Vector3::new(cx - px - 1, pos.y, cx - pz - 1),
-                3 => Vector3::new(cx + pz, pos.y, cx - px - 1),
+                1 => Vector3::new(CENTER - pz - 1, pos.y, CENTER + px),
+                2 => Vector3::new(CENTER - px - 1, pos.y, CENTER - pz - 1),
+                3 => Vector3::new(CENTER + pz, pos.y, CENTER - px - 1),
                 _ => pos,
             }
         }
 
+        #[allow(dead_code)]
         fn inverse_rotate_normal(n: Vector3<i32>, rotation: u8) -> Vector3<i32> {
             match rotation & 3 {
                 1 => Vector3::new(-n.z, n.y, n.x),
@@ -295,8 +323,8 @@ impl SubVoxelModel {
             }
         }
 
-        // Scale to sub-voxel coordinates (0-8)
-        let pos = origin * SUB_VOXEL_SIZE as f32;
+        // Scale to sub-voxel coordinates (0 to SUB_VOXEL_SIZE)
+        let pos = origin * SIZE_F;
 
         // Avoid division by zero
         let safe_dir = Vector3::new(
@@ -318,9 +346,10 @@ impl SubVoxelModel {
         );
         let inv_dir = Vector3::new(1.0 / safe_dir.x, 1.0 / safe_dir.y, 1.0 / safe_dir.z);
 
-        // Calculate entry/exit t for the 0-8 cube
+        // Calculate entry/exit t for the model cube
         let t_min_v = (Vector3::new(-0.001, -0.001, -0.001) - pos).component_mul(&inv_dir);
-        let t_max_v = (Vector3::new(8.001, 8.001, 8.001) - pos).component_mul(&inv_dir);
+        let t_max_v = (Vector3::new(SIZE_F + 0.001, SIZE_F + 0.001, SIZE_F + 0.001) - pos)
+            .component_mul(&inv_dir);
 
         let t1 = Vector3::new(
             t_min_v.x.min(t_max_v.x),
@@ -351,7 +380,7 @@ impl SubVoxelModel {
         let start_t = t_near.max(0.0);
         let mut current_pos = pos + safe_dir * start_t;
         current_pos += safe_dir * 0.001; // nudge
-        current_pos = current_pos.map(|v| v.clamp(0.001, 7.999));
+        current_pos = current_pos.map(|v| v.clamp(0.001, SIZE_F - 0.001));
 
         let mut voxel = Vector3::new(
             current_pos.x.floor() as i32,
@@ -387,13 +416,13 @@ impl SubVoxelModel {
 
         let mut stepped_axis = entry_axis;
 
-        for i in 0..24 {
+        for i in 0..MAX_STEPS {
             if voxel.x < 0
-                || voxel.x >= 8
+                || voxel.x >= SIZE
                 || voxel.y < 0
-                || voxel.y >= 8
+                || voxel.y >= SIZE
                 || voxel.z < 0
-                || voxel.z >= 8
+                || voxel.z >= SIZE
             {
                 break;
             }
@@ -409,7 +438,7 @@ impl SubVoxelModel {
                 } else {
                     t_max[stepped_axis] - t_delta[stepped_axis]
                 };
-                let t = (start_t + voxel_dist) / 8.0;
+                let t = (start_t + voxel_dist) / SIZE_F;
                 return Some((t, normal));
             }
 
@@ -625,6 +654,10 @@ impl ModelRegistry {
         self.register(create_glass_door_lower_open_right());
         self.register(create_glass_door_upper_open_left());
         self.register(create_glass_door_upper_open_right());
+
+        // ID 99: Crystal (neutral color, tinted by shader based on tint_index)
+        use crate::sub_voxel_builtins::create_crystal;
+        self.register(create_crystal(Color::rgb(220, 220, 220)));
     }
 
     /// Gets the model ID for a fence with the given connections.
@@ -1059,15 +1092,13 @@ impl ModelRegistry {
 
     /// Packs all model voxel data for GPU upload as a 3D texture.
     ///
-    /// The texture layout is 128×8×128 (16 models × 8 per row, 8 height, 16 models × 8 depth).
-    /// Models are arranged in a 16×16 grid, each occupying an 8×8×8 region.
-    ///
-    /// Buffer index formula: x + y * 128 + z * 1024
+    /// Models are arranged in a 16×16 grid, each occupying an N×N×N region where N = SUB_VOXEL_SIZE.
+    /// Atlas dimensions: (16 * N) × N × (16 * N) = 256 * N³ bytes total.
     pub fn pack_voxels_for_gpu(&self) -> Vec<u8> {
-        // Atlas dimensions: 128×8×128 = 131072 bytes
-        const ATLAS_WIDTH: usize = 128;
-        const ATLAS_HEIGHT: usize = 8;
-        const ATLAS_DEPTH: usize = 128;
+        // Atlas dimensions derived from SUB_VOXEL_SIZE
+        const ATLAS_WIDTH: usize = 16 * SUB_VOXEL_SIZE;
+        const ATLAS_HEIGHT: usize = SUB_VOXEL_SIZE;
+        const ATLAS_DEPTH: usize = 16 * SUB_VOXEL_SIZE;
         let mut data = vec![0u8; ATLAS_WIDTH * ATLAS_HEIGHT * ATLAS_DEPTH];
 
         for (model_id, model) in self.models.iter().enumerate() {
@@ -1079,12 +1110,10 @@ impl ModelRegistry {
             for lz in 0..SUB_VOXEL_SIZE {
                 for ly in 0..SUB_VOXEL_SIZE {
                     for lx in 0..SUB_VOXEL_SIZE {
-                        // Source: model.voxels indexed as x + y*8 + z*64
                         let src_idx =
                             lx + ly * SUB_VOXEL_SIZE + lz * SUB_VOXEL_SIZE * SUB_VOXEL_SIZE;
                         let voxel = model.voxels[src_idx];
 
-                        // Destination: atlas indexed as x + y*128 + z*1024
                         let atlas_x = model_x * SUB_VOXEL_SIZE + lx;
                         let atlas_y = ly;
                         let atlas_z = model_z * SUB_VOXEL_SIZE + lz;
@@ -1140,14 +1169,18 @@ impl ModelRegistry {
             data[offset..offset + 8].copy_from_slice(&model.collision_mask.to_le_bytes());
 
             // Compute Fine AABB
-            let mut min = [8u8, 8, 8];
+            let mut min = [
+                SUB_VOXEL_SIZE as u8,
+                SUB_VOXEL_SIZE as u8,
+                SUB_VOXEL_SIZE as u8,
+            ];
             let mut max = [0u8, 0, 0];
             // Iterate all voxels to find bounds
             for (idx, &voxel) in model.voxels.iter().enumerate() {
                 if voxel != 0 {
-                    let x = (idx % 8) as u8;
-                    let y = ((idx / 8) % 8) as u8;
-                    let z = (idx / 64) as u8;
+                    let x = (idx % SUB_VOXEL_SIZE) as u8;
+                    let y = ((idx / SUB_VOXEL_SIZE) % SUB_VOXEL_SIZE) as u8;
+                    let z = (idx / (SUB_VOXEL_SIZE * SUB_VOXEL_SIZE)) as u8;
 
                     if x < min[0] {
                         min[0] = x;
@@ -1299,7 +1332,7 @@ mod tests {
         let mut model = SubVoxelModel::new("test");
 
         // Fill entire model
-        model.fill_box(0, 0, 0, 7, 7, 7, 1);
+        model.fill_box(0, 0, 0, SUB_VOXEL_MAX, SUB_VOXEL_MAX, SUB_VOXEL_MAX, 1);
         model.compute_collision_mask();
 
         // All bits should be set (4×4×4 = 64 bits)
@@ -1315,8 +1348,9 @@ mod tests {
     fn test_point_collision() {
         let mut model = SubVoxelModel::new("test");
 
-        // Fill bottom half only
-        model.fill_box(0, 0, 0, 7, 3, 7, 1);
+        // Fill bottom half only (y = 0 to half-1)
+        let half = SUB_VOXEL_SIZE / 2 - 1;
+        model.fill_box(0, 0, 0, SUB_VOXEL_MAX, half, SUB_VOXEL_MAX, 1);
         model.compute_collision_mask();
 
         // Bottom half should collide
@@ -1335,11 +1369,11 @@ mod tests {
         assert!(torch.emission.is_some());
         assert!(!torch.rotatable);
 
-        // Check stick exists
-        assert_ne!(torch.get_voxel(3, 0, 3), 0);
+        // Check stick exists (design coord 3,0,3 scaled 2x -> 6,0,6)
+        assert_ne!(torch.get_voxel(6, 0, 6), 0);
 
-        // Check flame exists
-        assert_ne!(torch.get_voxel(3, 6, 3), 0);
+        // Check flame exists (design coord 3,6,3 scaled 2x -> 6,12,6)
+        assert_ne!(torch.get_voxel(6, 12, 6), 0);
     }
 
     #[test]
@@ -1348,13 +1382,13 @@ mod tests {
         let bottom = create_slab_bottom();
         let top = create_slab_top();
 
-        // Bottom slab: filled 0-3, empty 4-7
+        // Bottom slab: filled y=0-7 (design 0-3 scaled 2x), empty y=8-15
         assert_ne!(bottom.get_voxel(0, 0, 0), 0);
-        assert_eq!(bottom.get_voxel(0, 4, 0), 0);
+        assert_eq!(bottom.get_voxel(0, 8, 0), 0);
 
-        // Top slab: empty 0-3, filled 4-7
+        // Top slab: empty y=0-7, filled y=8-15 (design 4-7 scaled 2x)
         assert_eq!(top.get_voxel(0, 0, 0), 0);
-        assert_ne!(top.get_voxel(0, 4, 0), 0);
+        assert_ne!(top.get_voxel(0, 8, 0), 0);
     }
 
     #[test]

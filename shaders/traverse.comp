@@ -110,7 +110,7 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
     vec3 firstTintedGlassLocalHit = vec3(0.0);
 
     uint blockType = readBlockTypeAtTexCoord(ivec3(coord));
-    bool instantHit = (blockType != BLOCK_AIR && blockType != BLOCK_WATER && blockType != BLOCK_GLASS && blockType != BLOCK_TINTED_GLASS && blockType != BLOCK_MODEL);
+    bool instantHit = (blockType != BLOCK_AIR && blockType != BLOCK_WATER && blockType != BLOCK_GLASS && blockType != BLOCK_TINTED_GLASS && blockType != BLOCK_MODEL && blockType != BLOCK_CRYSTAL);
 
     if (blockType == BLOCK_WATER) {
         inWater = true;
@@ -337,7 +337,66 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
             }
         }
 
-        if (blockType != BLOCK_AIR && blockType != BLOCK_WATER && blockType != BLOCK_GLASS && blockType != BLOCK_TINTED_GLASS && blockType != BLOCK_MODEL)
+        if (blockType == BLOCK_CRYSTAL) {
+            uvec2 metadata = readModelMetadata(ivec3(coord));
+            uint tintIndex = metadata.g & 0x1Fu;
+            uint rotation = 0u;  // Crystals don't rotate
+
+            vec3 cameraLocalPos = origin - vec3(coord);
+            bool cameraInsideThisBlock =
+                all(greaterThanEqual(cameraLocalPos, vec3(0.0))) &&
+                all(lessThan(cameraLocalPos, vec3(1.0)));
+
+            vec3 localEntry;
+            float distToBlock = 1e9;
+
+            if (cameraInsideThisBlock) {
+                localEntry = clamp(cameraLocalPos, vec3(0.001), vec3(0.999));
+                distToBlock = 0.0;
+            } else {
+                vec3 entryNormal;
+                vec3 entryLocal;
+                float entryT = rayBlockIntersect(origin, dir, ivec3(coord), entryNormal, entryLocal);
+                if (entryT < 0.0) {
+                    blockType = BLOCK_AIR;
+                    distToBlock = 1e9;
+                } else {
+                    localEntry = clamp(entryLocal, vec3(0.001), vec3(0.999));
+                    distToBlock = entryT * length(dir);
+                }
+            }
+
+            if (distToBlock < pc.lod_model_distance) {
+                vec3 dirNorm = normalize(dir);
+                // Early out using coarse mask
+                if (modelMaskBlocksRay(localEntry, dirNorm, CRYSTAL_MODEL_ID, rotation)) {
+                    vec3 subColor;
+                    vec3 subNormal;
+                    float subT;
+                    float subAlpha;
+                    if (marchSubVoxelModel(localEntry, dirNorm, CRYSTAL_MODEL_ID, rotation, subColor, subNormal, subT, subAlpha)) {
+                        subVoxelHit = true;
+                        // Apply tint color to the neutral crystal model color
+                        subVoxelColor = subColor * TINT_PALETTE[tintIndex];
+                        subVoxelNormal = subNormal;
+                        subVoxelHitPos = vec3(coord) + localEntry + dirNorm * subT;
+                        subVoxelAlpha = subAlpha;
+
+                        if (inWater) {
+                            float currentT = (tmin + distToBlock / length(dir) + subT);
+                            waterDepth = (currentT - waterEntryT) * length(dir);
+                        }
+
+                        // Crystals are opaque model
+                        if (subAlpha >= 0.99) {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (blockType != BLOCK_AIR && blockType != BLOCK_WATER && blockType != BLOCK_GLASS && blockType != BLOCK_TINTED_GLASS && blockType != BLOCK_MODEL && blockType != BLOCK_CRYSTAL)
             break;
 
         prevT = min(min(t.x, t.y), t.z);
@@ -365,7 +424,7 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
         }
     }
 
-    bool modelMiss = (blockType == BLOCK_MODEL && !subVoxelHit);
+    bool modelMiss = ((blockType == BLOCK_MODEL || blockType == BLOCK_CRYSTAL) && !subVoxelHit);
     if (!instantHit && (blockType == BLOCK_AIR || blockType == BLOCK_WATER || blockType == BLOCK_GLASS || modelMiss)) {
         if (inWater && pc.player_in_water == 0) {
             float currentT = min(min(t.x, t.y), t.z);
@@ -402,10 +461,10 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
 
     // Handle sub-voxel model hits with transparency blending
     // When a translucent model is hit, the ray continues to find the background,
-    // so blockType may have changed from BLOCK_MODEL to the background block type
+    // so blockType may have changed from BLOCK_MODEL/BLOCK_CRYSTAL to the background block type
     if (subVoxelHit) {
         // Get background color (what's behind the model)
-        if (blockType == BLOCK_MODEL) {
+        if (blockType == BLOCK_MODEL || blockType == BLOCK_CRYSTAL) {
             // Opaque model or no background found - use gray
             backgroundColor = vec3(0.5, 0.5, 0.5);
         } else if (blockType == BLOCK_PAINTED) {
@@ -429,18 +488,14 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
         // Model block but ray missed the model geometry - shouldn't normally happen
         backgroundColor = vec3(0.5, 0.5, 0.5);
         blockColor = backgroundColor;
+    } else if (blockType == BLOCK_CRYSTAL && !subVoxelHit) {
+        // Crystal model miss - fallback to tinted solid (shouldn't normally happen)
+        uvec2 meta = readModelMetadata(ivec3(coord));
+        uint tintIndex = meta.g & 0x1Fu;
+        blockColor = vec3(0.8) * TINT_PALETTE[tintIndex];
     } else if (blockType == BLOCK_PAINTED) {
         uvec2 meta = readModelMetadata(ivec3(coord));
         blockColor = getPaintedColor(meta, local_hit, normal, stepped_axis, hit);
-    } else if (blockType == BLOCK_CRYSTAL) {
-        // Crystal uses tint palette for both color and emission
-        uvec2 meta = readModelMetadata(ivec3(coord));
-        uint tintIndex = meta.g & 0x1Fu;
-        blockColor = getBlockColor(blockType, local_hit, normal, stepped_axis, hit);
-        // Apply tint to base color
-        if (tintIndex < 32u) {
-            blockColor *= TINT_PALETTE[tintIndex];
-        }
     } else {
         // Regular solid block
         blockColor = getBlockColor(blockType, local_hit, normal, stepped_axis, hit);

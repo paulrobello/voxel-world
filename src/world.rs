@@ -117,7 +117,15 @@ impl World {
                         continue;
                     }
                     // light_properties returns (color, intensity), light_radius returns actual radius
-                    if let Some((color, intensity)) = block.light_properties() {
+                    if let Some((mut color, intensity)) = block.light_properties() {
+                        // For Crystal blocks, use the tint color instead of default
+                        if block == BlockType::Crystal {
+                            let (lx, ly, lz) = crate::chunk::Chunk::index_to_coords(idx);
+                            if let Some(tint_index) = chunk.get_tint_index(lx, ly, lz) {
+                                color = crate::chunk::tint_color(tint_index);
+                            }
+                        }
+
                         let radius = block.light_radius();
                         let mode = block.light_mode();
                         let (lx, ly, lz) = crate::chunk::Chunk::index_to_coords(idx);
@@ -306,6 +314,24 @@ impl World {
         let chunk = self.chunks.entry(chunk_pos).or_default();
         let was_dirty = chunk.dirty;
         chunk.set_tinted_glass_block(lx, ly, lz, tint_index);
+
+        if is_new_chunk || (chunk.dirty && !was_dirty) {
+            self.push_dirty(chunk_pos);
+        }
+    }
+
+    /// Sets a crystal block at world coordinates with the given tint color index.
+    ///
+    /// This sets the block type to Crystal and stores the tint metadata.
+    /// If the chunk doesn't exist, it will be created.
+    pub fn set_crystal_block(&mut self, world_pos: WorldPos, tint_index: u8) {
+        let chunk_pos = Self::world_to_chunk(world_pos);
+        let (lx, ly, lz) = Self::world_to_local(world_pos);
+
+        let is_new_chunk = !self.chunks.contains_key(&chunk_pos);
+        let chunk = self.chunks.entry(chunk_pos).or_default();
+        let was_dirty = chunk.dirty;
+        chunk.set_crystal_block(lx, ly, lz, tint_index);
 
         if is_new_chunk || (chunk.dirty && !was_dirty) {
             self.push_dirty(chunk_pos);

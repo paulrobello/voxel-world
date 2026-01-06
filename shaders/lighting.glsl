@@ -28,8 +28,8 @@ float modelBlocksRay(vec3 rayOrigin, vec3 dir, ivec3 blockPos, uint model_id, ui
 
     localOrigin = clamp(localOrigin, vec3(SUB_VOXEL_EPS), vec3(1.0 - SUB_VOXEL_EPS));
     // Shadow path: cheaper, capped marcher—only cares if any occupied voxel blocks light.
-    // Limit steps to reduce worst-case cost through thin models; still covers the 8^3 grid.
-    const int SHADOW_MODEL_MAX_STEPS = 16;
+    // Limit steps to reduce worst-case cost through thin models; still covers the model grid.
+    const int SHADOW_MODEL_MAX_STEPS = SUB_VOXEL_MAX_STEPS;
     return marchSubVoxelShadow(localOrigin, dir, model_id, rotation, SHADOW_MODEL_MAX_STEPS, modelTint);
 }
 

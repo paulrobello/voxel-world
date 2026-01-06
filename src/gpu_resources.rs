@@ -782,7 +782,7 @@ pub const BRICK_DIST_WORDS: usize = TOTAL_CHUNKS * 16;
 /// Layout:
 /// - Binding 0: Brick masks - 64 bits per chunk (2 u32 words per chunk)
 /// - Binding 1: Brick distances - 64 bytes per chunk (distance to nearest solid brick)
-/// - Binding 2: Model atlas - 128×8×128 (256 models, each 8³ voxels), R8_UINT palette indices
+/// - Binding 2: Model atlas - (16*SUB_VOXEL_SIZE)×SUB_VOXEL_SIZE×(16*SUB_VOXEL_SIZE), R8_UINT palette indices
 /// - Binding 3: Model palettes - 256×16 (256 models × 16 colors), RGBA8
 /// - Binding 4: Model metadata - model_id (R) + rotation (G) per block
 /// - Binding 5: Model properties - collision mask, emission, flags per model
@@ -984,9 +984,10 @@ pub struct GpuModelProperties {
 }
 
 /// Model atlas dimensions: 16 models per row, 16 rows = 256 models.
-pub const MODEL_ATLAS_WIDTH: u32 = 16 * SUB_VOXEL_SIZE as u32; // 128
-pub const MODEL_ATLAS_DEPTH: u32 = 16 * SUB_VOXEL_SIZE as u32; // 128
-pub const MODEL_ATLAS_HEIGHT: u32 = SUB_VOXEL_SIZE as u32; // 8
+/// Each model is SUB_VOXEL_SIZE³, arranged in a 16×16 grid.
+pub const MODEL_ATLAS_WIDTH: u32 = 16 * SUB_VOXEL_SIZE as u32;
+pub const MODEL_ATLAS_DEPTH: u32 = 16 * SUB_VOXEL_SIZE as u32;
+pub const MODEL_ATLAS_HEIGHT: u32 = SUB_VOXEL_SIZE as u32;
 
 /// Uploads model registry data (atlas, palettes, properties) to GPU.
 pub fn upload_model_registry(
