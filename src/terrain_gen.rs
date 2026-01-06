@@ -7,6 +7,25 @@ use noise::{Fbm, MultiFractal, NoiseFn, Perlin, RidgedMulti};
 /// Sea level for water filling (blocks below this in valleys become water)
 pub const SEA_LEVEL: i32 = 28;
 
+// Model IDs for ground cover
+const MODEL_TALL_GRASS: u8 = 100;
+const MODEL_FLOWER_RED: u8 = 101;
+const MODEL_FLOWER_YELLOW: u8 = 102;
+const MODEL_LILY_PAD: u8 = 103;
+const MODEL_MUSHROOM_BROWN: u8 = 104;
+const MODEL_MUSHROOM_RED: u8 = 105;
+
+// Texture indices (from common.glsl/materials.glsl)
+const TEX_LOG: u8 = 10;
+const TEX_LEAVES: u8 = 5;
+
+// Tint indices (from chunk.rs TINT_PALETTE)
+const TINT_BROWN: u8 = 15;
+const TINT_DARK_BROWN: u8 = 28;
+const TINT_GREEN: u8 = 4;
+const TINT_DARK_GREEN: u8 = 29;
+const TINT_OLIVE: u8 = 19;
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum BiomeType {
     Grassland,
@@ -354,87 +373,329 @@ fn generate_normal_chunk(terrain: &TerrainGenerator, chunk_pos: Vector3<i32>) ->
         }
     }
 
-    // Add trees deterministically based on chunk position
-    for lx in (2..CHUNK_SIZE - 2).step_by(8) {
-        for lz in (2..CHUNK_SIZE - 2).step_by(8) {
-            let world_x = chunk_world_x + lx as i32;
-            let world_z = chunk_world_z + lz as i32;
-            let height = terrain.get_height(world_x, world_z);
-            let biome = terrain.get_biome(world_x, world_z);
+    // Generate trees
+    generate_trees(
+        &mut chunk,
+        terrain,
+        chunk_world_x,
+        chunk_world_y,
+        chunk_world_z,
+    );
 
-            // Determine if tree should spawn
-            let should_spawn = match biome {
-                BiomeType::Grassland => true,
-                BiomeType::Swamp => true,
-                BiomeType::Snow => height < 60, // Only lower elevation trees
-                BiomeType::Mountains => false,
-                BiomeType::Desert => false,
-            };
-
-            if !should_spawn {
-                continue;
-            }
-
-            // Deterministic tree placement
-            if terrain.hash(world_x, world_z) % 100 < 15 {
-                let local_base_y = height - chunk_world_y;
-
-                // Only place tree if the base is in this chunk
-                if local_base_y >= 0 && local_base_y < CHUNK_SIZE as i32 - 6 {
-                    let trunk_height = 5 + (terrain.hash(world_x, world_z).abs() % 3);
-
-                    // Tree trunk
-                    for dy in 1..=trunk_height {
-                        let ly = (local_base_y + dy) as usize;
-                        if ly < CHUNK_SIZE {
-                            chunk.set_block(lx, ly, lz, BlockType::Log);
-                        }
-                    }
-
-                    // Simple canopy
-                    let canopy_base = (local_base_y + trunk_height) as usize;
-                    for dx in -2i32..=2 {
-                        for dz in -2i32..=2 {
-                            for dy in 0..3 {
-                                let nlx = lx as i32 + dx;
-                                let nly = canopy_base as i32 + dy;
-                                let nlz = lz as i32 + dz;
-
-                                if nlx >= 0
-                                    && nlx < CHUNK_SIZE as i32
-                                    && nly >= 0
-                                    && nly < CHUNK_SIZE as i32
-                                    && nlz >= 0
-                                    && nlz < CHUNK_SIZE as i32
-                                {
-                                    let dist =
-                                        ((dx * dx + dz * dz) as f32).sqrt() + (dy as f32 * 0.5);
-                                    if dist <= 2.5 {
-                                        let block = chunk.get_block(
-                                            nlx as usize,
-                                            nly as usize,
-                                            nlz as usize,
-                                        );
-                                        if block == BlockType::Air {
-                                            chunk.set_block(
-                                                nlx as usize,
-                                                nly as usize,
-                                                nlz as usize,
-                                                BlockType::Leaves,
-                                            );
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
+    // Generate ground cover
+    generate_ground_cover(
+        &mut chunk,
+        terrain,
+        chunk_world_x,
+        chunk_world_y,
+        chunk_world_z,
+    );
 
     chunk.update_metadata();
     // Procedurally generated chunk is not dirty for persistence until modified.
     chunk.persistence_dirty = false;
     chunk
+}
+
+/// Generates ground cover (grass, flowers, etc.) based on biome
+fn generate_ground_cover(
+    chunk: &mut Chunk,
+    terrain: &TerrainGenerator,
+    chunk_world_x: i32,
+    chunk_world_y: i32,
+    chunk_world_z: i32,
+) {
+    for lx in 0..CHUNK_SIZE {
+        for lz in 0..CHUNK_SIZE {
+            let world_x = chunk_world_x + lx as i32;
+            let world_z = chunk_world_z + lz as i32;
+            let height = terrain.get_height(world_x, world_z);
+            let biome = terrain.get_biome(world_x, world_z);
+            let local_y = height - chunk_world_y;
+
+            // Check if surface is in this chunk
+            if local_y >= 0 && local_y < (CHUNK_SIZE as i32 - 1) {
+                let y = (local_y + 1) as usize; // Block above surface
+                let surface_block = chunk.get_block(lx, local_y as usize, lz);
+
+                // Skip if already occupied (e.g. by tree trunk)
+                if chunk.get_block(lx, y, lz) != BlockType::Air {
+                    continue;
+                }
+
+                let hash = terrain.hash(world_x, world_z);
+
+                match biome {
+                    BiomeType::Grassland => {
+                        if surface_block == BlockType::Grass {
+                            if hash % 100 < 10 {
+                                // 10% Tall Grass
+                                chunk.set_model_block(lx, y, lz, MODEL_TALL_GRASS, 0, false);
+                            } else if hash % 100 < 12 {
+                                // 2% Flowers
+                                let flower = if hash % 2 == 0 {
+                                    MODEL_FLOWER_RED
+                                } else {
+                                    MODEL_FLOWER_YELLOW
+                                };
+                                chunk.set_model_block(lx, y, lz, flower, 0, false);
+                            }
+                        }
+                    }
+                    BiomeType::Swamp => {
+                        if surface_block == BlockType::Grass || surface_block == BlockType::Dirt {
+                            if hash % 100 < 15 {
+                                chunk.set_model_block(lx, y, lz, MODEL_TALL_GRASS, 0, false);
+                            } else if hash % 100 < 20 {
+                                let mush = if hash % 2 == 0 {
+                                    MODEL_MUSHROOM_BROWN
+                                } else {
+                                    MODEL_MUSHROOM_RED
+                                };
+                                chunk.set_model_block(lx, y, lz, mush, 0, false);
+                            }
+                        } else if surface_block == BlockType::Water {
+                            // Lily pads on water (must be top water block)
+                            // Check if block above is air (which it is, since we're at y=local_y+1)
+                            if hash % 100 < 5 {
+                                // Lily pad sits IN the water block space but renders on top?
+                                // No, model blocks replace the block. If we replace water with lily pad, we lose water.
+                                // Lily pad should be placed ABOVE water.
+                                // Or use waterlogged model.
+                                // Our system supports waterlogged models!
+                                // Wait, if I place it at `y` (above water), it floats in air if water level is exactly at `local_y`.
+                                // If water is at `local_y`, placing at `local_y` replaces water.
+                                // I should place it at `local_y` and set waterlogged=true.
+                                // But `local_y` is the height. If height <= SEA_LEVEL, it's water.
+                                // So `surface_block` is water.
+                                // I should place lily pad AT `local_y`.
+                                chunk.set_model_block(
+                                    lx,
+                                    local_y as usize,
+                                    lz,
+                                    MODEL_LILY_PAD,
+                                    (hash % 4) as u8,
+                                    true,
+                                );
+                            }
+                        }
+                    }
+                    BiomeType::Mountains => {
+                        if surface_block == BlockType::Grass && hash % 100 < 5 {
+                            chunk.set_model_block(lx, y, lz, MODEL_TALL_GRASS, 0, false);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+}
+
+/// Generates trees based on biome
+fn generate_trees(
+    chunk: &mut Chunk,
+    terrain: &TerrainGenerator,
+    chunk_world_x: i32,
+    chunk_world_y: i32,
+    chunk_world_z: i32,
+) {
+    // Sparse grid for trees
+    for lx in (2..CHUNK_SIZE - 2).step_by(4) {
+        for lz in (2..CHUNK_SIZE - 2).step_by(4) {
+            let world_x = chunk_world_x + lx as i32;
+            let world_z = chunk_world_z + lz as i32;
+            let height = terrain.get_height(world_x, world_z);
+            let biome = terrain.get_biome(world_x, world_z);
+            let local_base_y = height - chunk_world_y;
+
+            // Check if tree base is in this chunk (with some buffer for leaves)
+            if local_base_y < 0 || local_base_y >= (CHUNK_SIZE as i32 - 10) {
+                continue;
+            }
+
+            // Randomness
+            let hash = terrain.hash(world_x, world_z);
+
+            match biome {
+                BiomeType::Grassland => {
+                    // Oak trees (Standard) - Moderate density
+                    if hash % 100 < 5 {
+                        generate_oak(chunk, lx as i32, local_base_y, lz as i32, hash);
+                    }
+                }
+                BiomeType::Mountains => {
+                    // Pine trees - Low density, only below snow line
+                    if height < 80 && hash % 100 < 3 {
+                        generate_pine(chunk, lx as i32, local_base_y, lz as i32, hash);
+                    }
+                }
+                BiomeType::Snow => {
+                    // Pine trees - Very low density
+                    if hash % 100 < 2 {
+                        generate_pine(chunk, lx as i32, local_base_y, lz as i32, hash);
+                    }
+                }
+                BiomeType::Swamp => {
+                    // Willow/Swamp trees - Moderate density
+                    if hash % 100 < 8 {
+                        generate_willow(chunk, lx as i32, local_base_y, lz as i32, hash);
+                    }
+                }
+                BiomeType::Desert => {
+                    // Cactus - Sparse
+                    if hash % 100 < 2 {
+                        generate_cactus(chunk, lx as i32, local_base_y, lz as i32, hash);
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn generate_oak(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
+    let height = 5 + (hash % 3);
+
+    // Trunk
+    for dy in 1..=height {
+        set_block_safe(chunk, x, y + dy, z, BlockType::Log);
+    }
+
+    // Leaves (Blob)
+    let canopy_base = y + height - 2;
+    for dy in 0..4 {
+        let radius: i32 = if dy == 0 || dy == 3 { 1 } else { 2 };
+        for dx in -radius..=radius {
+            for dz in -radius..=radius {
+                // Skip corners for rounded look
+                if dx.abs() == radius && dz.abs() == radius && radius > 1 {
+                    continue;
+                }
+                let ly = canopy_base + dy;
+                // Don't replace trunk
+                if dx == 0 && dz == 0 && ly <= y + height {
+                    continue;
+                }
+                set_block_safe(chunk, x + dx, ly, z + dz, BlockType::Leaves);
+            }
+        }
+    }
+}
+
+fn generate_pine(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
+    let height = 6 + (hash % 4);
+
+    // Trunk (Darker)
+    for dy in 1..=height {
+        set_painted_block_safe(chunk, x, y + dy, z, TEX_LOG, TINT_DARK_BROWN);
+    }
+
+    // Leaves (Cone layers)
+    let start_leaves = 3;
+    for dy in start_leaves..=height + 1 {
+        let h_idx = dy - start_leaves; // 0 at bottom of leaves
+        // Radius decreases as we go up: 2, 2, 1, 1, 0
+        let radius: i32 = if dy > height {
+            0
+        } else if h_idx < 2 {
+            2
+        } else {
+            1
+        };
+
+        for dx in -radius..=radius {
+            for dz in -radius..=radius {
+                if dx.abs() == radius && dz.abs() == radius && radius > 0 {
+                    continue; // Skip corners
+                }
+                // Don't replace trunk
+                if dx == 0 && dz == 0 && dy <= height {
+                    continue;
+                }
+                set_painted_block_safe(chunk, x + dx, y + dy, z + dz, TEX_LEAVES, TINT_DARK_GREEN);
+            }
+        }
+    }
+    // Top tip
+    set_painted_block_safe(chunk, x, y + height + 2, z, TEX_LEAVES, TINT_DARK_GREEN);
+}
+
+fn generate_willow(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
+    let height = 4 + (hash % 3);
+
+    // Trunk (Brown)
+    for dy in 1..=height {
+        set_painted_block_safe(chunk, x, y + dy, z, TEX_LOG, TINT_BROWN);
+    }
+
+    // Wide canopy
+    let canopy_y = y + height;
+    for dx in -3i32..=3 {
+        for dz in -3i32..=3 {
+            let dist = dx.abs() + dz.abs();
+            if dist <= 3 {
+                set_painted_block_safe(chunk, x + dx, canopy_y, z + dz, TEX_LEAVES, TINT_OLIVE);
+                set_painted_block_safe(chunk, x + dx, canopy_y + 1, z + dz, TEX_LEAVES, TINT_OLIVE);
+
+                // Hanging vines
+                if dist > 1 && (hash.wrapping_add(dx * 30 + dz) % 3 == 0) {
+                    let vine_len = 1 + (hash % 3);
+                    for v in 1..=vine_len {
+                        set_painted_block_safe(
+                            chunk,
+                            x + dx,
+                            canopy_y - v,
+                            z + dz,
+                            TEX_LEAVES,
+                            TINT_OLIVE,
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn generate_cactus(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
+    let height = 2 + (hash % 3);
+
+    // Main column
+    for dy in 1..=height {
+        // Use Planks texture (4) tinted Green (4) for cactus
+        set_painted_block_safe(chunk, x, y + dy, z, 4, TINT_GREEN);
+    }
+}
+
+// Helper to set blocks safely within chunk bounds
+fn set_block_safe(chunk: &mut Chunk, x: i32, y: i32, z: i32, block: BlockType) {
+    if x >= 0
+        && x < CHUNK_SIZE as i32
+        && y >= 0
+        && y < CHUNK_SIZE as i32
+        && z >= 0
+        && z < CHUNK_SIZE as i32
+        && (chunk.get_block(x as usize, y as usize, z as usize) == BlockType::Air
+            || chunk
+                .get_block(x as usize, y as usize, z as usize)
+                .is_transparent())
+    {
+        chunk.set_block(x as usize, y as usize, z as usize, block);
+    }
+}
+
+// Helper for painted blocks
+fn set_painted_block_safe(chunk: &mut Chunk, x: i32, y: i32, z: i32, tex: u8, tint: u8) {
+    if x >= 0
+        && x < CHUNK_SIZE as i32
+        && y >= 0
+        && y < CHUNK_SIZE as i32
+        && z >= 0
+        && z < CHUNK_SIZE as i32
+        && (chunk.get_block(x as usize, y as usize, z as usize) == BlockType::Air
+            || chunk
+                .get_block(x as usize, y as usize, z as usize)
+                .is_transparent())
+    {
+        chunk.set_painted_block(x as usize, y as usize, z as usize, tex, tint);
+    }
 }

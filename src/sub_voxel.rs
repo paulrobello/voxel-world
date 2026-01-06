@@ -186,8 +186,9 @@ pub const NUM_RESOLUTION_TIERS: usize = 3;
 /// - 83-90: Windowed+Paneled Doors (8 variants)
 /// - 91-98: Full Glass Doors (8 variants)
 /// - 99: Crystal
+/// - 100-105: Ground cover (Tall Grass, Flowers, Lily Pad, Mushrooms)
 pub const CRYSTAL_MODEL_ID: u8 = 99;
-pub const FIRST_CUSTOM_MODEL_ID: u8 = 100;
+pub const FIRST_CUSTOM_MODEL_ID: u8 = 128;
 
 /// RGBA color for sub-voxel palette.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -1034,11 +1035,12 @@ impl ModelRegistry {
             create_fancy_door_lower_open_left, create_fancy_door_lower_open_right,
             create_fancy_door_upper_closed_left, create_fancy_door_upper_closed_right,
             create_fancy_door_upper_open_left, create_fancy_door_upper_open_right, create_fence,
-            create_gate_closed, create_gate_open, create_glass_door_lower_closed_left,
-            create_glass_door_lower_closed_right, create_glass_door_lower_open_left,
-            create_glass_door_lower_open_right, create_glass_door_upper_closed_left,
-            create_glass_door_upper_closed_right, create_glass_door_upper_open_left,
-            create_glass_door_upper_open_right, create_ladder,
+            create_flower_red, create_flower_yellow, create_gate_closed, create_gate_open,
+            create_glass_door_lower_closed_left, create_glass_door_lower_closed_right,
+            create_glass_door_lower_open_left, create_glass_door_lower_open_right,
+            create_glass_door_upper_closed_left, create_glass_door_upper_closed_right,
+            create_glass_door_upper_open_left, create_glass_door_upper_open_right, create_ladder,
+            create_lily_pad, create_mushroom_brown, create_mushroom_red,
             create_paneled_door_lower_closed_left, create_paneled_door_lower_closed_right,
             create_paneled_door_lower_open_left, create_paneled_door_lower_open_right,
             create_paneled_door_upper_closed_left, create_paneled_door_upper_closed_right,
@@ -1047,13 +1049,13 @@ impl ModelRegistry {
             create_stairs_inner_left_inverted, create_stairs_inner_right,
             create_stairs_inner_right_inverted, create_stairs_north, create_stairs_north_inverted,
             create_stairs_outer_left, create_stairs_outer_left_inverted, create_stairs_outer_right,
-            create_stairs_outer_right_inverted, create_torch, create_trapdoor_ceiling_closed,
-            create_trapdoor_ceiling_open, create_trapdoor_floor_closed, create_trapdoor_floor_open,
-            create_window, create_windowed_door_lower_closed_left,
-            create_windowed_door_lower_closed_right, create_windowed_door_lower_open_left,
-            create_windowed_door_lower_open_right, create_windowed_door_upper_closed_left,
-            create_windowed_door_upper_closed_right, create_windowed_door_upper_open_left,
-            create_windowed_door_upper_open_right,
+            create_stairs_outer_right_inverted, create_tall_grass, create_torch,
+            create_trapdoor_ceiling_closed, create_trapdoor_ceiling_open,
+            create_trapdoor_floor_closed, create_trapdoor_floor_open, create_window,
+            create_windowed_door_lower_closed_left, create_windowed_door_lower_closed_right,
+            create_windowed_door_lower_open_left, create_windowed_door_lower_open_right,
+            create_windowed_door_upper_closed_left, create_windowed_door_upper_closed_right,
+            create_windowed_door_upper_open_left, create_windowed_door_upper_open_right,
         };
 
         // ID 0: Empty/placeholder (no model)
@@ -1170,6 +1172,19 @@ impl ModelRegistry {
         // ID 99: Crystal (neutral color, tinted by shader based on tint_index)
         use crate::sub_voxel_builtins::create_crystal;
         self.register(create_crystal(Color::rgb(220, 220, 220)));
+
+        // ID 100: Tall Grass
+        self.register(create_tall_grass());
+        // ID 101: Red Flower
+        self.register(create_flower_red());
+        // ID 102: Yellow Flower
+        self.register(create_flower_yellow());
+        // ID 103: Lily Pad
+        self.register(create_lily_pad());
+        // ID 104: Brown Mushroom
+        self.register(create_mushroom_brown());
+        // ID 105: Red Mushroom
+        self.register(create_mushroom_red());
     }
 
     /// Gets the model ID for a fence with the given connections.
