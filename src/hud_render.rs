@@ -10,6 +10,7 @@ use crate::raycast::RaycastHit;
 use crate::render_mode::RenderMode;
 use crate::storage::model_format::LibraryManager;
 use crate::sub_voxel::ModelRegistry;
+use crate::terrain_gen::TerrainGenerator;
 use crate::utils::ChunkStats;
 use crate::{PaletteItem, PaletteTab};
 use egui_winit_vulkano::{Gui, egui};
@@ -35,6 +36,7 @@ pub struct HudInputs<'a> {
     pub fluid_stats: FluidStats,
     pub player: &'a mut Player,
     pub world: &'a mut crate::world::World,
+    pub terrain_generator: &'a TerrainGenerator,
     pub settings: &'a mut Settings,
     pub render_mode: &'a mut RenderMode,
     pub current_hit: &'a Option<RaycastHit>,
@@ -688,6 +690,33 @@ impl HUDRenderer {
             });
     }
 
+    fn draw_biome_debug_overlay(
+        ctx: &egui::Context,
+        terrain_generator: &TerrainGenerator,
+        player_world_pos: Vector3<f64>,
+    ) {
+        let x = player_world_pos.x.floor() as i32;
+        let z = player_world_pos.z.floor() as i32;
+        let info = terrain_generator.get_biome_info(x, z);
+
+        egui::Area::new(egui::Id::new("biome_debug_overlay"))
+            .anchor(egui::Align2::RIGHT_CENTER, egui::vec2(-10.0, 0.0))
+            .show(ctx, |ui| {
+                Self::overlay_frame().show(ui, |ui| {
+                    ui.label(
+                        egui::RichText::new("Biome Debug")
+                            .strong()
+                            .color(egui::Color32::WHITE),
+                    );
+                    ui.separator();
+                    ui.label(format!("Biome: {:?}", info.biome));
+                    ui.label(format!("Elevation: {:.3}", info.elevation));
+                    ui.label(format!("Temperature: {:.3}", info.temperature));
+                    ui.label(format!("Rainfall: {:.3}", info.rainfall));
+                });
+            });
+    }
+
     pub fn render(&self, gui: &mut Gui, input: HudInputs<'_>) -> (bool, EditorAction) {
         let HudInputs {
             fps,
@@ -695,6 +724,7 @@ impl HUDRenderer {
             fluid_stats,
             player,
             world,
+            terrain_generator,
             settings,
             render_mode,
             current_hit,
@@ -735,6 +765,9 @@ impl HUDRenderer {
             }
             if settings.show_position {
                 Self::draw_position_overlay(&ctx, player_world_pos);
+            }
+            if settings.show_biome_debug {
+                Self::draw_biome_debug_overlay(&ctx, terrain_generator, player_world_pos);
             }
             Self::draw_palette_window(
                 &ctx,

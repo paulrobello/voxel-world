@@ -335,6 +335,7 @@ struct Graphics {
 struct WorldSim {
     world: World,
     model_registry: ModelRegistry,
+    terrain_generator: TerrainGenerator,
     player: Player,
     world_extent: [u32; 3],
     texture_origin: Vector3<i32>,
@@ -904,16 +905,19 @@ impl App {
             rcx: None,
         };
 
+        let terrain_generator = TerrainGenerator::new(seed);
+
         let mut sim = WorldSim {
             world,
             model_registry,
+            terrain_generator: terrain_generator.clone(),
             player,
             world_extent,
             texture_origin,
             last_player_chunk: spawn_chunk,
             chunk_stats: ChunkStats::default(),
             chunk_loader: {
-                let terrain = TerrainGenerator::new(seed);
+                let terrain = terrain_generator.clone();
                 let storage_clone = Arc::clone(&storage);
                 ChunkLoader::new(
                     move |pos| generate_chunk_terrain(&terrain, pos, world_gen),
@@ -1597,6 +1601,11 @@ impl App {
                 .set_feet_pos(feet_pos, self.sim.world_extent, self.sim.texture_origin);
             // Reset velocity to prevent continued movement
             self.sim.player.velocity = Vector3::zeros();
+        }
+
+        // Handle pending biome debug toggle
+        if let Some(enabled) = self.ui.console.pending_biome_debug.take() {
+            self.ui.settings.show_biome_debug = enabled;
         }
 
         // Handle pending force water active from console

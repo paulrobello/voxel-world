@@ -100,6 +100,7 @@ pub struct Settings {
     pub show_position: bool,
     pub show_stats: bool,
     pub show_water_sources: bool,
+    pub show_biome_debug: bool,
 
     pub enable_ao: bool,
     pub enable_shadows: bool,
@@ -132,6 +133,7 @@ impl Default for Settings {
             show_position: true,
             show_stats: true,
             show_water_sources: false,
+            show_biome_debug: false,
 
             enable_ao: true,
             enable_shadows: true,

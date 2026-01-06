@@ -34,6 +34,7 @@ pub fn render_hud(
             fluid_stats,
             player: &mut sim.player,
             world: &mut sim.world,
+            terrain_generator: &sim.terrain_generator,
             settings: &mut ui.settings,
             render_mode: &mut sim.render_mode,
             current_hit: &ui.current_hit,

@@ -72,6 +72,8 @@ pub enum CommandResult {
     ForceWaterActive,
     /// Analyze water flow at player position.
     WaterAnalyze,
+    /// Enable/disable biome debug visualization.
+    SetBiomeDebug(bool),
 }
 
 /// Pending command awaiting confirmation.
@@ -119,6 +121,8 @@ pub struct ConsoleState {
     pub pending_force_water_active: bool,
     /// Pending water analyze request.
     pub pending_water_analyze: bool,
+    /// Pending biome debug toggle (Some(true/false) if changed).
+    pub pending_biome_debug: Option<bool>,
 }
 
 /// Maximum number of command history entries to persist.
@@ -140,6 +144,7 @@ impl ConsoleState {
             pending_fluid_debug: false,
             pending_force_water_active: false,
             pending_water_analyze: false,
+            pending_biome_debug: None,
         }
     }
 
@@ -346,6 +351,13 @@ impl ConsoleState {
                 // Signal that caller should analyze water at player position
                 self.pending_water_analyze = true;
             }
+            CommandResult::SetBiomeDebug(enabled) => {
+                self.success(format!(
+                    "Biome debug visualization: {}",
+                    if enabled { "ON" } else { "OFF" }
+                ));
+                self.pending_biome_debug = Some(enabled);
+            }
         }
     }
 
@@ -374,6 +386,21 @@ impl ConsoleState {
             "waterdebug" | "wd" => CommandResult::FluidDebug,
             "waterforce" | "wf" => CommandResult::ForceWaterActive,
             "wateranalyze" | "wa" => CommandResult::WaterAnalyze,
+            "biome_debug" | "bd" => {
+                if let Some(arg) = args.first() {
+                    match arg.to_lowercase().as_str() {
+                        "on" | "true" | "1" => CommandResult::SetBiomeDebug(true),
+                        "off" | "false" | "0" => CommandResult::SetBiomeDebug(false),
+                        _ => CommandResult::Error("Usage: biome_debug [on|off]".to_string()),
+                    }
+                } else {
+                    // Toggle if no argument (requires knowing current state, which we don't. So default to ON or error?
+                    // Better to require argument or assume toggle based on UI state (can't access UI here).
+                    // Let's assume ON if typing it without args is common debug behavior, or Error.
+                    // Actually, let's just make it ON.
+                    CommandResult::SetBiomeDebug(true)
+                }
+            }
             "clear" => {
                 self.output.clear();
                 CommandResult::Success("Console cleared.".to_string())

@@ -30,6 +30,14 @@ const TINT_DARK_GREEN: u8 = 29;
 const TINT_OLIVE: u8 = 19;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BiomeInfo {
+    pub elevation: f64,
+    pub temperature: f64,
+    pub rainfall: f64,
+    pub biome: BiomeType,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum BiomeType {
     Grassland,
     Mountains,
@@ -108,8 +116,8 @@ impl TerrainGenerator {
         }
     }
 
-    /// Get biome type at world coordinates
-    pub fn get_biome(&self, world_x: i32, world_z: i32) -> BiomeType {
+    /// Get biome info (elevation, temp, rain) at world coordinates
+    pub fn get_biome_info(&self, world_x: i32, world_z: i32) -> BiomeInfo {
         let x = world_x as f64;
         let z = world_z as f64;
 
@@ -122,17 +130,13 @@ impl TerrainGenerator {
         let rain = rain_raw * 0.5 + 0.5;
 
         // Get approximate height for temperature lapse rate
-        // We use a simplified height lookup to avoid recursion (since get_height calls this in future)
-        // For now, assume sea level for biome distribution, modify later if needed.
-        // Or better: Use height noise directly here without full detail.
         let base_height = self.height_noise.get([x, z]); // -1 to 1
 
         // Adjust temperature by elevation (higher = colder)
-        // base_height of 1.0 (mountain) reduces temp by 0.4
         let elevation_cooling = base_height.max(0.0) * 0.4;
         let adjusted_temp = (temp - elevation_cooling).clamp(0.0, 1.0);
 
-        if adjusted_temp < 0.3 {
+        let biome = if adjusted_temp < 0.3 {
             BiomeType::Snow
         } else if adjusted_temp > 0.7 && rain < 0.3 {
             BiomeType::Desert
@@ -142,7 +146,19 @@ impl TerrainGenerator {
             BiomeType::Mountains
         } else {
             BiomeType::Grassland
+        };
+
+        BiomeInfo {
+            elevation: base_height,
+            temperature: adjusted_temp,
+            rainfall: rain,
+            biome,
         }
+    }
+
+    /// Get biome type at world coordinates
+    pub fn get_biome(&self, world_x: i32, world_z: i32) -> BiomeType {
+        self.get_biome_info(world_x, world_z).biome
     }
 
     /// Get terrain height at world coordinates
