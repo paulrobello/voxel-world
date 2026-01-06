@@ -304,6 +304,54 @@ impl HUDRenderer {
                 },
                 "Painted Block".to_string(),
             ));
+
+            // Add new textured blocks (Painted)
+            const TEX_CACTUS: u8 = 23;
+            const TEX_MUD: u8 = 24;
+            const TEX_SANDSTONE: u8 = 25;
+            const TEX_ICE: u8 = 26;
+            const TINT_WHITE: u8 = 12;
+
+            items.push((
+                PaletteItem {
+                    block: BlockType::Painted,
+                    model_id: 0,
+                    tint_index: TINT_WHITE,
+                    paint_texture_idx: TEX_CACTUS,
+                    water_type: WaterType::Ocean,
+                },
+                "Cactus".to_string(),
+            ));
+            items.push((
+                PaletteItem {
+                    block: BlockType::Painted,
+                    model_id: 0,
+                    tint_index: TINT_WHITE,
+                    paint_texture_idx: TEX_MUD,
+                    water_type: WaterType::Ocean,
+                },
+                "Mud".to_string(),
+            ));
+            items.push((
+                PaletteItem {
+                    block: BlockType::Painted,
+                    model_id: 0,
+                    tint_index: TINT_WHITE,
+                    paint_texture_idx: TEX_SANDSTONE,
+                    water_type: WaterType::Ocean,
+                },
+                "Sandstone".to_string(),
+            ));
+            items.push((
+                PaletteItem {
+                    block: BlockType::Painted,
+                    model_id: 0,
+                    tint_index: TINT_WHITE,
+                    paint_texture_idx: TEX_ICE,
+                    water_type: WaterType::Ocean,
+                },
+                "Ice".to_string(),
+            ));
         }
 
         if matches!(tab, PaletteTab::Models | PaletteTab::All) {
@@ -337,6 +385,12 @@ impl HUDRenderer {
             push_if(91, "Glass Door");
             push_if(47, "Trapdoor");
             push_if(51, "Window");
+            push_if(100, "Tall Grass");
+            push_if(101, "Red Flower");
+            push_if(102, "Yellow Flower");
+            push_if(103, "Lily Pad");
+            push_if(104, "Brown Mushroom");
+            push_if(105, "Red Mushroom");
 
             // Add custom/user models from the registry
             for model in registry.iter_custom_models() {

@@ -1668,6 +1668,7 @@ pub fn create_tall_grass() -> SubVoxelModel {
     model.light_blocking = LightBlocking::None;
     model.rotatable = false;
     model.requires_ground_support = true;
+    model.no_collision = true;
     model.compute_collision_mask();
     model
 }
@@ -1690,6 +1691,7 @@ pub fn create_flower_red() -> SubVoxelModel {
     model.light_blocking = LightBlocking::None;
     model.rotatable = false;
     model.requires_ground_support = true;
+    model.no_collision = true;
     model.compute_collision_mask();
     model
 }
@@ -1713,6 +1715,7 @@ pub fn create_flower_yellow() -> SubVoxelModel {
     model.light_blocking = LightBlocking::None;
     model.rotatable = false;
     model.requires_ground_support = true;
+    model.no_collision = true;
     model.compute_collision_mask();
     model
 }
@@ -1761,6 +1764,7 @@ pub fn create_mushroom_brown() -> SubVoxelModel {
     model.light_blocking = LightBlocking::None;
     model.rotatable = false;
     model.requires_ground_support = true;
+    model.no_collision = true;
     model.emission = Some(Color::rgb(10, 5, 0)); // Very faint glow? No.
     model.compute_collision_mask();
     model
@@ -1790,6 +1794,7 @@ pub fn create_mushroom_red() -> SubVoxelModel {
     model.light_blocking = LightBlocking::None;
     model.rotatable = false;
     model.requires_ground_support = true;
+    model.no_collision = true;
     model.compute_collision_mask();
     model
 }

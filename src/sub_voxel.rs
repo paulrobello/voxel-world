@@ -422,6 +422,10 @@ pub struct SubVoxelModel {
 
     /// Whether this model requires ground support (breaks if block below is removed).
     pub requires_ground_support: bool,
+
+    /// Whether this model has collision enabled.
+    /// If true (default), physics will ignore this model (walk through).
+    pub no_collision: bool,
 }
 
 impl Default for SubVoxelModel {
@@ -457,6 +461,7 @@ impl SubVoxelModel {
             light_radius: 8.0,
             light_intensity: 1.0,
             requires_ground_support: false,
+            no_collision: false,
         }
     }
 
@@ -586,6 +591,9 @@ impl SubVoxelModel {
     /// A bit is set if ANY voxel in that region is solid (non-zero).
     pub fn compute_collision_mask(&mut self) {
         self.collision_mask = 0;
+        if self.no_collision {
+            return;
+        }
         let cell_size = self.size() / 4;
 
         for cz in 0..4 {
@@ -903,6 +911,7 @@ impl SubVoxelModel {
             light_radius: self.light_radius,
             light_intensity: self.light_intensity,
             requires_ground_support: self.requires_ground_support,
+            no_collision: self.no_collision,
         };
         new_model.compute_collision_mask();
 
@@ -961,6 +970,7 @@ impl SubVoxelModel {
             light_radius: self.light_radius,
             light_intensity: self.light_intensity,
             requires_ground_support: self.requires_ground_support,
+            no_collision: self.no_collision,
         };
         new_model.compute_collision_mask();
 
