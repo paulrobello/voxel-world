@@ -302,9 +302,31 @@ float castShadowRayWithTint(vec3 origin, out vec3 shadowTint) {
 
 // Sky exposure for ambient light
 float getSkyExposure(vec3 origin) {
+    ivec3 pos = ivec3(floor(origin));
+
+    // Early exit: if already out of bounds above, full sky exposure
+    if (pos.y >= int(pc.texture_size_y)) {
+        return 1.0;
+    }
+
+    // Early exit: check if ALL chunks in column above are empty (max 4 checks)
+    // Only valid when model shadows disabled (models could be in "empty" chunks)
+    if (pc.enable_model_shadows == 0u) {
+        ivec3 startChunkPos = pos / int(CHUNK_SIZE);
+        bool allChunksAboveEmpty = true;
+        for (int cy = startChunkPos.y; cy < int(CHUNKS_Y); cy++) {
+            if (!isChunkEmpty(ivec3(startChunkPos.x, cy, startChunkPos.z))) {
+                allChunksAboveEmpty = false;
+                break;
+            }
+        }
+        if (allChunksAboveEmpty) {
+            return 1.0;  // Clear sky column
+        }
+    }
+
     vec3 dir = vec3(0.0, 1.0, 0.0);
     vec3 rayPos = origin;
-    ivec3 pos = ivec3(floor(rayPos));
     ivec3 startPos = pos;
     ivec3 stepDir = ivec3(0, 1, 0);
     vec3 tMax = vec3(1e30);
