@@ -18,11 +18,14 @@ const MODEL_MUSHROOM_RED: u8 = 105;
 // Texture indices (from common.glsl/materials.glsl)
 const TEX_LOG: u8 = 10;
 const TEX_LEAVES: u8 = 5;
+const TEX_CACTUS: u8 = 23;
+const TEX_MUD: u8 = 24;
+const TEX_SANDSTONE: u8 = 25;
 
 // Tint indices (from chunk.rs TINT_PALETTE)
+const TINT_WHITE: u8 = 12;
 const TINT_BROWN: u8 = 15;
 const TINT_DARK_BROWN: u8 = 28;
-const TINT_GREEN: u8 = 4;
 const TINT_DARK_GREEN: u8 = 29;
 const TINT_OLIVE: u8 = 19;
 
@@ -333,7 +336,9 @@ fn generate_normal_chunk(terrain: &TerrainGenerator, chunk_pos: Vector3<i32>) ->
                         BiomeType::Mountains => BlockType::Stone,
                         BiomeType::Swamp => {
                             if world_y <= SEA_LEVEL + 1 {
-                                BlockType::Dirt // Muddy look
+                                // Muddy look (Painted block with Mud texture)
+                                chunk.set_painted_block(lx, ly, lz, TEX_MUD, TINT_WHITE);
+                                continue; // Skip default set_block
                             } else {
                                 BlockType::Grass
                             }
@@ -349,7 +354,11 @@ fn generate_normal_chunk(terrain: &TerrainGenerator, chunk_pos: Vector3<i32>) ->
                 } else if world_y > height - 3 {
                     // Subsurface layer
                     match biome {
-                        BiomeType::Desert => BlockType::Sand,
+                        BiomeType::Desert => {
+                            // Sandstone (Painted block)
+                            chunk.set_painted_block(lx, ly, lz, TEX_SANDSTONE, TINT_WHITE);
+                            continue; // Skip default set_block
+                        }
                         BiomeType::Mountains => BlockType::Stone,
                         BiomeType::Snow => BlockType::Stone,
                         _ => {
@@ -661,11 +670,10 @@ fn generate_cactus(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
 
     // Main column
     for dy in 1..=height {
-        // Use Planks texture (4) tinted Green (4) for cactus
-        set_painted_block_safe(chunk, x, y + dy, z, 4, TINT_GREEN);
+        // Use Cactus texture
+        set_painted_block_safe(chunk, x, y + dy, z, TEX_CACTUS, TINT_WHITE);
     }
 }
-
 // Helper to set blocks safely within chunk bounds
 fn set_block_safe(chunk: &mut Chunk, x: i32, y: i32, z: i32, block: BlockType) {
     if x >= 0

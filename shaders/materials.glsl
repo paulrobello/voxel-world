@@ -4,7 +4,8 @@
 // Slots 0-16: standard blocks (Air through Bedrock)
 // Slot 17: grass_side, Slot 18: log_top
 // Slots 19-22: emissive blocks (Lava, GlowStone, GlowMushroom, Crystal)
-const float ATLAS_TILE_COUNT = 23.0;
+// Slots 23-26: new textures (Cactus, Mud, Sandstone, Ice)
+const float ATLAS_TILE_COUNT = 27.0;
 const float ATLAS_TILE_SIZE = 1.0 / ATLAS_TILE_COUNT;
 const uint TEX_GRASS_SIDE = 17;
 const uint TEX_LOG_TOP = 18;
@@ -12,6 +13,10 @@ const uint TEX_LAVA = 19;
 const uint TEX_GLOWSTONE = 20;
 const uint TEX_GLOWMUSHROOM = 21;
 const uint TEX_CRYSTAL = 22;
+const uint TEX_CACTUS = 23;
+const uint TEX_MUD = 24;
+const uint TEX_SANDSTONE = 25;
+const uint TEX_ICE = 26;
 
 // Check if a block type is emissive
 bool isEmissiveBlock(uint blockType) {
