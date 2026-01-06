@@ -1,6 +1,6 @@
 use crate::App;
 use crate::block_update::BlockUpdateType;
-use crate::chunk::BlockType;
+use crate::chunk::{BlockType, WaterType};
 use crate::constants::TEXTURE_SIZE_Y;
 use crate::player::{PLAYER_HALF_WIDTH, PLAYER_HEIGHT};
 use crate::raycast::{MAX_RAYCAST_DISTANCE, get_place_position, raycast};
@@ -940,11 +940,19 @@ impl App {
             .invalidate_minimap_cache(place_pos.x, place_pos.z);
 
         if block_to_place == BlockType::Water {
-            self.sim.water_grid.place_source(place_pos);
+            self.sim
+                .water_grid
+                .place_source(place_pos, WaterType::Spring); // Player placed water is a spring
         } else if waterlogged {
             // Ensure water grid knows about waterlogged block (if not already there)
             if !self.sim.water_grid.has_water(place_pos) {
-                self.sim.water_grid.place_source(place_pos);
+                // Determine existing water type if possible, otherwise default
+                let water_type = self
+                    .sim
+                    .world
+                    .get_water_type(place_pos)
+                    .unwrap_or(WaterType::Ocean);
+                self.sim.water_grid.place_source(place_pos, water_type);
             }
         } else {
             self.sim.water_grid.on_block_placed(place_pos);

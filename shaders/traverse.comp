@@ -112,12 +112,18 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
     uint blockType = readBlockTypeAtTexCoord(ivec3(coord));
     bool instantHit = (blockType != BLOCK_AIR && blockType != BLOCK_WATER && blockType != BLOCK_GLASS && blockType != BLOCK_TINTED_GLASS && blockType != BLOCK_MODEL && blockType != BLOCK_CRYSTAL);
 
+    // Track water type for rendering
+    uint currentWaterType = WATER_TYPE_OCEAN;
+
     if (blockType == BLOCK_WATER) {
         inWater = true;
         waterEntryT = 0.0;
         waterSurfaceNormal = vec3(0.0, 1.0, 0.0);
         waterEntryAxis = 1;
         waterSurfaceHit = origin;
+        // Read water type from metadata (G channel)
+        uvec2 metadata = readModelMetadata(ivec3(coord));
+        currentWaterType = metadata.g;
     }
 
     if (blockType == BLOCK_GLASS) {
@@ -158,8 +164,10 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
         if (any(greaterThanEqual(coord, worldSizeU()))) {
             if (inWater && pc.player_in_water == 0) {
                 waterDepth = (min(min(t.x, t.y), t.z) - waterEntryT) * length(dir);
-                float depthFactor = 1.0 - exp(-waterDepth / WATER_CLARITY);
-                color = mix(WATER_COLOR, WATER_DEEP_COLOR, depthFactor);
+                float clarity = getWaterClarity(currentWaterType);
+                float depthFactor = 1.0 - exp(-waterDepth / clarity);
+                vec3 waterTint = getWaterTint(currentWaterType);
+                color = mix(WATER_COLOR * waterTint, WATER_DEEP_COLOR * waterTint, depthFactor);
                 hitDistance = waterEntryT * length(dir);
                 return true;
             }
@@ -231,6 +239,9 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
             waterSurfaceNormal = vec3(0.0);
             waterSurfaceNormal[stepped_axis] = -sgn_dir[stepped_axis];
             waterSurfaceHit = origin + dir * prevT;
+            // Read water type from metadata
+            uvec2 metadata = readModelMetadata(ivec3(coord));
+            currentWaterType = metadata.g;
         }
 
         if (blockType == BLOCK_GLASS && !passedGlass) {
@@ -436,8 +447,10 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
         if (inWater && pc.player_in_water == 0) {
             float currentT = min(min(t.x, t.y), t.z);
             waterDepth = (currentT - waterEntryT) * length(dir);
-            float depthFactor = 1.0 - exp(-waterDepth / WATER_CLARITY);
-            color = mix(WATER_COLOR, WATER_DEEP_COLOR, depthFactor);
+            float clarity = getWaterClarity(currentWaterType);
+            float depthFactor = 1.0 - exp(-waterDepth / clarity);
+            vec3 waterTint = getWaterTint(currentWaterType);
+            color = mix(WATER_COLOR * waterTint, WATER_DEEP_COLOR * waterTint, depthFactor);
             hitDistance = waterEntryT * length(dir);
             return true;
         }
@@ -479,7 +492,7 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
             backgroundColor = getPaintedColor(meta, local_hit, normal, stepped_axis, hit);
         } else {
             // Translucent model with background - use actual background color
-            backgroundColor = getBlockColor(blockType, local_hit, normal, stepped_axis, hit);
+            backgroundColor = getBlockColor(blockType, local_hit, normal, stepped_axis, hit, 0u);
         }
 
         // Blend translucent model with background
@@ -504,8 +517,15 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
         uvec2 meta = readModelMetadata(ivec3(coord));
         blockColor = getPaintedColor(meta, local_hit, normal, stepped_axis, hit);
     } else {
-        // Regular solid block
-        blockColor = getBlockColor(blockType, local_hit, normal, stepped_axis, hit);
+        // Regular solid block - pass currentWaterType for water blocks
+        uint extraData = 0u;
+        if (blockType == BLOCK_WATER) {
+            // If we hit water here (rare, usually handled above), use the type we found
+            // Actually, for surface rendering, we need to read metadata if we haven't
+            uvec2 meta = readModelMetadata(ivec3(coord));
+            extraData = meta.g;
+        }
+        blockColor = getBlockColor(blockType, local_hit, normal, stepped_axis, hit, extraData);
     }
 
     // Track emission for emissive blocks
@@ -731,13 +751,17 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
         float fresnel = WATER_REFLECTIVITY + (1.0 - WATER_REFLECTIVITY) * pow(1.0 - viewDotNormal, WATER_FRESNEL_POWER);
         vec3 reflectDir = reflect(normalize(dir), finalNormal);
         vec3 reflectionColor = getSkyColor(reflectDir);
-        color = mix(color, reflectionColor, fresnel * 0.6);
+        // Apply tint to reflection slightly
+        vec3 tint = getWaterTint(currentWaterType);
+        color = mix(color, reflectionColor * tint, fresnel * 0.6);
     }
 
     if (inWater && waterDepth > 0.0) {
-        float depthFactor = 1.0 - exp(-waterDepth / WATER_CLARITY);
-        vec3 waterTint = mix(WATER_COLOR, WATER_DEEP_COLOR, depthFactor * 0.5);
-        color = mix(color, waterTint, depthFactor * 0.7);
+        float clarity = getWaterClarity(currentWaterType);
+        float depthFactor = 1.0 - exp(-waterDepth / clarity);
+        vec3 tint = getWaterTint(currentWaterType);
+        vec3 waterColor = mix(WATER_COLOR * tint, WATER_DEEP_COLOR * tint, depthFactor * 0.5);
+        color = mix(color, waterColor, depthFactor * 0.7);
     }
 
     if (passedGlass) {

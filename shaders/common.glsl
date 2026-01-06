@@ -38,6 +38,13 @@ const uint BLOCK_CRYSTAL = 22;
 // Sub-voxel model IDs (must match Rust ModelRegistry IDs)
 const uint CRYSTAL_MODEL_ID = 99u;
 
+// Water types (must match Rust WaterType enum)
+const uint WATER_TYPE_OCEAN = 0u;
+const uint WATER_TYPE_LAKE = 1u;
+const uint WATER_TYPE_RIVER = 2u;
+const uint WATER_TYPE_SWAMP = 3u;
+const uint WATER_TYPE_SPRING = 4u;
+
 // Emission colors for emissive blocks (RGB)
 const vec3 EMISSION_LAVA = vec3(1.0, 0.4, 0.1);        // Orange-red
 const vec3 EMISSION_GLOWSTONE = vec3(1.0, 0.95, 0.8);  // Warm white

@@ -233,32 +233,32 @@ vec3 calculateLighting(vec3 worldPos, vec3 normal, vec3 baseColor) {
 
 **Priority**: HIGH (Development Priority #2)
 
-#### 14.1 Water Metadata Extension
-- [ ] Add `WaterType` enum: `Ocean`, `Lake`, `River`, `Swamp`, `Spring`
-- [ ] Per-cell metadata: `water_type`, `color_tint`, `flow_rate_multiplier`
-- [ ] Extend `WaterCell` struct with new fields
-- [ ] GPU upload: separate water metadata texture
+#### 14.1 Water Metadata Extension ✅
+- [x] Add `WaterType` enum: `Ocean`, `Lake`, `River`, `Swamp`, `Spring`
+- [x] Per-cell metadata: `water_type`, `color_tint`, `flow_rate_multiplier`
+- [x] Extend `WaterCell` struct with new fields
+- [x] GPU upload: separate water metadata texture (reused modelMetadata)
 
-#### 14.2 Water Types
-- [ ] **Ocean**: Deep blue, standard flow rate
-- [ ] **Lake**: Clear blue-green, slower flow (0.7x)
-- [ ] **River**: Fast flow (1.5x), lighter blue
-- [ ] **Swamp**: Murky green-brown, very slow (0.3x), static in some areas
-- [ ] **Spring**: Crystal clear, source blocks only
+#### 14.2 Water Types ✅
+- [x] **Ocean**: Deep blue, standard flow rate
+- [x] **Lake**: Clear blue-green, slower flow (0.7x)
+- [x] **River**: Fast flow (1.5x), lighter blue
+- [x] **Swamp**: Murky green-brown, very slow (0.3x), static in some areas
+- [x] **Spring**: Crystal clear, source blocks only
 
-#### 14.3 Water Color Rendering
-- [ ] Shader: sample water type → color lookup table
-- [ ] Tint underwater fog based on water type
-- [ ] Surface reflections: sky color mixed with water tint
-- [ ] Swamp water: reduce transparency (murkier)
+#### 14.3 Water Color Rendering ✅
+- [x] Shader: sample water type → color lookup table
+- [x] Tint underwater fog based on water type
+- [x] Surface reflections: sky color mixed with water tint
+- [x] Swamp water: reduce transparency (murkier)
 
-#### 14.4 Flow Rate Implementation
-- [ ] Modify W-Shadow algorithm with `flow_rate_multiplier`
-- [ ] Swamp water: increase stability threshold (less spreading)
-- [ ] River water: decrease damping (faster flow)
-- [ ] Visualize flow direction with animated water surface (optional)
+#### 14.4 Flow Rate Implementation ✅
+- [x] Modify W-Shadow algorithm with `flow_rate_multiplier`
+- [x] Swamp water: increase stability threshold (less spreading)
+- [x] River water: decrease damping (faster flow)
+- [x] Visualize flow direction with animated water surface (optional)
 
-#### 14.5 Terrain Integration
+#### 14.5 Terrain Integration (In Progress)
 - [ ] Desert biome: no water or dry riverbeds only
 - [ ] Swamp biome: generate swamp water lakes
 - [ ] Mountain biome: spring sources, fast rivers
@@ -954,25 +954,28 @@ git commit -m "type: description"
 
 ---
 
-## Current Work (2026-01-05)
+## Current Work (2026-01-06)
 
-**Status**: Phase 13 (Advanced Lighting System) COMPLETE. Ready for Phase 14 (Enhanced Water).
+**Status**: Phase 14 (Enhanced Water System) Core Features COMPLETE. Moving to biome integration.
 
 **Recent Work:**
-- Implemented all glowing block types (Lava, GlowStone, GlowMushroom, Crystal)
-- Added point light emission system with tinted colors
-- Upgraded sub-voxel resolution from 8³ to 16³
-- Enhanced model editor with cube/sphere tools and scroll zoom
+- Implemented `WaterType` enum and metadata storage in chunks
+- Added GPU support for per-voxel water types (color, clarity, fog)
+- Implemented variable flow rates for River (fast), Swamp (slow), Lake (medium)
+- Updated shaders to render murky swamp water and clear springs
 
 **Next Actions:**
-1. Begin Phase 14: Enhanced Water System
-2. Add WaterType enum with color variants
-3. Implement biome-specific water generation
+1. Begin Phase 15: Biome Generation System
+2. Implement noise maps for elevation, temperature, rainfall
+3. Integrate biome-specific water types (Swamp biome -> Swamp water)
 
 ---
 
 ## Done Recently
 
+- **Phase 14: Enhanced Water System** (2026-01-06): ✅ CORE COMPLETE
+  - Ocean, Lake, River, Swamp, Spring water types
+  - Visual differentiation (color/fog) and physical differentiation (flow rate)
 - **Phase 13: Advanced Lighting System** (2026-01-05): ✅ COMPLETE
   - Lava, GlowStone, GlowMushroom, Crystal blocks with emission
   - Point light system with tinted colors for crystals

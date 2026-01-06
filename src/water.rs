@@ -9,6 +9,7 @@
 
 #![allow(dead_code)]
 
+use crate::chunk::WaterType;
 use crate::constants::ORTHO_DIRS;
 use nalgebra::Vector3;
 use std::collections::{HashMap, HashSet};
@@ -61,6 +62,10 @@ pub struct WaterCell {
 
     /// Ticks since last flow activity. Used to deactivate stable water.
     pub stable_ticks: u8,
+
+    /// Type of water (Ocean, Lake, River, Swamp, Spring).
+    /// Determines color, flow rate, and other properties.
+    pub water_type: WaterType,
 }
 
 impl Default for WaterCell {
@@ -70,28 +75,31 @@ impl Default for WaterCell {
             display_mass: 0.0,
             is_source: false,
             stable_ticks: 0,
+            water_type: WaterType::Ocean,
         }
     }
 }
 
 impl WaterCell {
-    /// Creates a new water cell with the given mass.
-    pub fn new(mass: f32) -> Self {
+    /// Creates a new water cell with the given mass and type.
+    pub fn new(mass: f32, water_type: WaterType) -> Self {
         Self {
             mass,
             display_mass: mass,
             is_source: false,
             stable_ticks: 0,
+            water_type,
         }
     }
 
     /// Creates a source cell (infinite water).
-    pub fn source() -> Self {
+    pub fn source(water_type: WaterType) -> Self {
         Self {
             mass: MAX_MASS,
             display_mass: MAX_MASS,
             is_source: true,
             stable_ticks: 0,
+            water_type,
         }
     }
 
@@ -178,8 +186,10 @@ pub struct WaterGrid {
     active: HashSet<Vector3<i32>>,
 
     /// Pending water changes (double-buffer for simulation).
-    /// Key: position, Value: mass delta (positive = add, negative = remove).
-    pending_changes: HashMap<Vector3<i32>, f32>,
+    /// Key: position, Value: (mass delta, water type).
+    /// If type is Ocean (default), it means "keep existing type or inherit".
+    /// If delta is negative, type is ignored.
+    pending_changes: HashMap<Vector3<i32>, (f32, WaterType)>,
 
     /// Positions that need to be checked next tick.
     dirty_positions: HashSet<Vector3<i32>>,
@@ -267,7 +277,11 @@ impl WaterGrid {
             // No grid cell - check if world has water block
             if has_world_water(pos) { MAX_MASS } else { 0.0 }
         });
-        let pending = self.pending_changes.get(&pos).copied().unwrap_or(0.0);
+        let (pending, _) = self
+            .pending_changes
+            .get(&pos)
+            .copied()
+            .unwrap_or((0.0, WaterType::Ocean));
         (base + pending).max(0.0)
     }
 
@@ -290,7 +304,13 @@ impl WaterGrid {
     }
 
     /// Sets water at a position. If mass <= MIN_MASS, removes the cell.
-    pub fn set_water(&mut self, pos: Vector3<i32>, mass: f32, is_source: bool) {
+    pub fn set_water(
+        &mut self,
+        pos: Vector3<i32>,
+        mass: f32,
+        is_source: bool,
+        water_type: WaterType,
+    ) {
         if mass <= MIN_MASS && !is_source {
             self.cells.remove(&pos);
             self.active.remove(&pos);
@@ -299,18 +319,23 @@ impl WaterGrid {
             cell.mass = if is_source { MAX_MASS } else { mass };
             cell.is_source = is_source;
             cell.stable_ticks = 0;
+            cell.water_type = water_type;
             self.active.insert(pos);
         }
     }
 
     /// Adds water at a position (creates cell if needed).
-    pub fn add_water(&mut self, pos: Vector3<i32>, amount: f32) {
+    pub fn add_water(&mut self, pos: Vector3<i32>, amount: f32, water_type: WaterType) {
         if amount <= 0.0 {
             return;
         }
         let cell = self.cells.entry(pos).or_default();
         cell.mass += amount;
         cell.stable_ticks = 0;
+        // Inherit type if adding to empty cell, otherwise existing type dominates
+        if cell.mass <= amount {
+            cell.water_type = water_type;
+        }
         self.active.insert(pos);
     }
 
@@ -335,8 +360,8 @@ impl WaterGrid {
     }
 
     /// Places a source block at a position (infinite water).
-    pub fn place_source(&mut self, pos: Vector3<i32>) {
-        self.set_water(pos, MAX_MASS, true);
+    pub fn place_source(&mut self, pos: Vector3<i32>, water_type: WaterType) {
+        self.set_water(pos, MAX_MASS, true, water_type);
         // Activate neighbors for flow
         self.activate_neighbors(pos);
     }
@@ -465,10 +490,19 @@ impl WaterGrid {
                     remaining + lower_neighbors.iter().map(|(_, m, _)| *m).sum::<f32>();
                 let avg_mass = total_mass / (lower_neighbors.len() + 1) as f32;
 
+                // Adjust flow rate based on water type
+                let flow_rate = match cell.water_type {
+                    WaterType::River => FLOW_DAMPING * 1.5,
+                    WaterType::Swamp => FLOW_DAMPING * 0.3,
+                    WaterType::Lake => FLOW_DAMPING * 0.7,
+                    _ => FLOW_DAMPING,
+                }
+                .min(1.0);
+
                 // Flow to neighbors below average
                 for (_, neighbor_mass, flow_ref) in lower_neighbors {
                     if neighbor_mass < avg_mass {
-                        let mut flow = (avg_mass - neighbor_mass) * FLOW_DAMPING;
+                        let mut flow = (avg_mass - neighbor_mass) * flow_rate;
 
                         // CRITICAL FIX: Ensure minimum flow to maintain gradient propagation.
                         // When equalization produces tiny flow values (< MIN_FLOW), we still
@@ -509,7 +543,7 @@ impl WaterGrid {
 
     /// Applies pending changes from the flow simulation.
     fn apply_pending_changes(&mut self) {
-        for (pos, delta) in self.pending_changes.drain() {
+        for (pos, (delta, water_type)) in self.pending_changes.drain() {
             if let Some(cell) = self.cells.get_mut(&pos) {
                 if !cell.is_source {
                     cell.mass = (cell.mass + delta).max(0.0);
@@ -518,6 +552,10 @@ impl WaterGrid {
                         self.cells.remove(&pos);
                         self.active.remove(&pos);
                         continue;
+                    }
+                    // Inherit type if influx is significant
+                    if delta > 0.0 && delta > cell.mass * 0.5 {
+                        cell.water_type = water_type;
                     }
                 }
                 self.active.insert(pos);
@@ -530,6 +568,7 @@ impl WaterGrid {
                         display_mass: delta,
                         is_source: false,
                         stable_ticks: 0,
+                        water_type,
                     },
                 );
                 self.active.insert(pos);
@@ -614,6 +653,13 @@ impl WaterGrid {
         for &pos in active_list.iter().take(process_count) {
             let flow = self.calculate_flow(pos, &is_solid, &is_out_of_bounds, &has_world_water);
 
+            // Get water type to propagate
+            let water_type = self
+                .cells
+                .get(&pos)
+                .map(|c| c.water_type)
+                .unwrap_or(WaterType::Ocean);
+
             // Evaporation constants
             const EVAPORATION_THRESHOLD: f32 = 0.3;
             const EVAPORATION_RATE: f32 = 0.005;
@@ -624,13 +670,21 @@ impl WaterGrid {
             if flow.has_flow() {
                 // Record outflow from this cell
                 let total_out = flow.total_outflow();
-                *self.pending_changes.entry(pos).or_insert(0.0) -= total_out;
+                // We use type from self, but outflow doesn't change self type
+                let entry = self.pending_changes.entry(pos).or_insert((0.0, water_type));
+                entry.0 -= total_out;
                 changed_positions.push(pos);
 
                 // Record inflow to neighbors (but NOT to out-of-bounds - water drains into void)
                 let below = pos + Vector3::new(0, -1, 0);
                 if flow.down > MIN_FLOW && !is_out_of_bounds(below) {
-                    *self.pending_changes.entry(below).or_insert(0.0) += flow.down;
+                    let entry = self
+                        .pending_changes
+                        .entry(below)
+                        .or_insert((0.0, water_type));
+                    entry.0 += flow.down;
+                    // Propagate type
+                    entry.1 = water_type;
                     changed_positions.push(below);
                 }
                 // Note: Water flowing down into void is just removed, not added anywhere
@@ -638,35 +692,60 @@ impl WaterGrid {
                 if flow.up > MIN_FLOW {
                     let above = pos + Vector3::new(0, 1, 0);
                     if !is_out_of_bounds(above) {
-                        *self.pending_changes.entry(above).or_insert(0.0) += flow.up;
+                        let entry = self
+                            .pending_changes
+                            .entry(above)
+                            .or_insert((0.0, water_type));
+                        entry.0 += flow.up;
+                        entry.1 = water_type;
                         changed_positions.push(above);
                     }
                 }
                 if flow.pos_x > MIN_FLOW {
                     let neighbor = pos + Vector3::new(1, 0, 0);
                     if !is_out_of_bounds(neighbor) {
-                        *self.pending_changes.entry(neighbor).or_insert(0.0) += flow.pos_x;
+                        let entry = self
+                            .pending_changes
+                            .entry(neighbor)
+                            .or_insert((0.0, water_type));
+                        entry.0 += flow.pos_x;
+                        entry.1 = water_type;
                         changed_positions.push(neighbor);
                     }
                 }
                 if flow.neg_x > MIN_FLOW {
                     let neighbor = pos + Vector3::new(-1, 0, 0);
                     if !is_out_of_bounds(neighbor) {
-                        *self.pending_changes.entry(neighbor).or_insert(0.0) += flow.neg_x;
+                        let entry = self
+                            .pending_changes
+                            .entry(neighbor)
+                            .or_insert((0.0, water_type));
+                        entry.0 += flow.neg_x;
+                        entry.1 = water_type;
                         changed_positions.push(neighbor);
                     }
                 }
                 if flow.pos_z > MIN_FLOW {
                     let neighbor = pos + Vector3::new(0, 0, 1);
                     if !is_out_of_bounds(neighbor) {
-                        *self.pending_changes.entry(neighbor).or_insert(0.0) += flow.pos_z;
+                        let entry = self
+                            .pending_changes
+                            .entry(neighbor)
+                            .or_insert((0.0, water_type));
+                        entry.0 += flow.pos_z;
+                        entry.1 = water_type;
                         changed_positions.push(neighbor);
                     }
                 }
                 if flow.neg_z > MIN_FLOW {
                     let neighbor = pos + Vector3::new(0, 0, -1);
                     if !is_out_of_bounds(neighbor) {
-                        *self.pending_changes.entry(neighbor).or_insert(0.0) += flow.neg_z;
+                        let entry = self
+                            .pending_changes
+                            .entry(neighbor)
+                            .or_insert((0.0, water_type));
+                        entry.0 += flow.neg_z;
+                        entry.1 = water_type;
                         changed_positions.push(neighbor);
                     }
                 }
@@ -851,7 +930,7 @@ impl WaterGrid {
         } else {
             info.push_str("  no cell exists\n");
         }
-        if let Some(&pending) = self.pending_changes.get(&below) {
+        if let Some((pending, _)) = self.pending_changes.get(&below) {
             info.push_str(&format!("  pending_changes: {:.3}\n", pending));
         }
 
@@ -1030,10 +1109,15 @@ impl WaterGrid {
 
             let has_water = self.has_water(pos);
             let current_block = world.get_block(pos);
+            let water_type = self
+                .cells
+                .get(&pos)
+                .map(|c| c.water_type)
+                .unwrap_or(WaterType::Ocean);
 
             match (current_block, has_water) {
                 (Some(BlockType::Air), true) => {
-                    world.set_block(pos, BlockType::Water);
+                    world.set_water_block(pos, water_type);
                     world.invalidate_minimap_cache(pos.x, pos.z);
                 }
                 (Some(BlockType::Water), false) => {
@@ -1133,7 +1217,8 @@ impl WaterGrid {
 
             if let Some(BlockType::Water) = world.get_block(neighbor) {
                 if !self.has_water(neighbor) {
-                    self.place_source(neighbor);
+                    let water_type = world.get_water_type(neighbor).unwrap_or(WaterType::Ocean);
+                    self.place_source(neighbor, water_type);
                 } else {
                     self.activate_neighbors(neighbor);
                 }
@@ -1155,8 +1240,9 @@ impl WaterGrid {
     pub fn load_sources(&mut self, positions: &[[i32; 3]], world: &mut crate::world::World) {
         for [x, y, z] in positions {
             let pos = Vector3::new(*x, *y, *z);
-            self.place_source(pos);
-            world.set_block(pos, crate::chunk::BlockType::Water);
+            let water_type = world.get_water_type(pos).unwrap_or(WaterType::Ocean);
+            self.place_source(pos, water_type);
+            world.set_water_block(pos, water_type);
         }
     }
 }
@@ -1187,7 +1273,7 @@ mod tests {
 
     #[test]
     fn test_water_cell_creation() {
-        let cell = WaterCell::new(0.5);
+        let cell = WaterCell::new(0.5, WaterType::Ocean);
         assert_eq!(cell.mass, 0.5);
         assert!(!cell.is_source);
         assert!(cell.has_water());
@@ -1196,7 +1282,7 @@ mod tests {
 
     #[test]
     fn test_source_cell() {
-        let cell = WaterCell::source();
+        let cell = WaterCell::source(WaterType::Ocean);
         assert_eq!(cell.mass, MAX_MASS);
         assert!(cell.is_source);
         assert!(cell.is_full());
@@ -1210,11 +1296,11 @@ mod tests {
         assert!(!grid.has_water(pos));
         assert_eq!(grid.get_mass(pos), 0.0);
 
-        grid.set_water(pos, 0.5, false);
+        grid.set_water(pos, 0.5, false, WaterType::Ocean);
         assert!(grid.has_water(pos));
         assert_eq!(grid.get_mass(pos), 0.5);
 
-        grid.set_water(pos, 0.0, false);
+        grid.set_water(pos, 0.0, false, WaterType::Ocean);
         assert!(!grid.has_water(pos));
     }
 
@@ -1231,6 +1317,7 @@ mod tests {
                 display_mass: 1.0,
                 is_source: false,
                 stable_ticks: 0,
+                water_type: WaterType::Ocean,
             },
         );
         grid.active.insert(Vector3::new(10, 0, 0));
@@ -1244,6 +1331,7 @@ mod tests {
                 display_mass: 1.0,
                 is_source: false,
                 stable_ticks: 0,
+                water_type: WaterType::Ocean,
             },
         );
         grid.active.insert(Vector3::new(1, 0, 0));
@@ -1262,7 +1350,7 @@ mod tests {
         let mut grid = WaterGrid::new();
         let pos = Vector3::new(0, 5, 0);
 
-        grid.set_water(pos, 1.0, false);
+        grid.set_water(pos, 1.0, false, WaterType::Ocean);
 
         let flow = grid.calculate_flow(pos, floor_solid, never_out_of_bounds, &no_world_water);
         assert!(flow.down > 0.0, "Water should flow down");
@@ -1281,7 +1369,7 @@ mod tests {
         let _neighbor = Vector3::new(1, 0, 0);
 
         // Water at pos, empty at neighbor, floor below both
-        grid.set_water(pos, 0.8, false);
+        grid.set_water(pos, 0.8, false, WaterType::Ocean);
 
         let flow = grid.calculate_flow(pos, floor_solid, never_out_of_bounds, &no_world_water);
         // Should flow down AND horizontal
@@ -1296,7 +1384,7 @@ mod tests {
         let mut grid = WaterGrid::new();
         let pos = Vector3::new(0, 5, 0);
 
-        grid.place_source(pos);
+        grid.place_source(pos, WaterType::Ocean);
         assert!(grid.is_source(pos));
         assert_eq!(grid.get_mass(pos), MAX_MASS);
 
@@ -1312,7 +1400,7 @@ mod tests {
         let pos = Vector3::new(0, 5, 0);
         let player_pos = Vector3::new(0.0, 0.0, 0.0);
 
-        grid.set_water(pos, 1.0, false);
+        grid.set_water(pos, 1.0, false, WaterType::Ocean);
 
         // Run a tick
         let changed = grid.tick(floor_solid, never_out_of_bounds, no_world_water, player_pos);
@@ -1340,7 +1428,7 @@ mod tests {
         let pos = Vector3::new(0, 0, 0); // At y=0, above void
         let player_pos = Vector3::new(0.0, 0.0, 0.0);
 
-        grid.set_water(pos, 1.0, false);
+        grid.set_water(pos, 1.0, false, WaterType::Ocean);
 
         // Run a tick with void below y=0
         let _changed = grid.tick(never_solid, void_below_zero, no_world_water, player_pos);
@@ -1361,7 +1449,7 @@ mod tests {
         let mut grid = WaterGrid::new();
         let pos = Vector3::new(0, 0, 0);
 
-        grid.set_water(pos, MIN_MASS / 2.0, false);
+        grid.set_water(pos, MIN_MASS / 2.0, false, WaterType::Ocean);
         assert!(!grid.has_water(pos), "Tiny amounts should evaporate");
     }
 }

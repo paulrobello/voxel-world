@@ -104,6 +104,31 @@ pub enum BlockType {
     Crystal = 22,
 }
 
+/// Water types for enhanced water system.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
+#[repr(u8)]
+pub enum WaterType {
+    #[default]
+    Ocean = 0,
+    Lake = 1,
+    River = 2,
+    Swamp = 3,
+    Spring = 4,
+}
+
+impl WaterType {
+    pub fn from_u8(v: u8) -> Self {
+        match v {
+            0 => WaterType::Ocean,
+            1 => WaterType::Lake,
+            2 => WaterType::River,
+            3 => WaterType::Swamp,
+            4 => WaterType::Spring,
+            _ => WaterType::Ocean,
+        }
+    }
+}
+
 /// Metadata for a block that uses a sub-voxel model.
 ///
 /// This is stored sparsely in chunks - only blocks of type `Model` have metadata.
@@ -405,6 +430,11 @@ pub struct Chunk {
     /// Key: block index, Value: BlockPaintData.
     painted_data: HashMap<usize, BlockPaintData>,
 
+    /// Sparse storage for water type metadata.
+    /// Only blocks of type `Water` have entries here.
+    /// Key: block index, Value: WaterType (u8).
+    water_data: HashMap<usize, WaterType>,
+
     /// Reusable RG8 buffer for model metadata uploads (len = CHUNK_VOLUME * 2).
     model_metadata_buf: RefCell<Vec<u8>>,
     /// Whether the cached model metadata buffer needs recomputing.
@@ -446,6 +476,7 @@ impl Chunk {
             model_data: HashMap::new(),
             tint_data: HashMap::new(),
             painted_data: HashMap::new(),
+            water_data: HashMap::new(),
             model_metadata_buf: RefCell::new(vec![0u8; CHUNK_VOLUME * 2]),
             model_metadata_dirty: Cell::new(false),
             light_block_count: 0,
@@ -472,6 +503,7 @@ impl Chunk {
             model_data: HashMap::new(),
             tint_data: HashMap::new(),
             painted_data: HashMap::new(),
+            water_data: HashMap::new(),
             model_metadata_buf: RefCell::new(vec![0u8; CHUNK_VOLUME * 2]),
             model_metadata_dirty: Cell::new(false),
             light_block_count,
@@ -539,6 +571,11 @@ impl Chunk {
             // Clean up painted data if block is no longer Painted
             if block != BlockType::Painted {
                 self.painted_data.remove(&idx);
+                self.model_metadata_dirty.set(true);
+            }
+            // Clean up water data if block is no longer Water
+            if block != BlockType::Water {
+                self.water_data.remove(&idx);
                 self.model_metadata_dirty.set(true);
             }
         } else if block.is_light_source() {
@@ -660,6 +697,25 @@ impl Chunk {
     pub fn get_paint_data(&self, x: usize, y: usize, z: usize) -> Option<BlockPaintData> {
         let idx = Self::index(x, y, z);
         self.painted_data.get(&idx).copied()
+    }
+
+    /// Sets a water block with its type at the given local coordinates.
+    #[inline]
+    pub fn set_water_block(&mut self, x: usize, y: usize, z: usize, water_type: WaterType) {
+        let idx = Self::index(x, y, z);
+        self.blocks[idx] = BlockType::Water;
+        self.water_data.insert(idx, water_type);
+        self.dirty = true;
+        self.persistence_dirty = true;
+        self.metadata_dirty = true;
+        self.model_metadata_dirty.set(true);
+    }
+
+    /// Gets the water type for a block at the given local coordinates.
+    #[inline]
+    pub fn get_water_type(&self, x: usize, y: usize, z: usize) -> Option<WaterType> {
+        let idx = Self::index(x, y, z);
+        self.water_data.get(&idx).copied()
     }
 
     /// Returns the number of model blocks in this chunk.
@@ -790,6 +846,12 @@ impl Chunk {
                     let offset = idx * 2;
                     buf[offset] = data.texture_idx;
                     buf[offset + 1] = data.tint_idx & 0x1F;
+                }
+                // Pack water data
+                for (idx, &water_type) in &self.water_data {
+                    let offset = idx * 2;
+                    buf[offset] = 0; // R = 0 (no model_id)
+                    buf[offset + 1] = water_type as u8; // G = water type
                 }
             }
             self.model_metadata_dirty.set(false);

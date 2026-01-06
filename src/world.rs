@@ -266,6 +266,36 @@ impl World {
         }
     }
 
+    /// Sets a water block at world coordinates with the given water type.
+    ///
+    /// This sets the block type to Water and stores the water type metadata.
+    /// If the chunk doesn't exist, it will be created.
+    pub fn set_water_block(&mut self, world_pos: WorldPos, water_type: crate::chunk::WaterType) {
+        let chunk_pos = Self::world_to_chunk(world_pos);
+        let (lx, ly, lz) = Self::world_to_local(world_pos);
+
+        let is_new_chunk = !self.chunks.contains_key(&chunk_pos);
+        let chunk = self.chunks.entry(chunk_pos).or_default();
+        let was_dirty = chunk.dirty;
+        chunk.set_water_block(lx, ly, lz, water_type);
+
+        if is_new_chunk || (chunk.dirty && !was_dirty) {
+            self.push_dirty(chunk_pos);
+        }
+    }
+
+    /// Gets the water type for a block at world coordinates.
+    ///
+    /// Returns None if the chunk doesn't exist or the block has no water data.
+    pub fn get_water_type(&self, world_pos: WorldPos) -> Option<crate::chunk::WaterType> {
+        let chunk_pos = Self::world_to_chunk(world_pos);
+        let (lx, ly, lz) = Self::world_to_local(world_pos);
+
+        self.chunks
+            .get(&chunk_pos)
+            .and_then(|chunk| chunk.get_water_type(lx, ly, lz))
+    }
+
     /// Sets a model block at world coordinates with the given model_id and rotation.
     ///
     /// This sets the block type to Model and stores the model metadata.
