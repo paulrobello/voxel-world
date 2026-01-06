@@ -1114,6 +1114,7 @@ impl World {
         player_pos: Vector3<f64>,
         yaw: f32,
         minimap: &crate::hud::Minimap,
+        terrain: &crate::terrain_gen::TerrainGenerator,
     ) -> egui_winit_vulkano::egui::ColorImage {
         use egui_winit_vulkano::egui;
         let display_size = minimap.size as usize;
@@ -1176,8 +1177,11 @@ impl World {
                         res
                     };
 
+                // Get biome info for noise maps
+                let biome_info = Some(terrain.get_biome_info(world_x, world_z));
+
                 // Calculate color based on mode
-                let color = minimap.get_color(block_type, height);
+                let color = minimap.get_color(block_type, height, biome_info);
 
                 pixels[dz * display_size + dx] = color;
             }

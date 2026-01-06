@@ -1250,27 +1250,46 @@ impl HUDRenderer {
                             });
 
                             ui.horizontal(|ui| {
-                                ui.label("Colors:");
-                                if ui
-                                    .selectable_label(minimap.color_mode == 0, "Blocks")
-                                    .clicked()
-                                {
-                                    minimap.color_mode = 0;
-                                    *minimap_cached_image = None; // Force refresh
-                                }
-                                if ui
-                                    .selectable_label(minimap.color_mode == 1, "Height")
-                                    .clicked()
-                                {
-                                    minimap.color_mode = 1;
-                                    *minimap_cached_image = None; // Force refresh
-                                }
-                                if ui
-                                    .selectable_label(minimap.color_mode == 2, "Both")
-                                    .clicked()
-                                {
-                                    minimap.color_mode = 2;
-                                    *minimap_cached_image = None; // Force refresh
+                                ui.label("Mode:");
+                                let prev_mode = minimap.mode;
+                                egui::ComboBox::from_id_salt("minimap_mode")
+                                    .selected_text(format!("{:?}", minimap.mode))
+                                    .show_ui(ui, |ui| {
+                                        use crate::hud::MinimapMode;
+                                        ui.selectable_value(
+                                            &mut minimap.mode,
+                                            MinimapMode::Blocks,
+                                            "Blocks",
+                                        );
+                                        ui.selectable_value(
+                                            &mut minimap.mode,
+                                            MinimapMode::Height,
+                                            "Height",
+                                        );
+                                        ui.selectable_value(
+                                            &mut minimap.mode,
+                                            MinimapMode::Combined,
+                                            "Combined",
+                                        );
+                                        ui.selectable_value(
+                                            &mut minimap.mode,
+                                            MinimapMode::Elevation,
+                                            "Elevation",
+                                        );
+                                        ui.selectable_value(
+                                            &mut minimap.mode,
+                                            MinimapMode::Temperature,
+                                            "Temperature",
+                                        );
+                                        ui.selectable_value(
+                                            &mut minimap.mode,
+                                            MinimapMode::Rainfall,
+                                            "Rainfall",
+                                        );
+                                    });
+
+                                if minimap.mode != prev_mode {
+                                    *minimap_cached_image = None;
                                 }
                             });
 

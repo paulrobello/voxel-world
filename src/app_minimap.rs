@@ -36,9 +36,12 @@ pub fn prepare_minimap_image(
         ui.minimap_last_pos = current_pos;
         ui.minimap_last_update = Instant::now();
         ui.minimap_last_yaw = camera_yaw;
-        let image = sim
-            .world
-            .generate_minimap_image(player_world_pos, camera_yaw, &ui.minimap);
+        let image = sim.world.generate_minimap_image(
+            player_world_pos,
+            camera_yaw,
+            &ui.minimap,
+            &sim.terrain_generator,
+        );
         ui.minimap_cached_image = Some(image.clone());
         Some(image)
     } else {
