@@ -85,7 +85,10 @@ float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFl
 
     vec3 dir = sunDir;
     vec3 inv_dir = clamp(1.0 / dir, vec3(-FLT_MAX), vec3(FLT_MAX));
-    bool allowSkip = SHADOW_SKIP && (pc.enable_model_shadows == 0u);
+    // Always allow chunk skipping - model check happens per-position
+    // Brick skipping is disabled when model shadows enabled (models can be anywhere in brick)
+    bool allowChunkSkip = SHADOW_SKIP;
+    bool allowBrickSkip = SHADOW_SKIP && (pc.enable_model_shadows == 0u);
 
     // Track accumulated shadow from partial blockers - only applies if ray reaches sky
     float accumulatedPartialShadow = 1.0;
@@ -125,8 +128,8 @@ float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFl
     int maxSteps = int(clamp(min(maxTravel * maxAbsDir + 4.0, baseSteps), 32.0, float(pc.shadow_max_steps)));
 
     for (int i = 0; i < maxSteps; i++) {
-        // Optional coarse skipping: empty chunks/bricks
-        if (allowSkip) {
+        // Chunk skipping: safe even with model shadows (we check current position for models)
+        if (allowChunkSkip) {
             ivec3 chunkPos = pos / int(CHUNK_SIZE);
             uvec2 metaHere = readModelMetadata(pos);
             bool hasModelHere = metaHere.r != 0u;
@@ -144,8 +147,8 @@ float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFl
                 continue;
             }
         }
-        // Disable brick skipping entirely when model shadows are enabled to avoid missing thin geometry.
-        if (allowSkip && isBrickEmpty(pos)) {
+        // Brick skipping disabled when model shadows enabled (models can be anywhere in brick)
+        if (allowBrickSkip && isBrickEmpty(pos)) {
             ivec3 brickWorldPos = getBrickWorldPos(pos);
             vec3 brickMin = vec3(brickWorldPos);
             vec3 brickMax = brickMin + float(BRICK_SIZE);
@@ -310,6 +313,19 @@ float getSkyExposure(vec3 origin) {
     for (int i = 0; i < 128; i++) {
         if (!isInTextureBounds(pos)) {
             return accumulatedPartialExposure;  // Apply partial blockers if ray escaped
+        }
+
+        // Chunk skipping optimization: if chunk is empty and no model here, skip to chunk top
+        ivec3 chunkPos = pos / int(CHUNK_SIZE);
+        uvec2 metaHere = readModelMetadata(pos);
+        bool hasModelHere = metaHere.r != 0u;
+        if (isChunkEmpty(chunkPos) && !hasModelHere) {
+            // Jump to top of this chunk (only moving in +Y)
+            int chunkTopY = (chunkPos.y + 1) * int(CHUNK_SIZE);
+            pos.y = chunkTopY;
+            rayPos.y = float(chunkTopY);
+            tMax.y = 1.0;  // Reset to step 1 block at a time
+            continue;
         }
 
         vec3 blockOrigin = rayPos + dir * 0.01;
