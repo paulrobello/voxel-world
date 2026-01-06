@@ -940,9 +940,9 @@ impl App {
             .invalidate_minimap_cache(place_pos.x, place_pos.z);
 
         if block_to_place == BlockType::Water {
-            self.sim
-                .water_grid
-                .place_source(place_pos, WaterType::Spring); // Player placed water is a spring
+            let water_type = WaterType::from_u8(self.ui.hotbar_tint_indices[self.ui.hotbar_index]);
+            self.sim.water_grid.place_source(place_pos, water_type);
+            self.sim.world.set_water_block(place_pos, water_type);
         } else if waterlogged {
             // Ensure water grid knows about waterlogged block (if not already there)
             if !self.sim.water_grid.has_water(place_pos) {

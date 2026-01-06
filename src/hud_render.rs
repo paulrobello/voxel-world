@@ -1,5 +1,5 @@
 use crate::block_update::BlockUpdateQueue;
-use crate::chunk::BlockType;
+use crate::chunk::{BlockType, WaterType};
 use crate::config::Settings;
 use crate::console::ConsoleState;
 use crate::editor::{EditorAction, EditorState, draw_editor_ui, draw_model_preview};
@@ -135,6 +135,8 @@ impl HUDRenderer {
             || item.block == BlockType::Crystal
         {
             item.tint_index
+        } else if item.block == BlockType::Water {
+            item.water_type as u8
         } else {
             0
         };
@@ -218,16 +220,43 @@ impl HUDRenderer {
 
         if matches!(tab, PaletteTab::Blocks | PaletteTab::All) {
             for &block in BLOCK_PALETTE.iter() {
+                // Skip base Water block as we'll add typed versions
+                if block == BlockType::Water {
+                    continue;
+                }
                 items.push((
                     PaletteItem {
                         block,
                         model_id: 0,
                         tint_index: 0,
                         paint_texture_idx: 0,
+                        water_type: WaterType::Ocean,
                     },
                     format!("{:?}", block),
                 ));
             }
+
+            // Add water variants
+            const WATER_VARIANTS: [(WaterType, &str); 5] = [
+                (WaterType::Ocean, "Ocean Water"),
+                (WaterType::Lake, "Lake Water"),
+                (WaterType::River, "River Water"),
+                (WaterType::Swamp, "Swamp Water"),
+                (WaterType::Spring, "Spring Water"),
+            ];
+            for &(water_type, name) in WATER_VARIANTS.iter() {
+                items.push((
+                    PaletteItem {
+                        block: BlockType::Water,
+                        model_id: 0,
+                        tint_index: 0,
+                        paint_texture_idx: 0,
+                        water_type,
+                    },
+                    name.to_string(),
+                ));
+            }
+
             // Add tinted glass colors
             for &(tint_index, name) in TINTED_GLASS_COLORS.iter() {
                 items.push((
@@ -236,6 +265,7 @@ impl HUDRenderer {
                         model_id: 0,
                         tint_index,
                         paint_texture_idx: 0,
+                        water_type: WaterType::Ocean,
                     },
                     name.to_string(),
                 ));
@@ -258,6 +288,7 @@ impl HUDRenderer {
                         model_id: 0,
                         tint_index,
                         paint_texture_idx: 0,
+                        water_type: WaterType::Ocean,
                     },
                     name.to_string(),
                 ));
@@ -269,6 +300,7 @@ impl HUDRenderer {
                     model_id: 0,
                     tint_index: 0,
                     paint_texture_idx: BlockType::Planks as u8,
+                    water_type: WaterType::Ocean,
                 },
                 "Painted Block".to_string(),
             ));
@@ -283,6 +315,7 @@ impl HUDRenderer {
                             model_id: id,
                             tint_index: 0,
                             paint_texture_idx: 0,
+                            water_type: WaterType::Ocean,
                         },
                         label.to_string(),
                     ));
@@ -313,6 +346,7 @@ impl HUDRenderer {
                         model_id: model.id,
                         tint_index: 0,
                         paint_texture_idx: 0,
+                        water_type: WaterType::Ocean,
                     },
                     model.name.clone(),
                 ));
@@ -694,7 +728,23 @@ impl HUDRenderer {
                         egui::Order::Tooltip,
                         egui::Id::new("drag_preview"),
                     ));
-                    painter.image(texture_id, rect, uv_rect, egui::Color32::WHITE);
+
+                    // Calculate tint color for drag preview
+                    let texture_tint = if item.block == BlockType::Painted {
+                        Self::tint_color(item.tint_index)
+                    } else if item.block == BlockType::Water {
+                        match item.water_type {
+                            WaterType::Lake => egui::Color32::from_rgb(178, 255, 229),
+                            WaterType::River => egui::Color32::from_rgb(229, 255, 255),
+                            WaterType::Swamp => egui::Color32::from_rgb(153, 178, 102),
+                            WaterType::Spring => egui::Color32::from_rgb(255, 255, 255),
+                            WaterType::Ocean => egui::Color32::WHITE,
+                        }
+                    } else {
+                        egui::Color32::WHITE
+                    };
+
+                    painter.image(texture_id, rect, uv_rect, texture_tint);
                     let label = if item.model_id == 2 {
                         "B"
                     } else if item.model_id == 3 {
@@ -1400,6 +1450,11 @@ impl HUDRenderer {
                                         model_id: hotbar_model_ids[i],
                                         tint_index: hotbar_tint_indices[i],
                                         paint_texture_idx: hotbar_paint_textures[i],
+                                        water_type: if block == BlockType::Water {
+                                            WaterType::from_u8(hotbar_tint_indices[i])
+                                        } else {
+                                            WaterType::Ocean
+                                        },
                                     };
                                     let (texture_id, uv_rect) = if let Some(tex) =
                                         Self::sprite_for_item(palette_item, sprite_icons)
@@ -1457,6 +1512,24 @@ impl HUDRenderer {
                                     // Apply tint color for Painted blocks, white for others
                                     let texture_tint = if block == BlockType::Painted {
                                         Self::tint_color(hotbar_tint_indices[i])
+                                    } else if block == BlockType::Water {
+                                        // Apply water tint based on type
+                                        let water_type = WaterType::from_u8(hotbar_tint_indices[i]);
+                                        match water_type {
+                                            WaterType::Lake => {
+                                                egui::Color32::from_rgb(178, 255, 229)
+                                            }
+                                            WaterType::River => {
+                                                egui::Color32::from_rgb(229, 255, 255)
+                                            }
+                                            WaterType::Swamp => {
+                                                egui::Color32::from_rgb(153, 178, 102)
+                                            }
+                                            WaterType::Spring => {
+                                                egui::Color32::from_rgb(255, 255, 255)
+                                            }
+                                            WaterType::Ocean => egui::Color32::WHITE,
+                                        }
                                     } else {
                                         egui::Color32::WHITE
                                     };
@@ -1557,6 +1630,14 @@ impl HUDRenderer {
                                         83..=90 => "Fancy Door".to_string(),
                                         91..=98 => "Glass Door".to_string(),
                                         _ => "Model".to_string(),
+                                    }
+                                } else if hotbar_blocks[*hotbar_index] == BlockType::Water {
+                                    match WaterType::from_u8(hotbar_tint_indices[*hotbar_index]) {
+                                        WaterType::Ocean => "Ocean Water".to_string(),
+                                        WaterType::Lake => "Lake Water".to_string(),
+                                        WaterType::River => "River Water".to_string(),
+                                        WaterType::Swamp => "Swamp Water".to_string(),
+                                        WaterType::Spring => "Spring Water".to_string(),
                                     }
                                 } else if selected_block == BlockType::Painted {
                                     format!(

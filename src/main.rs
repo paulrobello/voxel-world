@@ -173,6 +173,8 @@ struct PaletteItem {
     tint_index: u8,
     /// For Painted blocks, the atlas texture index (0-based). Ignored for other block types.
     paint_texture_idx: u8,
+    /// For Water blocks, the water type index (0-4).
+    water_type: crate::chunk::WaterType,
 }
 
 /// Finds the ground level (highest non-air block) at the given world coordinates.
