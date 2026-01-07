@@ -1,8 +1,9 @@
 //! Query methods for world data including minimap and height cache.
 
 use super::World;
-use crate::chunk::BlockType;
-use nalgebra::Vector3;
+use crate::chunk::{BlockType, CHUNK_SIZE};
+use crate::constants::WORLD_CHUNKS_Y;
+use nalgebra::{Vector3, vector};
 use std::collections::HashMap;
 
 impl World {
@@ -82,26 +83,50 @@ impl World {
                         cached
                     } else {
                         let mut res = (BlockType::Air, 0);
-                        for y in (0..crate::constants::TEXTURE_SIZE_Y as i32).rev() {
-                            if let Some(block) = self.get_block(Vector3::new(world_x, y, world_z)) {
-                                if block != BlockType::Air {
-                                    // Skip decorative blocks if enabled
-                                    if minimap.skip_decorative
-                                        && matches!(
-                                            block,
-                                            BlockType::Model
-                                                | BlockType::Leaves
-                                                | BlockType::PineLeaves
-                                                | BlockType::WillowLeaves
-                                        )
+
+                        // Optimization: Scan chunk-by-chunk from top to bottom
+                        // Skip empty chunks entirely (32 blocks at once)
+                        'chunk_scan: for chunk_y in (0..WORLD_CHUNKS_Y).rev() {
+                            let chunk_pos = vector![
+                                world_x.div_euclid(CHUNK_SIZE as i32),
+                                chunk_y,
+                                world_z.div_euclid(CHUNK_SIZE as i32)
+                            ];
+
+                            // Check if chunk exists and is not empty
+                            if let Some(chunk) = self.get_chunk(chunk_pos) {
+                                // Skip entire chunk if it's all air
+                                if chunk.is_empty() {
+                                    continue;
+                                }
+
+                                // Scan blocks within this chunk (top to bottom)
+                                for local_y in (0..CHUNK_SIZE).rev() {
+                                    let y = chunk_y * CHUNK_SIZE as i32 + local_y as i32;
+                                    if let Some(block) =
+                                        self.get_block(Vector3::new(world_x, y, world_z))
                                     {
-                                        continue; // Keep scanning down
+                                        if block != BlockType::Air {
+                                            // Skip decorative blocks if enabled
+                                            if minimap.skip_decorative
+                                                && matches!(
+                                                    block,
+                                                    BlockType::Model
+                                                        | BlockType::Leaves
+                                                        | BlockType::PineLeaves
+                                                        | BlockType::WillowLeaves
+                                                )
+                                            {
+                                                continue; // Keep scanning down
+                                            }
+                                            res = (block, y);
+                                            break 'chunk_scan;
+                                        }
                                     }
-                                    res = (block, y);
-                                    break;
                                 }
                             }
                         }
+
                         self.minimap_height_cache.insert((world_x, world_z), res);
                         res
                     };
