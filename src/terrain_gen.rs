@@ -589,6 +589,15 @@ fn generate_oak(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
 }
 
 fn generate_normal_oak(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
+    // Check if there's solid ground below (no floating trees over caves)
+    if let Some(block_below) = get_block_safe(chunk, x, y, z) {
+        if !block_below.is_solid() {
+            return; // Don't place tree on air/water
+        }
+    } else {
+        return; // Don't place tree if we can't check
+    }
+
     // More variation: height 4-9, with different canopy sizes
     let height = 4 + (hash % 6);
     let canopy_size = (hash / 7) % 3; // 0=small, 1=medium, 2=large
@@ -664,6 +673,15 @@ fn generate_normal_oak(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
 }
 
 fn generate_giant_oak(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
+    // Check if there's solid ground below (no floating trees over caves)
+    if let Some(block_below) = get_block_safe(chunk, x, y, z) {
+        if !block_below.is_solid() {
+            return; // Don't place tree on air/water
+        }
+    } else {
+        return; // Don't place tree if we can't check
+    }
+
     // Giant trees: 2-3 decks, each deck separated by trunk blocks
     let num_decks = 2 + ((hash / 19) % 2); // 2 or 3 decks
 
@@ -881,6 +899,15 @@ fn generate_pine(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
 }
 
 fn generate_normal_pine(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
+    // Check if there's solid ground below (no floating trees over caves)
+    if let Some(block_below) = get_block_safe(chunk, x, y, z) {
+        if !block_below.is_solid() {
+            return; // Don't place tree on air/water
+        }
+    } else {
+        return; // Don't place tree if we can't check
+    }
+
     // More variation: height 6-13 blocks
     let height = 6 + (hash % 8);
     let cone_width = (hash / 11) % 3; // 0=narrow, 1=medium, 2=wide
@@ -895,9 +922,9 @@ fn generate_normal_pine(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
 
     // Single continuous cone with steep taper
     let max_radius = match cone_width {
-        0 => 2, // Narrow
-        1 => 3, // Medium
-        _ => 4, // Wide
+        0 => 1, // Narrow
+        1 => 2, // Medium
+        _ => 3, // Wide
     };
 
     let cone_height = height - start_leaves + 2; // Extends above trunk
@@ -913,6 +940,15 @@ fn generate_normal_pine(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
 }
 
 fn generate_giant_pine(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
+    // Check if there's solid ground below (no floating trees over caves)
+    if let Some(block_below) = get_block_safe(chunk, x, y, z) {
+        if !block_below.is_solid() {
+            return; // Don't place tree on air/water
+        }
+    } else {
+        return; // Don't place tree if we can't check
+    }
+
     // Giant pines: single large cone, much taller
     let height = 15 + ((hash / 19) % 8); // 15-22 blocks tall
     let cone_width = (hash / 23) % 2; // 0=wide, 1=very wide
@@ -926,7 +962,7 @@ fn generate_giant_pine(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
     }
 
     // Large continuous cone
-    let max_radius = if cone_width == 0 { 5 } else { 6 };
+    let max_radius = if cone_width == 0 { 3 } else { 4 };
 
     let cone_height = height - start_leaves + 2;
     generate_pine_cone(
@@ -1093,6 +1129,20 @@ fn generate_cactus(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
     }
 }
 // Helper to set blocks safely within chunk bounds
+fn get_block_safe(chunk: &Chunk, x: i32, y: i32, z: i32) -> Option<BlockType> {
+    if x >= 0
+        && x < CHUNK_SIZE as i32
+        && y >= 0
+        && y < CHUNK_SIZE as i32
+        && z >= 0
+        && z < CHUNK_SIZE as i32
+    {
+        Some(chunk.get_block(x as usize, y as usize, z as usize))
+    } else {
+        None
+    }
+}
+
 fn set_block_safe(chunk: &mut Chunk, x: i32, y: i32, z: i32, block: BlockType) {
     if x >= 0
         && x < CHUNK_SIZE as i32
