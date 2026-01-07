@@ -25,6 +25,17 @@ vec4 getModelPaletteColor(uint model_id, uint palette_idx) {
     return texture(modelPalettes, uv);
 }
 
+// Get emission value for a palette entry (0-1)
+// model_id: 0-255
+// palette_idx: 0-31
+float getModelPaletteEmission(uint model_id, uint palette_idx) {
+    vec2 uv = vec2(
+        (float(model_id) + 0.5) / 256.0,
+        (float(palette_idx) + 0.5) / 32.0
+    );
+    return texture(modelPaletteEmission, uv).r;
+}
+
 // Get model resolution (always 16 on GPU - models are resampled)
 uint getModelResolution(uint model_id) {
     return SUB_VOXEL_SIZE;
@@ -306,10 +317,10 @@ bool marchSubVoxelModel(
             vec4 paletteColor = getModelPaletteColor(model_id, palette_idx);
             vec3 voxelColor = paletteColor.rgb;
 
-            // Add emission glow if model has emission (e.g., torch flame)
-            ModelProperties props = model_properties[model_id];
-            if (props.emission.a > 0.0) {
-                voxelColor += props.emission.rgb * props.emission.a * 0.5;
+            // Add per-voxel emission glow (e.g., torch flame)
+            float emission = getModelPaletteEmission(model_id, palette_idx);
+            if (emission > 0.0) {
+                voxelColor += voxelColor * emission * 0.8;  // Glow using palette color
             }
 
             // Calculate surface info for this voxel

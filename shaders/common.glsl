@@ -212,7 +212,7 @@ layout(set = 6, binding = 0, r32f) uniform image2D distanceImage;
 layout(set = 7, binding = 0) readonly buffer BrickMasks { uint brick_masks[]; };
 layout(set = 7, binding = 1) readonly buffer BrickDistances { uint brick_distances[]; };
 
-// Sub-voxel models (set 7, bindings 2-5)
+// Sub-voxel models (set 7, bindings 2-6)
 // Single 16³ atlas - all models resampled to this resolution for performance
 layout(set = 7, binding = 2, r8ui) readonly uniform uimage3D modelAtlas;
 layout(set = 7, binding = 3) uniform sampler2D modelPalettes;
@@ -230,6 +230,7 @@ struct ModelProperties {
 layout(set = 7, binding = 5) readonly buffer ModelPropertiesBuffer {
     ModelProperties model_properties[];
 };
+layout(set = 7, binding = 6) uniform sampler2D modelPaletteEmission;
 
 // Sub-voxel constants
 // Default resolution (medium) - for backward compatibility

@@ -335,6 +335,25 @@ impl ModelRegistry {
         data
     }
 
+    /// Packs palette emission data for all models.
+    /// Format: 256 models × 32 palette slots × 1 byte (R8) = 8,192 bytes
+    pub fn pack_palette_emission_for_gpu(&self) -> Vec<u8> {
+        const TEX_WIDTH: usize = MAX_MODELS; // 256
+        const TEX_HEIGHT: usize = PALETTE_SIZE; // 32
+        let mut data = vec![0u8; TEX_WIDTH * TEX_HEIGHT];
+
+        for (model_id, model) in self.models.iter().enumerate() {
+            for (palette_idx, &emission) in model.palette_emission.iter().enumerate() {
+                // Buffer offset for texel at (model_id, palette_idx)
+                let dst_idx = model_id + palette_idx * TEX_WIDTH;
+                // Convert 0.0-1.0 to 0-255
+                data[dst_idx] = (emission * 255.0) as u8;
+            }
+        }
+
+        data
+    }
+
     /// Packs properties for all models.
     pub fn pack_properties_for_gpu(&self) -> Vec<u8> {
         let mut data = Vec::with_capacity(self.models.len() * 48);

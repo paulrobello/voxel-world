@@ -804,6 +804,7 @@ pub fn get_brick_and_model_set(
     Arc<Image>,                      // model_atlas_16 (16³ resolution tier)
     Arc<Image>,                      // model_atlas_32 (32³ resolution tier)
     Arc<Image>,                      // model_palettes
+    Arc<Image>,                      // model_palette_emission
     Arc<Image>,                      // model_metadata
     Subbuffer<[GpuModelProperties]>, // model_properties_buffer
     Arc<DescriptorSet>,              // combined set 7
@@ -902,6 +903,20 @@ pub fn get_brick_and_model_set(
     )
     .unwrap();
 
+    // Create model palette emission 2D texture (R8, 256×32)
+    let model_palette_emission = Image::new(
+        memory_allocator.clone(),
+        ImageCreateInfo {
+            image_type: ImageType::Dim2d,
+            format: Format::R8_UNORM,
+            extent: [MAX_MODELS as u32, PALETTE_SIZE as u32, 1],
+            usage: ImageUsage::SAMPLED | ImageUsage::TRANSFER_DST,
+            ..Default::default()
+        },
+        AllocationCreateInfo::default(),
+    )
+    .unwrap();
+
     // Create model metadata 3D texture (RG8_UINT, same extent as blocks)
     let model_metadata = Image::new(
         memory_allocator.clone(),
@@ -942,6 +957,7 @@ pub fn get_brick_and_model_set(
         &model_atlas_16,
         &model_atlas_32,
         &model_palettes,
+        &model_palette_emission,
         &model_properties_buffer,
     );
 
@@ -980,6 +996,12 @@ pub fn get_brick_and_model_set(
     )
     .unwrap();
 
+    let emission_view = ImageView::new(
+        model_palette_emission.clone(),
+        ImageViewCreateInfo::from_image(&model_palette_emission),
+    )
+    .unwrap();
+
     let metadata_view = ImageView::new(
         model_metadata.clone(),
         ImageViewCreateInfo::from_image(&model_metadata),
@@ -1007,11 +1029,16 @@ pub fn get_brick_and_model_set(
             // Brick metadata (bindings 0-1)
             WriteDescriptorSet::buffer(0, brick_mask_buffer.clone()),
             WriteDescriptorSet::buffer(1, brick_dist_buffer.clone()),
-            // Model resources (bindings 2-5) - single 16³ atlas
+            // Model resources (bindings 2-6) - single 16³ atlas + palettes + emission
             WriteDescriptorSet::image_view(2, atlas_16_view),
-            WriteDescriptorSet::image_view_sampler(3, palette_view, palette_sampler),
+            WriteDescriptorSet::image_view_sampler(
+                3,
+                palette_view.clone(),
+                palette_sampler.clone(),
+            ),
             WriteDescriptorSet::image_view(4, metadata_view),
             WriteDescriptorSet::buffer(5, model_properties_buffer.clone()),
+            WriteDescriptorSet::image_view_sampler(6, emission_view, palette_sampler.clone()),
         ],
     );
 
@@ -1022,6 +1049,7 @@ pub fn get_brick_and_model_set(
         model_atlas_16,
         model_atlas_32,
         model_palettes,
+        model_palette_emission,
         model_metadata,
         model_properties_buffer,
         descriptor_set,
@@ -1080,17 +1108,20 @@ pub fn upload_model_registry(
     atlas_16: &Arc<Image>,
     _atlas_32: &Arc<Image>,
     palettes: &Arc<Image>,
+    palette_emission: &Arc<Image>,
     properties_buffer: &Subbuffer<[GpuModelProperties]>,
 ) {
     // Pack all models to 16³ atlas (resampling as needed)
     let atlas_data = registry.pack_voxels_for_gpu();
     let palette_data = registry.pack_palettes_for_gpu();
+    let emission_data = registry.pack_palette_emission_for_gpu();
     let properties_data = registry.pack_properties_for_gpu();
 
     // Reuse host-visible staging buffers
     thread_local! {
         static ATLAS_POOL: std::cell::RefCell<Vec<Subbuffer<[u8]>>> = const { std::cell::RefCell::new(Vec::new()) };
         static PALETTE_POOL: std::cell::RefCell<Vec<Subbuffer<[u8]>>> = const { std::cell::RefCell::new(Vec::new()) };
+        static EMISSION_POOL: std::cell::RefCell<Vec<Subbuffer<[u8]>>> = const { std::cell::RefCell::new(Vec::new()) };
     }
     const HOST_POOL_MAX_BUFFERS: usize = 4;
 
@@ -1128,6 +1159,8 @@ pub fn upload_model_registry(
         ATLAS_POOL.with(|pool| take_or_alloc_host(pool, atlas_data.len(), &memory_allocator));
     let palette_staging =
         PALETTE_POOL.with(|pool| take_or_alloc_host(pool, palette_data.len(), &memory_allocator));
+    let emission_staging =
+        EMISSION_POOL.with(|pool| take_or_alloc_host(pool, emission_data.len(), &memory_allocator));
 
     // Write data to staging buffers
     {
@@ -1142,6 +1175,11 @@ pub fn upload_model_registry(
     {
         let mut write = palette_staging.write().unwrap();
         write[..palette_data.len()].copy_from_slice(&palette_data);
+    }
+
+    {
+        let mut write = emission_staging.write().unwrap();
+        write[..emission_data.len()].copy_from_slice(&emission_data);
     }
 
     // Convert properties data to GpuModelProperties
@@ -1228,6 +1266,22 @@ pub fn upload_model_registry(
             }]
             .into(),
             ..CopyBufferToImageInfo::buffer_image(palette_staging.clone(), palettes.clone())
+        })
+        .unwrap();
+
+    // Copy emission data
+    command_buffer_builder
+        .copy_buffer_to_image(CopyBufferToImageInfo {
+            regions: [BufferImageCopy {
+                image_subresource: palette_emission.subresource_layers(),
+                image_extent: palette_emission.extent(),
+                ..Default::default()
+            }]
+            .into(),
+            ..CopyBufferToImageInfo::buffer_image(
+                emission_staging.clone(),
+                palette_emission.clone(),
+            )
         })
         .unwrap();
 

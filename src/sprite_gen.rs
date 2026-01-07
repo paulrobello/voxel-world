@@ -134,6 +134,7 @@ pub fn run(_args: &Args, event_loop: &EventLoop<()>) -> Result<(), Box<dyn Error
         _model_atlas_16,
         _model_atlas_32,
         _model_palettes,
+        _model_palette_emission,
         model_metadata_image,
         _model_properties_buffer,
         brick_and_model_set,
