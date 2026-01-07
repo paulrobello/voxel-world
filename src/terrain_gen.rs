@@ -950,11 +950,11 @@ fn generate_pine_cone(
     trunk_top_y: i32,
 ) {
     for dy in 0..cone_height {
-        // Calculate radius with steep quadratic taper for classic pine shape
+        // Calculate radius with smooth taper for classic pine shape
         let radius: i32 = {
             let t = 1.0 - (dy as f32 / cone_height as f32);
-            // Quadratic taper (t^2) creates steep narrowing at top
-            let taper = t * t;
+            // Use t^1.5 for gradual taper that maintains width through middle
+            let taper = t.powf(1.5);
             let calculated = (taper * max_radius as f32) as i32;
 
             // Keep minimum radius of 1 except at very top
