@@ -8,7 +8,7 @@ This document outlines the strategy for decomposing large files into smaller, mo
 |------|------------------|--------|---------------|
 | `src/sub_voxel.rs` | 2166 | ✅ Done | `src/sub_voxel/` |
 | `src/sub_voxel_builtins.rs` | 1800 | ✅ Done | `src/sub_voxel/builtins/` |
-| `src/main.rs` | 2128 | ⏳ Pending | `src/app/` (Logic), `src/render/` (Setup) |
+| `src/main.rs` | 2128 | ✅ Done | `src/app/`, `src/app_state/`, `src/world_init/` |
 | `src/world.rs` | 2104 | ✅ Done | `src/world/` |
 | `src/hud_render.rs` | 2005 | ✅ Done | `src/ui/` |
 
@@ -95,7 +95,56 @@ This file is a massive collection of `egui` code.
 
 ---
 
-## 6. Main Application (`src/main.rs`)
+## 4. Main Application (COMPLETED)
+
+Successfully decomposed `src/main.rs` into modular structures under `src/app/`, `src/app_state/`, and `src/world_init/`.
+
+### Structure:
+
+**`src/app/` - Application Logic (1847 lines total)**
+- `mod.rs`: Module organization and re-exports
+- `core.rs`: App struct definition and core methods (selected_block, resolve_player_overlap, toggle_palette_panel, save_preferences)
+- `init.rs`: App::new() - Massive Vulkan initialization (~456 lines)
+- `update.rs`: App::update() - Game loop update logic (~290 lines)
+- `render.rs`: App::render() - Rendering pipeline (~565 lines)
+- `event_handler.rs`: ApplicationHandler implementation - Window/device events (~158 lines)
+- `input.rs`: Input handling methods (moved from app_input.rs, ~500 lines)
+- `hud.rs`: HUD rendering helpers (moved from app_hud.rs, ~160 lines)
+- `minimap.rs`: Minimap update logic (moved from app_minimap.rs, ~60 lines)
+- `stats.rs`: Statistics collection (moved from app_stats.rs, ~140 lines)
+- `helpers.rs`: Future helper functions (empty placeholder)
+
+**`src/app_state/` - State Structures (345 lines total)**
+- `mod.rs`: Re-exports
+- `graphics.rs`: Graphics struct - All Vulkan resources (~50 lines)
+- `simulation.rs`: WorldSim struct + save methods (~120 lines)
+- `ui_state.rs`: UiState struct - All UI state (~70 lines)
+- `input_state.rs`: InputState struct + Deref/DerefMut (~30 lines)
+- `palette.rs`: PaletteItem + PaletteTab types (~20 lines)
+- `profiling.rs`: AutoProfileFeature enum (~40 lines)
+
+**`src/world_init/` - World Generation (150 lines total)**
+- `mod.rs`: Re-exports
+- `spawn.rs`: find_ground_level() function (~20 lines)
+- `generation.rs`: create_initial_world_with_seed(), create_game_world_full() (~120 lines)
+
+**`src/main.rs` - Entry Point (92 lines, 96% reduction from 2131)**
+- macOS cursor helper functions
+- Module declarations
+- main() function
+- Day/night cycle constants moved to `constants.rs`
+
+### Key Improvements:
+- **Massive reduction**: main.rs from 2131 → 92 lines (96% reduction)
+- **Modular organization**: Clear separation of concerns across 3 module families
+- **Maintainability**: Smaller, focused files (20-565 lines each)
+- **Existing code preserved**: Moved app_* modules into src/app/ directory
+- **Clean architecture**: App logic, state management, and initialization clearly separated
+- **Type safety**: All imports and dependencies properly managed
+
+---
+
+## 5. Main Application (Original Notes)
 
 `src/main.rs` is over 2000 lines and contains Vulkan setup, window event handling, and game loop logic.
 

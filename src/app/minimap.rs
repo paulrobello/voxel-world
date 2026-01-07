@@ -1,4 +1,4 @@
-use crate::{UiState, WorldSim};
+use crate::app_state::{UiState, WorldSim};
 use egui_winit_vulkano::egui;
 use nalgebra::Vector3;
 use std::time::Instant;

@@ -1,7 +1,7 @@
 //! Hotbar UI rendering.
 
 use super::helpers::HudHelpers;
-use crate::PaletteItem;
+use crate::app_state::PaletteItem;
 use crate::chunk::{BlockType, WaterType};
 use crate::gpu_resources::SpriteIcons;
 use egui_winit_vulkano::egui;

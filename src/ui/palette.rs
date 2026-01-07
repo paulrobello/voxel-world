@@ -1,10 +1,10 @@
 //! Block and model palette UI.
 
 use super::helpers::HudHelpers;
+use crate::app_state::{PaletteItem, PaletteTab};
 use crate::chunk::{BlockType, WaterType};
 use crate::gpu_resources::SpriteIcons;
 use crate::sub_voxel::ModelRegistry;
-use crate::{PaletteItem, PaletteTab};
 use egui_winit_vulkano::egui;
 
 pub struct PaletteUI;

@@ -1,4 +1,4 @@
-use crate::{UiState, WorldSim};
+use crate::app_state::{UiState, WorldSim};
 use std::fs::OpenOptions;
 use std::io::Write;
 

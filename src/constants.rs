@@ -38,3 +38,10 @@ pub static EMPTY_CHUNK_DATA: std::sync::LazyLock<Vec<u8>> =
 /// Cached empty model metadata for GPU clearing (2 bytes per block: model_id + rotation)
 pub static EMPTY_MODEL_METADATA: std::sync::LazyLock<Vec<u8>> =
     std::sync::LazyLock::new(|| vec![0u8; CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE * 2]);
+
+// Day/night cycle constants
+/// Duration of a full day cycle in seconds (real time)
+pub const DAY_CYCLE_DURATION: f32 = 120.0;
+/// Default time of day (0.0 = midnight, 0.5 = noon, formula: hours = v * 24)
+/// 14/24 ≈ 0.5833 = 14:00 (2pm)
+pub const DEFAULT_TIME_OF_DAY: f32 = 14.0 / 24.0;

@@ -8,7 +8,7 @@
 //! - Minimap and compass
 //! - Console
 
-use crate::PaletteItem;
+use crate::app_state::{PaletteItem, PaletteTab};
 use crate::block_update::BlockUpdateQueue;
 use crate::chunk::BlockType;
 use crate::config::Settings;
@@ -86,7 +86,7 @@ pub struct HudInputs<'a> {
     pub minimap: &'a mut Minimap,
     pub minimap_cached_image: &'a mut Option<egui::ColorImage>,
     pub palette_open: &'a mut bool,
-    pub palette_tab: &'a mut crate::PaletteTab,
+    pub palette_tab: &'a mut PaletteTab,
     pub dragging_item: &'a mut Option<PaletteItem>,
     pub model_registry: &'a ModelRegistry,
     pub editor: &'a mut EditorState,

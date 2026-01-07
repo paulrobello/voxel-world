@@ -430,7 +430,7 @@ impl Player {
     pub fn get_spawn_pos(&self, world: &World) -> Vector3<f64> {
         let spawn_x = 0;
         let spawn_z = 0;
-        let spawn_y = crate::find_ground_level(world, spawn_x, spawn_z);
+        let spawn_y = crate::world_init::find_ground_level(world, spawn_x, spawn_z);
         Vector3::new(spawn_x as f64, spawn_y as f64 + 1.0, spawn_z as f64)
     }
 

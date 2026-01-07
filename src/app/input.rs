@@ -1,4 +1,4 @@
-use crate::App;
+use super::App;
 use crate::chunk::BlockType;
 use crate::raycast::get_place_position;
 use nalgebra::Vector3;

@@ -1,9 +1,9 @@
+use crate::app_state::{UiState, WorldSim};
 use crate::chunk::BlockType;
 use crate::editor::EditorAction;
 use crate::editor::rasterizer::generate_model_sprite;
 use crate::gpu_resources::RenderContext;
 use crate::ui::{FluidStats, HUDRenderer, HudInputs};
-use crate::{UiState, WorldSim};
 use egui_winit_vulkano::egui;
 use nalgebra::Vector3;
 use std::path::Path;
