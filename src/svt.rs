@@ -63,6 +63,11 @@ impl ChunkSVT {
 
     /// Builds a sparse voxel tree from raw block storage (32³ array).
     pub fn from_block_data(blocks: &[BlockType; CHUNK_VOLUME]) -> Self {
+        // Early return for all-air chunks (skip 32,768 block checks)
+        if blocks.iter().all(|&b| b == BlockType::Air) {
+            return Self::empty();
+        }
+
         let mut brick_mask = 0u64;
         let mut brick_data = Vec::new();
         let mut brick_has_solid = [false; BRICKS_PER_CHUNK];

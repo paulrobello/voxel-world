@@ -286,6 +286,10 @@ impl App {
 
         let mut uploads: Vec<Upload> = Vec::new();
         for (pos, chunk) in self.sim.world.chunks() {
+            // Skip empty chunks entirely (they contain no visible data)
+            if chunk.is_empty() {
+                continue;
+            }
             uploads.push(Upload {
                 pos: *pos,
                 block: chunk.block_bytes(),
