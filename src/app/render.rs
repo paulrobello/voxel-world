@@ -33,9 +33,14 @@ impl App {
         self.graphics.resample_pipeline.maybe_reload();
 
         // Collect data before borrowing rcx (avoids borrow checker issues)
+        // Convert player position from normalized to world coordinates for light collection
+        let player_world_pos = self
+            .sim
+            .player
+            .camera_world_pos(self.sim.world_extent, self.sim.texture_origin);
         let gpu_lights = self.sim.world.collect_torch_lights(
             self.sim.player.light_enabled,
-            self.sim.player.camera.position,
+            player_world_pos,
             self.sim.texture_origin,
             &self.sim.model_registry,
             self.sim.world_extent,

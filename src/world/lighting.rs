@@ -34,6 +34,7 @@ impl World {
             let tex_x = (player_pos.x - texture_origin.x as f64) as f32;
             let tex_y = (player_pos.y + PLAYER_EYE_HEIGHT * 0.7 - texture_origin.y as f64) as f32;
             let tex_z = (player_pos.z - texture_origin.z as f64) as f32;
+
             lights.push(GpuLight {
                 pos_radius: [tex_x, tex_y, tex_z, 12.0],
                 color_intensity: [1.0, 0.8, 0.5, Self::encode_light_intensity(2, 1.5)], // Flicker mode
