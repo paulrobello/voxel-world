@@ -155,6 +155,8 @@ pub struct ConsoleState {
     pub suggestions: Vec<String>,
     /// Currently selected suggestion index.
     pub suggestion_index: usize,
+    /// Whether to move cursor to end of input on next frame.
+    pub move_cursor_to_end: bool,
 }
 
 /// Maximum number of command history entries to persist.
@@ -179,6 +181,7 @@ impl ConsoleState {
             pending_biome_debug: None,
             suggestions: Vec::new(),
             suggestion_index: 0,
+            move_cursor_to_end: false,
         }
     }
 
@@ -367,6 +370,7 @@ impl ConsoleState {
 
         self.suggestions.clear();
         self.suggestion_index = 0;
+        self.move_cursor_to_end = true;
     }
 
     /// Cycle to next suggestion.
@@ -452,18 +456,9 @@ impl ConsoleState {
                 ghost_parts.push(label);
             }
 
-            let result = ghost_parts.join(" ");
-            eprintln!(
-                "[Console] Ghost text for '{}' (ends_with_space={}, param_start={}): '{}'",
-                input, ends_with_space, param_start, result
-            );
-            return result;
+            return ghost_parts.join(" ");
         }
 
-        eprintln!(
-            "[Console] No ghost text for '{}' (no matching command)",
-            input
-        );
         String::new()
     }
 

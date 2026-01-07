@@ -87,15 +87,22 @@ impl ConsoleUI {
                             .lock_focus(true),
                     );
 
+                    // Move cursor to end if requested
+                    if console.move_cursor_to_end {
+                        if let Some(mut state) = egui::TextEdit::load_state(ctx, response.id) {
+                            let cursor_pos = console.input.len();
+                            let ccursor = egui::text::CCursor::new(cursor_pos);
+                            state
+                                .cursor
+                                .set_char_range(Some(egui::text::CCursorRange::one(ccursor)));
+                            state.store(ctx, response.id);
+                        }
+                        console.move_cursor_to_end = false;
+                    }
+
                     // Draw ghost text overlay if we have one and no suggestions popup
                     if console.suggestions.is_empty() && !console.input.is_empty() {
                         let ghost_text = console.get_ghost_text();
-                        eprintln!(
-                            "[ConsoleUI] Input: '{}', Ghost: '{}', Suggestions: {}",
-                            console.input,
-                            ghost_text,
-                            console.suggestions.len()
-                        );
                         if !ghost_text.is_empty() {
                             let input_rect = response.rect;
                             let font_id = egui::FontId::monospace(13.0);
@@ -114,11 +121,6 @@ impl ConsoleUI {
                             let ghost_start_pos = egui::pos2(
                                 input_rect.min.x + input_text_width + 4.0,
                                 input_rect.min.y + 2.0,
-                            );
-
-                            eprintln!(
-                                "[ConsoleUI] Drawing ghost text at {:?}: '{}'",
-                                ghost_start_pos, ghost_text
                             );
 
                             ui.painter().text(
