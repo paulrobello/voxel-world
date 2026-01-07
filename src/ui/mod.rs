@@ -192,8 +192,8 @@ impl HUDRenderer {
                 minimap_cached_image,
             );
 
-            // Crosshair (hide when editor is open)
-            if !editor.active {
+            // Crosshair (hide when editor or console is open)
+            if !editor.active && !console.active {
                 Self::draw_crosshair(&ctx, current_hit);
             }
 

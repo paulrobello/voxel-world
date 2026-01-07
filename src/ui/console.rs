@@ -87,25 +87,30 @@ impl ConsoleUI {
                         let ghost_text = console.get_ghost_text();
                         if !ghost_text.is_empty() {
                             let input_rect = response.rect;
+                            let font_id = egui::FontId::monospace(13.0);
+
+                            // Calculate width of current input text
+                            let input_text_width = ui.fonts(|f| {
+                                f.layout_no_wrap(
+                                    console.input.clone(),
+                                    font_id.clone(),
+                                    egui::Color32::WHITE,
+                                )
+                                .size()
+                                .x
+                            });
+
                             let ghost_start_pos = egui::pos2(
-                                input_rect.min.x
-                                    + ui.painter()
-                                        .layout_no_wrap(
-                                            console.input.clone(),
-                                            egui::FontId::monospace(14.0),
-                                            egui::Color32::WHITE,
-                                        )
-                                        .size()
-                                        .x,
-                                input_rect.min.y,
+                                input_rect.min.x + input_text_width + 4.0,
+                                input_rect.min.y + 2.0,
                             );
 
                             ui.painter().text(
                                 ghost_start_pos,
                                 egui::Align2::LEFT_TOP,
                                 format!(" {}", ghost_text),
-                                egui::FontId::monospace(14.0),
-                                egui::Color32::from_rgba_unmultiplied(150, 150, 150, 100),
+                                font_id,
+                                egui::Color32::from_rgba_unmultiplied(100, 100, 100, 180),
                             );
                         }
                     }
@@ -145,8 +150,13 @@ impl ConsoleUI {
 
                     // Handle autocomplete and history navigation (check while focused)
                     if response.has_focus() {
-                        // Tab for autocomplete
-                        if ui.input(|i| i.key_pressed(egui::Key::Tab)) {
+                        // Consume Tab key to prevent focus change
+                        let tab_pressed = ui.input(|i| i.key_pressed(egui::Key::Tab));
+                        if tab_pressed {
+                            // Prevent Tab from changing focus
+                            ui.memory_mut(|mem| mem.surrender_focus(response.id));
+                            response.request_focus();
+
                             if console.suggestions.is_empty() {
                                 // Generate suggestions
                                 console.update_autocomplete();
