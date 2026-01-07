@@ -3,6 +3,7 @@ use crate::terrain_gen::BiomeInfo;
 use egui_winit_vulkano::egui;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum MinimapMode {
     Blocks,
     Height,

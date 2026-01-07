@@ -8,6 +8,7 @@
 //! - Minimap and compass
 //! - Console
 
+use crate::PaletteItem;
 use crate::block_update::BlockUpdateQueue;
 use crate::chunk::BlockType;
 use crate::config::Settings;
@@ -21,28 +22,24 @@ use crate::render_mode::RenderMode;
 use crate::sub_voxel::ModelRegistry;
 use crate::terrain_gen::TerrainGenerator;
 use crate::utils::ChunkStats;
-use crate::PaletteItem;
 use egui_winit_vulkano::egui;
 use nalgebra::Vector3;
 
+pub mod console;
 pub mod helpers;
-pub mod palette;
-pub mod stats;
-pub mod settings;
 pub mod hotbar;
 pub mod minimap;
-pub mod console;
+pub mod palette;
+pub mod settings;
+pub mod stats;
 pub mod time;
 
-use helpers::HudHelpers;
-use palette::PaletteUI;
-use stats::StatsUI;
-use settings::SettingsUI;
+use console::ConsoleUI;
 use hotbar::HotbarUI;
 use minimap::MinimapUI;
-use console::ConsoleUI;
-
-pub use time::{parse_time, format_time};
+use palette::PaletteUI;
+use settings::SettingsUI;
+use stats::StatsUI;
 
 /// Water/lava simulation stats for debug display.
 #[derive(Debug, Clone, Copy, Default)]
@@ -172,12 +169,7 @@ impl HUDRenderer {
 
             // Drag preview near cursor
             if let Some(item) = dragging_item.as_ref() {
-                HotbarUI::draw_drag_preview(
-                    &ctx,
-                    *item,
-                    atlas_texture_id,
-                    sprite_icons,
-                );
+                HotbarUI::draw_drag_preview(&ctx, *item, atlas_texture_id, sprite_icons);
             }
 
             scale_changed = SettingsUI::draw_settings_window(
@@ -203,13 +195,8 @@ impl HUDRenderer {
             }
 
             // Minimap settings panel integration
-            if settings.show_minimap {
-                Self::draw_minimap_settings(
-                    &ctx,
-                    show_minimap,
-                    minimap,
-                    minimap_cached_image,
-                );
+            if *show_minimap {
+                Self::draw_minimap_settings(&ctx, show_minimap, minimap, minimap_cached_image);
             }
 
             MinimapUI::draw_minimap_and_compass(
@@ -297,10 +284,10 @@ impl HUDRenderer {
     }
 
     fn draw_minimap_settings(
-        ctx: &egui::Context,
-        show_minimap: &mut bool,
-        minimap: &mut crate::hud::Minimap,
-        minimap_cached_image: &mut Option<egui::ColorImage>,
+        _ctx: &egui::Context,
+        _show_minimap: &mut bool,
+        _minimap: &mut crate::hud::Minimap,
+        _minimap_cached_image: &mut Option<egui::ColorImage>,
     ) {
         // This is now integrated in settings window
         // Keeping this empty stub for potential future use

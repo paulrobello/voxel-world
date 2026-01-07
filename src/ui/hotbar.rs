@@ -1,9 +1,9 @@
 //! Hotbar UI rendering.
 
 use super::helpers::HudHelpers;
+use crate::PaletteItem;
 use crate::chunk::{BlockType, WaterType};
 use crate::gpu_resources::SpriteIcons;
-use crate::PaletteItem;
 use egui_winit_vulkano::egui;
 
 pub struct HotbarUI;
@@ -31,10 +31,7 @@ impl HotbarUI {
                 let uv_right = (block_idx + 1.0) / ATLAS_TILE_COUNT;
                 (
                     atlas_texture_id,
-                    egui::Rect::from_min_max(
-                        egui::pos2(uv_left, 0.0),
-                        egui::pos2(uv_right, 1.0),
-                    ),
+                    egui::Rect::from_min_max(egui::pos2(uv_left, 0.0), egui::pos2(uv_right, 1.0)),
                 )
             };
 
@@ -95,10 +92,10 @@ impl HotbarUI {
             .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -10.0))
             .show(ctx, |ui| {
                 // Background frame for the whole hotbar
-                egui::Frame::none()
+                egui::Frame::new()
                     .fill(egui::Color32::from_rgba_unmultiplied(0, 0, 0, 180))
-                    .rounding(egui::Rounding::same(4.0))
-                    .inner_margin(egui::Margin::same(6.0))
+                    .corner_radius(egui::CornerRadius::same(4))
+                    .inner_margin(egui::Margin::same(6))
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
                             ui.spacing_mut().item_spacing = egui::vec2(4.0, 0.0);
@@ -106,7 +103,7 @@ impl HotbarUI {
                             let len = hotbar_blocks.len();
                             for i in 0..len {
                                 let block = hotbar_blocks[i];
-                                let is_selected = i == hotbar_index;
+                                let is_selected = i == *hotbar_index;
 
                                 // Texture source: prefer generated sprite, fallback to atlas UV.
                                 let palette_item = PaletteItem {
@@ -164,7 +161,7 @@ impl HotbarUI {
                                 // Draw slot background
                                 ui.painter().rect_filled(
                                     rect,
-                                    egui::Rounding::same(2.0),
+                                    egui::CornerRadius::same(2),
                                     egui::Color32::from_rgb(40, 40, 40),
                                 );
 
@@ -183,12 +180,8 @@ impl HotbarUI {
                                 } else {
                                     egui::Color32::WHITE
                                 };
-                                ui.painter().image(
-                                    texture_id,
-                                    texture_rect,
-                                    uv_rect,
-                                    texture_tint,
-                                );
+                                ui.painter()
+                                    .image(texture_id, texture_rect, uv_rect, texture_tint);
                                 if hotbar_model_ids[i] == 2 {
                                     ui.painter().text(
                                         texture_rect.left_top() + egui::vec2(4.0, 4.0),
@@ -211,16 +204,18 @@ impl HotbarUI {
                                     let tint_color = HudHelpers::tint_color(hotbar_tint_indices[i]);
                                     ui.painter().rect_stroke(
                                         texture_rect.shrink(1.0),
-                                        egui::Rounding::same(2.0),
+                                        egui::CornerRadius::same(2),
                                         egui::Stroke::new(2.0, tint_color),
+                                        egui::StrokeKind::Outside,
                                     );
                                 }
 
                                 // Draw border
                                 ui.painter().rect_stroke(
                                     rect,
-                                    egui::Rounding::same(2.0),
+                                    egui::CornerRadius::same(2),
                                     egui::Stroke::new(border_width, border_color),
+                                    egui::StrokeKind::Outside,
                                 );
 
                                 // Draw number label

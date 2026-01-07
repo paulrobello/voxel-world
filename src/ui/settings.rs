@@ -4,7 +4,6 @@ use super::time::{format_time, parse_time};
 use crate::block_update::BlockUpdateQueue;
 use crate::chunk::BlockType;
 use crate::config::Settings;
-use crate::hud::{Minimap, MinimapMode};
 use crate::player::Player;
 use crate::raycast::RaycastHit;
 use crate::render_mode::RenderMode;
@@ -29,7 +28,7 @@ impl SettingsUI {
         view_distance: &mut i32,
         unload_distance: &mut i32,
         block_updates: &mut BlockUpdateQueue,
-        model_registry: &ModelRegistry,
+        _model_registry: &ModelRegistry,
     ) -> bool {
         let mut scale_changed = false;
 
@@ -95,9 +94,7 @@ impl SettingsUI {
 
                         ui.separator();
 
-                        ui.add(
-                            egui::Slider::new(&mut player.camera.fov, 20.0..=120.0).text("FOV"),
-                        );
+                        ui.add(egui::Slider::new(&mut player.camera.fov, 20.0..=120.0).text("FOV"));
 
                         if ui
                             .add(
@@ -182,10 +179,7 @@ impl SettingsUI {
                             }
                         }
                         if ui
-                            .add(
-                                egui::Slider::new(unload_distance, 3..=12)
-                                    .text("Unload Distance"),
-                            )
+                            .add(egui::Slider::new(unload_distance, 3..=12).text("Unload Distance"))
                             .changed()
                         {
                             println!("[SETTING] Unload Distance: {} chunks", *unload_distance);
@@ -229,10 +223,7 @@ impl SettingsUI {
                             );
                         }
                         if ui
-                            .checkbox(
-                                &mut settings.enable_point_lights,
-                                "Point Lights (torches)",
-                            )
+                            .checkbox(&mut settings.enable_point_lights, "Point Lights (torches)")
                             .changed()
                         {
                             println!(
@@ -245,10 +236,7 @@ impl SettingsUI {
                             );
                         }
                         if ui
-                            .checkbox(
-                                &mut settings.enable_tinted_shadows,
-                                "Tinted Glass Shadows",
-                            )
+                            .checkbox(&mut settings.enable_tinted_shadows, "Tinted Glass Shadows")
                             .changed()
                         {
                             println!(
@@ -283,11 +271,8 @@ impl SettingsUI {
                             ui.label("AO:");
                             if ui
                                 .add(
-                                    egui::Slider::new(
-                                        &mut settings.lod_ao_distance,
-                                        8.0..=64.0,
-                                    )
-                                    .suffix(" blocks"),
+                                    egui::Slider::new(&mut settings.lod_ao_distance, 8.0..=64.0)
+                                        .suffix(" blocks"),
                                 )
                                 .changed()
                             {
@@ -334,11 +319,8 @@ impl SettingsUI {
                             ui.label("Models:");
                             if ui
                                 .add(
-                                    egui::Slider::new(
-                                        &mut settings.lod_model_distance,
-                                        8.0..=64.0,
-                                    )
-                                    .suffix(" blocks"),
+                                    egui::Slider::new(&mut settings.lod_model_distance, 8.0..=64.0)
+                                        .suffix(" blocks"),
                                 )
                                 .changed()
                             {
@@ -355,10 +337,7 @@ impl SettingsUI {
                         ui.checkbox(&mut player.auto_jump, "Auto-jump");
                         ui.checkbox(&mut settings.instant_break, "Instant block break");
                         ui.checkbox(&mut settings.instant_place, "Instant block place");
-                        ui.checkbox(
-                            &mut settings.show_block_preview,
-                            "Block placement preview",
-                        );
+                        ui.checkbox(&mut settings.show_block_preview, "Block placement preview");
                         ui.checkbox(&mut settings.show_target_outline, "Target block outline");
                         if ui
                             .checkbox(&mut player.light_enabled, "Player torch light")
@@ -371,20 +350,14 @@ impl SettingsUI {
                         }
 
                         ui.add(
-                            egui::Slider::new(
-                                &mut settings.break_cooldown_duration,
-                                0.05..=0.5,
-                            )
-                            .text("Break cooldown")
-                            .suffix("s"),
+                            egui::Slider::new(&mut settings.break_cooldown_duration, 0.05..=0.5)
+                                .text("Break cooldown")
+                                .suffix("s"),
                         );
                         ui.add(
-                            egui::Slider::new(
-                                &mut settings.place_cooldown_duration,
-                                0.05..=1.0,
-                            )
-                            .text("Place cooldown")
-                            .suffix("s"),
+                            egui::Slider::new(&mut settings.place_cooldown_duration, 0.05..=1.0)
+                                .text("Place cooldown")
+                                .suffix("s"),
                         );
 
                         // Block physics updates per frame (higher = faster cascades, more CPU)

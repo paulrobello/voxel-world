@@ -1,6 +1,5 @@
 //! Minimap and compass UI rendering.
 
-use super::helpers::HudHelpers;
 use crate::hud::Minimap;
 use egui_winit_vulkano::egui;
 
@@ -12,7 +11,7 @@ impl MinimapUI {
         show_minimap: &bool,
         minimap: &Minimap,
         minimap_image: Option<egui::ColorImage>,
-        minimap_cached_image: &Option<egui::ColorImage>,
+        _minimap_cached_image: &Option<egui::ColorImage>,
         camera_yaw: f32,
         show_compass: bool,
     ) {
@@ -25,11 +24,11 @@ impl MinimapUI {
                 egui::Area::new(egui::Id::new("minimap_hud"))
                     .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-12.0, -12.0))
                     .show(ctx, |ui| {
-                        egui::Frame::none()
+                        egui::Frame::new()
                             .fill(egui::Color32::from_rgba_unmultiplied(0, 0, 0, 200))
                             .stroke(egui::Stroke::new(2.0, egui::Color32::from_rgb(60, 60, 60)))
-                            .rounding(egui::Rounding::same(4.0))
-                            .inner_margin(egui::Margin::same(4.0))
+                            .corner_radius(egui::CornerRadius::same(4))
+                            .inner_margin(egui::Margin::same(4))
                             .show(ui, |ui| {
                                 let size = minimap.size as f32;
                                 let image_response = ui.add(
@@ -86,11 +85,11 @@ impl MinimapUI {
         egui::Area::new(egui::Id::new("compass_hud"))
             .anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(12.0, -12.0))
             .show(ctx, |ui| {
-                egui::Frame::none()
+                egui::Frame::new()
                     .fill(egui::Color32::from_rgba_unmultiplied(0, 0, 0, 200))
                     .stroke(egui::Stroke::new(2.0, egui::Color32::from_rgb(60, 60, 60)))
-                    .rounding(egui::Rounding::same(4.0))
-                    .inner_margin(egui::Margin::same(8.0))
+                    .corner_radius(egui::CornerRadius::same(4))
+                    .inner_margin(egui::Margin::same(8))
                     .show(ui, |ui| {
                         let compass_size = 60.0;
                         let (response, painter) = ui.allocate_painter(

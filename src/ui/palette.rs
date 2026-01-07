@@ -257,7 +257,8 @@ impl PaletteUI {
         dragging_item: &mut Option<PaletteItem>,
     ) {
         const ATLAS_TILE_COUNT: f32 = 27.0;
-        let block_idx = HudHelpers::atlas_tile_for(item.block, item.model_id, item.paint_texture_idx);
+        let block_idx =
+            HudHelpers::atlas_tile_for(item.block, item.model_id, item.paint_texture_idx);
         let uv_left = block_idx / ATLAS_TILE_COUNT;
         let uv_right = (block_idx + 1.0) / ATLAS_TILE_COUNT;
         let uv_rect = egui::Rect::from_min_max(egui::pos2(uv_left, 0.0), egui::pos2(uv_right, 1.0));
@@ -340,8 +341,9 @@ impl PaletteUI {
                 let tint_color = HudHelpers::tint_color(item.tint_index);
                 ui.painter().rect_stroke(
                     hover_rect.shrink(2.0),
-                    egui::Rounding::same(3.0),
+                    egui::CornerRadius::same(3),
                     egui::Stroke::new(3.0, tint_color),
+                    egui::StrokeKind::Outside,
                 );
             }
             ui.add(

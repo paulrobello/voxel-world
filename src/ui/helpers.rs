@@ -1,8 +1,8 @@
 //! Helper functions for UI rendering.
 
+use crate::PaletteItem;
 use crate::chunk::{BlockType, WaterType};
 use crate::gpu_resources::SpriteIcons;
-use crate::PaletteItem;
 use egui_winit_vulkano::egui;
 
 pub struct HudHelpers;
@@ -131,9 +131,9 @@ impl HudHelpers {
     }
 
     pub fn overlay_frame() -> egui::Frame {
-        egui::Frame::none()
+        egui::Frame::new()
             .fill(egui::Color32::from_black_alpha(180))
-            .rounding(egui::Rounding::same(4.0))
-            .inner_margin(egui::Margin::same(6.0))
+            .corner_radius(egui::CornerRadius::same(4))
+            .inner_margin(egui::Margin::same(6))
     }
 }
