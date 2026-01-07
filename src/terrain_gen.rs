@@ -680,12 +680,71 @@ fn generate_willow(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
 }
 
 fn generate_cactus(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
-    let height = 2 + (hash % 3);
+    let height = 3 + (hash % 3);
 
-    // Main column
+    // Main column (trunk)
     for dy in 1..=height {
-        // Use Cactus texture
         set_painted_block_safe(chunk, x, y + dy, z, TEX_CACTUS, TINT_WHITE);
+    }
+
+    // Add branches for taller cacti (height >= 4)
+    if height >= 4 {
+        // Determine branch direction and height based on hash
+        let branch_dir = hash % 4; // 0=N, 1=S, 2=E, 3=W
+        let branch_height = y + 2 + (hash % 2); // Branch starts 2-3 blocks up
+
+        // Branch offsets for each direction
+        let (dx, dz) = match branch_dir {
+            0 => (0, -1), // North
+            1 => (0, 1),  // South
+            2 => (1, 0),  // East
+            _ => (-1, 0), // West
+        };
+
+        // Place branch (1-2 blocks long)
+        let branch_len = 1 + ((hash / 7) % 2);
+        for i in 1..=branch_len {
+            set_painted_block_safe(
+                chunk,
+                x + dx * i,
+                branch_height,
+                z + dz * i,
+                TEX_CACTUS,
+                TINT_WHITE,
+            );
+        }
+
+        // Add vertical growth on branch tip (0-1 blocks)
+        if (hash / 13) % 2 == 0 {
+            set_painted_block_safe(
+                chunk,
+                x + dx * branch_len,
+                branch_height + 1,
+                z + dz * branch_len,
+                TEX_CACTUS,
+                TINT_WHITE,
+            );
+        }
+
+        // Optionally add a second branch on the opposite side for very tall cacti
+        if height >= 5 && (hash / 11) % 2 == 0 {
+            let branch2_height = branch_height + 1;
+            let (dx2, dz2) = match (branch_dir + 2) % 4 {
+                0 => (0, -1), // North
+                1 => (0, 1),  // South
+                2 => (1, 0),  // East
+                _ => (-1, 0), // West
+            };
+
+            set_painted_block_safe(
+                chunk,
+                x + dx2,
+                branch2_height,
+                z + dz2,
+                TEX_CACTUS,
+                TINT_WHITE,
+            );
+        }
     }
 }
 // Helper to set blocks safely within chunk bounds
