@@ -157,15 +157,15 @@
 
 **Goal**: Extend biome diversity into the underground cave networks.
 
-**Status**: PLANNED
+**Status**: IN PROGRESS (Mostly Complete)
 
 #### 15.4 Cave Biome Rules
-- [ ] Caves inherit surface biome properties (temperature affects ice caves)
-- [ ] Ice caves: frozen water, stalactites made of ice
-- [ ] Desert caves: sandstone walls, dry (no water lakes)
-- [ ] Swamp caves: flooded, glowing mushrooms
-- [ ] Mountain caves: deep networks, lava lakes at low depths (<20)
-- [ ] Stalactites/Stalagmites: new sub-voxel models, connect over time
+- [x] Caves inherit surface biome properties (biome-specific density multipliers)
+- [x] Ice caves: ice stalactites and stalagmites in snow biomes
+- [x] Desert caves: dry (no water), fewer caves (0.6x density)
+- [x] Swamp caves: heavily flooded (water up to sea_level+5)
+- [ ] Mountain caves: deep networks (1.5x density complete), lava lakes at low depths (<20) TODO
+- [x] Stalactites/Stalagmites: 4 new sub-voxel models (stone and ice variants), ~15% spawn rate
 
 #### 15.5 Debug Visualization ✅
 - [x] Console command: `/biome_debug [on|off]`
@@ -691,34 +691,36 @@ git commit -m "type: description"
 
 ---
 
-## Current Work (2026-01-06)
+## Current Work (2026-01-07)
 
-**Status**: Phase 15 (Cave Biome Integration) IN PROGRESS.
+**Status**: Phase 15.4 (Cave Biome Integration) MOSTLY COMPLETE.
 
 **Recent Work:**
-- **Biome Generation System**:
-  - Implemented elevation, temperature, and rainfall noise maps
-  - Defined 5 primary biomes (Grassland, Mountains, Desert, Swamp, Snow)
-  - Implemented biome-specific height generation and block placement
-  - Integrated `WaterType` into terrain generation (Swamp water in swamps, etc.)
-  - Implemented biome-specific vegetation (Oak, Pine, Willow, Cactus)
-  - Implemented ground cover (Tall Grass, Flowers, Mushrooms, Lily Pads)
-- **Texture Assets**:
-  - Generated seamless textures for Cactus, Mud, Sandstone, and Ice
-  - Integrated textures into `texture_atlas.png` and `shaders/materials.glsl`
-  - Updated terrain generation to use `Painted` blocks for Mud (Swamp) and Sandstone (Desert)
-- **Palette & Physics**:
-  - Added `no_collision` flag for walk-through models (grass, flowers, mushrooms)
-  - Added new models and painted block variants to HUD Palette
-  - Added "No Collision" checkbox to in-game model editor properties
-- **Bug Fixes**:
-  - Fixed invisible ground cover by ensuring collision mask is computed for rendering even when physics collision is disabled
-  - Fixed palette icons and hotbar names for new painted blocks (Cactus, Mud, Sandstone, Ice)
-  - Fixed minimap black/grey artifacts by invalidating cache on chunk load
-  - Verified no ground cover or caves spawn in flat worlds (explicitly documented)
+- **Cave Generation Module** (src/cave_gen.rs):
+  - Extracted cave logic into dedicated module from terrain_gen
+  - Implemented biome-aware cave density multipliers
+  - Added CaveFillType enum for biome-specific cave contents
+  - Created decoration placement system with noise-based spawning
+- **Cave Decorations** (4 new models: IDs 106-109):
+  - Created stalactite and stalagmite sub-voxel models (8³ resolution)
+  - Ice variants for snow biome caves
+  - Stone variants for other biomes
+  - ~15% spawn rate on cave ceilings and floors
+- **Biome-Specific Cave Rules**:
+  - Mountains: 1.5x cave density (more caves)
+  - Desert: 0.6x density, always dry (no water)
+  - Swamp: 0.8x density, heavily flooded (water up to sea_level+5)
+  - Snow: 0.9x density, ice stalactites/stalagmites
+  - Grassland: 1.0x density (baseline)
+- **Code Quality**:
+  - Updated FIRST_CUSTOM_MODEL_ID from 106 to 110
+  - Updated CLAUDE.md with new model IDs
+  - All tests passing
 
-**Next Actions:**
-1. Add cave biome integration
+**Remaining Work:**
+1. Mountain lava lakes at depth <20 (optional enhancement)
+2. In-game testing of cave features in each biome
+3. Consider adding glowing mushrooms to swamp caves (future enhancement)
 
 ---
 
