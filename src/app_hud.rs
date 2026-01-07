@@ -127,6 +127,28 @@ pub fn render_hud(
                 }
             }
         }
+        EditorAction::ModelDeleted => {
+            // Reload custom models from library to update the palette
+            let library_path = crate::user_prefs::user_models_dir();
+            let old_count = sim.model_registry.custom_model_count();
+
+            // Clear existing custom models and reload from library
+            // We need to rebuild the registry with built-ins + library models
+            sim.model_registry = crate::sub_voxel::ModelRegistry::new();
+            match sim.model_registry.load_library_models(&library_path) {
+                Ok(count) => {
+                    println!(
+                        "[Editor] Reloaded model registry: {} custom models ({} -> {})",
+                        count, old_count, count
+                    );
+                }
+                Err(e) => {
+                    eprintln!("[Editor] Failed to reload library models: {}", e);
+                }
+            }
+
+            // GPU resources will be updated automatically next frame since registry is dirty
+        }
         EditorAction::ModelLoaded | EditorAction::None => {}
     }
 

@@ -191,6 +191,9 @@ pub struct EditorState {
     /// Whether to show the overwrite confirmation dialog.
     pub show_overwrite_confirm: bool,
 
+    /// Model name pending deletion (triggers confirmation dialog).
+    pub pending_delete_model: Option<String>,
+
     /// Whether to show the new model resolution dialog.
     pub show_new_model_dialog: bool,
 
@@ -250,6 +253,7 @@ impl EditorState {
             hovered_normal: None,
             saved_target_pos: None,
             show_overwrite_confirm: false,
+            pending_delete_model: None,
             show_new_model_dialog: false,
             new_model_resolution: ModelResolution::Medium,
             pending_resolution_change: None,

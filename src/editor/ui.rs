@@ -380,6 +380,33 @@ pub fn draw_editor_ui(
             });
     }
 
+    // Delete confirmation dialog
+    if let Some(ref model_name) = editor.pending_delete_model.clone() {
+        egui::Window::new("Confirm Delete")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+            .show(ctx, |ui| {
+                ui.label(format!("Delete model '{}'?", model_name));
+                ui.label("This action cannot be undone.");
+                ui.add_space(10.0);
+                ui.horizontal(|ui| {
+                    if ui.button("Delete").clicked() {
+                        editor.pending_delete_model = None;
+                        if let Err(e) = library.delete_model(model_name) {
+                            eprintln!("[Editor] Failed to delete model '{}': {}", model_name, e);
+                        } else {
+                            println!("[Editor] Deleted model '{}'", model_name);
+                            action = EditorAction::ModelDeleted;
+                        }
+                    }
+                    if ui.button("Cancel").clicked() {
+                        editor.pending_delete_model = None;
+                    }
+                });
+            });
+    }
+
     // New model dialog with resolution selection
     if editor.show_new_model_dialog {
         egui::Window::new("New Model")
@@ -602,6 +629,13 @@ fn draw_library_list(
                                     }
                                 }
                             }
+                            if ui
+                                .button("🗑")
+                                .on_hover_text("Delete this model from library")
+                                .clicked()
+                            {
+                                editor.pending_delete_model = Some(name.clone());
+                            }
                             // Truncate display name to 32 characters
                             let display_name = if name.len() > 32 {
                                 format!("{}...", &name[..29])
@@ -627,6 +661,7 @@ pub enum EditorAction {
     None,
     ModelSaved,
     ModelLoaded,
+    ModelDeleted,
     /// Place the edited model in the world and close the editor.
     PlaceInWorld,
 }
