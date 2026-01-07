@@ -276,10 +276,16 @@ impl App {
             }
         }
 
-        // Handle template placement with left-click
+        // Handle template placement with right-click
+        // Check if mouse was released (clear reclick flag)
+        if self.ui.place_needs_reclick && !self.input.mouse_held(MouseButton::Right) {
+            self.ui.place_needs_reclick = false;
+        }
+
         if self.input.focused
             && self.ui.active_placement.is_some()
-            && self.input.mouse_pressed(MouseButton::Left)
+            && self.input.mouse_pressed(MouseButton::Right)
+            && !self.ui.place_needs_reclick
         {
             if let Some(ref mut placement) = self.ui.active_placement {
                 // Place blocks in batches until complete
@@ -302,8 +308,9 @@ impl App {
                 );
             }
 
-            // Clear active placement
+            // Clear active placement and require mouse release before next action
             self.ui.active_placement = None;
+            self.ui.place_needs_reclick = true;
             return; // Skip block breaking
         }
 
