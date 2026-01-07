@@ -950,12 +950,11 @@ fn generate_pine_cone(
     trunk_top_y: i32,
 ) {
     for dy in 0..cone_height {
-        // Calculate radius with smooth taper for classic pine shape
+        // Calculate radius with linear taper for classic pine shape
         let radius: i32 = {
             let t = 1.0 - (dy as f32 / cone_height as f32);
-            // Use t^1.5 for gradual taper that maintains width through middle
-            let taper = t.powf(1.5);
-            let calculated = (taper * max_radius as f32) as i32;
+            // Simple linear taper from bottom to top
+            let calculated = (t * max_radius as f32) as i32;
 
             // Keep minimum radius of 1 except at very top
             if calculated == 0 && dy < cone_height - 1 {
