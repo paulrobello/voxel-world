@@ -988,7 +988,13 @@ fn generate_pine_cone(
             let t = 1.0 - (dy as f32 / cone_height as f32);
             // Square root gives smoother taper at top, wider at bottom
             let taper = t.sqrt();
-            (taper * max_radius as f32) as i32
+            // Ensure minimum radius of 1 for most layers, 0 only at very top
+            let calculated = (taper * max_radius as f32) as i32;
+            if dy < cone_height - 1 && calculated == 0 {
+                1 // Keep at least radius 1 until the last layer
+            } else {
+                calculated
+            }
         };
 
         // Add slight variation in radius per layer to reduce "stacked disc" look
@@ -1017,6 +1023,9 @@ fn generate_pine_cone(
             }
         }
     }
+
+    // Place tip leaf above trunk to ensure it's covered
+    set_block_safe(chunk, x, trunk_top_y + 1, z, BlockType::PineLeaves);
 }
 
 fn generate_willow(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
