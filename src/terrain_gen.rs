@@ -373,6 +373,15 @@ fn generate_normal_chunk(terrain: &TerrainGenerator, chunk_pos: Vector3<i32>) ->
         chunk_world_z,
     );
 
+    // Generate cave decorations (stalactites/stalagmites)
+    generate_cave_decorations(
+        &mut chunk,
+        terrain,
+        chunk_world_x,
+        chunk_world_y,
+        chunk_world_z,
+    );
+
     chunk.update_metadata();
     // Procedurally generated chunk is not dirty for persistence until modified.
     chunk.persistence_dirty = false;
@@ -1138,5 +1147,62 @@ fn set_painted_block_safe(chunk: &mut Chunk, x: i32, y: i32, z: i32, tex: u8, ti
                 .is_transparent())
     {
         chunk.set_painted_block(x as usize, y as usize, z as usize, tex, tint);
+    }
+}
+
+/// Generates cave decorations (stalactites/stalagmites) in underground caves.
+fn generate_cave_decorations(
+    chunk: &mut Chunk,
+    terrain: &TerrainGenerator,
+    chunk_world_x: i32,
+    chunk_world_y: i32,
+    chunk_world_z: i32,
+) {
+    // Only check chunks that are underground (potential for caves)
+    if chunk_world_y > SEA_LEVEL {
+        return; // Above sea level, unlikely to have deep caves
+    }
+
+    for lx in 0..CHUNK_SIZE {
+        for lz in 0..CHUNK_SIZE {
+            let world_x = chunk_world_x + lx as i32;
+            let world_z = chunk_world_z + lz as i32;
+            let biome = terrain.get_biome(world_x, world_z);
+
+            for ly in 0..CHUNK_SIZE {
+                let world_y = chunk_world_y + ly as i32;
+                let block = chunk.get_block(lx, ly, lz);
+
+                // Check for cave ceiling (solid block with air below)
+                if block == BlockType::Stone && ly > 0 {
+                    let below = chunk.get_block(lx, ly - 1, lz);
+                    if below == BlockType::Air {
+                        // This is a cave ceiling
+                        if let Some(model_id) = terrain
+                            .cave_generator
+                            .should_place_stalactite(world_x, world_y, world_z, biome)
+                        {
+                            // Place stalactite in the air block below the ceiling
+                            chunk.set_model_block(lx, ly - 1, lz, model_id, 0, false);
+                        }
+                    }
+                }
+
+                // Check for cave floor (solid block with air above)
+                if block == BlockType::Stone && ly < CHUNK_SIZE - 1 {
+                    let above = chunk.get_block(lx, ly + 1, lz);
+                    if above == BlockType::Air {
+                        // This is a cave floor
+                        if let Some(model_id) = terrain
+                            .cave_generator
+                            .should_place_stalagmite(world_x, world_y, world_z, biome)
+                        {
+                            // Place stalagmite in the air block above the floor
+                            chunk.set_model_block(lx, ly + 1, lz, model_id, 0, false);
+                        }
+                    }
+                }
+            }
+        }
     }
 }

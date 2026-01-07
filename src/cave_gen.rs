@@ -10,6 +10,8 @@ pub struct CaveGenerator {
     cave_mask_noise: Perlin,
     /// 2D noise for determining cave entrances
     entrance_noise: Perlin,
+    /// 3D noise for cave decoration placement (stalactites/stalagmites)
+    decoration_noise: Perlin,
 }
 
 impl CaveGenerator {
@@ -19,6 +21,7 @@ impl CaveGenerator {
             cave_noise: Perlin::new(seed + 3),
             cave_mask_noise: Perlin::new(seed + 4),
             entrance_noise: Perlin::new(seed + 5),
+            decoration_noise: Perlin::new(seed + 8),
         }
     }
 
@@ -132,6 +135,94 @@ impl CaveGenerator {
     #[allow(dead_code)] // TODO: Will be used when implementing lava lake placement
     pub fn should_spawn_lava(&self, biome: BiomeType, world_y: i32) -> bool {
         matches!(biome, BiomeType::Mountains) && world_y < 20
+    }
+
+    /// Get the model ID for a stalactite (hanging from ceiling) based on biome.
+    ///
+    /// Model IDs:
+    /// - 106: Stone stalactite
+    /// - 108: Ice stalactite (for snow biome)
+    pub fn get_stalactite_model(&self, biome: BiomeType) -> u8 {
+        match biome {
+            BiomeType::Snow => 108, // Ice stalactite
+            _ => 106,               // Stone stalactite
+        }
+    }
+
+    /// Get the model ID for a stalagmite (growing from floor) based on biome.
+    ///
+    /// Model IDs:
+    /// - 107: Stone stalagmite
+    /// - 109: Ice stalagmite (for snow biome)
+    pub fn get_stalagmite_model(&self, biome: BiomeType) -> u8 {
+        match biome {
+            BiomeType::Snow => 109, // Ice stalagmite
+            _ => 107,               // Stone stalagmite
+        }
+    }
+
+    /// Check if a stalactite should be placed at this ceiling position.
+    ///
+    /// Returns `Some(model_id)` if a stalactite should be placed, `None` otherwise.
+    ///
+    /// # Arguments
+    /// * `world_x`, `world_y`, `world_z` - Position of the cave ceiling block
+    /// * `biome` - Biome type for selecting appropriate model
+    ///
+    /// Stalactites spawn on ~15% of cave ceiling blocks.
+    pub fn should_place_stalactite(
+        &self,
+        world_x: i32,
+        world_y: i32,
+        world_z: i32,
+        biome: BiomeType,
+    ) -> Option<u8> {
+        let x = world_x as f64;
+        let y = world_y as f64;
+        let z = world_z as f64;
+
+        // Use 3D noise for varied distribution
+        let noise_value = self.decoration_noise.get([x * 0.1, y * 0.1, z * 0.1]);
+
+        // ~15% spawn rate
+        if noise_value > 0.7 {
+            Some(self.get_stalactite_model(biome))
+        } else {
+            None
+        }
+    }
+
+    /// Check if a stalagmite should be placed at this floor position.
+    ///
+    /// Returns `Some(model_id)` if a stalagmite should be placed, `None` otherwise.
+    ///
+    /// # Arguments
+    /// * `world_x`, `world_y`, `world_z` - Position of the cave floor block
+    /// * `biome` - Biome type for selecting appropriate model
+    ///
+    /// Stalagmites spawn on ~15% of cave floor blocks.
+    pub fn should_place_stalagmite(
+        &self,
+        world_x: i32,
+        world_y: i32,
+        world_z: i32,
+        biome: BiomeType,
+    ) -> Option<u8> {
+        let x = world_x as f64;
+        let y = world_y as f64;
+        let z = world_z as f64;
+
+        // Use 3D noise for varied distribution (offset slightly from stalactites)
+        let noise_value = self
+            .decoration_noise
+            .get([x * 0.1 + 100.0, y * 0.1, z * 0.1 + 100.0]);
+
+        // ~15% spawn rate
+        if noise_value > 0.7 {
+            Some(self.get_stalagmite_model(biome))
+        } else {
+            None
+        }
     }
 }
 
