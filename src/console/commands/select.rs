@@ -26,10 +26,10 @@ pub fn select(
                     Err(e) => return CommandResult::Error(e),
                 }
             } else {
-                // Use player position (block below feet)
+                // Use player position (block at feet level, not the block standing on)
                 Vector3::new(
                     player_pos.x.floor() as i32,
-                    (player_pos.y - 1.0).floor() as i32,
+                    player_pos.y.floor() as i32,
                     player_pos.z.floor() as i32,
                 )
             };
@@ -49,10 +49,10 @@ pub fn select(
                     Err(e) => return CommandResult::Error(e),
                 }
             } else {
-                // Use player position (block below feet)
+                // Use player position (block at feet level, not the block standing on)
                 Vector3::new(
                     player_pos.x.floor() as i32,
-                    (player_pos.y - 1.0).floor() as i32,
+                    player_pos.y.floor() as i32,
                     player_pos.z.floor() as i32,
                 )
             };
@@ -99,7 +99,7 @@ fn parse_coords(args: &[&str], player_pos: Vector3<f64>) -> Result<Vector3<i32>,
     }
 
     let x = parse_coordinate(args[0], player_pos.x.floor() as i32)?;
-    let y = parse_coordinate(args[1], (player_pos.y - 1.0).floor() as i32)?;
+    let y = parse_coordinate(args[1], player_pos.y.floor() as i32)?;
     let z = parse_coordinate(args[2], player_pos.z.floor() as i32)?;
 
     Ok(Vector3::new(x, y, z))
@@ -150,12 +150,12 @@ mod tests {
         let result = parse_coords(&["10", "20", "30"], player_pos).unwrap();
         assert_eq!(result, Vector3::new(10, 20, 30));
 
-        // Relative
+        // Relative (now uses feet level, not block below)
         let result = parse_coords(&["~", "~", "~"], player_pos).unwrap();
-        assert_eq!(result, Vector3::new(100, 64, 200));
+        assert_eq!(result, Vector3::new(100, 65, 200));
 
         // Mixed
-        let result = parse_coords(&["~5", "64", "~-10"], player_pos).unwrap();
-        assert_eq!(result, Vector3::new(105, 64, 190));
+        let result = parse_coords(&["~5", "65", "~-10"], player_pos).unwrap();
+        assert_eq!(result, Vector3::new(105, 65, 190));
     }
 }
