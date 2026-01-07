@@ -102,7 +102,6 @@ fn test_remove_dirty_positions() {
 
 #[test]
 fn test_stair_shapes_front_back_neighbors() {
-    use crate::chunk::BlockType;
     use crate::sub_voxel::{ModelRegistry, StairShape};
     let mut world = World::new();
 
@@ -427,7 +426,6 @@ fn test_stair_shapes_inverted_stairs() {
     );
 
     // Case 3: Inverted stair should NOT form corner with non-inverted stair
-    use crate::chunk::BlockType;
     let straight_normal = ModelRegistry::stairs_model_id(StairShape::Straight, false);
     world.set_model_block(vector![20, 0, 0], straight_inverted, 0, false);
     world.set_model_block(vector![20, 0, 1], straight_normal, 3, false); // Non-inverted neighbor
