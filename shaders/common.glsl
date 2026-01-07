@@ -34,6 +34,10 @@ const uint BLOCK_LAVA = 19;
 const uint BLOCK_GLOWSTONE = 20;
 const uint BLOCK_GLOWMUSHROOM = 21;
 const uint BLOCK_CRYSTAL = 22;
+const uint BLOCK_PINE_LOG = 23;
+const uint BLOCK_WILLOW_LOG = 24;
+const uint BLOCK_PINE_LEAVES = 25;
+const uint BLOCK_WILLOW_LEAVES = 26;
 
 // Sub-voxel model IDs (must match Rust ModelRegistry IDs)
 const uint CRYSTAL_MODEL_ID = 99u;

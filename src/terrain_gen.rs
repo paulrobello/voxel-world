@@ -16,18 +16,12 @@ const MODEL_MUSHROOM_BROWN: u8 = 104;
 const MODEL_MUSHROOM_RED: u8 = 105;
 
 // Texture indices (from common.glsl/materials.glsl)
-const TEX_LOG: u8 = 10;
-const TEX_LEAVES: u8 = 5;
 const TEX_CACTUS: u8 = 23;
 const TEX_MUD: u8 = 24;
 const TEX_SANDSTONE: u8 = 25;
 
 // Tint indices (from chunk.rs TINT_PALETTE)
 const TINT_WHITE: u8 = 12;
-const TINT_BROWN: u8 = 15;
-const TINT_DARK_BROWN: u8 = 28;
-const TINT_DARK_GREEN: u8 = 29;
-const TINT_OLIVE: u8 = 19;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BiomeInfo {
@@ -615,9 +609,9 @@ fn generate_oak(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
 fn generate_pine(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
     let height = 6 + (hash % 4);
 
-    // Trunk (Darker)
+    // Trunk
     for dy in 1..=height {
-        set_painted_block_safe(chunk, x, y + dy, z, TEX_LOG, TINT_DARK_BROWN);
+        set_block_safe(chunk, x, y + dy, z, BlockType::PineLog);
     }
 
     // Leaves (Cone layers)
@@ -642,20 +636,20 @@ fn generate_pine(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
                 if dx == 0 && dz == 0 && dy <= height {
                     continue;
                 }
-                set_painted_block_safe(chunk, x + dx, y + dy, z + dz, TEX_LEAVES, TINT_DARK_GREEN);
+                set_block_safe(chunk, x + dx, y + dy, z + dz, BlockType::PineLeaves);
             }
         }
     }
     // Top tip
-    set_painted_block_safe(chunk, x, y + height + 2, z, TEX_LEAVES, TINT_DARK_GREEN);
+    set_block_safe(chunk, x, y + height + 2, z, BlockType::PineLeaves);
 }
 
 fn generate_willow(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
     let height = 4 + (hash % 3);
 
-    // Trunk (Brown)
+    // Trunk
     for dy in 1..=height {
-        set_painted_block_safe(chunk, x, y + dy, z, TEX_LOG, TINT_BROWN);
+        set_block_safe(chunk, x, y + dy, z, BlockType::WillowLog);
     }
 
     // Wide canopy
@@ -664,20 +658,19 @@ fn generate_willow(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
         for dz in -3i32..=3 {
             let dist = dx.abs() + dz.abs();
             if dist <= 3 {
-                set_painted_block_safe(chunk, x + dx, canopy_y, z + dz, TEX_LEAVES, TINT_OLIVE);
-                set_painted_block_safe(chunk, x + dx, canopy_y + 1, z + dz, TEX_LEAVES, TINT_OLIVE);
+                set_block_safe(chunk, x + dx, canopy_y, z + dz, BlockType::WillowLeaves);
+                set_block_safe(chunk, x + dx, canopy_y + 1, z + dz, BlockType::WillowLeaves);
 
                 // Hanging vines
                 if dist > 1 && (hash.wrapping_add(dx * 30 + dz) % 3 == 0) {
                     let vine_len = 1 + (hash % 3);
                     for v in 1..=vine_len {
-                        set_painted_block_safe(
+                        set_block_safe(
                             chunk,
                             x + dx,
                             canopy_y - v,
                             z + dz,
-                            TEX_LEAVES,
-                            TINT_OLIVE,
+                            BlockType::WillowLeaves,
                         );
                     }
                 }

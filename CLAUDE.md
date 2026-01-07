@@ -110,7 +110,8 @@ BlockType enum in `chunk.rs` must match constants in `common.glsl`:
 ```
 0=Air, 1=Stone, 2=Dirt, 3=Grass, 4=Planks, 5=Leaves, 6=Sand, 7=Gravel,
 8=Water, 9=Glass, 10=Log, 11=Model, 12=Brick, 13=Snow, 14=Cobblestone, 15=Iron, 16=Bedrock,
-17=TintedGlass, 18=Painted, 19=Lava, 20=GlowStone, 21=GlowMushroom, 22=Crystal
+17=TintedGlass, 18=Painted, 19=Lava, 20=GlowStone, 21=GlowMushroom, 22=Crystal,
+23=PineLog, 24=WillowLog, 25=PineLeaves, 26=WillowLeaves
 ```
 Extra texture slots: 17=grass_side, 18=log_top
 

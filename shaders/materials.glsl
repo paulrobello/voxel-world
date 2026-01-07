@@ -167,12 +167,14 @@ vec3 getBlockColor(uint blockType, vec3 local_hit, vec3 normal, uint stepped_axi
             float grassEdge = smoothstep(0.75, 0.95, local_hit.y);
             return mix(dirtColor, grassColor, grassEdge);
         }
-    } else if (blockType == BLOCK_LOG) {
+    } else if (blockType == BLOCK_LOG || blockType == BLOCK_PINE_LOG || blockType == BLOCK_WILLOW_LOG) {
         if (abs(normal.y) > 0.5) {
             textureIndex = TEX_LOG_TOP;
         } else {
             textureIndex = BLOCK_LOG;
         }
+    } else if (blockType == BLOCK_PINE_LEAVES || blockType == BLOCK_WILLOW_LEAVES) {
+        textureIndex = BLOCK_LEAVES;
     } else if (blockType == BLOCK_WATER) {
         vec2 animatedUV = getWaterUVAnimation(uv, worldPos, pc.animation_time);
         vec3 waterColor = sampleTexture(BLOCK_WATER, animatedUV);

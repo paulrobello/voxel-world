@@ -102,6 +102,14 @@ pub enum BlockType {
     GlowMushroom = 21,
     /// Crystal block - colored glowing crystal. Uses tint_data for color (0-31).
     Crystal = 22,
+    /// Pine tree log (darker brown).
+    PineLog = 23,
+    /// Willow tree log (brown).
+    WillowLog = 24,
+    /// Pine tree leaves (dark green).
+    PineLeaves = 25,
+    /// Willow tree leaves (olive green).
+    WillowLeaves = 26,
 }
 
 /// Water types for enhanced water system.
@@ -185,13 +193,24 @@ impl BlockType {
     /// Returns true if this block is a log (tree trunk).
     #[inline]
     pub fn is_log(self) -> bool {
-        matches!(self, BlockType::Log)
+        matches!(
+            self,
+            BlockType::Log | BlockType::PineLog | BlockType::WillowLog
+        )
     }
 
     /// Returns true if this block is part of a tree (log or leaves).
     #[inline]
     pub fn is_tree_part(self) -> bool {
-        matches!(self, BlockType::Log | BlockType::Leaves)
+        matches!(
+            self,
+            BlockType::Log
+                | BlockType::Leaves
+                | BlockType::PineLog
+                | BlockType::WillowLog
+                | BlockType::PineLeaves
+                | BlockType::WillowLeaves
+        )
     }
 
     /// Returns true if this block type is transparent.
@@ -204,6 +223,8 @@ impl BlockType {
                 | BlockType::Glass
                 | BlockType::TintedGlass
                 | BlockType::Leaves
+                | BlockType::PineLeaves
+                | BlockType::WillowLeaves
                 | BlockType::Model
                 | BlockType::Lava
         )
@@ -303,6 +324,10 @@ impl BlockType {
             BlockType::GlowStone => [1.0, 0.95, 0.8], // Warm yellow-white
             BlockType::GlowMushroom => [0.3, 0.9, 1.0], // Cyan-blue
             BlockType::Crystal => [0.8, 0.8, 1.0], // Light blue-white (tint overrides)
+            BlockType::PineLog => [0.35, 0.25, 0.15], // Darker brown
+            BlockType::WillowLog => [0.45, 0.35, 0.25], // Brown
+            BlockType::PineLeaves => [0.15, 0.5, 0.1], // Dark green
+            BlockType::WillowLeaves => [0.4, 0.5, 0.2], // Olive green
         }
     }
 
@@ -313,13 +338,18 @@ impl BlockType {
         match self {
             BlockType::Air => 0.0,
             // Very fast (instant)
-            BlockType::Leaves | BlockType::Model => 0.15,
+            BlockType::Leaves
+            | BlockType::PineLeaves
+            | BlockType::WillowLeaves
+            | BlockType::Model => 0.15,
             // Fast
             BlockType::Dirt | BlockType::Sand | BlockType::Gravel | BlockType::Snow => 0.3,
             // Normal
             BlockType::Grass
             | BlockType::Planks
             | BlockType::Log
+            | BlockType::PineLog
+            | BlockType::WillowLog
             | BlockType::Glass
             | BlockType::TintedGlass
             | BlockType::Painted => 0.5,
@@ -401,6 +431,10 @@ impl From<u8> for BlockType {
             20 => BlockType::GlowStone,
             21 => BlockType::GlowMushroom,
             22 => BlockType::Crystal,
+            23 => BlockType::PineLog,
+            24 => BlockType::WillowLog,
+            25 => BlockType::PineLeaves,
+            26 => BlockType::WillowLeaves,
             _ => BlockType::Air,
         }
     }
