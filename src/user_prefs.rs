@@ -41,6 +41,12 @@ pub fn user_models_dir() -> PathBuf {
     get_data_dir().join("user_models")
 }
 
+/// Returns the path to the user templates directory.
+#[allow(dead_code)] // TODO: Remove once template system is integrated
+pub fn user_templates_dir() -> PathBuf {
+    get_data_dir().join("user_templates")
+}
+
 /// Returns the path to the profiles directory.
 pub fn profiles_dir() -> PathBuf {
     get_data_dir().join("profiles")

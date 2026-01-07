@@ -61,6 +61,7 @@ mod sprite_gen;
 mod storage;
 mod sub_voxel;
 mod svt;
+mod templates;
 mod terrain_gen;
 mod ui;
 mod user_prefs;
