@@ -46,6 +46,14 @@ pub fn create_torch() -> SubVoxelModel {
     model.requires_ground_support = true;
 
     model.compute_collision_mask();
+
+    // Debug: Print torch model info
+    let voxel_count = model.voxels.iter().filter(|&&v| v != 0).count();
+    println!("[DEBUG] Torch model created:");
+    println!("  - Voxel count: {}/{}", voxel_count, model.voxels.len());
+    println!("  - Collision mask: 0x{:016x}", model.collision_mask);
+    println!("  - Resolution: {:?}", model.resolution);
+
     model
 }
 
