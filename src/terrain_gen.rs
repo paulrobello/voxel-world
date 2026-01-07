@@ -881,34 +881,26 @@ fn generate_pine(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
 }
 
 fn generate_normal_pine(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
-    // More variation: height 5-12, with different cone widths
-    let height = 5 + (hash % 8);
+    // More variation: height 6-13 blocks
+    let height = 6 + (hash % 8);
     let cone_width = (hash / 11) % 3; // 0=narrow, 1=medium, 2=wide
-    let trunk_length = (hash / 17) % 2; // 0=normal, 1=extra bare trunk
 
-    // Leaves start point - taller trees can have longer bare trunk
-    let start_leaves = if height <= 6 {
-        2 // Short pines start leaves early
-    } else {
-        3 + trunk_length // Taller pines can have more bare trunk
-    };
+    // Pine trees start foliage low (about 1/3 up the trunk)
+    let start_leaves = 2 + (height / 4);
 
-    // Cone extends 1 block above trunk for tip
-    let tree_top = height + 1;
-
-    // Trunk - stops 1 block before top so leaves cover it
-    for dy in 1..tree_top {
+    // Trunk extends to full height
+    for dy in 1..height {
         set_block_safe(chunk, x, y + dy, z, BlockType::PineLog);
     }
 
-    // Cone layers - varies by width and height
+    // Single continuous cone with steep taper
     let max_radius = match cone_width {
-        0 => 1, // Narrow cone
-        1 => 2, // Medium cone
-        _ => 3, // Wide cone
+        0 => 2, // Narrow
+        1 => 3, // Medium
+        _ => 4, // Wide
     };
 
-    let cone_height = tree_top + 1 - start_leaves;
+    let cone_height = height - start_leaves + 2; // Extends above trunk
     generate_pine_cone(
         chunk,
         x,
@@ -916,60 +908,36 @@ fn generate_normal_pine(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
         z,
         max_radius,
         cone_height,
-        y + tree_top - 1,
+        y + height - 1,
     );
 }
 
 fn generate_giant_pine(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
-    // Giant pines: 2-3 stacked cone sections
-    let num_sections = 2 + ((hash / 19) % 2); // 2 or 3 sections
+    // Giant pines: single large cone, much taller
+    let height = 15 + ((hash / 19) % 8); // 15-22 blocks tall
+    let cone_width = (hash / 23) % 2; // 0=wide, 1=very wide
 
-    // First, calculate all cone positions and total height
-    let mut cone_positions = Vec::new();
+    // Start foliage about 1/4 up
+    let start_leaves = 4 + (height / 6);
 
-    // Start with bare trunk at bottom
-    let base_trunk = 3 + ((hash / 23) % 3); // 3-5 blocks of bare trunk at base
-    let mut current_y = y + base_trunk;
-
-    for section_idx in 0..num_sections {
-        let max_radius = if section_idx == 0 {
-            3 // Bottom cone is widest
-        } else if section_idx == num_sections - 1 {
-            1 // Top cone is narrowest
-        } else {
-            2 // Middle cone is medium
-        };
-
-        let cone_height = if section_idx == num_sections - 1 {
-            6 // Top cone includes tip
-        } else {
-            7 // Lower cones are taller
-        };
-
-        cone_positions.push((current_y, max_radius, cone_height));
-        // Stack cones directly on top of each other
-        current_y += cone_height;
-    }
-
-    let total_height = current_y - y;
-
-    // Build continuous trunk - stops 1 block before top so leaves cover it
-    for dy in 1..total_height {
+    // Build trunk to full height
+    for dy in 1..height {
         set_block_safe(chunk, x, y + dy, z, BlockType::PineLog);
     }
 
-    // Place cones stacked on top of each other
-    for &(cone_y, max_radius, cone_height) in &cone_positions {
-        generate_pine_cone(
-            chunk,
-            x,
-            cone_y,
-            z,
-            max_radius,
-            cone_height,
-            y + total_height - 1,
-        );
-    }
+    // Large continuous cone
+    let max_radius = if cone_width == 0 { 5 } else { 6 };
+
+    let cone_height = height - start_leaves + 2;
+    generate_pine_cone(
+        chunk,
+        x,
+        y + start_leaves,
+        z,
+        max_radius,
+        cone_height,
+        y + height - 1,
+    );
 }
 
 fn generate_pine_cone(
@@ -982,34 +950,28 @@ fn generate_pine_cone(
     trunk_top_y: i32,
 ) {
     for dy in 0..cone_height {
-        // Calculate radius based on position in cone
-        // Use square root taper for more natural pine cone shape
+        // Calculate radius with steep quadratic taper for classic pine shape
         let radius: i32 = {
             let t = 1.0 - (dy as f32 / cone_height as f32);
-            // Square root gives smoother taper at top, wider at bottom
-            let taper = t.sqrt();
-            // Ensure minimum radius of 1 for most layers, 0 only at very top
+            // Quadratic taper (t^2) creates steep narrowing at top
+            let taper = t * t;
             let calculated = (taper * max_radius as f32) as i32;
-            if dy < cone_height - 1 && calculated == 0 {
-                1 // Keep at least radius 1 until the last layer
+
+            // Keep minimum radius of 1 except at very top
+            if calculated == 0 && dy < cone_height - 1 {
+                1
             } else {
                 calculated
             }
         };
 
-        // Add slight variation in radius per layer to reduce "stacked disc" look
-        let adjusted_radius = if radius > 1 && dy % 2 == 1 {
-            radius - 1 // Alternate layers slightly smaller for more natural appearance
-        } else {
-            radius
-        };
-
-        for dx in -adjusted_radius..=adjusted_radius {
-            for dz in -adjusted_radius..=adjusted_radius {
+        // Place circular layers
+        for dx in -radius..=radius {
+            for dz in -radius..=radius {
                 let dist_sq = dx * dx + dz * dz;
-                let radius_sq = adjusted_radius * adjusted_radius;
+                let radius_sq = radius * radius;
 
-                // Use circular shape instead of square for more natural cone
+                // Circular cross-section
                 if dist_sq > radius_sq {
                     continue;
                 }
