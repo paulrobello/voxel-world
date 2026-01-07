@@ -179,6 +179,19 @@ impl App {
             );
         }
 
+        // Toggle player torch light (L key)
+        if self.input.key_pressed(KeyCode::KeyL) {
+            self.sim.player.light_enabled = !self.sim.player.light_enabled;
+            println!(
+                "Torch light: {}",
+                if self.sim.player.light_enabled {
+                    "ON"
+                } else {
+                    "OFF"
+                }
+            );
+        }
+
         // Toggle chunk boundary debug (B key)
         if self.input.key_pressed(KeyCode::KeyB) {
             self.ui.settings.show_chunk_boundaries = !self.ui.settings.show_chunk_boundaries;
