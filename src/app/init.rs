@@ -27,9 +27,11 @@ use crate::render_mode::RenderMode;
 use crate::sprite_gen;
 use crate::storage;
 use crate::sub_voxel::ModelRegistry;
-use crate::terrain_gen::{TerrainGenerator, generate_chunk_terrain};
-use crate::user_prefs::{UserPreferences, profiles_dir, set_data_dir, user_models_dir, user_templates_dir, worlds_dir};
 use crate::templates::{TemplateLibrary, TemplateSelection, TemplateUi};
+use crate::terrain_gen::{TerrainGenerator, generate_chunk_terrain};
+use crate::user_prefs::{
+    UserPreferences, profiles_dir, set_data_dir, user_models_dir, user_templates_dir, worlds_dir,
+};
 use crate::utils::{ChunkStats, Profiler};
 use crate::vulkan_context::VulkanContext;
 use crate::water::WaterGrid;

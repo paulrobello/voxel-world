@@ -3,6 +3,7 @@ use crate::chunk::BlockType;
 use crate::editor::EditorAction;
 use crate::editor::rasterizer::generate_model_sprite;
 use crate::gpu_resources::RenderContext;
+use crate::templates::{TemplateBrowserAction, draw_save_template_dialog, draw_template_browser};
 use crate::ui::{FluidStats, HUDRenderer, HudInputs};
 use egui_winit_vulkano::egui;
 use nalgebra::Vector3;
@@ -64,6 +65,9 @@ pub fn render_hud(
             model_registry: &sim.model_registry,
             editor: &mut ui.editor,
             console: &mut ui.console,
+            template_selection: &mut ui.template_selection,
+            template_library: &ui.template_library,
+            water_grid: &sim.water_grid,
         },
     );
 
@@ -150,6 +154,130 @@ pub fn render_hud(
             // GPU resources will be updated automatically next frame since registry is dirty
         }
         EditorAction::ModelLoaded | EditorAction::None => {}
+    }
+
+    // Render template browser UI
+    let ctx = rcx.gui.context();
+    let browser_action = draw_template_browser(
+        &ctx,
+        &mut ui.template_ui,
+        &ui.template_selection,
+        &ui.template_library,
+    );
+
+    // Handle template browser actions
+    match browser_action {
+        TemplateBrowserAction::OpenSaveDialog => {
+            ui.template_ui.open_save_dialog("my_template");
+        }
+        TemplateBrowserAction::ClearSelection => {
+            ui.template_selection.clear();
+        }
+        TemplateBrowserAction::LoadTemplate(name) => {
+            match ui.template_library.load_template(&name) {
+                Ok(template) => {
+                    println!(
+                        "Loaded template '{}' ({}×{}×{}, {} blocks)",
+                        template.name,
+                        template.width,
+                        template.height,
+                        template.depth,
+                        template.block_count()
+                    );
+                    // TODO: Create TemplatePlacement and set ui.active_placement
+                }
+                Err(e) => {
+                    eprintln!("Failed to load template '{}': {}", name, e);
+                }
+            }
+        }
+        TemplateBrowserAction::DeleteTemplate(name) => {
+            match ui.template_library.delete_template(&name) {
+                Ok(_) => {
+                    println!("Deleted template '{}'", name);
+                    ui.template_ui.refresh_templates(&ui.template_library);
+                }
+                Err(e) => {
+                    eprintln!("Failed to delete template '{}': {}", name, e);
+                }
+            }
+        }
+        TemplateBrowserAction::SaveTemplate { name, tags } => {
+            if let Some((min, max)) = ui.template_selection.bounds() {
+                match ui.template_selection.validate_size() {
+                    Ok(_) => {
+                        let author = "Player".to_string(); // TODO: Get from user prefs
+                        match crate::templates::VxtFile::from_world_region(
+                            &sim.world,
+                            &sim.water_grid,
+                            name.clone(),
+                            author,
+                            min,
+                            max,
+                        ) {
+                            Ok(mut template) => {
+                                template.tags = tags;
+                                match ui.template_library.save_template(&template) {
+                                    Ok(_) => {
+                                        println!("Saved template '{}'", name);
+                                        ui.template_ui.refresh_templates(&ui.template_library);
+                                    }
+                                    Err(e) => {
+                                        eprintln!("Failed to save template: {}", e);
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("Failed to create template: {}", e);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Invalid selection: {}", e);
+                    }
+                }
+            }
+        }
+        TemplateBrowserAction::None => {}
+    }
+
+    // Render save template dialog
+    if let Some((name, tags)) = draw_save_template_dialog(&ctx, &mut ui.template_ui) {
+        // User confirmed save in the dialog - trigger the actual save
+        if let Some((min, max)) = ui.template_selection.bounds() {
+            match ui.template_selection.validate_size() {
+                Ok(_) => {
+                    let author = "Player".to_string(); // TODO: Get from user prefs
+                    match crate::templates::VxtFile::from_world_region(
+                        &sim.world,
+                        &sim.water_grid,
+                        name.clone(),
+                        author,
+                        min,
+                        max,
+                    ) {
+                        Ok(mut template) => {
+                            template.tags = tags;
+                            match ui.template_library.save_template(&template) {
+                                Ok(_) => {
+                                    println!("Saved template '{}'", name);
+                                    ui.template_ui.refresh_templates(&ui.template_library);
+                                }
+                                Err(e) => {
+                                    eprintln!("Failed to save template: {}", e);
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("Failed to create template: {}", e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Invalid selection: {}", e);
+                }
+            }
+        }
     }
 
     scale_changed

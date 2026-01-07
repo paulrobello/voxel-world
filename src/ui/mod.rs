@@ -91,6 +91,9 @@ pub struct HudInputs<'a> {
     pub model_registry: &'a ModelRegistry,
     pub editor: &'a mut EditorState,
     pub console: &'a mut ConsoleState,
+    pub template_selection: &'a mut crate::templates::TemplateSelection,
+    pub template_library: &'a crate::templates::TemplateLibrary,
+    pub water_grid: &'a crate::water::WaterGrid,
 }
 
 pub struct HUDRenderer;
@@ -137,6 +140,9 @@ impl HUDRenderer {
             model_registry,
             editor,
             console,
+            template_selection,
+            template_library,
+            water_grid,
         } = input;
         let mut scale_changed = false;
         let mut editor_action = EditorAction::None;
@@ -232,7 +238,16 @@ impl HUDRenderer {
                 crate::editor::draw_model_preview(&ctx, editor);
             }
 
-            ConsoleUI::draw_console(&ctx, console, world, player_world_pos, fluid_stats);
+            ConsoleUI::draw_console(
+                &ctx,
+                console,
+                world,
+                player_world_pos,
+                fluid_stats,
+                template_selection,
+                template_library,
+                water_grid,
+            );
         });
 
         (scale_changed, editor_action)

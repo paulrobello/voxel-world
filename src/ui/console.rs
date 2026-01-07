@@ -9,12 +9,16 @@ pub struct ConsoleUI;
 
 impl ConsoleUI {
     /// Draw the command console UI.
+    #[allow(clippy::too_many_arguments)]
     pub fn draw_console(
         ctx: &egui::Context,
         console: &mut ConsoleState,
         world: &mut crate::world::World,
         player_world_pos: Vector3<f64>,
         fluid_stats: FluidStats,
+        template_selection: &mut crate::templates::TemplateSelection,
+        template_library: &crate::templates::TemplateLibrary,
+        water_grid: &crate::water::WaterGrid,
     ) {
         if !console.active {
             return;
@@ -148,7 +152,13 @@ impl ConsoleUI {
                                 player_world_pos.y.floor() as i32,
                                 player_world_pos.z.floor() as i32,
                             );
-                            console.submit(world, player_pos);
+                            console.submit(
+                                world,
+                                player_pos,
+                                template_selection,
+                                template_library,
+                                water_grid,
+                            );
                             // Handle pending fluid debug output
                             if console.pending_fluid_debug {
                                 console.output_fluid_debug(

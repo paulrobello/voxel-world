@@ -523,7 +523,8 @@ impl App {
             println!("Template browser: ON");
         } else {
             // Closing template browser: restore focus if we were focused before and no other panel is open
-            let other_panel_open = self.ui.palette_open || self.ui.editor.active || self.ui.console.active;
+            let other_panel_open =
+                self.ui.palette_open || self.ui.editor.active || self.ui.console.active;
             if !other_panel_open && self.ui.template_previously_focused {
                 self.input.focused = true;
                 self.input.pending_grab = Some(true);

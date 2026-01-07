@@ -608,7 +608,14 @@ impl ConsoleState {
     }
 
     /// Submit the current input for execution.
-    pub fn submit(&mut self, world: &mut World, player_pos: Vector3<i32>) {
+    pub fn submit(
+        &mut self,
+        world: &mut World,
+        player_pos: Vector3<i32>,
+        template_selection: &mut crate::templates::TemplateSelection,
+        template_library: &crate::templates::TemplateLibrary,
+        water_grid: &crate::water::WaterGrid,
+    ) {
         let input = self.input.trim().to_string();
         if input.is_empty() {
             return;
@@ -627,11 +634,26 @@ impl ConsoleState {
         self.input.clear();
 
         // Execute command
-        self.execute(&input, world, player_pos);
+        self.execute(
+            &input,
+            world,
+            player_pos,
+            template_selection,
+            template_library,
+            water_grid,
+        );
     }
 
     /// Execute a command string.
-    fn execute(&mut self, input: &str, world: &mut World, player_pos: Vector3<i32>) {
+    fn execute(
+        &mut self,
+        input: &str,
+        world: &mut World,
+        player_pos: Vector3<i32>,
+        template_selection: &mut crate::templates::TemplateSelection,
+        template_library: &crate::templates::TemplateLibrary,
+        water_grid: &crate::water::WaterGrid,
+    ) {
         // Echo the command
         self.info(format!("> {}", input));
 
@@ -640,7 +662,14 @@ impl ConsoleState {
             let response = input.to_lowercase();
             if response == "y" || response == "yes" {
                 // Re-execute the original command with confirmation bypass
-                self.execute_confirmed(&pending.command, world, player_pos);
+                self.execute_confirmed(
+                    &pending.command,
+                    world,
+                    player_pos,
+                    template_selection,
+                    template_library,
+                    water_grid,
+                );
             } else {
                 self.info("Command cancelled.");
             }
@@ -648,13 +677,37 @@ impl ConsoleState {
         }
 
         // Parse and execute command
-        let result = self.parse_and_execute(input, world, player_pos, false);
+        let result = self.parse_and_execute(
+            input,
+            world,
+            player_pos,
+            template_selection,
+            template_library,
+            water_grid,
+            false,
+        );
         self.handle_result(result);
     }
 
     /// Execute a confirmed command (bypass volume check).
-    fn execute_confirmed(&mut self, input: &str, world: &mut World, player_pos: Vector3<i32>) {
-        let result = self.parse_and_execute(input, world, player_pos, true);
+    fn execute_confirmed(
+        &mut self,
+        input: &str,
+        world: &mut World,
+        player_pos: Vector3<i32>,
+        template_selection: &mut crate::templates::TemplateSelection,
+        template_library: &crate::templates::TemplateLibrary,
+        water_grid: &crate::water::WaterGrid,
+    ) {
+        let result = self.parse_and_execute(
+            input,
+            world,
+            player_pos,
+            template_selection,
+            template_library,
+            water_grid,
+            true,
+        );
         self.handle_result(result);
     }
 
@@ -695,11 +748,15 @@ impl ConsoleState {
     }
 
     /// Parse and execute a command.
+    #[allow(clippy::too_many_arguments)]
     fn parse_and_execute(
         &mut self,
         input: &str,
         world: &mut World,
         player_pos: Vector3<i32>,
+        template_selection: &mut crate::templates::TemplateSelection,
+        template_library: &crate::templates::TemplateLibrary,
+        water_grid: &crate::water::WaterGrid,
         confirmed: bool,
     ) -> CommandResult {
         let parts: Vec<&str> = input.split_whitespace().collect();
@@ -735,19 +792,21 @@ impl ConsoleState {
                 }
             }
             "select" => {
-                // TODO: Wire up template_selection parameter from App
-                CommandResult::Error(
-                    "select command not yet integrated (needs template_selection from App)"
-                        .to_string(),
-                )
+                // Convert player_pos from i32 to f64 for the select command
+                let player_pos_f64 = Vector3::new(
+                    player_pos.x as f64 + 0.5,
+                    player_pos.y as f64 + 1.0,
+                    player_pos.z as f64 + 0.5,
+                );
+                commands::select(args, player_pos_f64, template_selection)
             }
-            "template" => {
-                // TODO: Wire up template_library, water_grid parameters from App
-                CommandResult::Error(
-                    "template command not yet integrated (needs template_library, water_grid from App)"
-                        .to_string(),
-                )
-            }
+            "template" => commands::template(
+                args,
+                template_selection,
+                world,
+                water_grid,
+                template_library,
+            ),
             "clear" => {
                 self.output.clear();
                 CommandResult::Success("Console cleared.".to_string())

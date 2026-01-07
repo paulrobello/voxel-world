@@ -82,6 +82,7 @@ pub struct UiState {
     /// Template library manager.
     pub template_library: TemplateLibrary,
     /// Active template placement (when loading a template).
+    #[allow(dead_code)] // TODO: Will be used for template placement handlers
     pub active_placement: Option<TemplatePlacement>,
     /// Whether we were focused before opening the template browser.
     pub template_previously_focused: bool,
