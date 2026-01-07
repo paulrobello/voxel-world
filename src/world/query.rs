@@ -11,6 +11,11 @@ impl World {
         self.minimap_height_cache.remove(&(world_x, world_z));
     }
 
+    /// Clears the entire minimap height cache.
+    pub fn clear_minimap_cache(&mut self) {
+        self.minimap_height_cache.clear();
+    }
+
     /// Gets the minimap height cache.
     pub fn minimap_height_cache(&self) -> &HashMap<(i32, i32), (BlockType, i32)> {
         &self.minimap_height_cache
@@ -80,6 +85,18 @@ impl World {
                         for y in (0..crate::constants::TEXTURE_SIZE_Y as i32).rev() {
                             if let Some(block) = self.get_block(Vector3::new(world_x, y, world_z)) {
                                 if block != BlockType::Air {
+                                    // Skip decorative blocks if enabled
+                                    if minimap.skip_decorative
+                                        && matches!(
+                                            block,
+                                            BlockType::Model
+                                                | BlockType::Leaves
+                                                | BlockType::PineLeaves
+                                                | BlockType::WillowLeaves
+                                        )
+                                    {
+                                        continue; // Keep scanning down
+                                    }
                                     res = (block, y);
                                     break;
                                 }

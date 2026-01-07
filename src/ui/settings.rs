@@ -29,6 +29,9 @@ impl SettingsUI {
         unload_distance: &mut i32,
         block_updates: &mut BlockUpdateQueue,
         _model_registry: &ModelRegistry,
+        minimap: &mut crate::hud::Minimap,
+        show_minimap: &mut bool,
+        minimap_cached_image: &mut Option<egui_winit_vulkano::egui::ColorImage>,
     ) -> bool {
         let mut scale_changed = false;
 
@@ -379,6 +382,51 @@ impl SettingsUI {
                         ui.checkbox(&mut settings.show_compass, "Show compass");
                         ui.checkbox(&mut settings.show_position, "Show position");
                         ui.checkbox(&mut settings.show_stats, "Show FPS/stats");
+
+                        ui.separator();
+
+                        // Minimap settings
+                        ui.label("Minimap (Toggle: M):");
+                        ui.checkbox(show_minimap, "Show minimap");
+                        ui.horizontal(|ui| {
+                            ui.label("Mode:");
+                            ui.selectable_value(
+                                &mut minimap.mode,
+                                crate::hud::MinimapMode::Blocks,
+                                "Blocks",
+                            );
+                            ui.selectable_value(
+                                &mut minimap.mode,
+                                crate::hud::MinimapMode::Height,
+                                "Height",
+                            );
+                            ui.selectable_value(
+                                &mut minimap.mode,
+                                crate::hud::MinimapMode::Combined,
+                                "Combined",
+                            );
+                        });
+                        ui.checkbox(&mut minimap.rotate, "Rotate with player");
+                        ui.add(
+                            egui::Slider::new(&mut minimap.zoom, 0.25..=2.0)
+                                .text("Zoom")
+                                .logarithmic(true),
+                        );
+                        if ui
+                            .checkbox(
+                                &mut minimap.skip_decorative,
+                                "Hide models/leaves (better performance)",
+                            )
+                            .changed()
+                        {
+                            // Clear cache when this setting changes
+                            *minimap_cached_image = None;
+                            world.clear_minimap_cache();
+                            println!(
+                                "[MINIMAP] Skip decorative: {}",
+                                if minimap.skip_decorative { "ON" } else { "OFF" }
+                            );
+                        }
 
                         ui.separator();
 

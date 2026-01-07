@@ -18,6 +18,7 @@ pub struct Minimap {
     pub mode: MinimapMode,
     pub rotate: bool,
     pub zoom: f32,
+    pub skip_decorative: bool,
 }
 
 impl Minimap {
@@ -27,6 +28,7 @@ impl Minimap {
             mode: MinimapMode::Combined,
             rotate: true,
             zoom: 0.5,
+            skip_decorative: false,
         }
     }
 

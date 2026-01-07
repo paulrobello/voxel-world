@@ -187,6 +187,9 @@ impl HUDRenderer {
                 unload_distance,
                 block_updates,
                 model_registry,
+                minimap,
+                show_minimap,
+                minimap_cached_image,
             );
 
             // Crosshair (hide when editor is open)
