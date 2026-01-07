@@ -9,7 +9,7 @@ This document outlines the strategy for decomposing large files into smaller, mo
 | `src/sub_voxel.rs` | 2166 | ✅ Done | `src/sub_voxel/` |
 | `src/sub_voxel_builtins.rs` | 1800 | ✅ Done | `src/sub_voxel/builtins/` |
 | `src/main.rs` | 2128 | ⏳ Pending | `src/app/` (Logic), `src/render/` (Setup) |
-| `src/world.rs` | 2104 | ⏳ Pending | `src/world/` (Logic split from Storage) |
+| `src/world.rs` | 2104 | ✅ Done | `src/world/` |
 | `src/hud_render.rs` | 2005 | ⏳ Pending | `src/ui/` |
 
 ---
@@ -27,7 +27,24 @@ Successfully decomposed `src/sub_voxel.rs` and `src/sub_voxel_builtins.rs` into 
 
 ---
 
-## 2. World Management (`src/world.rs`)
+## 2. World Management (COMPLETED)
+
+Successfully decomposed `src/world.rs` into a modular structure under `src/world/`.
+
+### Structure:
+- `src/world/mod.rs`: Re-exports and type definitions (`ChunkPos`, `WorldPos`).
+- `src/world/storage.rs`: `World` struct, chunk storage, dirty tracking, block accessors.
+- `src/world/lighting.rs`: Light collection and emission logic (`collect_torch_lights`).
+- `src/world/query.rs`: Height cache and minimap generation.
+- `src/world/connections.rs`: Fence, gate, and window connection logic.
+- `src/world/stair_logic.rs`: Stair corner shape calculation.
+- `src/world/tree_logic.rs`: Tree detection and validation.
+- `src/world/world_gen.rs`: World generation methods.
+- `src/world/tests.rs`: Complete test suite (all 19 tests passing).
+
+---
+
+## 3. World Management (Original Notes)
 
 `src/world.rs` currently manages chunk storage, light collection, height caches, and block-level access.
 
