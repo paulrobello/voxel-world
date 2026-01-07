@@ -249,6 +249,8 @@ impl ModelRegistry {
         let atlas_depth = 16 * res;
         let mut data = vec![0u8; atlas_width * atlas_height * atlas_depth];
 
+        println!("[DEBUG] Packing {} models for GPU atlas", self.models.len());
+
         for (model_id, model) in self.models.iter().enumerate() {
             // Model position in the 16×16 grid
             let model_x = model_id % 16;
@@ -276,6 +278,7 @@ impl ModelRegistry {
 
             let model_res = 16;
             // Copy each voxel to the correct position in the atlas
+            let mut non_zero_count = 0;
             for lz in 0..model_res {
                 for ly in 0..model_res {
                     for lx in 0..model_res {
@@ -285,6 +288,10 @@ impl ModelRegistry {
                         } else {
                             0
                         };
+
+                        if voxel != 0 {
+                            non_zero_count += 1;
+                        }
 
                         let atlas_x = model_x * res + lx;
                         let atlas_y = ly;
@@ -296,6 +303,13 @@ impl ModelRegistry {
                         }
                     }
                 }
+            }
+
+            if model_id == 1 {
+                println!(
+                    "[DEBUG] Model ID 1 (torch): packed {} non-zero voxels from {:?} resolution",
+                    non_zero_count, model.resolution
+                );
             }
         }
         data

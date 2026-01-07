@@ -558,6 +558,16 @@ impl SubVoxelModel {
         };
         new_model.compute_collision_mask();
 
+        // Debug for model ID 1 (torch)
+        if self.id == 1 {
+            let orig_count = self.voxels.iter().filter(|&&v| v != 0).count();
+            let new_count = new_model.voxels.iter().filter(|&&v| v != 0).count();
+            println!(
+                "[DEBUG] Upscale model ID 1: {:?} -> {:?}, voxels {} -> {}",
+                self.resolution, target, orig_count, new_count
+            );
+        }
+
         Some(new_model)
     }
 
