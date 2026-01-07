@@ -645,31 +645,51 @@ fn generate_normal_oak(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
 }
 
 fn generate_giant_oak(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
-    // Giant trees: 2-3 decks, each deck separated by 3-5 trunk blocks
+    // Giant trees: 2-3 decks, each deck separated by trunk blocks
     let num_decks = 2 + ((hash / 19) % 2); // 2 or 3 decks
+
+    // First, calculate all deck positions and total height
+    let mut deck_positions = Vec::new();
     let mut current_y = y;
 
     for deck_idx in 0..num_decks {
-        // Trunk section before this deck
-        let trunk_height = 4 + ((hash / (23 + deck_idx)) % 4); // 4-7 blocks per section
-        for dy in 1..=trunk_height {
-            set_block_safe(chunk, x, current_y + dy, z, BlockType::Log);
-        }
+        let trunk_section = 4 + ((hash / (23 + deck_idx)) % 4); // 4-7 blocks
+        current_y += trunk_section;
 
-        // Add branches from this trunk section (not on the top deck)
-        if deck_idx < num_decks - 1 && trunk_height >= 5 {
-            let branch_y = current_y + trunk_height / 2 + 1;
-            let num_branches = 1 + ((hash / (31 + deck_idx)) % 2); // 1-2 branches
+        let canopy_size = if deck_idx == num_decks - 1 { 1 } else { 2 };
+        let layers = if deck_idx == num_decks - 1 { 4 } else { 5 };
+
+        deck_positions.push((current_y, canopy_size, layers, trunk_section));
+        current_y += layers;
+    }
+
+    let total_height = current_y - y;
+
+    // Build continuous trunk through entire tree
+    for dy in 1..=total_height {
+        set_block_safe(chunk, x, y + dy, z, BlockType::Log);
+    }
+
+    // Place canopies at each deck position
+    for (deck_idx, &(canopy_y, canopy_size, layers, trunk_section)) in
+        deck_positions.iter().enumerate()
+    {
+        generate_oak_canopy(chunk, x, canopy_y, z, canopy_size, layers, total_height + y);
+
+        // Add branches from trunk section (not on the top deck)
+        if (deck_idx as i32) < num_decks - 1 && trunk_section >= 5 {
+            let branch_y = canopy_y - trunk_section / 2;
+            let num_branches = 1 + ((hash / (31 + deck_idx as i32)) % 2); // 1-2 branches
 
             for branch_idx in 0..num_branches {
-                let branch_dir = (hash / (37 + branch_idx * 7)) % 4; // Cardinal direction
+                let branch_dir = (hash / (37 + branch_idx * 7)) % 4;
                 let branch_len = 2 + ((hash / (41 + branch_idx * 5)) % 2); // 2-3 blocks
 
                 let (dx, dz) = match branch_dir {
-                    0 => (1, 0),  // East
-                    1 => (-1, 0), // West
-                    2 => (0, 1),  // South
-                    _ => (0, -1), // North
+                    0 => (1, 0),
+                    1 => (-1, 0),
+                    2 => (0, 1),
+                    _ => (0, -1),
                 };
 
                 // Place horizontal branch
@@ -683,21 +703,6 @@ fn generate_giant_oak(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
                 generate_oak_canopy(chunk, tip_x, branch_y, tip_z, 0, 3, branch_y);
             }
         }
-
-        current_y += trunk_height;
-
-        // Canopy for this deck
-        let canopy_size = if deck_idx == num_decks - 1 {
-            1 // Top deck is medium
-        } else {
-            2 // Lower decks are large
-        };
-        let layers = if deck_idx == num_decks - 1 { 4 } else { 5 };
-
-        generate_oak_canopy(chunk, x, current_y, z, canopy_size, layers, current_y + 1);
-
-        // Add spacing above this canopy for next deck
-        current_y += layers;
     }
 }
 
@@ -800,46 +805,55 @@ fn generate_normal_pine(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
 fn generate_giant_pine(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
     // Giant pines: 2-3 cone sections, each separated by bare trunk
     let num_sections = 2 + ((hash / 19) % 2); // 2 or 3 sections
+
+    // First, calculate all cone positions and total height
+    let mut cone_positions = Vec::new();
     let mut current_y = y;
 
     for section_idx in 0..num_sections {
-        // Trunk section before this cone
-        let trunk_height = 5 + ((hash / (29 + section_idx)) % 4); // 5-8 blocks per section
-        for dy in 1..=trunk_height {
-            set_block_safe(chunk, x, current_y + dy, z, BlockType::PineLog);
-        }
-        current_y += trunk_height;
+        let trunk_section = 5 + ((hash / (29 + section_idx)) % 4); // 5-8 blocks
+        current_y += trunk_section;
 
-        // Cone for this section
         let max_radius = if section_idx == 0 {
-            3 // Bottom cone is widest
+            3
         } else if section_idx == num_sections - 1 {
-            1 // Top cone is narrowest
+            1
         } else {
-            2 // Middle cone is medium
+            2
         };
 
         let cone_height = if section_idx == num_sections - 1 {
-            4 // Top cone is shorter
+            4
         } else {
-            6 // Lower cones are taller
+            6
         };
 
-        generate_pine_cone(
-            chunk,
-            x,
-            current_y,
-            z,
-            max_radius,
-            cone_height,
-            current_y + trunk_height,
-        );
-
+        cone_positions.push((current_y, max_radius, cone_height));
         current_y += cone_height;
     }
 
+    let total_height = current_y - y;
+
+    // Build continuous trunk through entire tree
+    for dy in 1..=total_height {
+        set_block_safe(chunk, x, y + dy, z, BlockType::PineLog);
+    }
+
+    // Place cones at each section position
+    for &(cone_y, max_radius, cone_height) in &cone_positions {
+        generate_pine_cone(
+            chunk,
+            x,
+            cone_y,
+            z,
+            max_radius,
+            cone_height,
+            total_height + y,
+        );
+    }
+
     // Top tip
-    set_block_safe(chunk, x, current_y + 1, z, BlockType::PineLeaves);
+    set_block_safe(chunk, x, y + total_height + 1, z, BlockType::PineLeaves);
 }
 
 fn generate_pine_cone(
