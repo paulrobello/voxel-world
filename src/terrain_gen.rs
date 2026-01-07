@@ -578,6 +578,17 @@ fn generate_trees(
 }
 
 fn generate_oak(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
+    // Check if this should be a giant multi-deck tree (rare: ~10% chance)
+    let is_giant = (hash % 10) == 0;
+
+    if is_giant {
+        generate_giant_oak(chunk, x, y, z, hash);
+    } else {
+        generate_normal_oak(chunk, x, y, z, hash);
+    }
+}
+
+fn generate_normal_oak(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
     // More variation: height 4-9, with different canopy sizes
     let height = 4 + (hash % 6);
     let canopy_size = (hash / 7) % 3; // 0=small, 1=medium, 2=large
@@ -602,6 +613,46 @@ fn generate_oak(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
         _ => 5, // Large: 5 layers
     };
 
+    generate_oak_canopy(chunk, x, canopy_base, z, canopy_size, layers, y + height);
+}
+
+fn generate_giant_oak(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
+    // Giant trees: 2-3 decks, each deck separated by 3-5 trunk blocks
+    let num_decks = 2 + ((hash / 19) % 2); // 2 or 3 decks
+    let mut current_y = y;
+
+    for deck_idx in 0..num_decks {
+        // Trunk section before this deck
+        let trunk_height = 4 + ((hash / (23 + deck_idx)) % 4); // 4-7 blocks per section
+        for dy in 1..=trunk_height {
+            set_block_safe(chunk, x, current_y + dy, z, BlockType::Log);
+        }
+        current_y += trunk_height;
+
+        // Canopy for this deck
+        let canopy_size = if deck_idx == num_decks - 1 {
+            1 // Top deck is medium
+        } else {
+            2 // Lower decks are large
+        };
+        let layers = if deck_idx == num_decks - 1 { 4 } else { 5 };
+
+        generate_oak_canopy(chunk, x, current_y, z, canopy_size, layers, current_y + 1);
+
+        // Add spacing above this canopy for next deck
+        current_y += layers;
+    }
+}
+
+fn generate_oak_canopy(
+    chunk: &mut Chunk,
+    x: i32,
+    base_y: i32,
+    z: i32,
+    canopy_size: i32,
+    layers: i32,
+    trunk_top_y: i32,
+) {
     for dy in 0..layers {
         // Radius pattern varies by canopy size
         let radius: i32 = match canopy_size {
@@ -627,9 +678,9 @@ fn generate_oak(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
                 if dx.abs() == radius && dz.abs() == radius && radius > 1 {
                     continue;
                 }
-                let ly = canopy_base + dy;
+                let ly = base_y + dy;
                 // Don't replace trunk
-                if dx == 0 && dz == 0 && ly <= y + height {
+                if dx == 0 && dz == 0 && ly <= trunk_top_y {
                     continue;
                 }
                 set_block_safe(chunk, x + dx, ly, z + dz, BlockType::Leaves);
@@ -639,6 +690,17 @@ fn generate_oak(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
 }
 
 fn generate_pine(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
+    // Check if this should be a giant multi-deck tree (rare: ~10% chance)
+    let is_giant = (hash % 10) == 0;
+
+    if is_giant {
+        generate_giant_pine(chunk, x, y, z, hash);
+    } else {
+        generate_normal_pine(chunk, x, y, z, hash);
+    }
+}
+
+fn generate_normal_pine(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
     // More variation: height 5-12, with different cone widths
     let height = 5 + (hash % 8);
     let cone_width = (hash / 11) % 3; // 0=narrow, 1=medium, 2=wide
@@ -663,16 +725,80 @@ fn generate_pine(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
         _ => 3, // Wide cone
     };
 
-    for dy in start_leaves..=height + 1 {
-        let h_idx = dy - start_leaves; // 0 at bottom of leaves
-        let cone_height = height + 1 - start_leaves;
+    let cone_height = height + 1 - start_leaves;
+    generate_pine_cone(
+        chunk,
+        x,
+        y + start_leaves,
+        z,
+        max_radius,
+        cone_height,
+        y + height,
+    );
 
-        // Calculate radius based on position in cone
-        let radius: i32 = if dy > height {
-            0 // Top tip
+    // Top tip
+    set_block_safe(chunk, x, y + height + 2, z, BlockType::PineLeaves);
+}
+
+fn generate_giant_pine(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
+    // Giant pines: 2-3 cone sections, each separated by bare trunk
+    let num_sections = 2 + ((hash / 19) % 2); // 2 or 3 sections
+    let mut current_y = y;
+
+    for section_idx in 0..num_sections {
+        // Trunk section before this cone
+        let trunk_height = 5 + ((hash / (29 + section_idx)) % 4); // 5-8 blocks per section
+        for dy in 1..=trunk_height {
+            set_block_safe(chunk, x, current_y + dy, z, BlockType::PineLog);
+        }
+        current_y += trunk_height;
+
+        // Cone for this section
+        let max_radius = if section_idx == 0 {
+            3 // Bottom cone is widest
+        } else if section_idx == num_sections - 1 {
+            1 // Top cone is narrowest
         } else {
+            2 // Middle cone is medium
+        };
+
+        let cone_height = if section_idx == num_sections - 1 {
+            4 // Top cone is shorter
+        } else {
+            6 // Lower cones are taller
+        };
+
+        generate_pine_cone(
+            chunk,
+            x,
+            current_y,
+            z,
+            max_radius,
+            cone_height,
+            current_y + trunk_height,
+        );
+
+        current_y += cone_height;
+    }
+
+    // Top tip
+    set_block_safe(chunk, x, current_y + 1, z, BlockType::PineLeaves);
+}
+
+fn generate_pine_cone(
+    chunk: &mut Chunk,
+    x: i32,
+    base_y: i32,
+    z: i32,
+    max_radius: i32,
+    cone_height: i32,
+    trunk_top_y: i32,
+) {
+    for dy in 0..cone_height {
+        // Calculate radius based on position in cone
+        let radius: i32 = {
             // Linear taper from max_radius at bottom to 0 at top
-            let t = 1.0 - (h_idx as f32 / cone_height as f32);
+            let t = 1.0 - (dy as f32 / cone_height as f32);
             (t * max_radius as f32).ceil() as i32
         };
 
@@ -681,17 +807,15 @@ fn generate_pine(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
                 if dx.abs() == radius && dz.abs() == radius && radius > 0 {
                     continue; // Skip corners
                 }
+                let ly = base_y + dy;
                 // Don't replace trunk
-                if dx == 0 && dz == 0 && dy <= height {
+                if dx == 0 && dz == 0 && ly <= trunk_top_y {
                     continue;
                 }
-                set_block_safe(chunk, x + dx, y + dy, z + dz, BlockType::PineLeaves);
+                set_block_safe(chunk, x + dx, ly, z + dz, BlockType::PineLeaves);
             }
         }
     }
-
-    // Top tip
-    set_block_safe(chunk, x, y + height + 2, z, BlockType::PineLeaves);
 }
 
 fn generate_willow(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
