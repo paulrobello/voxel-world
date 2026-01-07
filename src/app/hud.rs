@@ -197,8 +197,11 @@ pub fn render_hud(
                         crate::templates::TemplatePlacement::new(template, placement_pos);
                     ui.active_placement = Some(placement);
 
+                    // Close template browser after loading
+                    ui.template_ui.browser_open = false;
+
                     println!(
-                        "Template placement ready. Use R to rotate, Enter to confirm placement."
+                        "Template placement ready. Use R to rotate, Right Click to confirm placement."
                     );
                 }
                 Err(e) => {

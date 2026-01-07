@@ -411,6 +411,11 @@ impl App {
     }
 
     pub fn update_block_placing(&mut self, delta_time: f32) {
+        // Skip block placement if in template placement mode
+        if self.ui.active_placement.is_some() {
+            return;
+        }
+
         // Decrease cooldown
         if self.ui.place_cooldown > 0.0 {
             self.ui.place_cooldown -= delta_time;
