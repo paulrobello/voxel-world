@@ -2,7 +2,7 @@ use super::builtins;
 use super::model::SubVoxelModel;
 use super::types::{
     FIRST_CUSTOM_MODEL_ID, LightBlocking, MAX_MODELS, ModelResolution, NUM_RESOLUTION_TIERS,
-    StairShape,
+    PALETTE_SIZE, StairShape,
 };
 use std::collections::HashMap;
 use std::path::Path;
@@ -297,11 +297,12 @@ impl ModelRegistry {
                 // Sample a few voxels from torch in the atlas to verify placement
                 // Torch is model_id=1, so model_x=1, model_z=0
                 // Torch stick at (3,3,3) in 8³ → (6,6,6) in 16³
-                // Atlas position: (1*16+6, 6, 0*16+6) = (22, 6, 6)
-                let atlas_x = 1 * 16 + 6;
+                // Atlas position: (22, 6, 6)
+                let atlas_x = 22;
                 let atlas_y = 6;
-                let atlas_z = 0 * 16 + 6;
-                let sample_idx = atlas_x + atlas_y * ATLAS_WIDTH + atlas_z * ATLAS_WIDTH * ATLAS_HEIGHT;
+                let atlas_z = 6;
+                let sample_idx =
+                    atlas_x + atlas_y * ATLAS_WIDTH + atlas_z * ATLAS_WIDTH * ATLAS_HEIGHT;
                 if sample_idx < data.len() {
                     println!(
                         "[DEBUG]   Sample atlas voxel at ({},{},{}): {}",
@@ -312,20 +313,25 @@ impl ModelRegistry {
         }
 
         println!("[DEBUG] Total atlas size: {} bytes", data.len());
+        println!("[DEBUG] >>> USING FIXED INLINE RESAMPLING CODE <<<");
         data
     }
 
     /// Packs palettes for all models.
+    /// Format: 256 models × 32 colors × 4 bytes (RGBA) = 32,768 bytes
     pub fn pack_palettes_for_gpu(&self) -> Vec<u8> {
-        let mut data = Vec::with_capacity(self.models.len() * 32 * 5);
-        for model in &self.models {
-            data.extend(model.pack_palette_combined());
+        const TEX_WIDTH: usize = MAX_MODELS; // 256
+        const TEX_HEIGHT: usize = PALETTE_SIZE; // 32
+        let mut data = vec![0u8; TEX_WIDTH * TEX_HEIGHT * 4];
+
+        for (model_id, model) in self.models.iter().enumerate() {
+            for (palette_idx, color) in model.palette.iter().enumerate() {
+                // Buffer offset for texel at (model_id, palette_idx)
+                let dst_idx = (model_id + palette_idx * TEX_WIDTH) * 4;
+                data[dst_idx..dst_idx + 4].copy_from_slice(&color.to_array());
+            }
         }
-        // Pad if we have fewer than MAX_MODELS (though usually we resize buffer on GPU side)
-        // But for safety, let's ensure we match what expected
-        while data.len() < MAX_MODELS * 32 * 5 {
-            data.push(0);
-        }
+
         data
     }
 
