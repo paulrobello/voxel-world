@@ -578,17 +578,49 @@ fn generate_trees(
 }
 
 fn generate_oak(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
-    let height = 5 + (hash % 3);
+    // More variation: height 4-9, with different canopy sizes
+    let height = 4 + (hash % 6);
+    let canopy_size = (hash / 7) % 3; // 0=small, 1=medium, 2=large
+    let trunk_offset = (hash / 13) % 2; // 0=normal, 1=extra trunk before canopy
 
     // Trunk
     for dy in 1..=height {
         set_block_safe(chunk, x, y + dy, z, BlockType::Log);
     }
 
-    // Leaves (Blob)
-    let canopy_base = y + height - 2;
-    for dy in 0..4 {
-        let radius: i32 = if dy == 0 || dy == 3 { 1 } else { 2 };
+    // Canopy placement - varies based on tree size
+    let canopy_base = if height <= 5 {
+        y + height - 1 // Short trees have canopy starting higher up
+    } else {
+        y + height - 2 - trunk_offset // Taller trees can have longer trunk
+    };
+
+    // Canopy layers - varies by size
+    let layers = match canopy_size {
+        0 => 3, // Small: 3 layers
+        1 => 4, // Medium: 4 layers
+        _ => 5, // Large: 5 layers
+    };
+
+    for dy in 0..layers {
+        // Radius pattern varies by canopy size
+        let radius: i32 = match canopy_size {
+            0 | 1 => {
+                // Small/Medium: 1, 2, 2, 1 pattern
+                if dy == 0 || dy == layers - 1 { 1 } else { 2 }
+            }
+            _ => {
+                // Large canopy (5 layers): 1, 2, 3, 2, 1 pattern for more volume
+                if dy == 0 || dy == layers - 1 {
+                    1
+                } else if dy == 2 {
+                    3 // Widest in the middle
+                } else {
+                    2
+                }
+            }
+        };
+
         for dx in -radius..=radius {
             for dz in -radius..=radius {
                 // Skip corners for rounded look
@@ -607,24 +639,41 @@ fn generate_oak(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
 }
 
 fn generate_pine(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
-    let height = 6 + (hash % 4);
+    // More variation: height 5-12, with different cone widths
+    let height = 5 + (hash % 8);
+    let cone_width = (hash / 11) % 3; // 0=narrow, 1=medium, 2=wide
+    let trunk_length = (hash / 17) % 2; // 0=normal, 1=extra bare trunk
 
     // Trunk
     for dy in 1..=height {
         set_block_safe(chunk, x, y + dy, z, BlockType::PineLog);
     }
 
-    // Leaves (Cone layers)
-    let start_leaves = 3;
+    // Leaves start point - taller trees can have longer bare trunk
+    let start_leaves = if height <= 6 {
+        2 // Short pines start leaves early
+    } else {
+        3 + trunk_length // Taller pines can have more bare trunk
+    };
+
+    // Cone layers - varies by width and height
+    let max_radius = match cone_width {
+        0 => 1, // Narrow cone
+        1 => 2, // Medium cone
+        _ => 3, // Wide cone
+    };
+
     for dy in start_leaves..=height + 1 {
         let h_idx = dy - start_leaves; // 0 at bottom of leaves
-        // Radius decreases as we go up: 2, 2, 1, 1, 0
+        let cone_height = height + 1 - start_leaves;
+
+        // Calculate radius based on position in cone
         let radius: i32 = if dy > height {
-            0
-        } else if h_idx < 2 {
-            2
+            0 // Top tip
         } else {
-            1
+            // Linear taper from max_radius at bottom to 0 at top
+            let t = 1.0 - (h_idx as f32 / cone_height as f32);
+            (t * max_radius as f32).ceil() as i32
         };
 
         for dx in -radius..=radius {
@@ -640,6 +689,7 @@ fn generate_pine(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
             }
         }
     }
+
     // Top tip
     set_block_safe(chunk, x, y + height + 2, z, BlockType::PineLeaves);
 }
