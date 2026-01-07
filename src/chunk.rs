@@ -403,6 +403,35 @@ impl BlockType {
             _ => None,
         }
     }
+
+    /// Returns a list of all valid block names for autocomplete.
+    ///
+    /// Returns primary names only (no aliases).
+    pub fn all_block_names() -> Vec<&'static str> {
+        vec![
+            "air",
+            "stone",
+            "dirt",
+            "grass",
+            "planks",
+            "leaves",
+            "sand",
+            "gravel",
+            "water",
+            "glass",
+            "log",
+            "brick",
+            "snow",
+            "cobblestone",
+            "iron",
+            "bedrock",
+            "painted",
+            "lava",
+            "glowstone",
+            "glowmushroom",
+            "crystal",
+        ]
+    }
 }
 
 impl From<u8> for BlockType {

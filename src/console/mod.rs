@@ -94,6 +94,34 @@ pub struct PendingTeleport {
     pub z: f64,
 }
 
+/// Parameter type for command autocomplete.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ParamType {
+    /// Block type name (completable).
+    Block,
+    /// X coordinate (relative ~ supported).
+    CoordX,
+    /// Y coordinate (relative ~ supported).
+    CoordY,
+    /// Z coordinate (relative ~ supported).
+    CoordZ,
+    /// Flag (like "hollow", "on", "off").
+    Flag(&'static [&'static str]),
+    /// Free text (no completion).
+    Text,
+}
+
+/// Command signature for autocomplete.
+#[derive(Clone)]
+pub struct CommandSignature {
+    /// Command name.
+    pub name: &'static str,
+    /// Command aliases.
+    pub aliases: &'static [&'static str],
+    /// Parameter types.
+    pub params: &'static [ParamType],
+}
+
 /// Console state for the in-game command system.
 #[derive(Default)]
 pub struct ConsoleState {
@@ -123,6 +151,10 @@ pub struct ConsoleState {
     pub pending_water_analyze: bool,
     /// Pending biome debug toggle (Some(true/false) if changed).
     pub pending_biome_debug: Option<bool>,
+    /// Current autocomplete suggestions.
+    pub suggestions: Vec<String>,
+    /// Currently selected suggestion index.
+    pub suggestion_index: usize,
 }
 
 /// Maximum number of command history entries to persist.
@@ -145,7 +177,266 @@ impl ConsoleState {
             pending_force_water_active: false,
             pending_water_analyze: false,
             pending_biome_debug: None,
+            suggestions: Vec::new(),
+            suggestion_index: 0,
         }
+    }
+
+    /// Get all available command signatures for autocomplete.
+    pub fn command_signatures() -> Vec<CommandSignature> {
+        const HOLLOW_FLAG: &[&str] = &["hollow"];
+        const BIOME_FLAGS: &[&str] = &["on", "off", "true", "false"];
+
+        vec![
+            CommandSignature {
+                name: "help",
+                aliases: &["?"],
+                params: &[],
+            },
+            CommandSignature {
+                name: "fill",
+                aliases: &[],
+                params: &[
+                    ParamType::Block,
+                    ParamType::CoordX,
+                    ParamType::CoordY,
+                    ParamType::CoordZ,
+                    ParamType::CoordX,
+                    ParamType::CoordY,
+                    ParamType::CoordZ,
+                    ParamType::Flag(HOLLOW_FLAG),
+                ],
+            },
+            CommandSignature {
+                name: "sphere",
+                aliases: &[],
+                params: &[
+                    ParamType::Block,
+                    ParamType::CoordX,
+                    ParamType::CoordY,
+                    ParamType::CoordZ,
+                    ParamType::Text, // radius
+                    ParamType::Flag(HOLLOW_FLAG),
+                ],
+            },
+            CommandSignature {
+                name: "boxme",
+                aliases: &[],
+                params: &[ParamType::Block, ParamType::Flag(HOLLOW_FLAG)],
+            },
+            CommandSignature {
+                name: "tp",
+                aliases: &["teleport"],
+                params: &[ParamType::CoordX, ParamType::CoordY, ParamType::CoordZ],
+            },
+            CommandSignature {
+                name: "waterdebug",
+                aliases: &["wd"],
+                params: &[],
+            },
+            CommandSignature {
+                name: "waterforce",
+                aliases: &["wf"],
+                params: &[],
+            },
+            CommandSignature {
+                name: "wateranalyze",
+                aliases: &["wa"],
+                params: &[],
+            },
+            CommandSignature {
+                name: "biome_debug",
+                aliases: &["bd"],
+                params: &[ParamType::Flag(BIOME_FLAGS)],
+            },
+            CommandSignature {
+                name: "clear",
+                aliases: &[],
+                params: &[],
+            },
+        ]
+    }
+
+    /// Update autocomplete suggestions based on current input.
+    pub fn update_autocomplete(&mut self) {
+        use crate::chunk::BlockType;
+
+        self.suggestions.clear();
+        self.suggestion_index = 0;
+
+        let input = self.input.trim();
+        if input.is_empty() {
+            return;
+        }
+
+        let parts: Vec<&str> = input.split_whitespace().collect();
+        let signatures = Self::command_signatures();
+
+        // If we only have one word, complete command names
+        if parts.len() == 1 {
+            let partial = parts[0].to_lowercase();
+            for sig in &signatures {
+                if sig.name.starts_with(&partial) {
+                    self.suggestions.push(sig.name.to_string());
+                }
+                for alias in sig.aliases {
+                    if alias.starts_with(&partial) {
+                        self.suggestions.push(alias.to_string());
+                    }
+                }
+            }
+            self.suggestions.sort();
+            self.suggestions.dedup();
+            return;
+        }
+
+        // Find matching command signature
+        let cmd = parts[0].to_lowercase();
+        let param_index = parts.len() - 2; // -1 for command, -1 for 0-based index
+
+        for sig in &signatures {
+            let matches_cmd = sig.name == cmd || sig.aliases.contains(&cmd.as_str());
+            if !matches_cmd {
+                continue;
+            }
+
+            // Get the parameter type we're completing
+            if param_index >= sig.params.len() {
+                continue;
+            }
+
+            let param_type = &sig.params[param_index];
+            let partial = parts.last().unwrap_or(&"").to_lowercase();
+
+            match param_type {
+                ParamType::Block => {
+                    // Complete block names
+                    for name in BlockType::all_block_names() {
+                        if name.starts_with(&partial) {
+                            self.suggestions.push(name.to_string());
+                        }
+                    }
+                }
+                ParamType::Flag(flags) => {
+                    // Complete flag names
+                    for flag in *flags {
+                        if flag.starts_with(&partial) {
+                            self.suggestions.push(flag.to_string());
+                        }
+                    }
+                }
+                ParamType::CoordX | ParamType::CoordY | ParamType::CoordZ => {
+                    // Suggest relative coordinate syntax
+                    if partial.is_empty() || partial.starts_with('~') {
+                        self.suggestions.push("~".to_string());
+                        if partial.is_empty() {
+                            self.suggestions.push("0".to_string());
+                        }
+                    }
+                }
+                ParamType::Text => {
+                    // No completion for free text
+                }
+            }
+
+            break;
+        }
+
+        self.suggestions.sort();
+        self.suggestions.dedup();
+    }
+
+    /// Apply the currently selected suggestion.
+    pub fn apply_suggestion(&mut self) {
+        if self.suggestions.is_empty() {
+            return;
+        }
+
+        let suggestion = &self.suggestions[self.suggestion_index];
+        let parts: Vec<&str> = self.input.split_whitespace().collect();
+
+        if parts.len() == 1 {
+            // Completing command name
+            self.input = format!("{} ", suggestion);
+        } else {
+            // Completing parameter
+            let mut new_parts = parts[..parts.len() - 1].to_vec();
+            new_parts.push(suggestion);
+            self.input = new_parts.join(" ") + " ";
+        }
+
+        self.suggestions.clear();
+        self.suggestion_index = 0;
+    }
+
+    /// Cycle to next suggestion.
+    pub fn next_suggestion(&mut self) {
+        if !self.suggestions.is_empty() {
+            self.suggestion_index = (self.suggestion_index + 1) % self.suggestions.len();
+        }
+    }
+
+    /// Cycle to previous suggestion.
+    pub fn prev_suggestion(&mut self) {
+        if !self.suggestions.is_empty() {
+            if self.suggestion_index == 0 {
+                self.suggestion_index = self.suggestions.len() - 1;
+            } else {
+                self.suggestion_index -= 1;
+            }
+        }
+    }
+
+    /// Get ghost text placeholder for current input.
+    pub fn get_ghost_text(&self) -> String {
+        let input = self.input.trim();
+        if input.is_empty() {
+            return String::new();
+        }
+
+        let parts: Vec<&str> = input.split_whitespace().collect();
+        let signatures = Self::command_signatures();
+
+        // Find matching command signature
+        let cmd = parts[0].to_lowercase();
+        for sig in &signatures {
+            let matches_cmd = sig.name == cmd || sig.aliases.contains(&cmd.as_str());
+            if !matches_cmd {
+                continue;
+            }
+
+            // Build ghost text from remaining parameters
+            let param_start = parts.len() - 1;
+            if param_start >= sig.params.len() {
+                return String::new();
+            }
+
+            let mut ghost_parts = Vec::new();
+            for (i, param) in sig.params[param_start..].iter().enumerate() {
+                let label = match param {
+                    ParamType::Block => "<block>",
+                    ParamType::CoordX => "<x>",
+                    ParamType::CoordY => "<y>",
+                    ParamType::CoordZ => "<z>",
+                    ParamType::Flag(flags) => {
+                        if flags.len() == 1 {
+                            flags[0]
+                        } else if i == 0 {
+                            // If this is the next param, show first option
+                            flags[0]
+                        } else {
+                            "<flag>"
+                        }
+                    }
+                    ParamType::Text => "<value>",
+                };
+                ghost_parts.push(label);
+            }
+
+            return ghost_parts.join(" ");
+        }
+
+        String::new()
     }
 
     /// Creates a console state with pre-loaded command history.

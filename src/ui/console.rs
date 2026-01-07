@@ -64,7 +64,7 @@ impl ConsoleUI {
 
                 ui.separator();
 
-                // Input field
+                // Input field with ghost text overlay
                 ui.horizontal(|ui| {
                     ui.label(
                         egui::RichText::new(">")
@@ -72,13 +72,43 @@ impl ConsoleUI {
                             .color(egui::Color32::from_rgb(100, 255, 100)),
                     );
 
+                    // Input field
+                    let input_width = console_width - 30.0;
                     let response = ui.add(
                         egui::TextEdit::singleline(&mut console.input)
                             .font(egui::TextStyle::Monospace)
-                            .desired_width(console_width - 30.0)
+                            .desired_width(input_width)
                             .frame(false)
                             .hint_text("Type a command... (help for list)"),
                     );
+
+                    // Draw ghost text overlay if we have one and no suggestions popup
+                    if console.suggestions.is_empty() && !console.input.is_empty() {
+                        let ghost_text = console.get_ghost_text();
+                        if !ghost_text.is_empty() {
+                            let input_rect = response.rect;
+                            let ghost_start_pos = egui::pos2(
+                                input_rect.min.x
+                                    + ui.painter()
+                                        .layout_no_wrap(
+                                            console.input.clone(),
+                                            egui::FontId::monospace(14.0),
+                                            egui::Color32::WHITE,
+                                        )
+                                        .size()
+                                        .x,
+                                input_rect.min.y,
+                            );
+
+                            ui.painter().text(
+                                ghost_start_pos,
+                                egui::Align2::LEFT_TOP,
+                                format!(" {}", ghost_text),
+                                egui::FontId::monospace(14.0),
+                                egui::Color32::from_rgba_unmultiplied(150, 150, 150, 100),
+                            );
+                        }
+                    }
 
                     // Request focus if needed
                     if console.request_focus {
@@ -113,8 +143,33 @@ impl ConsoleUI {
                         }
                     }
 
-                    // History navigation (check while focused)
+                    // Handle autocomplete and history navigation (check while focused)
                     if response.has_focus() {
+                        // Tab for autocomplete
+                        if ui.input(|i| i.key_pressed(egui::Key::Tab)) {
+                            if console.suggestions.is_empty() {
+                                // Generate suggestions
+                                console.update_autocomplete();
+                            } else {
+                                // Cycle through suggestions
+                                if ui.input(|i| i.modifiers.shift) {
+                                    console.prev_suggestion();
+                                } else {
+                                    console.next_suggestion();
+                                }
+                            }
+                            // Apply if we have exactly one suggestion or user is cycling
+                            if console.suggestions.len() == 1 || console.suggestion_index > 0 {
+                                console.apply_suggestion();
+                            }
+                        }
+
+                        // Update autocomplete on text change
+                        if response.changed() {
+                            console.update_autocomplete();
+                        }
+
+                        // History navigation
                         if ui.input(|i| i.key_pressed(egui::Key::ArrowUp)) {
                             console.history_up();
                         }
@@ -123,6 +178,32 @@ impl ConsoleUI {
                         }
                     }
                 });
+
+                // Show suggestions popup if available
+                if !console.suggestions.is_empty() {
+                    ui.separator();
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label(
+                            egui::RichText::new("Suggestions:")
+                                .color(egui::Color32::from_gray(180))
+                                .monospace(),
+                        );
+                        for (idx, suggestion) in console.suggestions.iter().enumerate() {
+                            let is_selected = idx == console.suggestion_index;
+                            let color = if is_selected {
+                                egui::Color32::from_rgb(100, 255, 100)
+                            } else {
+                                egui::Color32::from_gray(200)
+                            };
+                            let text = if is_selected {
+                                format!("[{}]", suggestion)
+                            } else {
+                                suggestion.clone()
+                            };
+                            ui.label(egui::RichText::new(text).color(color).monospace());
+                        }
+                    });
+                }
             });
     }
 }
