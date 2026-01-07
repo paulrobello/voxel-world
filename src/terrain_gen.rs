@@ -617,8 +617,8 @@ fn generate_normal_oak(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
         y + height
     };
 
-    // Trunk - extends through canopy
-    for dy in 1..=tree_top {
+    // Trunk - stops 1 block before top so leaves cover it
+    for dy in 1..tree_top {
         set_block_safe(chunk, x, y + dy, z, BlockType::Log);
     }
 
@@ -658,7 +658,7 @@ fn generate_normal_oak(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
         z,
         canopy_size,
         layers,
-        tree_top,
+        tree_top - 1,
         canopy_shape,
     );
 }
@@ -698,8 +698,8 @@ fn generate_giant_oak(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
 
     let total_height = current_y - y;
 
-    // Build continuous trunk through entire tree
-    for dy in 1..=total_height {
+    // Build continuous trunk - stops 1 block before top so leaves cover it
+    for dy in 1..total_height {
         set_block_safe(chunk, x, y + dy, z, BlockType::Log);
     }
 
@@ -713,7 +713,7 @@ fn generate_giant_oak(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
             z,
             canopy_size,
             layers,
-            total_height + y,
+            total_height + y - 1,
             deck_shape,
         );
 
@@ -896,8 +896,8 @@ fn generate_normal_pine(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
     // Cone extends 1 block above trunk for tip
     let tree_top = height + 1;
 
-    // Trunk - extends through the tip
-    for dy in 1..=tree_top {
+    // Trunk - stops 1 block before top so leaves cover it
+    for dy in 1..tree_top {
         set_block_safe(chunk, x, y + dy, z, BlockType::PineLog);
     }
 
@@ -916,7 +916,7 @@ fn generate_normal_pine(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
         z,
         max_radius,
         cone_height,
-        y + tree_top,
+        y + tree_top - 1,
     );
 }
 
@@ -953,8 +953,8 @@ fn generate_giant_pine(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
 
     let total_height = current_y - y;
 
-    // Build continuous trunk through entire tree
-    for dy in 1..=total_height {
+    // Build continuous trunk - stops 1 block before top so leaves cover it
+    for dy in 1..total_height {
         set_block_safe(chunk, x, y + dy, z, BlockType::PineLog);
     }
 
@@ -967,7 +967,7 @@ fn generate_giant_pine(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
             z,
             max_radius,
             cone_height,
-            y + total_height,
+            y + total_height - 1,
         );
     }
 }
@@ -983,17 +983,31 @@ fn generate_pine_cone(
 ) {
     for dy in 0..cone_height {
         // Calculate radius based on position in cone
+        // Use square root taper for more natural pine cone shape
         let radius: i32 = {
-            // Linear taper from max_radius at bottom to 0 at top
             let t = 1.0 - (dy as f32 / cone_height as f32);
-            (t * max_radius as f32).ceil() as i32
+            // Square root gives smoother taper at top, wider at bottom
+            let taper = t.sqrt();
+            (taper * max_radius as f32) as i32
         };
 
-        for dx in -radius..=radius {
-            for dz in -radius..=radius {
-                if dx.abs() == radius && dz.abs() == radius && radius > 0 {
-                    continue; // Skip corners
+        // Add slight variation in radius per layer to reduce "stacked disc" look
+        let adjusted_radius = if radius > 1 && dy % 2 == 1 {
+            radius - 1 // Alternate layers slightly smaller for more natural appearance
+        } else {
+            radius
+        };
+
+        for dx in -adjusted_radius..=adjusted_radius {
+            for dz in -adjusted_radius..=adjusted_radius {
+                let dist_sq = dx * dx + dz * dz;
+                let radius_sq = adjusted_radius * adjusted_radius;
+
+                // Use circular shape instead of square for more natural cone
+                if dist_sq > radius_sq {
+                    continue;
                 }
+
                 let ly = base_y + dy;
                 // Don't replace trunk
                 if dx == 0 && dz == 0 && ly <= trunk_top_y {
