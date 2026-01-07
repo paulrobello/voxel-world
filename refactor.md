@@ -1,142 +1,115 @@
-# Refactoring Summary: Voxel World
+# Refactoring Workflow
 
-This document summarizes the completed refactoring of large files into smaller, more manageable modules.
+This document outlines the workflow for decomposing large files into smaller, more manageable modules.
 
-## Status Summary
+## General Process
 
-| File | Lines (Original) | Lines (Final) | Reduction | Refactored To |
-|------|------------------|---------------|-----------|---------------|
-| `src/sub_voxel.rs` | 2166 | ~300 | 86% | `src/sub_voxel/` (6 modules) |
-| `src/sub_voxel_builtins.rs` | 1800 | N/A | 100% | `src/sub_voxel/builtins/` (8 modules) |
-| `src/world.rs` | 2104 | N/A | 100% | `src/world/` (9 modules) |
-| `src/hud_render.rs` | 2005 | N/A | 100% | `src/ui/` (9 modules) |
-| `src/main.rs` | 2131 | 92 | 96% | `src/app/` (11 modules), `src/app_state/` (7 modules), `src/world_init/` (3 modules) |
-| **Total** | **10,206** | **~2,392** | **77%** | **41 new modules** |
+### Planning Phase
+1. Identify large files (>1000 lines) that need refactoring
+2. Analyze the file structure and identify logical separations
+3. Plan the module structure (what goes where)
+4. Identify dependencies between components
 
----
+### Execution Phase
+1. Create directory structure: `mkdir -p src/module_name`
+2. Create `mod.rs` with module declarations and re-exports
+3. Extract code in logical order (dependencies first)
+4. Update imports in extracted modules
+5. Update imports in files that use the extracted code
+6. Remove extracted code from original file
 
-## 1. Sub-Voxel System
+### Verification Phase
+After each extraction:
+1. Run `cargo check` - Verify compilation
+2. Run `cargo clippy` - Check for warnings
+3. Run `cargo test` - Ensure tests pass
+4. Run `make checkall` - Full verification
+5. Commit changes with descriptive message
 
-Successfully decomposed `src/sub_voxel.rs` and `src/sub_voxel_builtins.rs` into a modular structure under `src/sub_voxel/`.
+## Best Practices
 
-### Structure:
-- `mod.rs`: Re-exports and high-level API
-- `types.rs`: Core enums and structs (ModelResolution, LightMode, StairShape, etc.)
-- `model.rs`: SubVoxelModel implementation and voxel manipulation
-- `registry.rs`: ModelRegistry management and GPU packing
-- `builtins/`: Categorized built-in models (8 modules by model type)
+### Module Organization
+- Keep modules focused (single responsibility)
+- Target 50-600 lines per file
+- Use meaningful module names
+- Group related functionality
+- Re-export at module level for clean API
 
----
+### Import Strategy
+- Use absolute paths from crate root for clarity
+- Group imports: std, external crates, internal modules
+- Update imports incrementally as code is extracted
+- Use `pub(crate)` for cross-module access within same crate
 
-## 2. World Management
+### Git Workflow
+- Use `git mv` when moving files to preserve history
+- Commit after each major extraction
+- Write descriptive commit messages following convention:
+  - `refactor(module): decompose file into submodules`
+- Keep commits atomic (one logical change per commit)
 
-Successfully decomposed `src/world.rs` into a modular structure under `src/world/`.
+### Visibility Guidelines
+- Start with private by default
+- Use `pub` only for public API
+- Use `pub(crate)` for internal cross-module access
+- Keep implementation details private
 
-### Structure:
-- `mod.rs`: Re-exports and type definitions (ChunkPos, WorldPos)
-- `storage.rs`: World struct, chunk storage, dirty tracking, block accessors
-- `lighting.rs`: Light collection and emission logic (collect_torch_lights)
-- `query.rs`: Height cache and minimap generation
-- `connections.rs`: Fence, gate, and window connection logic
-- `stair_logic.rs`: Stair corner shape calculation
-- `tree_logic.rs`: Tree detection and validation
-- `world_gen.rs`: World generation methods
-- `tests.rs`: Complete test suite (19 tests)
+## Common Patterns
 
----
+### State Structures
+Extract state structs before the code that uses them:
+```
+src/app_state/
+├── mod.rs           # Re-exports
+├── graphics.rs      # Graphics resources
+├── simulation.rs    # Simulation state
+└── ui_state.rs      # UI state
+```
 
-## 3. HUD and UI
+### Implementation Methods
+Split large impl blocks by functionality:
+```
+src/app/
+├── core.rs          # Struct definition + core methods
+├── init.rs          # Initialization logic
+├── update.rs        # Update loop
+└── render.rs        # Rendering logic
+```
 
-Successfully decomposed `src/hud_render.rs` into a modular structure under `src/ui/`.
+### Helper Functions
+Create helper modules for utility functions:
+```
+src/module/
+├── mod.rs           # Main functionality
+├── helpers.rs       # Utility functions
+└── types.rs         # Type definitions
+```
 
-### Structure:
-- `mod.rs`: HUDRenderer struct, render coordination, and module exports
-- `helpers.rs`: Shared utility functions (tint_color, sprite_for_item, atlas_tile_for, etc.)
-- `time.rs`: Time parsing and formatting utilities with comprehensive tests
-- `stats.rs`: Performance overlays (FPS, chunks, fluid stats, position, biome debug)
-- `console.rs`: Command console with history navigation and fluid debug output
-- `palette.rs`: Block/model palette window with drag-and-drop support
-- `hotbar.rs`: 9-slot hotbar with drag preview and block name display
-- `minimap.rs`: Minimap and compass rendering
-- `settings.rs`: Comprehensive settings window with multiple collapsible sections
+## Troubleshooting
 
----
+### Import Errors
+- Check module declarations in parent `mod.rs`
+- Verify re-exports are public
+- Use absolute paths for clarity
 
-## 4. Main Application
+### Circular Dependencies
+- Extract shared types to separate module
+- Use trait definitions to break cycles
+- Consider splitting into smaller modules
 
-Successfully decomposed `src/main.rs` into modular structures under `src/app/`, `src/app_state/`, and `src/world_init/`.
+### Test Failures
+- Update test imports
+- Ensure test-only code is `#[cfg(test)]`
+- Check that all functionality is still accessible
 
-### Structure:
+## Verification Checklist
 
-**`src/app/` - Application Logic (11 modules, ~1847 lines)**
-- `mod.rs`: Module organization and re-exports
-- `core.rs`: App struct definition and core methods
-- `init.rs`: App::new() - Vulkan initialization (~456 lines)
-- `update.rs`: App::update() - Game loop update logic (~290 lines)
-- `render.rs`: App::render() - Rendering pipeline (~565 lines)
-- `event_handler.rs`: ApplicationHandler implementation (~158 lines)
-- `input.rs`: Input handling methods (~500 lines)
-- `hud.rs`: HUD rendering helpers (~160 lines)
-- `minimap.rs`: Minimap update logic (~60 lines)
-- `stats.rs`: Statistics collection (~140 lines)
-- `helpers.rs`: Future helper functions (placeholder)
-
-**`src/app_state/` - State Structures (7 modules, ~345 lines)**
-- `mod.rs`: Re-exports
-- `graphics.rs`: Graphics struct - All Vulkan resources
-- `simulation.rs`: WorldSim struct + save methods
-- `ui_state.rs`: UiState struct - All UI state
-- `input_state.rs`: InputState struct + Deref/DerefMut
-- `palette.rs`: PaletteItem + PaletteTab types
-- `profiling.rs`: AutoProfileFeature enum
-
-**`src/world_init/` - World Generation (3 modules, ~150 lines)**
-- `mod.rs`: Re-exports
-- `spawn.rs`: find_ground_level() function
-- `generation.rs`: create_initial_world_with_seed(), create_game_world_full()
-
-**`src/main.rs` - Entry Point (92 lines, 96% reduction)**
-- macOS cursor helper functions
-- Module declarations
-- main() function only
-- Day/night cycle constants moved to `constants.rs`
-
----
-
-## Key Improvements
-
-### Code Organization
-- **77% reduction** in total lines across all refactored files
-- **41 new focused modules** replacing 5 monolithic files
-- **Average file size**: 50-600 lines (down from 2000+)
-- **Clear separation of concerns** across all modules
-
-### Maintainability
-- Each file has a single, clear purpose
-- Easy to find specific functionality
-- Smaller modules are easier to test and modify
-- Multiple developers can work without conflicts
-
-### Quality
-- **All tests passing**: 106/106 ✅
-- **Zero warnings**: Clean compilation
-- **Type safety**: All dependencies properly managed
-- **Documentation**: Module-level doc comments throughout
-
-### Architecture
-- Clean layering of concerns
-- Reusable utility modules reduce duplication
-- Future refactoring made easier
-- No runtime performance impact
-
----
-
-## Verification
-
-All refactoring phases were verified with:
-1. `cargo check` - Type checking
-2. `cargo clippy` - Linting
-3. `cargo test` - Test suite (106 tests)
-4. `make checkall` - Complete verification
-
-All checks pass without errors or warnings.
+- [ ] All files compile without errors
+- [ ] No clippy warnings
+- [ ] All tests pass (106/106)
+- [ ] Module documentation added
+- [ ] Imports organized and cleaned
+- [ ] Visibility modifiers correct
+- [ ] Git history preserved (used `git mv`)
+- [ ] Commit messages descriptive
+- [ ] Code runs correctly in-game
