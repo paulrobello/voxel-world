@@ -139,7 +139,7 @@ make run
 | **F** | Toggle fly mode |
 | **B** | Toggle chunk boundaries |
 | **M** | Toggle minimap |
-| **L** | Toggle player torch light |
+| **L** | Toggle player torch light (requires Point Lights enabled in settings) |
 | **N** | Open model editor |
 | **/** | Open console |
 | **Esc** | Release cursor / Open settings panel |
@@ -153,7 +153,7 @@ Press **Esc** to open the settings panel with:
 - Break/place cooldown adjustments
 - Physics updates per frame (cascade speed)
 - Minimap options (size, colors, rotation)
-- Performance toggles (AO, shadows, fog, etc.)
+- Performance toggles (AO, shadows, point lights, fog, etc.)
 
 ### Hotbar Blocks
 
