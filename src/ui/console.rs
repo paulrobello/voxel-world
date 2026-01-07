@@ -64,6 +64,10 @@ impl ConsoleUI {
 
                 ui.separator();
 
+                // Check for Tab key BEFORE creating input to consume it early
+                let tab_pressed = ctx.input(|i| i.key_pressed(egui::Key::Tab));
+                let shift_held = ctx.input(|i| i.modifiers.shift);
+
                 // Input field with ghost text overlay
                 ui.horizontal(|ui| {
                     ui.label(
@@ -79,12 +83,19 @@ impl ConsoleUI {
                             .font(egui::TextStyle::Monospace)
                             .desired_width(input_width)
                             .frame(false)
-                            .hint_text("Type a command... (help for list)"),
+                            .hint_text("Type a command... (help for list)")
+                            .lock_focus(true),
                     );
 
                     // Draw ghost text overlay if we have one and no suggestions popup
                     if console.suggestions.is_empty() && !console.input.is_empty() {
                         let ghost_text = console.get_ghost_text();
+                        eprintln!(
+                            "[ConsoleUI] Input: '{}', Ghost: '{}', Suggestions: {}",
+                            console.input,
+                            ghost_text,
+                            console.suggestions.len()
+                        );
                         if !ghost_text.is_empty() {
                             let input_rect = response.rect;
                             let font_id = egui::FontId::monospace(13.0);
@@ -103,6 +114,11 @@ impl ConsoleUI {
                             let ghost_start_pos = egui::pos2(
                                 input_rect.min.x + input_text_width + 4.0,
                                 input_rect.min.y + 2.0,
+                            );
+
+                            eprintln!(
+                                "[ConsoleUI] Drawing ghost text at {:?}: '{}'",
+                                ghost_start_pos, ghost_text
                             );
 
                             ui.painter().text(
@@ -150,19 +166,14 @@ impl ConsoleUI {
 
                     // Handle autocomplete and history navigation (check while focused)
                     if response.has_focus() {
-                        // Consume Tab key to prevent focus change
-                        let tab_pressed = ui.input(|i| i.key_pressed(egui::Key::Tab));
+                        // Handle Tab for autocomplete
                         if tab_pressed {
-                            // Prevent Tab from changing focus
-                            ui.memory_mut(|mem| mem.surrender_focus(response.id));
-                            response.request_focus();
-
                             if console.suggestions.is_empty() {
                                 // Generate suggestions
                                 console.update_autocomplete();
                             } else {
                                 // Cycle through suggestions
-                                if ui.input(|i| i.modifiers.shift) {
+                                if shift_held {
                                     console.prev_suggestion();
                                 } else {
                                     console.next_suggestion();

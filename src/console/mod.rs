@@ -389,12 +389,17 @@ impl ConsoleState {
 
     /// Get ghost text placeholder for current input.
     pub fn get_ghost_text(&self) -> String {
-        let input = self.input.trim();
+        // Don't trim - we need to preserve trailing spaces to know if user finished typing a word
+        let input = &self.input;
         if input.is_empty() {
             return String::new();
         }
 
         let parts: Vec<&str> = input.split_whitespace().collect();
+        if parts.is_empty() {
+            return String::new();
+        }
+
         let signatures = Self::command_signatures();
 
         // Find matching command signature
@@ -405,9 +410,23 @@ impl ConsoleState {
                 continue;
             }
 
-            // Build ghost text from remaining parameters
-            let param_start = parts.len() - 1;
+            // Check if user has finished typing current word (ends with space)
+            let ends_with_space = input.ends_with(' ');
+
+            // Calculate parameter index
+            // If "fill " (ends with space), we're starting parameter 0
+            // If "fill" (no space), we're still typing command, no ghost text
+            // If "fill stone" (no trailing space), we're typing parameter 0, no ghost text yet
+            // If "fill stone " (trailing space), we're starting parameter 1
+            let param_start = if ends_with_space {
+                parts.len() - 1
+            } else {
+                // Still typing current word, no ghost text
+                return String::new();
+            };
+
             if param_start >= sig.params.len() {
+                // No more parameters to show
                 return String::new();
             }
 
@@ -433,9 +452,18 @@ impl ConsoleState {
                 ghost_parts.push(label);
             }
 
-            return ghost_parts.join(" ");
+            let result = ghost_parts.join(" ");
+            eprintln!(
+                "[Console] Ghost text for '{}' (ends_with_space={}, param_start={}): '{}'",
+                input, ends_with_space, param_start, result
+            );
+            return result;
         }
 
+        eprintln!(
+            "[Console] No ghost text for '{}' (no matching command)",
+            input
+        );
         String::new()
     }
 
