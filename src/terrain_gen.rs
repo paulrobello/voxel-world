@@ -653,13 +653,27 @@ fn generate_giant_oak(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
     let mut current_y = y;
 
     for deck_idx in 0..num_decks {
-        let trunk_section = 4 + ((hash / (23 + deck_idx)) % 4); // 4-7 blocks
+        let trunk_section = 5 + ((hash / (23 + deck_idx)) % 4); // 5-8 blocks
         current_y += trunk_section;
 
-        let canopy_size = if deck_idx == num_decks - 1 { 1 } else { 2 };
-        let layers = if deck_idx == num_decks - 1 { 4 } else { 5 };
+        // Scale canopy size: bottom deck largest, scales down as we go up
+        // For 2-deck: bottom=3 (huge), top=1 (medium)
+        // For 3-deck: bottom=3 (huge), middle=2 (large), top=1 (medium)
+        let canopy_size = if deck_idx == 0 {
+            3 // Bottom deck is huge
+        } else if deck_idx == num_decks - 1 {
+            1 // Top deck is medium
+        } else {
+            2 // Middle deck is large
+        };
 
-        deck_positions.push((current_y, canopy_size, layers, trunk_section));
+        let layers = match canopy_size {
+            3 => 6, // Huge: 6 layers
+            2 => 5, // Large: 5 layers
+            _ => 4, // Medium: 4 layers
+        };
+
+        deck_positions.push((current_y, canopy_size, layers, trunk_section, deck_idx));
         current_y += layers;
     }
 
@@ -671,19 +685,28 @@ fn generate_giant_oak(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
     }
 
     // Place canopies at each deck position
-    for (deck_idx, &(canopy_y, canopy_size, layers, trunk_section)) in
-        deck_positions.iter().enumerate()
-    {
+    for &(canopy_y, canopy_size, layers, trunk_section, deck_idx) in &deck_positions {
         generate_oak_canopy(chunk, x, canopy_y, z, canopy_size, layers, total_height + y);
 
         // Add branches from trunk section (not on the top deck)
-        if (deck_idx as i32) < num_decks - 1 && trunk_section >= 5 {
-            let branch_y = canopy_y - trunk_section / 2;
-            let num_branches = 1 + ((hash / (31 + deck_idx as i32)) % 2); // 1-2 branches
+        if deck_idx < num_decks - 1 && trunk_section >= 5 {
+            // More branches on lower decks
+            let max_branches = if deck_idx == 0 { 3 } else { 2 };
+            let num_branches = 1 + ((hash / (31 + deck_idx)) % max_branches);
 
             for branch_idx in 0..num_branches {
                 let branch_dir = (hash / (37 + branch_idx * 7)) % 4;
-                let branch_len = 2 + ((hash / (41 + branch_idx * 5)) % 2); // 2-3 blocks
+
+                // Longer branches on lower decks: bottom=3-5, upper=2-4
+                let min_len = if deck_idx == 0 { 3 } else { 2 };
+                let max_len = if deck_idx == 0 { 5 } else { 4 };
+                let branch_len =
+                    min_len + ((hash / (41 + branch_idx * 5)) % (max_len - min_len + 1));
+
+                // Vary branch height within trunk section
+                let height_offset =
+                    ((hash / (59 + branch_idx * 3)) % trunk_section.max(3)).min(trunk_section - 1);
+                let branch_y = canopy_y - trunk_section + height_offset;
 
                 let (dx, dz) = match branch_dir {
                     0 => (1, 0),
@@ -697,10 +720,25 @@ fn generate_giant_oak(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
                     set_block_safe(chunk, x + dx * i, branch_y, z + dz * i, BlockType::Log);
                 }
 
-                // Small canopy at branch tip
+                // Branch canopy size varies: 0=small, 1=medium, 2=large
+                let branch_canopy_size = (hash / (67 + branch_idx * 11)) % 3;
+                let branch_layers = match branch_canopy_size {
+                    0 => 3,
+                    1 => 4,
+                    _ => 5,
+                };
+
                 let tip_x = x + dx * branch_len;
                 let tip_z = z + dz * branch_len;
-                generate_oak_canopy(chunk, tip_x, branch_y, tip_z, 0, 3, branch_y);
+                generate_oak_canopy(
+                    chunk,
+                    tip_x,
+                    branch_y,
+                    tip_z,
+                    branch_canopy_size,
+                    branch_layers,
+                    branch_y,
+                );
             }
         }
     }
@@ -722,14 +760,26 @@ fn generate_oak_canopy(
                 // Small/Medium: 1, 2, 2, 1 pattern
                 if dy == 0 || dy == layers - 1 { 1 } else { 2 }
             }
-            _ => {
-                // Large canopy (5 layers): 1, 2, 3, 2, 1 pattern for more volume
+            2 => {
+                // Large canopy (5 layers): 1, 2, 3, 2, 1 pattern
                 if dy == 0 || dy == layers - 1 {
                     1
                 } else if dy == 2 {
                     3 // Widest in the middle
                 } else {
                     2
+                }
+            }
+            _ => {
+                // Huge canopy (6 layers): 2, 3, 4, 3, 2, 1 pattern - massive bottom deck
+                if dy == layers - 1 {
+                    1 // Top
+                } else if dy == 0 || dy == layers - 2 {
+                    2
+                } else if dy == 2 {
+                    4 // Widest in the middle
+                } else {
+                    3
                 }
             }
         };
