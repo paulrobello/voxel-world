@@ -360,6 +360,41 @@ impl App {
             self.toggle_template_browser();
         }
 
+        // Rotate template placement (R key)
+        if self.input.key_pressed(KeyCode::KeyR) {
+            if let Some(ref mut placement) = self.ui.active_placement {
+                placement.rotate_90();
+                println!("Rotated template to {}°", placement.rotation * 90);
+            }
+        }
+
+        // Confirm template placement (Enter key)
+        if self.input.key_pressed(KeyCode::Enter) {
+            if let Some(ref mut placement) = self.ui.active_placement {
+                // Place blocks in batches until complete
+                const BATCH_SIZE: usize = 1000;
+                while !placement.place_batch(
+                    &mut self.sim.world,
+                    &mut self.sim.water_grid,
+                    BATCH_SIZE,
+                ) {
+                    // Continue until complete
+                }
+
+                println!(
+                    "Placed template '{}' ({} blocks) at ({}, {}, {})",
+                    placement.template.name,
+                    placement.template.block_count(),
+                    placement.position.x,
+                    placement.position.y,
+                    placement.position.z
+                );
+
+                // Clear active placement
+                self.ui.active_placement = None;
+            }
+        }
+
         // Repaint painted block under cursor with current hotbar texture/tint (P key)
         if self.input.key_pressed(KeyCode::KeyP) {
             if let Some(hit) = self.ui.current_hit {

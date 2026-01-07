@@ -74,6 +74,8 @@ pub enum CommandResult {
     WaterAnalyze,
     /// Enable/disable biome debug visualization.
     SetBiomeDebug(bool),
+    /// Load template for placement.
+    LoadTemplate(crate::templates::VxtFile),
 }
 
 /// Pending command awaiting confirmation.
@@ -151,6 +153,8 @@ pub struct ConsoleState {
     pub pending_water_analyze: bool,
     /// Pending biome debug toggle (Some(true/false) if changed).
     pub pending_biome_debug: Option<bool>,
+    /// Pending template to be loaded for placement.
+    pub pending_template_load: Option<crate::templates::VxtFile>,
     /// Current autocomplete suggestions.
     pub suggestions: Vec<String>,
     /// Currently selected suggestion index.
@@ -179,6 +183,7 @@ impl ConsoleState {
             pending_force_water_active: false,
             pending_water_analyze: false,
             pending_biome_debug: None,
+            pending_template_load: None,
             suggestions: Vec::new(),
             suggestion_index: 0,
             move_cursor_to_end: false,
@@ -743,6 +748,17 @@ impl ConsoleState {
                     if enabled { "ON" } else { "OFF" }
                 ));
                 self.pending_biome_debug = Some(enabled);
+            }
+            CommandResult::LoadTemplate(template) => {
+                self.success(format!(
+                    "Loaded template '{}' ({}×{}×{}, {} blocks). Use R to rotate, Enter to place",
+                    template.name,
+                    template.width,
+                    template.height,
+                    template.depth,
+                    template.block_count()
+                ));
+                self.pending_template_load = Some(template);
             }
         }
     }

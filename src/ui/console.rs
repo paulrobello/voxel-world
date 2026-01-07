@@ -2,6 +2,7 @@
 
 use super::FluidStats;
 use crate::console::ConsoleState;
+use crate::templates::TemplatePlacement;
 use egui_winit_vulkano::egui;
 use nalgebra::Vector3;
 
@@ -19,6 +20,7 @@ impl ConsoleUI {
         template_selection: &mut crate::templates::TemplateSelection,
         template_library: &crate::templates::TemplateLibrary,
         water_grid: &crate::water::WaterGrid,
+        active_placement: &mut Option<TemplatePlacement>,
     ) {
         if !console.active {
             return;
@@ -159,6 +161,18 @@ impl ConsoleUI {
                                 template_library,
                                 water_grid,
                             );
+
+                            // Handle pending template load
+                            if let Some(template) = console.pending_template_load.take() {
+                                let placement_pos = Vector3::new(
+                                    player_world_pos.x.floor() as i32,
+                                    (player_world_pos.y - 1.0).floor() as i32,
+                                    player_world_pos.z.floor() as i32,
+                                );
+                                *active_placement =
+                                    Some(TemplatePlacement::new(template, placement_pos));
+                            }
+
                             // Handle pending fluid debug output
                             if console.pending_fluid_debug {
                                 console.output_fluid_debug(

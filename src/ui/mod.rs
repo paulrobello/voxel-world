@@ -94,6 +94,7 @@ pub struct HudInputs<'a> {
     pub template_selection: &'a mut crate::templates::TemplateSelection,
     pub template_library: &'a crate::templates::TemplateLibrary,
     pub water_grid: &'a crate::water::WaterGrid,
+    pub active_placement: &'a mut Option<crate::templates::TemplatePlacement>,
 }
 
 pub struct HUDRenderer;
@@ -143,6 +144,7 @@ impl HUDRenderer {
             template_selection,
             template_library,
             water_grid,
+            active_placement,
         } = input;
         let mut scale_changed = false;
         let mut editor_action = EditorAction::None;
@@ -247,6 +249,7 @@ impl HUDRenderer {
                 template_selection,
                 template_library,
                 water_grid,
+                active_placement,
             );
         });
 

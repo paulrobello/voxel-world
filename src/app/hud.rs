@@ -68,6 +68,7 @@ pub fn render_hud(
             template_selection: &mut ui.template_selection,
             template_library: &ui.template_library,
             water_grid: &sim.water_grid,
+            active_placement: &mut ui.active_placement,
         },
     );
 
@@ -184,7 +185,21 @@ pub fn render_hud(
                         template.depth,
                         template.block_count()
                     );
-                    // TODO: Create TemplatePlacement and set ui.active_placement
+
+                    // Create placement at player position
+                    let placement_pos = Vector3::new(
+                        player_world_pos.x.floor() as i32,
+                        (player_world_pos.y - 1.0).floor() as i32,
+                        player_world_pos.z.floor() as i32,
+                    );
+
+                    let placement =
+                        crate::templates::TemplatePlacement::new(template, placement_pos);
+                    ui.active_placement = Some(placement);
+
+                    println!(
+                        "Template placement ready. Use R to rotate, Enter to confirm placement."
+                    );
                 }
                 Err(e) => {
                     eprintln!("Failed to load template '{}': {}", name, e);

@@ -113,14 +113,7 @@ fn template_load(args: &[&str], library: &TemplateLibrary) -> CommandResult {
     let name = args[1];
 
     match library.load_template(name) {
-        Ok(template) => CommandResult::Success(format!(
-            "Loaded template '{}' ({}×{}×{}, {} blocks). Use R to rotate, Enter to place",
-            template.name,
-            template.width,
-            template.height,
-            template.depth,
-            template.block_count()
-        )),
+        Ok(template) => CommandResult::LoadTemplate(template),
         Err(e) => CommandResult::Error(format!("Failed to load template '{}': {}", name, e)),
     }
 }
