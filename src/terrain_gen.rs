@@ -1,3 +1,4 @@
+use crate::cave_gen::{CaveFillType, CaveGenerator};
 use crate::chunk::{BlockType, CHUNK_SIZE, Chunk, WaterType};
 use crate::config::WorldGenType;
 use nalgebra::Vector3;
@@ -61,9 +62,7 @@ pub struct TerrainGenerator {
     // biome_noise replaced by temperature/rainfall logic
     temperature_noise: Perlin,
     rainfall_noise: Perlin,
-    cave_noise: Perlin,
-    cave_mask_noise: Perlin,
-    entrance_noise: Perlin,
+    cave_generator: CaveGenerator,
 }
 
 impl TerrainGenerator {
@@ -89,14 +88,8 @@ impl TerrainGenerator {
         // Rainfall noise - large scale variation
         let rainfall_noise = Perlin::new(seed.wrapping_add(7));
 
-        // 3D noise for cave carving
-        let cave_noise = Perlin::new(seed.wrapping_add(3));
-
-        // Regional variation in cave density
-        let cave_mask_noise = Perlin::new(seed.wrapping_add(4));
-
-        // Noise for cave entrance locations (~25% of cave areas get entrances)
-        let entrance_noise = Perlin::new(seed.wrapping_add(5));
+        // Cave generation system
+        let cave_generator = CaveGenerator::new(seed);
 
         Self {
             height_noise,
@@ -104,9 +97,7 @@ impl TerrainGenerator {
             mountain_noise,
             temperature_noise,
             rainfall_noise,
-            cave_noise,
-            cave_mask_noise,
-            entrance_noise,
+            cave_generator,
         }
     }
 
@@ -187,50 +178,6 @@ impl TerrainGenerator {
         };
 
         height.round() as i32
-    }
-
-    /// Check if a location is a cave entrance point (~25% of cave areas)
-    fn is_entrance(&self, world_x: i32, world_z: i32) -> bool {
-        let x = world_x as f64;
-        let z = world_z as f64;
-
-        // Low frequency noise for sparse, grouped entrance locations
-        // Use multiple octaves for varied entrance sizes
-        let entrance_value = self.entrance_noise.get([x * 0.02, z * 0.02]);
-
-        // Threshold of 0.45 gives roughly 25-30% coverage
-        // Higher threshold = fewer entrances
-        entrance_value > 0.45
-    }
-
-    /// Check if a position should be carved out as a cave
-    fn is_cave(&self, world_x: i32, world_y: i32, world_z: i32, surface_height: i32) -> bool {
-        // Determine surface buffer based on whether this is an entrance location
-        // Entrances reduce the buffer to allow caves to breach the surface
-        let is_entrance = self.is_entrance(world_x, world_z);
-        let surface_buffer = if is_entrance { 0 } else { 5 };
-
-        // Don't carve near surface unless at entrance, and never below y=2
-        if world_y > surface_height - surface_buffer || world_y < 2 {
-            return false;
-        }
-
-        let x = world_x as f64;
-        let y = world_y as f64;
-        let z = world_z as f64;
-
-        // Regional cave density (some areas have more caves)
-        let cave_density = self.cave_mask_noise.get([x * 0.01, z * 0.01]) * 0.5 + 0.5;
-
-        // 3D cave noise - "spaghetti" style caves
-        // Stretched in Y for more horizontal tunnels
-        let cave_value = self.cave_noise.get([x * 0.05, y * 0.08, z * 0.05]);
-
-        // Threshold varies by depth (more caves deeper down)
-        let depth_factor = ((surface_height - world_y) as f64 / 30.0).clamp(0.0, 1.0);
-        let threshold = 0.55 - (depth_factor * 0.15) - (cave_density * 0.1);
-
-        cave_value.abs() > threshold
     }
 
     /// Simple hash for tree placement randomness
@@ -327,6 +274,11 @@ fn generate_normal_chunk(terrain: &TerrainGenerator, chunk_pos: Vector3<i32>) ->
             for ly in 0..CHUNK_SIZE {
                 let world_y = chunk_world_y + ly as i32;
 
+                // Check if this is a cave first (before surface generation)
+                let is_cave = terrain
+                    .cave_generator
+                    .is_cave(world_x, world_y, world_z, height, biome);
+
                 let block_type = if world_y == 0 {
                     // Bedrock floor - unbreakable, prevents falling out of world
                     BlockType::Bedrock
@@ -336,12 +288,18 @@ fn generate_normal_chunk(terrain: &TerrainGenerator, chunk_pos: Vector3<i32>) ->
                 } else if world_y > height && world_y <= SEA_LEVEL {
                     // Above terrain but below sea level = water
                     BlockType::Water
-                } else if terrain.is_cave(world_x, world_y, world_z, height) {
-                    // Carved out cave - fill with water if below sea level
-                    if world_y <= SEA_LEVEL {
-                        BlockType::Water
-                    } else {
-                        BlockType::Air
+                } else if is_cave {
+                    // Carved out cave - fill based on biome-specific rules
+                    match terrain
+                        .cave_generator
+                        .get_cave_fill(biome, world_y, SEA_LEVEL)
+                    {
+                        CaveFillType::Air => BlockType::Air,
+                        CaveFillType::Water(water_type) => {
+                            // Set water with specific type for cave
+                            chunk.set_water_block(lx, ly, lz, water_type);
+                            continue; // Skip the default set_block below
+                        }
                     }
                 } else if world_y == height {
                     // Surface block - varies by biome

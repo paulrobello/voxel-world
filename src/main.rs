@@ -41,6 +41,7 @@ mod atmosphere;
 mod block_interaction;
 mod block_update;
 mod camera;
+mod cave_gen;
 mod chunk;
 mod chunk_loader;
 mod config;
