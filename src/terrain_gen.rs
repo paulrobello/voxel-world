@@ -853,44 +853,44 @@ fn generate_normal_pine(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
 }
 
 fn generate_giant_pine(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
-    // Giant pines: 2-3 cone sections, each separated by bare trunk
+    // Giant pines: 2-3 stacked cone sections
     let num_sections = 2 + ((hash / 19) % 2); // 2 or 3 sections
 
     // First, calculate all cone positions and total height
     let mut cone_positions = Vec::new();
-    let mut current_y = y;
+
+    // Start with bare trunk at bottom
+    let base_trunk = 3 + ((hash / 23) % 3); // 3-5 blocks of bare trunk at base
+    let mut current_y = y + base_trunk;
 
     for section_idx in 0..num_sections {
-        let trunk_section = 5 + ((hash / (29 + section_idx)) % 4); // 5-8 blocks
-        current_y += trunk_section;
-
         let max_radius = if section_idx == 0 {
-            3
+            3 // Bottom cone is widest
         } else if section_idx == num_sections - 1 {
-            1
+            1 // Top cone is narrowest
         } else {
-            2
+            2 // Middle cone is medium
         };
 
         let cone_height = if section_idx == num_sections - 1 {
-            5 // Extended by 1 for tip
+            6 // Top cone includes tip
         } else {
-            6
+            7 // Lower cones are taller
         };
 
         cone_positions.push((current_y, max_radius, cone_height));
+        // Stack cones directly on top of each other
         current_y += cone_height;
     }
 
-    // Add 1 for the tip at the very top
-    let total_height = current_y - y + 1;
+    let total_height = current_y - y;
 
-    // Build continuous trunk through entire tree including tip
+    // Build continuous trunk through entire tree
     for dy in 1..=total_height {
         set_block_safe(chunk, x, y + dy, z, BlockType::PineLog);
     }
 
-    // Place cones at each section position
+    // Place cones stacked on top of each other
     for &(cone_y, max_radius, cone_height) in &cone_positions {
         generate_pine_cone(
             chunk,
