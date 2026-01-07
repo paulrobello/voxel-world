@@ -253,6 +253,25 @@ impl ConsoleState {
                 params: &[ParamType::Flag(BIOME_FLAGS)],
             },
             CommandSignature {
+                name: "select",
+                aliases: &[],
+                params: &[
+                    ParamType::Text, // subcommand: pos1, pos2, clear
+                    ParamType::CoordX,
+                    ParamType::CoordY,
+                    ParamType::CoordZ,
+                ],
+            },
+            CommandSignature {
+                name: "template",
+                aliases: &[],
+                params: &[
+                    ParamType::Text, // subcommand: save, load, list, delete, info
+                    ParamType::Text, // name
+                    ParamType::Text, // tags (variadic)
+                ],
+            },
+            CommandSignature {
                 name: "clear",
                 aliases: &[],
                 params: &[],
@@ -714,6 +733,20 @@ impl ConsoleState {
                     // Actually, let's just make it ON.
                     CommandResult::SetBiomeDebug(true)
                 }
+            }
+            "select" => {
+                // TODO: Wire up template_selection parameter from App
+                CommandResult::Error(
+                    "select command not yet integrated (needs template_selection from App)"
+                        .to_string(),
+                )
+            }
+            "template" => {
+                // TODO: Wire up template_library, water_grid parameters from App
+                CommandResult::Error(
+                    "template command not yet integrated (needs template_library, water_grid from App)"
+                        .to_string(),
+                )
             }
             "clear" => {
                 self.output.clear();
