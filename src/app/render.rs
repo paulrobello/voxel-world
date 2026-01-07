@@ -499,6 +499,7 @@ impl App {
                     -1
                 }
             },
+            _padding0: 0,
             camera_pos: {
                 let cam = self
                     .sim

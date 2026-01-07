@@ -165,6 +165,7 @@ layout(push_constant) uniform PushConstants {
     int template_preview_max_x;
     int template_preview_max_y;
     int template_preview_max_z;
+    uint _padding0; // Align camera_pos to 16 bytes
     vec4 camera_pos; // world-space camera position
 } pc;
 

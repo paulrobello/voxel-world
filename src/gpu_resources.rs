@@ -313,6 +313,7 @@ pub struct PushConstants {
     pub template_preview_max_x: i32,
     pub template_preview_max_y: i32,
     pub template_preview_max_z: i32,
+    pub _padding0: u32, // Align camera_pos to 16 bytes
     pub camera_pos: [f32; 4],
 }
 
