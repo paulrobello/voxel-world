@@ -290,7 +290,10 @@ impl BlockUpdateQueue {
         }
 
         if let Some(block) = world.get_block(pos) {
-            if block == BlockType::Leaves {
+            if matches!(
+                block,
+                BlockType::Leaves | BlockType::PineLeaves | BlockType::WillowLeaves
+            ) {
                 let (leaves, has_log) = world.find_leaf_cluster_and_check_log(pos);
                 if !has_log && !leaves.is_empty() {
                     for (p, bt) in leaves {

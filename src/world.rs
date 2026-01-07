@@ -652,7 +652,10 @@ impl World {
 
         while let Some(pos) = queue.pop_front() {
             if let Some(block) = self.get_block(pos) {
-                if block == BlockType::Leaves {
+                if matches!(
+                    block,
+                    BlockType::Leaves | BlockType::PineLeaves | BlockType::WillowLeaves
+                ) {
                     leaves.push((pos, block));
 
                     for offset in &neighbors_26 {
@@ -669,7 +672,11 @@ impl World {
                             }
 
                             // Add unvisited leaves to queue (any direction)
-                            if neighbor_block == BlockType::Leaves && !visited.contains(&neighbor) {
+                            if matches!(
+                                neighbor_block,
+                                BlockType::Leaves | BlockType::PineLeaves | BlockType::WillowLeaves
+                            ) && !visited.contains(&neighbor)
+                            {
                                 visited.insert(neighbor);
                                 queue.push_back(neighbor);
                             }
