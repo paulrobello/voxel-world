@@ -153,18 +153,18 @@
 
 ## Active Development Phases
 
-### Phase 15.4: Cave Biome Integration
+### Phase 15.4: Cave Biome Integration ✅
 
 **Goal**: Extend biome diversity into the underground cave networks.
 
-**Status**: IN PROGRESS (Mostly Complete)
+**Status**: COMPLETE
 
 #### 15.4 Cave Biome Rules
 - [x] Caves inherit surface biome properties (biome-specific density multipliers)
 - [x] Ice caves: ice stalactites and stalagmites in snow biomes
 - [x] Desert caves: dry (no water), fewer caves (0.6x density)
 - [x] Swamp caves: heavily flooded (water up to sea_level+5)
-- [ ] Mountain caves: deep networks (1.5x density complete), lava lakes at low depths (<20) TODO
+- [x] Mountain caves: deep networks (1.5x density), lava lakes at low depths (<20)
 - [x] Stalactites/Stalagmites: 4 new sub-voxel models (stone and ice variants), ~15% spawn rate
 
 #### 15.5 Debug Visualization ✅
@@ -693,7 +693,7 @@ git commit -m "type: description"
 
 ## Current Work (2026-01-07)
 
-**Status**: Phase 15.4 (Cave Biome Integration) MOSTLY COMPLETE.
+**Status**: Phase 15.4 (Cave Biome Integration) ✅ COMPLETE
 
 **Recent Work:**
 - **Cave Generation Module** (src/cave_gen.rs):
@@ -701,13 +701,14 @@ git commit -m "type: description"
   - Implemented biome-aware cave density multipliers
   - Added CaveFillType enum for biome-specific cave contents
   - Created decoration placement system with noise-based spawning
+  - Implemented depth-based lava spawn probability
 - **Cave Decorations** (4 new models: IDs 106-109):
   - Created stalactite and stalagmite sub-voxel models (8³ resolution)
   - Ice variants for snow biome caves
   - Stone variants for other biomes
   - ~15% spawn rate on cave ceilings and floors
 - **Biome-Specific Cave Rules**:
-  - Mountains: 1.5x cave density (more caves)
+  - Mountains: 1.5x cave density, lava lakes at depth <20 (10-50% chance based on depth)
   - Desert: 0.6x density, always dry (no water)
   - Swamp: 0.8x density, heavily flooded (water up to sea_level+5)
   - Snow: 0.9x density, ice stalactites/stalagmites
@@ -715,17 +716,44 @@ git commit -m "type: description"
 - **Code Quality**:
   - Updated FIRST_CUSTOM_MODEL_ID from 106 to 110
   - Updated CLAUDE.md with new model IDs
-  - All tests passing
+  - All tests passing (106/106)
 
-**Remaining Work:**
-1. Mountain lava lakes at depth <20 (optional enhancement)
-2. In-game testing of cave features in each biome
-3. Consider adding glowing mushrooms to swamp caves (future enhancement)
+**Testing Guide:**
+To test cave features in-game, use these commands:
+```bash
+# Create a fresh world with normal generation
+make new-normal
+
+# Enable biome debug overlay to find specific biomes
+/biome_debug on
+
+# Teleport to specific heights to explore caves
+/tp ~ 15 ~    # Mid-depth caves
+/tp ~ 10 ~    # Deep caves (lava zone in mountains)
+
+# Fly mode recommended for cave exploration
+```
+
+**Expected Cave Features by Biome:**
+- **Grassland**: Normal cave density, water below sea level (y≤28), stone stalactites/stalagmites
+- **Mountains**: Dense caves (1.5x), lava lakes below y=20, stone decorations
+- **Desert**: Sparse caves (0.6x), always dry, stone decorations
+- **Swamp**: Moderate caves (0.8x), heavily flooded (up to y=33), stone decorations
+- **Snow**: Normal caves (0.9x), water below sea level, ice stalactites/stalagmites
+
+**Next Actions:**
+1. Consider Phase 16: Building Tools System
+2. Optional: Add glowing mushrooms to swamp caves (future enhancement)
 
 ---
 
 ## Done Recently
 
+- **Phase 15.4: Cave Biome Integration** (2026-01-07): ✅ COMPLETE
+  - Cave generation module (src/cave_gen.rs) with biome-aware logic
+  - 4 new cave decoration models: stalactites/stalagmites (stone and ice variants)
+  - Biome-specific cave density, water rules, and decorations
+  - Mountain lava lakes with depth-based spawn probability
 - **Phase 15: Biome Generation System** (2026-01-06): ✅ CORE COMPLETE
   - Noise maps, biome rules, vegetation, and height curves implemented
 - **Phase 14: Enhanced Water System** (2026-01-06): ✅ COMPLETE
