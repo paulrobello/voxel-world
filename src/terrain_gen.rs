@@ -920,9 +920,9 @@ fn generate_normal_pine(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
 
     // Calculate max_radius based on cone_height for proper taper
     let max_radius = match cone_width {
-        0 => (cone_height / 3).max(1),       // Narrow: height/3
-        1 => ((cone_height * 2) / 5).max(1), // Medium: height/2.5
-        _ => (cone_height / 2).max(2),       // Wide: height/2
+        0 => (cone_height / 3).max(2),       // Narrow: height/3, min 2
+        1 => ((cone_height * 2) / 5).max(2), // Medium: height/2.5, min 2
+        _ => (cone_height / 2).max(3),       // Wide: height/2, min 3
     };
 
     // Trunk extends to full height
@@ -962,9 +962,9 @@ fn generate_giant_pine(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
 
     // Calculate max_radius based on cone_height for proper taper
     let max_radius = if cone_width == 0 {
-        ((cone_height * 2) / 5).max(2) // Wide: height/2.5
+        ((cone_height * 2) / 5).max(3) // Wide: height/2.5, min 3
     } else {
-        (cone_height / 2).max(3) // Very wide: height/2
+        (cone_height / 2).max(4) // Very wide: height/2, min 4
     };
 
     // Build trunk to full height
