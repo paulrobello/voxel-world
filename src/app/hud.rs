@@ -210,10 +210,13 @@ pub fn render_hud(
             match ui.template_library.delete_template(&name) {
                 Ok(_) => {
                     println!("Deleted template '{}'", name);
+                    ui.template_ui.error_message = Some(format!("✓ Deleted template '{}'", name));
                     ui.template_ui.refresh_templates(&ui.template_library);
                 }
                 Err(e) => {
                     eprintln!("Failed to delete template '{}': {}", name, e);
+                    ui.template_ui.error_message =
+                        Some(format!("Failed to delete template: {}", e));
                 }
             }
         }
@@ -235,20 +238,30 @@ pub fn render_hud(
                                 match ui.template_library.save_template(&template) {
                                     Ok(_) => {
                                         println!("Saved template '{}'", name);
+                                        ui.template_ui.error_message = Some(format!(
+                                            "✓ Successfully saved template '{}' ({} blocks)",
+                                            name,
+                                            template.block_count()
+                                        ));
                                         ui.template_ui.refresh_templates(&ui.template_library);
                                     }
                                     Err(e) => {
                                         eprintln!("Failed to save template: {}", e);
+                                        ui.template_ui.error_message =
+                                            Some(format!("Failed to save template: {}", e));
                                     }
                                 }
                             }
                             Err(e) => {
                                 eprintln!("Failed to create template: {}", e);
+                                ui.template_ui.error_message =
+                                    Some(format!("Failed to create template: {}", e));
                             }
                         }
                     }
                     Err(e) => {
                         eprintln!("Invalid selection: {}", e);
+                        ui.template_ui.error_message = Some(format!("Invalid selection: {}", e));
                     }
                 }
             }
@@ -276,15 +289,24 @@ pub fn render_hud(
                             match ui.template_library.save_template(&template) {
                                 Ok(_) => {
                                     println!("Saved template '{}'", name);
+                                    ui.template_ui.error_message = Some(format!(
+                                        "✓ Successfully saved template '{}' ({} blocks)",
+                                        name,
+                                        template.block_count()
+                                    ));
                                     ui.template_ui.refresh_templates(&ui.template_library);
                                 }
                                 Err(e) => {
                                     eprintln!("Failed to save template: {}", e);
+                                    ui.template_ui.error_message =
+                                        Some(format!("Failed to save template: {}", e));
                                 }
                             }
                         }
                         Err(e) => {
                             eprintln!("Failed to create template: {}", e);
+                            ui.template_ui.error_message =
+                                Some(format!("Failed to create template: {}", e));
                         }
                     }
                 }

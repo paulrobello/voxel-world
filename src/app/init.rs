@@ -488,7 +488,13 @@ impl App {
             console_previously_focused: false,
             template_ui: TemplateUi::new(),
             template_selection: TemplateSelection::new(),
-            template_library: TemplateLibrary::new(user_templates_dir()),
+            template_library: {
+                let lib = TemplateLibrary::new(user_templates_dir());
+                if let Err(e) = lib.init() {
+                    eprintln!("Failed to initialize template library: {}", e);
+                }
+                lib
+            },
             active_placement: None,
             template_previously_focused: false,
         };

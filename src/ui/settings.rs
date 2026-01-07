@@ -43,19 +43,45 @@ impl SettingsUI {
                     .max_height(500.0)
                     .show(ui, |ui| {
                         ui.collapsing("Controls", |ui| {
-                            ui.label("  WASD - Move");
-                            ui.label("  Space - Jump");
-                            ui.label("  Space/Shift - Up/Down (fly, swim & climb)");
-                            ui.label("  Mouse - Look around");
-                            ui.label("  Scroll - Select block");
-                            ui.label("  Ctrl - Toggle sprint");
-                            ui.label("  F - Toggle fly mode");
-                            ui.label("  B - Toggle chunk boundaries");
-                            ui.label("  Left Click - Break block");
-                            ui.label("  Right Click - Place block");
-                            ui.label("  1-9 - Select block type");
-                            ui.label("  / - Open command console");
-                            ui.label("  Escape - Release cursor");
+                            ui.collapsing("Movement", |ui| {
+                                ui.label("  WASD - Move");
+                                ui.label("  Space - Jump");
+                                ui.label("  Space/Shift - Up/Down (fly, swim & climb)");
+                                ui.label("  Ctrl - Toggle sprint");
+                                ui.label("  F - Toggle fly mode");
+                                ui.label("  Mouse - Look around");
+                            });
+
+                            ui.collapsing("Building", |ui| {
+                                ui.label("  Left Click - Break block");
+                                ui.label("  Right Click - Place block");
+                                ui.label("  Scroll - Select block");
+                                ui.label("  1-9 - Select hotbar slot");
+                                ui.label("  E - Open palette");
+                                ui.label("  N - Open model editor");
+                                ui.label("  P - Repaint painted block");
+                                ui.label("  [ ] - Cycle paint texture");
+                                ui.label("  , . - Cycle tint color");
+                            });
+
+                            ui.collapsing("Templates", |ui| {
+                                ui.label("  T - Open template browser");
+                                ui.label("  R - Rotate template");
+                                ui.label("  Enter - Confirm placement");
+                                ui.label("Console commands:");
+                                ui.label("  /select pos1 - Set corner 1");
+                                ui.label("  /select pos2 - Set corner 2");
+                                ui.label("  /template save <name> - Save");
+                                ui.label("  /template load <name> - Load");
+                                ui.label("  /template list - List all");
+                            });
+
+                            ui.collapsing("UI & System", |ui| {
+                                ui.label("  / - Open command console");
+                                ui.label("  L - Toggle torch light");
+                                ui.label("  B - Toggle chunk boundaries");
+                                ui.label("  Escape - Release cursor");
+                            });
                         });
                         ui.separator();
 
