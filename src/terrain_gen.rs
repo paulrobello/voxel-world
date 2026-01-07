@@ -818,17 +818,20 @@ fn generate_normal_pine(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
     let cone_width = (hash / 11) % 3; // 0=narrow, 1=medium, 2=wide
     let trunk_length = (hash / 17) % 2; // 0=normal, 1=extra bare trunk
 
-    // Trunk
-    for dy in 1..=height {
-        set_block_safe(chunk, x, y + dy, z, BlockType::PineLog);
-    }
-
     // Leaves start point - taller trees can have longer bare trunk
     let start_leaves = if height <= 6 {
         2 // Short pines start leaves early
     } else {
         3 + trunk_length // Taller pines can have more bare trunk
     };
+
+    // Cone extends 1 block above trunk for tip
+    let tree_top = height + 1;
+
+    // Trunk - extends through the tip
+    for dy in 1..=tree_top {
+        set_block_safe(chunk, x, y + dy, z, BlockType::PineLog);
+    }
 
     // Cone layers - varies by width and height
     let max_radius = match cone_width {
@@ -837,7 +840,7 @@ fn generate_normal_pine(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
         _ => 3, // Wide cone
     };
 
-    let cone_height = height + 1 - start_leaves;
+    let cone_height = tree_top + 1 - start_leaves;
     generate_pine_cone(
         chunk,
         x,
@@ -845,11 +848,8 @@ fn generate_normal_pine(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
         z,
         max_radius,
         cone_height,
-        y + height,
+        y + tree_top,
     );
-
-    // Top tip
-    set_block_safe(chunk, x, y + height + 2, z, BlockType::PineLeaves);
 }
 
 fn generate_giant_pine(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
@@ -873,7 +873,7 @@ fn generate_giant_pine(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
         };
 
         let cone_height = if section_idx == num_sections - 1 {
-            4
+            5 // Extended by 1 for tip
         } else {
             6
         };
@@ -882,9 +882,10 @@ fn generate_giant_pine(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
         current_y += cone_height;
     }
 
-    let total_height = current_y - y;
+    // Add 1 for the tip at the very top
+    let total_height = current_y - y + 1;
 
-    // Build continuous trunk through entire tree
+    // Build continuous trunk through entire tree including tip
     for dy in 1..=total_height {
         set_block_safe(chunk, x, y + dy, z, BlockType::PineLog);
     }
@@ -898,12 +899,9 @@ fn generate_giant_pine(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
             z,
             max_radius,
             cone_height,
-            total_height + y,
+            y + total_height,
         );
     }
-
-    // Top tip
-    set_block_safe(chunk, x, y + total_height + 1, z, BlockType::PineLeaves);
 }
 
 fn generate_pine_cone(
