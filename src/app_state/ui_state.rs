@@ -9,6 +9,7 @@ use crate::console::ConsoleState;
 use crate::editor::EditorState;
 use crate::hud::Minimap;
 use crate::raycast::RaycastHit;
+use crate::templates::{TemplateLibrary, TemplatePlacement, TemplateSelection, TemplateUi};
 
 use super::{AutoProfileFeature, PaletteItem, PaletteTab};
 
@@ -73,4 +74,15 @@ pub struct UiState {
     pub console: ConsoleState,
     /// Whether we were focused before opening the console.
     pub console_previously_focused: bool,
+
+    /// Template browser UI state.
+    pub template_ui: TemplateUi,
+    /// Template region selection state.
+    pub template_selection: TemplateSelection,
+    /// Template library manager.
+    pub template_library: TemplateLibrary,
+    /// Active template placement (when loading a template).
+    pub active_placement: Option<TemplatePlacement>,
+    /// Whether we were focused before opening the template browser.
+    pub template_previously_focused: bool,
 }

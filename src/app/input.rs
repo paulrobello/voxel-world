@@ -355,6 +355,11 @@ impl App {
             self.toggle_editor_panel();
         }
 
+        // Toggle template browser (T key)
+        if self.input.key_pressed(KeyCode::KeyT) {
+            self.toggle_template_browser();
+        }
+
         // Repaint painted block under cursor with current hotbar texture/tint (P key)
         if self.input.key_pressed(KeyCode::KeyP) {
             if let Some(hit) = self.ui.current_hit {
@@ -504,6 +509,27 @@ impl App {
                 self.input.pending_grab = Some(true);
                 self.ui.console_previously_focused = false;
             }
+        }
+    }
+
+    /// Toggles the template browser on/off.
+    fn toggle_template_browser(&mut self) {
+        self.ui.template_ui.toggle_browser();
+        if self.ui.template_ui.browser_open {
+            // Opening template browser: release cursor, store previous focus
+            self.ui.template_previously_focused = self.input.focused;
+            self.input.focused = false;
+            self.input.pending_grab = Some(false);
+            println!("Template browser: ON");
+        } else {
+            // Closing template browser: restore focus if we were focused before and no other panel is open
+            let other_panel_open = self.ui.palette_open || self.ui.editor.active || self.ui.console.active;
+            if !other_panel_open && self.ui.template_previously_focused {
+                self.input.focused = true;
+                self.input.pending_grab = Some(true);
+                self.ui.template_previously_focused = false;
+            }
+            println!("Template browser: OFF");
         }
     }
 }
