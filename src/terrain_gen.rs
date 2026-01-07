@@ -593,15 +593,38 @@ fn generate_normal_oak(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
     let height = 4 + (hash % 6);
     let canopy_size = (hash / 7) % 3; // 0=small, 1=medium, 2=large
     let trunk_offset = (hash / 13) % 2; // 0=normal, 1=extra trunk before canopy
+    let canopy_shape = (hash / 17) % 4; // 0=tapered, 1=cube, 2=blob, 3=round
 
-    // Trunk
-    for dy in 1..=height {
+    // Canopy layers - varies by size
+    let layers = match canopy_size {
+        0 => 3, // Small: 3 layers
+        1 => 4, // Medium: 4 layers
+        _ => 5, // Large: 5 layers
+    };
+
+    // Canopy placement - ensure top layer is above trunk
+    let canopy_base = if height <= 5 {
+        y + height - 2 // Short trees - canopy starts 2 below trunk top
+    } else {
+        y + height - 2 - trunk_offset // Taller trees can have longer trunk
+    };
+
+    // Ensure canopy top is at least 1 above trunk
+    let canopy_top = canopy_base + layers - 1;
+    let tree_top = if canopy_top < y + height {
+        canopy_top + 1 // Extend tree to ensure leaves cover trunk
+    } else {
+        y + height
+    };
+
+    // Trunk - extends through canopy
+    for dy in 1..=tree_top {
         set_block_safe(chunk, x, y + dy, z, BlockType::Log);
     }
 
     // Add 1-2 branches for taller trees with large canopies
     if height >= 7 && canopy_size == 2 && (hash % 3) == 0 {
-        let branch_y = y + height - 3;
+        let branch_y = tree_top - 3;
         let num_branches = 1 + ((hash / 43) % 2); // 1-2 branches
 
         for branch_idx in 0..num_branches {
@@ -623,25 +646,21 @@ fn generate_normal_oak(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
             // Small canopy at branch tip
             let tip_x = x + dx * branch_len;
             let tip_z = z + dz * branch_len;
-            generate_oak_canopy(chunk, tip_x, branch_y, tip_z, 0, 3, branch_y);
+            let branch_shape = (hash / (59 + branch_idx * 13)) % 4;
+            generate_oak_canopy(chunk, tip_x, branch_y, tip_z, 0, 3, branch_y, branch_shape);
         }
     }
 
-    // Canopy placement - varies based on tree size
-    let canopy_base = if height <= 5 {
-        y + height - 1 // Short trees have canopy starting higher up
-    } else {
-        y + height - 2 - trunk_offset // Taller trees can have longer trunk
-    };
-
-    // Canopy layers - varies by size
-    let layers = match canopy_size {
-        0 => 3, // Small: 3 layers
-        1 => 4, // Medium: 4 layers
-        _ => 5, // Large: 5 layers
-    };
-
-    generate_oak_canopy(chunk, x, canopy_base, z, canopy_size, layers, y + height);
+    generate_oak_canopy(
+        chunk,
+        x,
+        canopy_base,
+        z,
+        canopy_size,
+        layers,
+        tree_top,
+        canopy_shape,
+    );
 }
 
 fn generate_giant_oak(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
@@ -686,7 +705,17 @@ fn generate_giant_oak(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
 
     // Place canopies at each deck position
     for &(canopy_y, canopy_size, layers, trunk_section, deck_idx) in &deck_positions {
-        generate_oak_canopy(chunk, x, canopy_y, z, canopy_size, layers, total_height + y);
+        let deck_shape = (hash / (71 + deck_idx)) % 4;
+        generate_oak_canopy(
+            chunk,
+            x,
+            canopy_y,
+            z,
+            canopy_size,
+            layers,
+            total_height + y,
+            deck_shape,
+        );
 
         // Add branches from trunk section (not on the top deck)
         if deck_idx < num_decks - 1 && trunk_section >= 5 {
@@ -730,6 +759,7 @@ fn generate_giant_oak(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
 
                 let tip_x = x + dx * branch_len;
                 let tip_z = z + dz * branch_len;
+                let branch_shape = (hash / (73 + branch_idx * 17)) % 4;
                 generate_oak_canopy(
                     chunk,
                     tip_x,
@@ -738,12 +768,14 @@ fn generate_giant_oak(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
                     branch_canopy_size,
                     branch_layers,
                     branch_y,
+                    branch_shape,
                 );
             }
         }
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn generate_oak_canopy(
     chunk: &mut Chunk,
     x: i32,
@@ -752,34 +784,70 @@ fn generate_oak_canopy(
     canopy_size: i32,
     layers: i32,
     trunk_top_y: i32,
+    shape: i32,
 ) {
     for dy in 0..layers {
-        // Radius pattern varies by canopy size
-        let radius: i32 = match canopy_size {
-            0 | 1 => {
-                // Small/Medium: 1, 2, 2, 1 pattern
-                if dy == 0 || dy == layers - 1 { 1 } else { 2 }
+        // Get base radius for this canopy size
+        let base_radius = match canopy_size {
+            0 => 2, // Small
+            1 => 2, // Medium
+            2 => 3, // Large
+            _ => 4, // Huge
+        };
+
+        // Apply shape variation to radius pattern
+        let radius: i32 = match shape {
+            0 => {
+                // Tapered: classic shape
+                if canopy_size <= 1 {
+                    if dy == 0 || dy == layers - 1 { 1 } else { 2 }
+                } else if canopy_size == 2 {
+                    if dy == 0 || dy == layers - 1 {
+                        1
+                    } else if dy == 2 {
+                        3
+                    } else {
+                        2
+                    }
+                } else {
+                    // Huge
+                    if dy == layers - 1 {
+                        1
+                    } else if dy == 0 || dy == layers - 2 {
+                        2
+                    } else if dy == 2 {
+                        4
+                    } else {
+                        3
+                    }
+                }
+            }
+            1 => {
+                // Cube: consistent radius
+                if dy == 0 || dy == layers - 1 {
+                    base_radius.max(1) - 1 // Slightly smaller top/bottom
+                } else {
+                    base_radius
+                }
             }
             2 => {
-                // Large canopy (5 layers): 1, 2, 3, 2, 1 pattern
+                // Blob: bulges in middle
                 if dy == 0 || dy == layers - 1 {
-                    1
-                } else if dy == 2 {
-                    3 // Widest in the middle
+                    base_radius.max(1) - 1
+                } else if dy == layers / 2 {
+                    base_radius + 1 // Extra wide in middle
                 } else {
-                    2
+                    base_radius
                 }
             }
             _ => {
-                // Huge canopy (6 layers): 2, 3, 4, 3, 2, 1 pattern - massive bottom deck
-                if dy == layers - 1 {
-                    1 // Top
-                } else if dy == 0 || dy == layers - 2 {
-                    2
-                } else if dy == 2 {
-                    4 // Widest in the middle
+                // Round: smooth taper
+                if dy == 0 || dy == layers - 1 {
+                    1
+                } else if dy < layers / 2 {
+                    (dy + 1).min(base_radius)
                 } else {
-                    3
+                    (layers - dy).min(base_radius)
                 }
             }
         };
