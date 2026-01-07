@@ -182,14 +182,17 @@ impl App {
         // Toggle player torch light (L key)
         if self.input.key_pressed(KeyCode::KeyL) {
             self.sim.player.light_enabled = !self.sim.player.light_enabled;
-            println!(
-                "Torch light: {}",
-                if self.sim.player.light_enabled {
-                    "ON"
+            if self.sim.player.light_enabled {
+                if self.ui.settings.enable_point_lights {
+                    println!("Torch light: ON");
                 } else {
-                    "OFF"
+                    println!(
+                        "Torch light: ON (but Point Lights are disabled in settings - press Esc to enable)"
+                    );
                 }
-            );
+            } else {
+                println!("Torch light: OFF");
+            }
         }
 
         // Toggle chunk boundary debug (B key)
