@@ -915,19 +915,20 @@ fn generate_normal_pine(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
     // Pine trees start foliage low (about 1/3 up the trunk)
     let start_leaves = 2 + (height / 4);
 
+    // Calculate cone height
+    let cone_height = height - start_leaves + 2; // Extends above trunk
+
+    // Calculate max_radius based on cone_height for proper taper
+    let max_radius = match cone_width {
+        0 => (cone_height / 3).max(1),       // Narrow: height/3
+        1 => ((cone_height * 2) / 5).max(1), // Medium: height/2.5
+        _ => (cone_height / 2).max(2),       // Wide: height/2
+    };
+
     // Trunk extends to full height
     for dy in 1..height {
         set_block_safe(chunk, x, y + dy, z, BlockType::PineLog);
     }
-
-    // Single continuous cone with steep taper
-    let max_radius = match cone_width {
-        0 => 1, // Narrow
-        1 => 2, // Medium
-        _ => 3, // Wide
-    };
-
-    let cone_height = height - start_leaves + 2; // Extends above trunk
     generate_pine_cone(
         chunk,
         x,
@@ -956,15 +957,20 @@ fn generate_giant_pine(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
     // Start foliage about 1/4 up
     let start_leaves = 4 + (height / 6);
 
+    // Calculate cone height
+    let cone_height = height - start_leaves + 2;
+
+    // Calculate max_radius based on cone_height for proper taper
+    let max_radius = if cone_width == 0 {
+        ((cone_height * 2) / 5).max(2) // Wide: height/2.5
+    } else {
+        (cone_height / 2).max(3) // Very wide: height/2
+    };
+
     // Build trunk to full height
     for dy in 1..height {
         set_block_safe(chunk, x, y + dy, z, BlockType::PineLog);
     }
-
-    // Large continuous cone
-    let max_radius = if cone_width == 0 { 3 } else { 4 };
-
-    let cone_height = height - start_leaves + 2;
     generate_pine_cone(
         chunk,
         x,
