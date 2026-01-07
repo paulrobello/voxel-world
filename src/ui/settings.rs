@@ -415,15 +415,16 @@ impl SettingsUI {
                         if ui
                             .checkbox(
                                 &mut minimap.skip_decorative,
-                                "Hide models/leaves (better performance)",
+                                "Hide ground clutter (flowers, grass, torches)",
                             )
+                            .on_hover_text("Improves performance by showing terrain under decorative models. Tree leaves remain visible as navigation landmarks.")
                             .changed()
                         {
                             // Clear cache when this setting changes
                             *minimap_cached_image = None;
                             world.clear_minimap_cache();
                             println!(
-                                "[MINIMAP] Skip decorative: {}",
+                                "[MINIMAP] Skip ground clutter: {}",
                                 if minimap.skip_decorative { "ON" } else { "OFF" }
                             );
                         }

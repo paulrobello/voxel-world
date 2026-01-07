@@ -18,6 +18,8 @@ pub struct Minimap {
     pub mode: MinimapMode,
     pub rotate: bool,
     pub zoom: f32,
+    /// When true, skip Model blocks (flowers, grass, torches) to show terrain underneath.
+    /// Tree leaves are intentionally NOT skipped as they're important navigation landmarks.
     pub skip_decorative: bool,
 }
 

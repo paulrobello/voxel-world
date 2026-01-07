@@ -12,7 +12,7 @@ pub enum AutoProfileFeature {
     ModelShadows,          // Testing enable_model_shadows
     PointLights,           // Testing enable_point_lights
     Minimap,               // Testing show_minimap
-    MinimapSkipDecorative, // Testing minimap.skip_decorative
+    MinimapSkipDecorative, // Testing minimap.skip_decorative (ground clutter only, not leaves)
     Done,                  // All tests complete
 }
 

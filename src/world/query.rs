@@ -78,58 +78,52 @@ impl World {
                 let world_z = (center_z + world_offset_z).floor() as i32;
 
                 // Find surface block (top-down) with caching
-                let (block_type, height) =
-                    if let Some(&cached) = self.minimap_height_cache.get(&(world_x, world_z)) {
-                        cached
-                    } else {
-                        let mut res = (BlockType::Air, 0);
+                let (block_type, height) = if let Some(&cached) =
+                    self.minimap_height_cache.get(&(world_x, world_z))
+                {
+                    cached
+                } else {
+                    let mut res = (BlockType::Air, 0);
 
-                        // Optimization: Scan chunk-by-chunk from top to bottom
-                        // Skip empty chunks entirely (32 blocks at once)
-                        'chunk_scan: for chunk_y in (0..WORLD_CHUNKS_Y).rev() {
-                            let chunk_pos = vector![
-                                world_x.div_euclid(CHUNK_SIZE as i32),
-                                chunk_y,
-                                world_z.div_euclid(CHUNK_SIZE as i32)
-                            ];
+                    // Optimization: Scan chunk-by-chunk from top to bottom
+                    // Skip empty chunks entirely (32 blocks at once)
+                    'chunk_scan: for chunk_y in (0..WORLD_CHUNKS_Y).rev() {
+                        let chunk_pos = vector![
+                            world_x.div_euclid(CHUNK_SIZE as i32),
+                            chunk_y,
+                            world_z.div_euclid(CHUNK_SIZE as i32)
+                        ];
 
-                            // Check if chunk exists and is not empty
-                            if let Some(chunk) = self.get_chunk(chunk_pos) {
-                                // Skip entire chunk if it's all air
-                                if chunk.is_empty() {
-                                    continue;
-                                }
+                        // Check if chunk exists and is not empty
+                        if let Some(chunk) = self.get_chunk(chunk_pos) {
+                            // Skip entire chunk if it's all air
+                            if chunk.is_empty() {
+                                continue;
+                            }
 
-                                // Scan blocks within this chunk (top to bottom)
-                                for local_y in (0..CHUNK_SIZE).rev() {
-                                    let y = chunk_y * CHUNK_SIZE as i32 + local_y as i32;
-                                    if let Some(block) =
-                                        self.get_block(Vector3::new(world_x, y, world_z))
-                                    {
-                                        if block != BlockType::Air {
-                                            // Skip decorative blocks if enabled
-                                            if minimap.skip_decorative
-                                                && matches!(
-                                                    block,
-                                                    BlockType::Model
-                                                        | BlockType::Leaves
-                                                        | BlockType::PineLeaves
-                                                        | BlockType::WillowLeaves
-                                                )
-                                            {
-                                                continue; // Keep scanning down
-                                            }
-                                            res = (block, y);
-                                            break 'chunk_scan;
+                            // Scan blocks within this chunk (top to bottom)
+                            for local_y in (0..CHUNK_SIZE).rev() {
+                                let y = chunk_y * CHUNK_SIZE as i32 + local_y as i32;
+                                if let Some(block) =
+                                    self.get_block(Vector3::new(world_x, y, world_z))
+                                {
+                                    if block != BlockType::Air {
+                                        // Skip ground clutter (flowers, grass, torches) if enabled
+                                        // Note: Leaves are intentionally NOT skipped - trees are important landmarks
+                                        if minimap.skip_decorative && block == BlockType::Model {
+                                            continue; // Keep scanning down past ground clutter
                                         }
+                                        res = (block, y);
+                                        break 'chunk_scan;
                                     }
                                 }
                             }
                         }
+                    }
 
-                        self.minimap_height_cache.insert((world_x, world_z), res);
-                        res
-                    };
+                    self.minimap_height_cache.insert((world_x, world_z), res);
+                    res
+                };
 
                 // Get biome info for noise maps
                 let biome_info = Some(terrain.get_biome_info(world_x, world_z));
