@@ -139,6 +139,7 @@ make run
 | **F** | Toggle fly mode |
 | **B** | Toggle chunk boundaries |
 | **M** | Toggle minimap |
+| **L** | Toggle player torch light |
 | **N** | Open model editor |
 | **/** | Open console |
 | **Esc** | Release cursor / Open settings panel |
