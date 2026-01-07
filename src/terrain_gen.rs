@@ -599,6 +599,34 @@ fn generate_normal_oak(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
         set_block_safe(chunk, x, y + dy, z, BlockType::Log);
     }
 
+    // Add 1-2 branches for taller trees with large canopies
+    if height >= 7 && canopy_size == 2 && (hash % 3) == 0 {
+        let branch_y = y + height - 3;
+        let num_branches = 1 + ((hash / 43) % 2); // 1-2 branches
+
+        for branch_idx in 0..num_branches {
+            let branch_dir = (hash / (47 + branch_idx * 11)) % 4;
+            let branch_len = 2 + ((hash / (53 + branch_idx * 7)) % 2); // 2-3 blocks
+
+            let (dx, dz) = match branch_dir {
+                0 => (1, 0),
+                1 => (-1, 0),
+                2 => (0, 1),
+                _ => (0, -1),
+            };
+
+            // Place horizontal branch
+            for i in 1..=branch_len {
+                set_block_safe(chunk, x + dx * i, branch_y, z + dz * i, BlockType::Log);
+            }
+
+            // Small canopy at branch tip
+            let tip_x = x + dx * branch_len;
+            let tip_z = z + dz * branch_len;
+            generate_oak_canopy(chunk, tip_x, branch_y, tip_z, 0, 3, branch_y);
+        }
+    }
+
     // Canopy placement - varies based on tree size
     let canopy_base = if height <= 5 {
         y + height - 1 // Short trees have canopy starting higher up
@@ -627,6 +655,35 @@ fn generate_giant_oak(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
         for dy in 1..=trunk_height {
             set_block_safe(chunk, x, current_y + dy, z, BlockType::Log);
         }
+
+        // Add branches from this trunk section (not on the top deck)
+        if deck_idx < num_decks - 1 && trunk_height >= 5 {
+            let branch_y = current_y + trunk_height / 2 + 1;
+            let num_branches = 1 + ((hash / (31 + deck_idx)) % 2); // 1-2 branches
+
+            for branch_idx in 0..num_branches {
+                let branch_dir = (hash / (37 + branch_idx * 7)) % 4; // Cardinal direction
+                let branch_len = 2 + ((hash / (41 + branch_idx * 5)) % 2); // 2-3 blocks
+
+                let (dx, dz) = match branch_dir {
+                    0 => (1, 0),  // East
+                    1 => (-1, 0), // West
+                    2 => (0, 1),  // South
+                    _ => (0, -1), // North
+                };
+
+                // Place horizontal branch
+                for i in 1..=branch_len {
+                    set_block_safe(chunk, x + dx * i, branch_y, z + dz * i, BlockType::Log);
+                }
+
+                // Small canopy at branch tip
+                let tip_x = x + dx * branch_len;
+                let tip_z = z + dz * branch_len;
+                generate_oak_canopy(chunk, tip_x, branch_y, tip_z, 0, 3, branch_y);
+            }
+        }
+
         current_y += trunk_height;
 
         // Canopy for this deck
