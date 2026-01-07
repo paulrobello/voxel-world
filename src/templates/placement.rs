@@ -245,30 +245,51 @@ impl TemplatePlacement {
 
         self.placement_progress = end;
 
-        // If placement is complete, update all stair shapes
-        // This ensures corner shapes are correct after rotation
+        // If placement is complete, update all connection states
+        // This ensures stairs, fences, gates, and windows connect correctly
         if self.is_complete() {
-            self.update_all_stair_shapes(world);
+            self.update_all_connection_states(world);
         }
 
         self.is_complete()
     }
 
-    /// Updates all stair shapes in the placed template.
-    /// Called after placement is complete to ensure corner shapes are correct.
-    fn update_all_stair_shapes(&self, world: &mut crate::world::World) {
-        // Collect all stair positions first to avoid borrow issues
-        let stair_positions: Vec<_> = self
-            .template
-            .model_data
-            .iter()
-            .filter(|m| crate::sub_voxel::ModelRegistry::is_stairs_model(m.model_id))
-            .map(|m| self.get_world_position(m.x, m.y, m.z))
-            .collect();
+    /// Updates all neighbor-dependent model states in the placed template.
+    /// Called after placement is complete to ensure connection states are correct.
+    /// This includes stairs, fences, gates, and windows.
+    fn update_all_connection_states(&self, world: &mut crate::world::World) {
+        use crate::sub_voxel::ModelRegistry;
 
-        // Update each stair shape based on its neighbors
+        // Collect all positions for models that need connection updates
+        let mut stair_positions = Vec::new();
+        let mut fence_positions = Vec::new();
+        let mut window_positions = Vec::new();
+
+        for model in &self.template.model_data {
+            let pos = self.get_world_position(model.x, model.y, model.z);
+
+            if ModelRegistry::is_stairs_model(model.model_id) {
+                stair_positions.push(pos);
+            } else if ModelRegistry::is_fence_model(model.model_id)
+                || ModelRegistry::is_gate_model(model.model_id)
+            {
+                fence_positions.push(pos);
+            } else if ModelRegistry::is_window_model(model.model_id) {
+                window_positions.push(pos);
+            }
+        }
+
+        // Update each type based on its neighbors
         for pos in stair_positions {
             world.update_stair_shape_at(pos);
+        }
+
+        for pos in fence_positions {
+            world.update_fence_connections(pos);
+        }
+
+        for pos in window_positions {
+            world.update_window_connections(pos);
         }
     }
 }
