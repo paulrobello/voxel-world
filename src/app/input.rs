@@ -51,6 +51,15 @@ impl App {
             return true;
         }
 
+        // Cancel template placement
+        if self.input.key_pressed(KeyCode::Escape) && self.ui.active_placement.is_some() {
+            if let Some(ref placement) = self.ui.active_placement {
+                println!("Cancelled template placement: {}", placement.template.name);
+            }
+            self.ui.active_placement = None;
+            return true;
+        }
+
         // Handle escape to unfocus
         if self.input.key_pressed(KeyCode::Escape) && self.input.focused {
             self.input.focused = false;
@@ -59,7 +68,13 @@ impl App {
         }
 
         // Handle focus toggling - click to focus (don't process this click for gameplay)
-        if !self.input.focused && self.input.mouse_pressed(MouseButton::Left) {
+        // Only allow focusing if no panels are open that need the cursor
+        let panel_open = self.ui.palette_open
+            || self.ui.editor.active
+            || self.ui.console.active
+            || self.ui.template_ui.browser_open;
+
+        if !self.input.focused && self.input.mouse_pressed(MouseButton::Left) && !panel_open {
             println!("Focus click...");
             self.input.focused = true;
             self.input.pending_grab = Some(true);

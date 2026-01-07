@@ -251,9 +251,69 @@ impl HUDRenderer {
                 water_grid,
                 active_placement,
             );
+
+            // Template placement overlay
+            if let Some(placement) = active_placement {
+                Self::draw_template_placement_overlay(&ctx, placement);
+            }
         });
 
         (scale_changed, editor_action)
+    }
+
+    fn draw_template_placement_overlay(
+        ctx: &egui::Context,
+        placement: &crate::templates::TemplatePlacement,
+    ) {
+        let screen_rect = ctx.screen_rect();
+
+        // Draw overlay at top center
+        egui::Area::new(egui::Id::new("template_placement_overlay"))
+            .fixed_pos(egui::pos2(screen_rect.center().x, 40.0))
+            .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 0.0))
+            .show(ctx, |ui| {
+                egui::Frame::new()
+                    .fill(egui::Color32::from_rgba_unmultiplied(30, 30, 30, 220))
+                    .stroke(egui::Stroke::new(
+                        2.0,
+                        egui::Color32::from_rgb(100, 255, 100),
+                    ))
+                    .inner_margin(12.0)
+                    .corner_radius(6.0)
+                    .show(ui, |ui| {
+                        ui.vertical_centered(|ui| {
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "📦 Template: {}",
+                                    placement.template.name
+                                ))
+                                .color(egui::Color32::from_rgb(100, 255, 100))
+                                .size(16.0)
+                                .strong(),
+                            );
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "{}×{}×{} ({} blocks) • Rotation: {}°",
+                                    placement.template.width,
+                                    placement.template.height,
+                                    placement.template.depth,
+                                    placement.template.block_count(),
+                                    placement.rotation * 90
+                                ))
+                                .color(egui::Color32::from_gray(220))
+                                .size(13.0),
+                            );
+                            ui.add_space(4.0);
+                            ui.label(
+                                egui::RichText::new(
+                                    "R - Rotate  •  Enter - Place  •  Esc - Cancel",
+                                )
+                                .color(egui::Color32::from_rgb(255, 255, 100))
+                                .size(14.0),
+                            );
+                        });
+                    });
+            });
     }
 
     fn draw_crosshair(ctx: &egui::Context, current_hit: &Option<RaycastHit>) {
