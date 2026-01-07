@@ -104,12 +104,110 @@ impl TemplatePlacement {
     }
 
     /// Returns an iterator over all blocks that need to be placed.
-    /// Yields (world_pos, block_type, metadata_index) tuples.
+    /// Yields (world_pos, block_type) tuples.
     pub fn iter_blocks(&self) -> impl Iterator<Item = (Vector3<i32>, u8)> + '_ {
         self.template.blocks.iter().map(move |block| {
             let world_pos = self.get_world_position(block.x, block.y, block.z);
             (world_pos, block.block_type)
         })
+    }
+
+    /// Places a batch of blocks into the world.
+    ///
+    /// Returns true if placement is complete, false if more batches remain.
+    /// This method is designed to be called once per frame for large templates.
+    ///
+    /// # Arguments
+    /// * `world` - The world to place blocks into
+    /// * `water_grid` - The water grid for placing water sources
+    /// * `batch_size` - Number of blocks to place this frame
+    pub fn place_batch(
+        &mut self,
+        world: &mut crate::world::World,
+        water_grid: &mut crate::water::WaterGrid,
+        batch_size: usize,
+    ) -> bool {
+        if self.is_complete() {
+            return true;
+        }
+
+        let start = self.placement_progress;
+        let end = (start + batch_size).min(self.total_blocks);
+
+        // Place blocks in this batch
+        for i in start..end {
+            if i >= self.template.blocks.len() {
+                break;
+            }
+
+            let block = &self.template.blocks[i];
+            let world_pos = self.get_world_position(block.x, block.y, block.z);
+            let block_type = crate::chunk::BlockType::from(block.block_type);
+
+            // Place the block
+            world.set_block(world_pos, block_type);
+
+            // Place metadata based on block type
+            match block_type {
+                crate::chunk::BlockType::Model => {
+                    // Find and place model metadata
+                    if let Some(model_data) =
+                        self.template.get_model_data(block.x, block.y, block.z)
+                    {
+                        let final_rotation = self.apply_model_rotation(model_data.rotation);
+                        world.set_model_block(
+                            world_pos,
+                            model_data.model_id,
+                            final_rotation,
+                            model_data.waterlogged,
+                        );
+                    }
+                }
+                crate::chunk::BlockType::TintedGlass => {
+                    // Find and place tint metadata
+                    if let Some(tint_index) = self.template.get_tint_data(block.x, block.y, block.z)
+                    {
+                        world.set_tinted_glass_block(world_pos, tint_index);
+                    }
+                }
+                crate::chunk::BlockType::Crystal => {
+                    // Find and place crystal tint metadata
+                    if let Some(tint_index) = self.template.get_tint_data(block.x, block.y, block.z)
+                    {
+                        world.set_crystal_block(world_pos, tint_index);
+                    }
+                }
+                crate::chunk::BlockType::Painted => {
+                    // Find and place paint metadata
+                    if let Some((texture_idx, tint_idx)) =
+                        self.template.get_paint_data(block.x, block.y, block.z)
+                    {
+                        world.set_painted_block(world_pos, texture_idx, tint_idx);
+                    }
+                }
+                crate::chunk::BlockType::Water => {
+                    // Find and place water metadata
+                    if let Some((water_type, is_source)) =
+                        self.template.get_water_data(block.x, block.y, block.z)
+                    {
+                        world.set_water_block(world_pos, water_type);
+
+                        // Set water source if needed
+                        if is_source {
+                            water_grid.place_source(world_pos, water_type);
+                        } else {
+                            water_grid.set_water(world_pos, 1.0, false, water_type);
+                        }
+                    }
+                }
+                _ => {
+                    // No metadata for other block types
+                }
+            }
+        }
+
+        self.placement_progress = end;
+        self.is_complete()
     }
 }
 
