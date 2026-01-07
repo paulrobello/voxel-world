@@ -75,6 +75,11 @@ impl App {
                                         self.ui.settings.enable_point_lights = true
                                     }
                                     AutoProfileFeature::Minimap => self.ui.show_minimap = true,
+                                    AutoProfileFeature::MinimapSkipDecorative => {
+                                        self.ui.minimap.skip_decorative = true;
+                                        self.ui.minimap_cached_image = None; // Clear cache
+                                        self.sim.world.clear_minimap_cache();
+                                    }
                                     _ => {}
                                 }
                                 println!(
@@ -97,6 +102,11 @@ impl App {
                                         self.ui.settings.enable_point_lights = false
                                     }
                                     AutoProfileFeature::Minimap => self.ui.show_minimap = false,
+                                    AutoProfileFeature::MinimapSkipDecorative => {
+                                        self.ui.minimap.skip_decorative = false;
+                                        self.ui.minimap_cached_image = None; // Clear cache
+                                        self.sim.world.clear_minimap_cache();
+                                    }
                                     AutoProfileFeature::Done => {
                                         println!(
                                             "[AUTO-PROFILE] All features tested. Final 5s baseline..."
