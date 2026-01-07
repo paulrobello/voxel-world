@@ -51,6 +51,43 @@ impl TemplatePlacement {
         self.rotation = rotation % 4;
     }
 
+    /// Updates the placement position from a raycast hit.
+    /// The template is positioned with the hit position at the bottom center.
+    pub fn update_position_from_raycast(&mut self, hit_pos: Vector3<i32>) {
+        // Get dimensions after rotation
+        let (width, _, depth) = self.get_rotated_dimensions();
+
+        // Center the template horizontally on the hit position
+        self.position.x = hit_pos.x - (width / 2);
+        self.position.y = hit_pos.y;
+        self.position.z = hit_pos.z - (depth / 2);
+    }
+
+    /// Gets the template dimensions after rotation (width, height, depth).
+    pub fn get_rotated_dimensions(&self) -> (i32, i32, i32) {
+        let w = self.template.width as i32;
+        let h = self.template.height as i32;
+        let d = self.template.depth as i32;
+
+        match self.rotation {
+            0 | 2 => (w, h, d), // 0° and 180°: dimensions unchanged
+            1 | 3 => (d, h, w), // 90° and 270°: width and depth swapped
+            _ => unreachable!(),
+        }
+    }
+
+    /// Gets the bounding box in world coordinates (min, max).
+    pub fn get_bounding_box(&self) -> (Vector3<i32>, Vector3<i32>) {
+        let (width, height, depth) = self.get_rotated_dimensions();
+        let min = self.position;
+        let max = Vector3::new(
+            self.position.x + width,
+            self.position.y + height,
+            self.position.z + depth,
+        );
+        (min, max)
+    }
+
     /// Checks if placement is complete.
     pub fn is_complete(&self) -> bool {
         self.placement_progress >= self.total_blocks

@@ -306,7 +306,7 @@ impl HUDRenderer {
                             ui.add_space(4.0);
                             ui.label(
                                 egui::RichText::new(
-                                    "R - Rotate  •  Enter - Place  •  Esc - Cancel",
+                                    "R - Rotate  •  Left Click - Place  •  Esc - Cancel",
                                 )
                                 .color(egui::Color32::from_rgb(255, 255, 100))
                                 .size(14.0),

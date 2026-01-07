@@ -451,9 +451,54 @@ impl App {
             falling_block_count: self.sim.falling_blocks.count() as u32,
             show_water_sources: self.ui.settings.show_water_sources as u32,
             water_source_count,
-            _padding0: 0,
-            _padding1: 0,
-            _padding2: 0,
+            template_preview_min_x: {
+                if let Some(ref placement) = self.ui.active_placement {
+                    let (min, _) = placement.get_bounding_box();
+                    world_to_tex(min).0
+                } else {
+                    -1
+                }
+            },
+            template_preview_min_y: {
+                if let Some(ref placement) = self.ui.active_placement {
+                    let (min, _) = placement.get_bounding_box();
+                    world_to_tex(min).1
+                } else {
+                    -1
+                }
+            },
+            template_preview_min_z: {
+                if let Some(ref placement) = self.ui.active_placement {
+                    let (min, _) = placement.get_bounding_box();
+                    world_to_tex(min).2
+                } else {
+                    -1
+                }
+            },
+            template_preview_max_x: {
+                if let Some(ref placement) = self.ui.active_placement {
+                    let (_, max) = placement.get_bounding_box();
+                    world_to_tex(max).0
+                } else {
+                    -1
+                }
+            },
+            template_preview_max_y: {
+                if let Some(ref placement) = self.ui.active_placement {
+                    let (_, max) = placement.get_bounding_box();
+                    world_to_tex(max).1
+                } else {
+                    -1
+                }
+            },
+            template_preview_max_z: {
+                if let Some(ref placement) = self.ui.active_placement {
+                    let (_, max) = placement.get_bounding_box();
+                    world_to_tex(max).2
+                } else {
+                    -1
+                }
+            },
             camera_pos: {
                 let cam = self
                     .sim

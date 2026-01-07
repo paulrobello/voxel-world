@@ -159,9 +159,12 @@ layout(push_constant) uniform PushConstants {
     uint falling_block_count;
     uint show_water_sources;
     uint water_source_count;
-    uint _padding0; // Align camera_pos to 16 bytes
-    uint _padding1;
-    uint _padding2;
+    int template_preview_min_x;
+    int template_preview_min_y;
+    int template_preview_min_z;
+    int template_preview_max_x;
+    int template_preview_max_y;
+    int template_preview_max_z;
     vec4 camera_pos; // world-space camera position
 } pc;
 

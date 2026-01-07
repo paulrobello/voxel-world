@@ -985,6 +985,7 @@ void main() {
 
     if (pc.render_mode != STEPS) {
         renderPreviewBlock(o, d, color, hitDistance);
+        renderTemplatePreview(o, d, color, hitDistance);
     }
 
     if (underwater) {

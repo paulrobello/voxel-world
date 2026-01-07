@@ -67,7 +67,7 @@ impl SettingsUI {
                             ui.collapsing("Templates", |ui| {
                                 ui.label("  T - Open template browser");
                                 ui.label("  R - Rotate template");
-                                ui.label("  Enter - Confirm placement");
+                                ui.label("  Left Click - Place template");
                                 ui.label("Console commands:");
                                 ui.label("  /select pos1 - Set corner 1");
                                 ui.label("  /select pos2 - Set corner 2");
