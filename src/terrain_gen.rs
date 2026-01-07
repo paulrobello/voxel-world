@@ -524,9 +524,10 @@ fn generate_trees(
     chunk_world_y: i32,
     chunk_world_z: i32,
 ) {
-    // Sparse grid for trees
-    for lx in (2..CHUNK_SIZE - 2).step_by(4) {
-        for lz in (2..CHUNK_SIZE - 2).step_by(4) {
+    // Sparse grid for trees - larger buffer to prevent chunk boundary clipping
+    // Buffer of 6 blocks accounts for max tree radius (4) + branches (up to 5)
+    for lx in (6..CHUNK_SIZE - 6).step_by(4) {
+        for lz in (6..CHUNK_SIZE - 6).step_by(4) {
             let world_x = chunk_world_x + lx as i32;
             let world_z = chunk_world_z + lz as i32;
             let height = terrain.get_height(world_x, world_z);
