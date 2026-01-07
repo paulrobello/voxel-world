@@ -1134,6 +1134,10 @@ pub fn upload_model_registry(
         let mut write = atlas_staging.write().unwrap();
         write[..atlas_data.len()].copy_from_slice(&atlas_data);
     }
+    println!(
+        "[DEBUG] Uploaded {} bytes of atlas data to GPU",
+        atlas_data.len()
+    );
 
     {
         let mut write = palette_staging.write().unwrap();

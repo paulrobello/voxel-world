@@ -293,9 +293,25 @@ impl ModelRegistry {
                     "[DEBUG] Model ID 1 (torch): packed {} non-zero voxels from {:?} resolution (inline resampling)",
                     non_zero_count, model.resolution
                 );
+
+                // Sample a few voxels from torch in the atlas to verify placement
+                // Torch is model_id=1, so model_x=1, model_z=0
+                // Torch stick at (3,3,3) in 8³ → (6,6,6) in 16³
+                // Atlas position: (1*16+6, 6, 0*16+6) = (22, 6, 6)
+                let atlas_x = 1 * 16 + 6;
+                let atlas_y = 6;
+                let atlas_z = 0 * 16 + 6;
+                let sample_idx = atlas_x + atlas_y * ATLAS_WIDTH + atlas_z * ATLAS_WIDTH * ATLAS_HEIGHT;
+                if sample_idx < data.len() {
+                    println!(
+                        "[DEBUG]   Sample atlas voxel at ({},{},{}): {}",
+                        atlas_x, atlas_y, atlas_z, data[sample_idx]
+                    );
+                }
             }
         }
 
+        println!("[DEBUG] Total atlas size: {} bytes", data.len());
         data
     }
 
