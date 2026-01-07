@@ -118,6 +118,107 @@ impl VxtFile {
         }
     }
 
+    /// Creates a template from a world region using TemplateBuilder.
+    ///
+    /// This is a convenience method that captures all blocks and metadata
+    /// from the specified region.
+    ///
+    /// # Arguments
+    /// * `world` - The world to capture from
+    /// * `water_grid` - The water grid for source information
+    /// * `name` - Template name
+    /// * `author` - Template author
+    /// * `min` - Minimum corner (inclusive)
+    /// * `max` - Maximum corner (inclusive)
+    ///
+    /// # Returns
+    /// A VxtFile with all blocks and metadata from the region.
+    pub fn from_world_region(
+        world: &crate::world::World,
+        water_grid: &crate::water::WaterGrid,
+        name: String,
+        author: String,
+        min: Vector3<i32>,
+        max: Vector3<i32>,
+    ) -> Result<Self, String> {
+        // Calculate dimensions
+        let width = (max.x - min.x + 1) as u8;
+        let height = (max.y - min.y + 1) as u8;
+        let depth = (max.z - min.z + 1) as u8;
+
+        // Validate dimensions
+        if width == 0 || height == 0 || depth == 0 {
+            return Err("Region dimensions must be at least 1×1×1".to_string());
+        }
+
+        if width > MAX_TEMPLATE_SIZE || height > MAX_TEMPLATE_SIZE || depth > MAX_TEMPLATE_SIZE {
+            return Err(format!(
+                "Region too large ({}×{}×{}). Maximum is {}×{}×{}",
+                width, height, depth, MAX_TEMPLATE_SIZE, MAX_TEMPLATE_SIZE, MAX_TEMPLATE_SIZE
+            ));
+        }
+
+        let mut builder = TemplateBuilder::new(name, author, min, width, height, depth);
+
+        // Iterate through all positions in the region
+        for y in min.y..=max.y {
+            for z in min.z..=max.z {
+                for x in min.x..=max.x {
+                    let pos = Vector3::new(x, y, z);
+
+                    // Get block type
+                    let block_type = world.get_block(pos).unwrap_or(BlockType::Air);
+
+                    // Add block (if not air)
+                    builder.add_block(pos, block_type);
+
+                    // Add metadata based on block type
+                    match block_type {
+                        BlockType::Model => {
+                            // Add model metadata
+                            if let Some(model_data) = world.get_model_data(pos) {
+                                builder.add_model_data(
+                                    pos,
+                                    model_data.model_id,
+                                    model_data.rotation,
+                                    model_data.waterlogged,
+                                );
+                            }
+                        }
+                        BlockType::TintedGlass | BlockType::Crystal => {
+                            // Add tint metadata
+                            if let Some(tint_index) = world.get_tint_index(pos) {
+                                builder.add_tint_data(pos, tint_index);
+                            }
+                        }
+                        BlockType::Painted => {
+                            // Add paint metadata
+                            if let Some(paint_data) = world.get_paint_data(pos) {
+                                builder.add_paint_data(
+                                    pos,
+                                    paint_data.texture_idx,
+                                    paint_data.tint_idx,
+                                );
+                            }
+                        }
+                        BlockType::Water => {
+                            // Add water metadata
+                            if let Some(water_type) = world.get_water_type(pos) {
+                                let is_source = water_grid.is_source(pos);
+                                builder.add_water_data(pos, water_type, is_source);
+                            }
+                        }
+                        _ => {
+                            // No metadata for other block types
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(builder.build())
+    }
+
     /// Validates template dimensions.
     pub fn validate_dimensions(&self) -> Result<(), String> {
         if self.width == 0 || self.height == 0 || self.depth == 0 {
