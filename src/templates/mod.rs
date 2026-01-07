@@ -15,7 +15,7 @@ pub use placement::{FrameDistributedPlacer, TemplatePlacement};
 #[allow(unused_imports)]
 pub use selection::TemplateSelection;
 #[allow(unused_imports)]
-pub use ui::TemplateUi;
+pub use ui::{TemplateBrowserAction, TemplateUi, draw_save_template_dialog, draw_template_browser};
 
 use std::fs;
 use std::io;
