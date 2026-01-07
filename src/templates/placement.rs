@@ -244,7 +244,32 @@ impl TemplatePlacement {
         }
 
         self.placement_progress = end;
+
+        // If placement is complete, update all stair shapes
+        // This ensures corner shapes are correct after rotation
+        if self.is_complete() {
+            self.update_all_stair_shapes(world);
+        }
+
         self.is_complete()
+    }
+
+    /// Updates all stair shapes in the placed template.
+    /// Called after placement is complete to ensure corner shapes are correct.
+    fn update_all_stair_shapes(&self, world: &mut crate::world::World) {
+        // Collect all stair positions first to avoid borrow issues
+        let stair_positions: Vec<_> = self
+            .template
+            .model_data
+            .iter()
+            .filter(|m| crate::sub_voxel::ModelRegistry::is_stairs_model(m.model_id))
+            .map(|m| self.get_world_position(m.x, m.y, m.z))
+            .collect();
+
+        // Update each stair shape based on its neighbors
+        for pos in stair_positions {
+            world.update_stair_shape_at(pos);
+        }
     }
 }
 
