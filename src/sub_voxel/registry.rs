@@ -240,51 +240,35 @@ impl ModelRegistry {
         data
     }
 
-    /// Legacy: Pack all models into a single 16³ atlas.
-    /// Resamples 8³ models up and 32³ models down.
+    /// Pack all models into a single 16³ atlas using inline resampling.
+    /// Models with different resolutions are resampled on-the-fly during packing.
     pub fn pack_voxels_for_gpu(&self) -> Vec<u8> {
-        let res = 16; // Standard resolution
-        let atlas_width = 16 * res;
-        let atlas_height = res;
-        let atlas_depth = 16 * res;
-        let mut data = vec![0u8; atlas_width * atlas_height * atlas_depth];
+        const SUB_VOXEL_SIZE: usize = 16; // Target atlas resolution
+        const ATLAS_WIDTH: usize = 16 * SUB_VOXEL_SIZE;
+        const ATLAS_HEIGHT: usize = SUB_VOXEL_SIZE;
+        const ATLAS_DEPTH: usize = 16 * SUB_VOXEL_SIZE;
+        let mut data = vec![0u8; ATLAS_WIDTH * ATLAS_HEIGHT * ATLAS_DEPTH];
 
         println!("[DEBUG] Packing {} models for GPU atlas", self.models.len());
 
         for (model_id, model) in self.models.iter().enumerate() {
-            // Model position in the 16×16 grid
             let model_x = model_id % 16;
             let model_z = model_id / 16;
+            let model_res = model.resolution.size();
 
-            // We need a 16³ version of the model
-            let model_16 = if model.resolution == ModelResolution::Medium {
-                // Already 16³ - borrow
-                std::borrow::Cow::Borrowed(model)
-            } else if model.resolution == ModelResolution::Low {
-                // Upscale 8 -> 16
-                if let Some(upscaled) = model.upscale(ModelResolution::Medium) {
-                    std::borrow::Cow::Owned(upscaled)
-                } else {
-                    std::borrow::Cow::Borrowed(model) // Should not happen
-                }
-            } else {
-                // Downscale 32 -> 16
-                if let Some(downscaled) = model.downscale(ModelResolution::Medium) {
-                    std::borrow::Cow::Owned(downscaled)
-                } else {
-                    std::borrow::Cow::Borrowed(model) // Should not happen
-                }
-            };
-
-            let model_res = 16;
-            // Copy each voxel to the correct position in the atlas
+            // Copy voxels with inline resampling if necessary
             let mut non_zero_count = 0;
-            for lz in 0..model_res {
-                for ly in 0..model_res {
-                    for lx in 0..model_res {
-                        let src_idx = lx + ly * model_res + lz * model_res * model_res;
-                        let voxel = if src_idx < model_16.voxels.len() {
-                            model_16.voxels[src_idx]
+            for ly in 0..SUB_VOXEL_SIZE {
+                for lz in 0..SUB_VOXEL_SIZE {
+                    for lx in 0..SUB_VOXEL_SIZE {
+                        // Scale coordinates based on model resolution
+                        let src_x = lx * model_res / SUB_VOXEL_SIZE;
+                        let src_y = ly * model_res / SUB_VOXEL_SIZE;
+                        let src_z = lz * model_res / SUB_VOXEL_SIZE;
+                        let src_idx = src_x + src_y * model_res + src_z * model_res * model_res;
+
+                        let voxel = if src_idx < model.voxels.len() {
+                            model.voxels[src_idx]
                         } else {
                             0
                         };
@@ -293,25 +277,25 @@ impl ModelRegistry {
                             non_zero_count += 1;
                         }
 
-                        let atlas_x = model_x * res + lx;
+                        let atlas_x = model_x * SUB_VOXEL_SIZE + lx;
                         let atlas_y = ly;
-                        let atlas_z = model_z * res + lz;
+                        let atlas_z = model_z * SUB_VOXEL_SIZE + lz;
                         let dst_idx =
-                            atlas_x + atlas_y * atlas_width + atlas_z * atlas_width * atlas_height;
-                        if dst_idx < data.len() {
-                            data[dst_idx] = voxel;
-                        }
+                            atlas_x + atlas_y * ATLAS_WIDTH + atlas_z * ATLAS_WIDTH * ATLAS_HEIGHT;
+
+                        data[dst_idx] = voxel;
                     }
                 }
             }
 
             if model_id == 1 {
                 println!(
-                    "[DEBUG] Model ID 1 (torch): packed {} non-zero voxels from {:?} resolution",
+                    "[DEBUG] Model ID 1 (torch): packed {} non-zero voxels from {:?} resolution (inline resampling)",
                     non_zero_count, model.resolution
                 );
             }
         }
+
         data
     }
 
