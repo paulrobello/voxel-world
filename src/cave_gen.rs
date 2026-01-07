@@ -92,9 +92,9 @@ impl CaveGenerator {
     /// Determine what should fill a cave block based on biome and depth.
     ///
     /// # Returns
-    /// * `Some(BlockType)` - The block type to place
-    /// * `Some(WaterType)` - If water, which water type
-    /// * `None` - Use air
+    /// * `CaveFillType::Air` - Empty cave space
+    /// * `CaveFillType::Water(WaterType)` - Water-filled cave
+    /// * `CaveFillType::Lava` - Lava-filled cave (mountain caves at low depths)
     pub fn get_cave_fill(&self, biome: BiomeType, world_y: i32, sea_level: i32) -> CaveFillType {
         match biome {
             BiomeType::Desert => {
@@ -118,7 +118,17 @@ impl CaveGenerator {
                     CaveFillType::Air
                 }
             }
-            BiomeType::Mountains | BiomeType::Grassland => {
+            BiomeType::Mountains => {
+                // Mountain caves: lava lakes at very low depths
+                if world_y < 20 && self.should_spawn_lava(biome, world_y) {
+                    CaveFillType::Lava
+                } else if world_y <= sea_level {
+                    CaveFillType::Water(biome.water_type())
+                } else {
+                    CaveFillType::Air
+                }
+            }
+            BiomeType::Grassland => {
                 // Normal cave water filling
                 if world_y <= sea_level {
                     CaveFillType::Water(biome.water_type())
@@ -132,9 +142,22 @@ impl CaveGenerator {
     /// Check if lava lakes should spawn at this cave position.
     ///
     /// Mountain caves have lava lakes at low depths (< 20).
-    #[allow(dead_code)] // TODO: Will be used when implementing lava lake placement
+    /// Uses noise to create pockets of lava rather than filling all caves.
     pub fn should_spawn_lava(&self, biome: BiomeType, world_y: i32) -> bool {
-        matches!(biome, BiomeType::Mountains) && world_y < 20
+        if !matches!(biome, BiomeType::Mountains) || world_y >= 20 {
+            return false;
+        }
+
+        // Lava becomes more common the deeper you go
+        // At y=19: ~10% chance, at y=10: ~30% chance, at y=2: ~50% chance
+        let depth_factor = (20 - world_y) as f64 / 18.0; // 0.0 at y=19, 1.0 at y=2
+        let lava_threshold = 0.7 - (depth_factor * 0.4); // 0.7 at top, 0.3 at bottom
+
+        // Use decoration noise for lava placement (different offset than decorations)
+        let y = world_y as f64;
+        let noise_value = self.decoration_noise.get([y * 0.05, y * 0.05, y * 0.05]);
+
+        noise_value.abs() > lava_threshold
     }
 
     /// Get the model ID for a stalactite (hanging from ceiling) based on biome.
@@ -233,5 +256,6 @@ pub enum CaveFillType {
     Air,
     /// Filled with water of a specific type
     Water(crate::chunk::WaterType),
-    // Future: Could add Ice, Lava, etc.
+    /// Filled with lava (mountain caves at low depths)
+    Lava,
 }

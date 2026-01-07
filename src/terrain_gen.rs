@@ -300,6 +300,10 @@ fn generate_normal_chunk(terrain: &TerrainGenerator, chunk_pos: Vector3<i32>) ->
                             chunk.set_water_block(lx, ly, lz, water_type);
                             continue; // Skip the default set_block below
                         }
+                        CaveFillType::Lava => {
+                            // Mountain caves at low depths have lava lakes
+                            BlockType::Lava
+                        }
                     }
                 } else if world_y == height {
                     // Surface block - varies by biome
