@@ -345,13 +345,20 @@ impl ModelRegistry {
             }
 
             // flags (4 bytes)
+            // Bits: 0=rotatable, 1-2=light_blocking, 3=is_light_source, 4-7=light_mode
             let mut flags = 0u32;
-            if model.light_blocking != LightBlocking::None {
-                flags |= 1; // Blocks light
+            if model.rotatable {
+                flags |= 1; // bit 0
             }
-            if !model.no_collision {
-                flags |= 2; // Has collision
+            flags |= match model.light_blocking {
+                LightBlocking::None => 0,
+                LightBlocking::Partial => 2, // bit 1
+                LightBlocking::Full => 4,    // bit 2
+            };
+            if model.is_light_source {
+                flags |= 8; // bit 3
             }
+            flags |= (model.light_mode as u32) << 4; // bits 4-7
             data.extend_from_slice(&flags.to_le_bytes());
 
             // resolution (4 bytes)
