@@ -1,4 +1,5 @@
 pub mod basic;
+pub mod caves;
 pub mod doors;
 pub mod fences;
 pub mod lighting;
@@ -9,6 +10,9 @@ use crate::sub_voxel::ModelRegistry;
 use crate::sub_voxel::types::Color;
 
 use self::basic::{create_empty, create_slab_bottom, create_slab_top};
+use self::caves::{
+    create_ice_stalactite, create_ice_stalagmite, create_stalactite, create_stalagmite,
+};
 use self::doors::{
     create_door_lower_closed_left, create_door_lower_closed_right, create_door_lower_open_left,
     create_door_lower_open_right, create_door_upper_closed_left, create_door_upper_closed_right,
@@ -172,4 +176,13 @@ pub fn register_builtins(registry: &mut ModelRegistry) {
     registry.register(create_mushroom_brown());
     // ID 105: Red Mushroom
     registry.register(create_mushroom_red());
+
+    // ID 106: Stalactite (stone)
+    registry.register(create_stalactite());
+    // ID 107: Stalagmite (stone)
+    registry.register(create_stalagmite());
+    // ID 108: Ice Stalactite
+    registry.register(create_ice_stalactite());
+    // ID 109: Ice Stalagmite
+    registry.register(create_ice_stalagmite());
 }
