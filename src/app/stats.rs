@@ -80,7 +80,7 @@ pub fn print_stats(ui: &mut UiState, sim: &mut WorldSim, verbose: bool) {
             if !ui.profile_log_header_written {
                 let _ = writeln!(
                     file,
-                    "world_gen,time_s,fps,frame_ms,win_w,win_h,render_w,render_h,chunks_loaded,chunks_dirty,chunks_inflight,pos_x,pos_y,pos_z,chunk_x,chunk_y,chunk_z,tex_x,tex_z,chunkload_ms,upload_ms,chunks_uploaded,metadata_ms,render_ms,enable_ao,enable_shadows,enable_model_shadows,enable_point_lights,show_minimap,minimap_size"
+                    "world_gen,time_s,fps,frame_ms,win_w,win_h,render_w,render_h,chunks_loaded,chunks_dirty,chunks_inflight,pos_x,pos_y,pos_z,chunk_x,chunk_y,chunk_z,tex_x,tex_z,chunkload_ms,upload_ms,chunks_uploaded,metadata_ms,render_ms,enable_ao,enable_shadows,enable_model_shadows,enable_point_lights,show_minimap,minimap_size,minimap_skip_decorative"
                 );
                 ui.profile_log_header_written = true;
                 println!("[PROFILE] Writing to: {}", path);
@@ -93,7 +93,7 @@ pub fn print_stats(ui: &mut UiState, sim: &mut WorldSim, verbose: bool) {
             };
             let _ = writeln!(
                 file,
-                "{},{:.3},{},{:.3},{},{},{},{},{},{},{},{:.1},{:.1},{:.1},{},{},{},{},{},{:.3},{:.3},{},{:.3},{:.3},{},{},{},{},{},{}",
+                "{},{:.3},{},{:.3},{},{},{},{},{},{},{},{:.1},{:.1},{:.1},{},{},{},{},{},{:.3},{:.3},{},{:.3},{:.3},{},{},{},{},{},{},{}",
                 world_gen_str,
                 elapsed,
                 ui.fps,
@@ -124,6 +124,7 @@ pub fn print_stats(ui: &mut UiState, sim: &mut WorldSim, verbose: bool) {
                 ui.settings.enable_point_lights as u8,
                 ui.show_minimap as u8,
                 ui.minimap.size,
+                ui.minimap.skip_decorative as u8,
             );
         }
     }

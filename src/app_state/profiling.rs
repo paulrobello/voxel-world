@@ -1,4 +1,9 @@
 /// Auto-profile feature being tested
+///
+/// IMPORTANT: When adding new features here, also update:
+/// 1. CSV header in `src/app/stats.rs` (line ~83)
+/// 2. CSV data row in `src/app/stats.rs` (line ~96-127)
+/// 3. State transition logic in `src/app/update.rs` (lines ~66-109)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AutoProfileFeature {
     Baseline,              // Initial 5s with all features ON
