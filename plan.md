@@ -189,7 +189,7 @@
 - [x] File format: `.vxt` (Voxel Template), compressed with zstd
 - [x] Metadata: name, author, tags, creation date
 - [x] Storage: `user_templates/` directory
-- [ ] Thumbnail generation (optional enhancement)
+- [x] Thumbnail generation (CPU-based software rasterizer, 64×64 PNG)
 
 **16.1.2 Template Selection & Copy**
 - [x] Selection mode: V key toggle, left-click pos1, right-click pos2 (green/blue markers + yellow wireframe)
@@ -208,18 +208,20 @@
 - [x] Frame-distributed placement: 1000 blocks/frame for large templates
 - [x] Confirmation prompt before placement
 - [x] Browse library UI in template browser (L key)
-- [ ] Preview thumbnails: isometric view (currently wireframe only)
+- [x] Preview thumbnails: 64×64 isometric view with adaptive cell sizing
 - [ ] No undo (by design - templates are large operations)
 
 **16.1.4 Template Library UI**
 - [x] In-game browser (keybind: L for Library)
-- [x] Save dialog with name and tags input
-- [x] Template list with Load/Delete actions
+- [x] Save dialog with name and tags input (auto-focus on name field)
+- [x] Template list with Load/Delete/Regenerate Thumbnail actions
 - [x] Current selection display (dimensions, block count)
 - [x] Selection mode toggle and status
 - [x] Search/filter: by name, tags, dimensions (real-time filtering)
-- [x] Thumbnail infrastructure (GPU-rendered, requires batch tool for generation)
-- [ ] Preview pane: 3D isometric thumbnails (infrastructure ready, needs batch generation tool)
+- [x] Runtime thumbnail generation (CPU-based software rasterizer)
+- [x] Thumbnail display: 64×64 isometric preview next to each template
+- [x] Regenerate thumbnail button: recreate thumbnails for existing templates
+- [x] Thumbnail caching: automatically refreshes on save/regenerate
 - [ ] Import/Export UI (files can be manually shared via user_templates/)
 
 **Technical Approach:**
@@ -768,14 +770,20 @@ Enter                       # Confirm placement
 
 **Recently Added** (2026-01-07):
 - Search/filter functionality (by name, tags, dimensions)
-- Thumbnail generation infrastructure (GPU-rendered via thumbnail.rs)
-- Template metadata includes thumbnail_path
-- Delete operation now removes thumbnails too
+- Runtime thumbnail generation (CPU-based software rasterizer)
+  - Auto-generates 64×64 PNG thumbnails when saving templates
+  - Isometric 3/4 view matching custom model sprites
+  - Metadata-aware colors (TintedGlass, Painted, Water types)
+  - Per-face shading (top 100%, bottom 40%, sides 60-85%)
+  - Adaptive cell sizing for templates 1×1×1 to 128×128×128
+- Thumbnail display in template browser with caching
+- Regenerate thumbnail button for existing/corrupted thumbnails
+- Auto-focus on name field in save dialog
+- Delete operation removes both .vxt and .png files
 
 **Optional Enhancements** (future work):
-1. Batch thumbnail generation tool (similar to sprite_gen)
-2. Import/Export UI (files can be manually shared via user_templates/)
-3. Template categories/folders for better organization
+1. Import/Export UI (files can be manually shared via user_templates/)
+2. Template categories/folders for better organization
 
 ---
 
@@ -788,9 +796,13 @@ Enter                       # Confirm placement
   - Template placement with ghost preview and frame-distributed loading
   - Template browser UI (L key) with save/load/delete actions
   - Search/filter by name, tags, and dimensions (real-time)
-  - Thumbnail generation infrastructure (GPU-rendered, ready for batch tool)
+  - Runtime thumbnail generation with CPU-based software rasterizer
+    - 64×64 PNG thumbnails with isometric 3/4 view
+    - Auto-generated on save, regenerate button for existing templates
+    - Metadata-aware colors and adaptive cell sizing
+    - Thumbnail display with caching in template browser
+  - Auto-focus on save dialog name field
   - Console Y coordinate fix (~ ~ ~ = feet_pos + 1)
-  - Optional: Batch thumbnail tool, import/export UI
 - **Phase 15.4: Cave Biome Integration** (2026-01-07): ✅ COMPLETE
   - Cave generation module (src/cave_gen.rs) with biome-aware logic
   - 4 new cave decoration models: stalactites/stalagmites (stone and ice variants)
