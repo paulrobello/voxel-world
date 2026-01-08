@@ -260,9 +260,23 @@ impl TemplatePlacement {
                         self.template.get_model_data(block.x, block.y, block.z)
                     {
                         let final_rotation = self.apply_model_rotation(model_data.rotation);
+
+                        // For stairs, always place as "Straight" shape initially if template is rotated
+                        // The shape will be recalculated after all stairs are placed
+                        let model_id = if self.rotation != 0
+                            && crate::sub_voxel::ModelRegistry::is_stairs_model(model_data.model_id)
+                        {
+                            use crate::sub_voxel::{ModelRegistry, StairShape};
+                            let is_inverted =
+                                ModelRegistry::is_stairs_inverted(model_data.model_id);
+                            ModelRegistry::stairs_model_id(StairShape::Straight, is_inverted)
+                        } else {
+                            model_data.model_id
+                        };
+
                         world.set_model_block(
                             world_pos,
-                            model_data.model_id,
+                            model_id,
                             final_rotation,
                             model_data.waterlogged,
                         );
@@ -351,15 +365,9 @@ impl TemplatePlacement {
         // For stairs, do multiple passes to ensure correct shape propagation
         // This is necessary because stair shape depends on neighbor shapes,
         // and a single pass might not be enough for complex configurations
-        //
-        // IMPORTANT: Only update if template was NOT rotated, otherwise we break
-        // the original stair orientations. When rotated, stairs should maintain
-        // their relative rotations to the template structure.
-        if self.rotation == 0 {
-            for _ in 0..3 {
-                for pos in &stair_positions {
-                    world.update_stair_shape_at(*pos);
-                }
+        for _ in 0..5 {
+            for pos in &stair_positions {
+                world.update_stair_shape_at(*pos);
             }
         }
 
