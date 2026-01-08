@@ -185,10 +185,11 @@
 #### 16.1 Template Library
 
 **16.1.1 Template Data Structure**
-- [ ] `Template` struct: block data, metadata (doors, painted blocks, water), dimensions, rotation
-- [ ] File format: `.vxt` (Voxel Template), compressed with zstd
-- [ ] Metadata: name, author, tags, creation date, thumbnail
-- [ ] Storage: `user_templates/` directory
+- [x] `VxtFile` struct: block data, metadata (doors, painted blocks, water), dimensions, rotation
+- [x] File format: `.vxt` (Voxel Template), compressed with zstd
+- [x] Metadata: name, author, tags, creation date
+- [x] Storage: `user_templates/` directory
+- [ ] Thumbnail generation (optional enhancement)
 
 **16.1.2 Template Selection & Copy**
 - [x] Selection mode: V key toggle, left-click pos1, right-click pos2 (green/blue markers + yellow wireframe)
@@ -197,22 +198,28 @@
 - [x] Include all block types, metadata, water states, sub-voxel models
 - [x] Rotation support (90°, 180°, 270° around Y-axis)
 - [x] Volume confirmation for large operations (>volume threshold)
-- [ ] Template save/load system (file format implementation pending)
-- [ ] Maximum size: 128×128×128 blocks (enforced with warning)
+- [x] Template save/load system (.vxt file format with zstd compression)
+- [x] Console commands: `/template save <name> [tags]`, `/template load <name>`, `/template list`, `/template delete <name>`, `/template info <name>`
+- [x] Maximum size: 128×128×128 blocks (enforced with warning)
 
 **16.1.3 Template Placement**
-- [ ] Browse library UI (similar to model editor library)
-- [ ] Preview thumbnails: isometric view, dimensions shown
-- [ ] Rotation controls: 0°, 90°, 180°, 270° around Y-axis
-- [ ] Placement mode: ghost preview follows cursor, click to place
-- [ ] Frame-distributed placement: spread over multiple frames if >10,000 blocks
-- [ ] No undo (too large), but confirmation prompt before placement
+- [x] Rotation controls: 0°, 90°, 180°, 270° around Y-axis (R key to rotate)
+- [x] Placement mode: ghost preview follows cursor, Enter to place
+- [x] Frame-distributed placement: 1000 blocks/frame for large templates
+- [x] Confirmation prompt before placement
+- [x] Browse library UI in template browser (L key)
+- [ ] Preview thumbnails: isometric view (currently wireframe only)
+- [ ] No undo (by design - templates are large operations)
 
 **16.1.4 Template Library UI**
-- [ ] In-game browser (keybind: L for Library)
-- [ ] Search/filter: by name, tags, size, date
-- [ ] Preview pane: 3D isometric view, block count, dimensions
-- [ ] Actions: Load, Delete, Export, Import (share files)
+- [x] In-game browser (keybind: L for Library)
+- [x] Save dialog with name and tags input
+- [x] Template list with Load/Delete actions
+- [x] Current selection display (dimensions, block count)
+- [x] Selection mode toggle and status
+- [ ] Search/filter: by name, tags, size, date (basic list implemented)
+- [ ] Preview pane: 3D isometric view (wireframe preview during placement only)
+- [ ] Import/Export sharing (files can be manually copied)
 
 **Technical Approach:**
 ```rust
@@ -697,9 +704,9 @@ git commit -m "type: description"
 
 ## Current Work (2026-01-07)
 
-**Status**: Phase 16.1 (Template Library - Selection & Copy) 🚧 IN PROGRESS
+**Status**: Phase 16.1 (Template Library) ✅ CORE COMPLETE
 
-**Recent Work:**
+**Completed Features:**
 - **Visual Selection System**:
   - V key toggles selection mode (with HUD indicator)
   - Left-click places green pos1 marker, right-click places blue pos2 marker
@@ -711,48 +718,70 @@ git commit -m "type: description"
   - Syntax: `/copy <x1> <y1> <z1> <x2> <y2> <z2> <dx> <dy> <dz> [rotate_90|rotate_180|rotate_270]`
   - Preserves all block metadata (models, tinted glass, painted blocks, water types)
   - Y-axis rotation support (90°, 180°, 270°)
-  - Volume confirmation for large operations (>threshold)
+  - Volume confirmation for large operations
   - Relative coordinate support with `~`
-  - Autocomplete integration
+- **Template Save/Load System** (src/templates/):
+  - .vxt file format with zstd compression
+  - Console commands: `/template save/load/list/delete/info`
+  - Sparse block storage (only non-air blocks)
+  - Full metadata preservation (models, tint, paint, water sources)
+  - Template library manager with user_templates/ directory
+- **Template Placement**:
+  - Ghost preview follows cursor (wireframe visualization)
+  - R key to rotate template (90° increments)
+  - Enter to confirm placement
+  - Frame-distributed placement (1000 blocks/frame)
+  - Arrow keys to move placement position
+- **Template Browser UI** (L key):
+  - Save dialog with name and tags
+  - Template list with Load/Delete actions
+  - Current selection display (dimensions, volume)
+  - Selection mode status and controls
 - **Console Y Coordinate Fix**:
   - `~ ~ ~` now refers to one block above the ground (feet_pos + 1)
-  - Removed duplicate Y adjustments in select command
   - All console commands use consistent player position
 
 **Testing Guide:**
 ```bash
-# Enter selection mode
-V key
+# Visual selection and save
+V                           # Enter selection mode
+# Click to set pos1 and pos2
+L                           # Open template browser
+# Click "Save as Template..."
+# Enter name and tags, click Save
 
-# Place markers visually (click on blocks)
-Left-click: set pos1 (green marker)
-Right-click: set pos2 (blue marker)
-
-# Or use console with coordinates
+# Or use console commands
 /select pos1 ~ ~ ~
 /select pos2 ~10 ~5 ~10
+/template save my_house building
 
-# Copy region to new location
-/copy ~ ~ ~ ~10 ~5 ~10 ~20 ~ ~
+# Load and place template
+/template load my_house     # Enters placement mode
+R                           # Rotate
+Arrow keys                  # Move position
+Enter                       # Confirm placement
 
-# Copy with rotation
-/copy 0 64 0 10 69 10 30 64 0 rotate_90
+# Copy region directly
+/copy ~ ~ ~ ~10 ~5 ~10 ~20 ~ ~ rotate_90
 ```
 
-**Next Actions:**
-1. Implement template save/load system (.vxt file format)
-2. Add template library UI (L key browser)
-3. Implement template placement with ghost preview
+**Optional Enhancements** (future work):
+1. Search/filter in template browser (by name, tags, size)
+2. Isometric preview thumbnails (currently wireframe only)
+3. Import/Export UI (files can be manually shared via user_templates/)
 
 ---
 
 ## Done Recently
 
-- **Phase 16.1: Template Selection & Copy** (2026-01-07): 🚧 PARTIAL
+- **Phase 16.1: Template Library** (2026-01-07): ✅ CORE COMPLETE
   - Visual selection system with V key toggle and shader-rendered markers
-  - Copy command with rotation and metadata preservation
+  - Copy command with rotation and full metadata preservation
+  - Template save/load system (.vxt file format with zstd compression)
+  - Template placement with ghost preview and frame-distributed loading
+  - Template browser UI (L key) with save/load/delete actions
   - Console Y coordinate fix (~ ~ ~ = feet_pos + 1)
-  - Template save/load and placement system pending
+  - Optional enhancements remain: search/filter, isometric thumbnails
 - **Phase 15.4: Cave Biome Integration** (2026-01-07): ✅ COMPLETE
   - Cave generation module (src/cave_gen.rs) with biome-aware logic
   - 4 new cave decoration models: stalactites/stalagmites (stone and ice variants)
