@@ -372,16 +372,23 @@ impl App {
         let mut loaded = 0;
 
         for result in completed {
-            // Get model metadata before inserting chunk
-            let model_metadata = result.chunk.to_model_metadata();
-
             // Apply overflow blocks (immediate if chunk exists, pending if not)
             self.sim.world.apply_overflow_blocks(result.overflow_blocks);
 
             // Insert chunk into world (will also apply any pending overflow for this chunk)
             self.sim.world.insert_chunk(result.position, result.chunk);
 
-            chunks_to_upload.push((result.position, result.block_data, model_metadata));
+            // CRITICAL: Recompute block_data and model_metadata AFTER insert_chunk
+            // because pending overflow may have modified the chunk
+            let chunk = self
+                .sim
+                .world
+                .get_chunk(result.position)
+                .expect("Chunk should exist after insert");
+            let block_data = chunk.to_block_data();
+            let model_metadata = chunk.to_model_metadata();
+
+            chunks_to_upload.push((result.position, block_data, model_metadata));
             loaded += 1;
         }
 

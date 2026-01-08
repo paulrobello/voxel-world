@@ -33,8 +33,6 @@ pub struct ChunkRequest {
 pub struct ChunkResult {
     pub position: Vector3<i32>,
     pub chunk: Chunk,
-    /// Pre-computed block data for GPU upload.
-    pub block_data: Vec<u8>,
     /// Blocks that should be placed in neighboring chunks.
     pub overflow_blocks: Vec<OverflowBlock>,
 }
@@ -145,13 +143,10 @@ impl ChunkLoader {
                                     (chunk, result.overflow_blocks)
                                 };
 
-                                let block_data = chunk.to_block_data();
-
-                                // Send result back
+                                // Send result back (block_data computed after pending overflow applied)
                                 let _ = result_tx.send(ChunkResult {
                                     position: req.position,
                                     chunk,
-                                    block_data,
                                     overflow_blocks,
                                 });
                             }
