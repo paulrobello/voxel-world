@@ -57,6 +57,7 @@ impl ConsoleEntry {
 }
 
 /// Result of command execution.
+#[allow(clippy::result_large_err)]
 pub enum CommandResult {
     /// Command executed successfully.
     Success(String),
@@ -203,7 +204,6 @@ impl ConsoleState {
     pub fn command_signatures() -> Vec<CommandSignature> {
         const HOLLOW_FLAG: &[&str] = &["hollow"];
         const BIOME_FLAGS: &[&str] = &["on", "off", "true", "false"];
-        const BIOME_NAMES: &[&str] = &["grassland", "mountains", "desert", "swamp", "snow"];
         const ROTATION_FLAGS: &[&str] = &["rotate_90", "rotate_180", "rotate_270"];
 
         vec![
@@ -267,7 +267,7 @@ impl ConsoleState {
             CommandSignature {
                 name: "locate",
                 aliases: &[],
-                params: &[ParamType::Flag(BIOME_NAMES), ParamType::Text], // biome, range
+                params: &[ParamType::Text, ParamType::Text, ParamType::Text], // biome/block/cave, size/range, range
             },
             CommandSignature {
                 name: "waterdebug",
@@ -847,7 +847,7 @@ impl ConsoleState {
             "boxme" => commands::boxme(args, world, player_pos, confirmed),
             "copy" => commands::copy(args, world, player_pos, confirmed),
             "tp" | "teleport" => commands::tp(args, player_pos),
-            "locate" => commands::locate(args, player_pos, terrain_generator),
+            "locate" => commands::locate(args, player_pos, terrain_generator, world),
             "waterdebug" | "wd" => CommandResult::FluidDebug,
             "waterforce" | "wf" => CommandResult::ForceWaterActive,
             "wateranalyze" | "wa" => CommandResult::WaterAnalyze,

@@ -49,9 +49,11 @@ pub fn help() -> CommandResult {
   tp <x> <y> <z>
     Teleport to coordinates. Y must be 0-511.
 
-  locate <biome> [range]
-    Find the nearest biome within range (default: 2048 blocks).
+  locate <biome|block|cave> [range|size] [range]
+    Find the nearest biome, block type, or cave.
     Biomes: grassland, mountains, desert, swamp, snow
+    Blocks: stone, water, lava, etc. (any block type)
+    Cave: locate cave [min_size] [range] (default size: 50 blocks)
     Reports coordinates, distance, and direction.
 
   select pos1|pos2|clear [x] [y] [z]
@@ -95,6 +97,8 @@ Examples:
   tp ~ ~10 ~
   locate mountains
   locate desert 4096
+  locate lava 1024
+  locate cave 100 2048
   select pos1
   select pos2 100 64 200
   select clear
