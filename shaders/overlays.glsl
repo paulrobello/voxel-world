@@ -233,9 +233,32 @@ bool renderTemplatePreview(vec3 origin, vec3 dir, inout vec3 color, float sceneH
     else if (abs(hitPoint.z - boxMin.z) < epsilon.z) hitNormal = vec3(0.0, 0.0, -1.0);
     else if (abs(hitPoint.z - boxMax.z) < epsilon.z) hitNormal = vec3(0.0, 0.0, 1.0);
 
-    // Get distance to nearest edge for wireframe effect
-    float edgeDist = getBoxEdgeDistance(hitPoint, boxMin, boxMax);
-    float wireframe = 1.0 - smoothstep(0.0, 1.0, edgeDist);
+    // Get distance to nearest edge for bounding box wireframe
+    float boxEdgeDist = getBoxEdgeDistance(hitPoint, boxMin, boxMax);
+    float boxWireframe = 1.0 - smoothstep(0.0, 1.0, boxEdgeDist);
+
+    // Add voxel grid pattern at block boundaries
+    // Get fractional part of position within box to detect block boundaries
+    vec3 localPos = hitPoint - boxMin;
+    vec3 gridPos = fract(localPos);
+
+    // Distance to nearest block edge on each axis (0 at edge, 0.5 at center)
+    vec3 gridDist = min(gridPos, 1.0 - gridPos);
+
+    // Grid line width (thinner for interior grid)
+    float gridWidth = 0.02;
+
+    // Check if we're near a block edge on at least 2 axes (shows edges, not faces)
+    vec3 nearEdge = vec3(
+        gridDist.x < gridWidth ? 1.0 : 0.0,
+        gridDist.y < gridWidth ? 1.0 : 0.0,
+        gridDist.z < gridWidth ? 1.0 : 0.0
+    );
+    float numNearEdges = nearEdge.x + nearEdge.y + nearEdge.z;
+    float gridLine = numNearEdges >= 2.0 ? 1.0 : 0.0;
+
+    // Combine bounding box wireframe with grid lines
+    float wireframe = max(boxWireframe, gridLine * 0.5);
 
     // Template preview color - green tint
     vec3 templateColor = vec3(0.3, 1.0, 0.3);
@@ -243,8 +266,8 @@ bool renderTemplatePreview(vec3 origin, vec3 dir, inout vec3 color, float sceneH
     // Pulse animation
     float pulse = 0.85 + 0.15 * sin(pc.animation_time * 3.0);
 
-    // Blend based on whether we're on an edge
-    float alpha = mix(0.15, 0.9, wireframe) * pulse; // Very transparent fill, bright edges
+    // More opaque at wireframe edges, semi-transparent in between
+    float alpha = mix(0.08, 0.9, wireframe) * pulse;
 
     color = mix(color, templateColor, alpha);
     return true;

@@ -88,6 +88,74 @@ impl TemplatePlacement {
         (min, max)
     }
 
+    /// Gets all non-air block positions in world coordinates (rotated and translated).
+    /// Returns up to a maximum number of blocks to avoid overwhelming the GPU.
+    /// For large templates, only returns surface blocks (blocks with at least one air neighbor).
+    pub fn get_preview_blocks(&self, max_blocks: usize) -> Vec<Vector3<i32>> {
+        let mut positions = Vec::new();
+
+        // For large templates, only show surface blocks
+        // For small templates, show all blocks
+        let is_large = self.template.block_count() > max_blocks;
+
+        if is_large {
+            // Build a set of all block positions for quick lookup
+            use std::collections::HashSet;
+            let mut block_set = HashSet::new();
+            for block in &self.template.blocks {
+                block_set.insert((block.x, block.y, block.z));
+            }
+
+            // Only include blocks that have at least one air neighbor
+            for block in &self.template.blocks {
+                let x = block.x as i32;
+                let y = block.y as i32;
+                let z = block.z as i32;
+
+                // Check 6 neighbors
+                let neighbors = [
+                    (x + 1, y, z),
+                    (x - 1, y, z),
+                    (x, y + 1, z),
+                    (x, y - 1, z),
+                    (x, y, z + 1),
+                    (x, y, z - 1),
+                ];
+
+                let has_air_neighbor = neighbors.iter().any(|(nx, ny, nz)| {
+                    *nx < 0
+                        || *ny < 0
+                        || *nz < 0
+                        || *nx >= self.template.width as i32
+                        || *ny >= self.template.height as i32
+                        || *nz >= self.template.depth as i32
+                        || !block_set.contains(&(*nx as u8, *ny as u8, *nz as u8))
+                });
+
+                if has_air_neighbor {
+                    let world_pos = self.get_world_position(block.x, block.y, block.z);
+                    positions.push(world_pos);
+
+                    if positions.len() >= max_blocks {
+                        break;
+                    }
+                }
+            }
+        } else {
+            // Show all blocks for small templates
+            for block in &self.template.blocks {
+                let world_pos = self.get_world_position(block.x, block.y, block.z);
+                positions.push(world_pos);
+
+                if positions.len() >= max_blocks {
+                    break;
+                }
+            }
+        }
+
+        positions
+    }
+
     /// Checks if placement is complete.
     pub fn is_complete(&self) -> bool {
         self.placement_progress >= self.total_blocks
