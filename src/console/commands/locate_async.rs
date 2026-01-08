@@ -212,6 +212,17 @@ fn update_block_search(
                 search.positions_checked += 1;
                 *positions_this_frame += 1;
 
+                // Early termination: if we've checked 50k+ positions for lava without finding mountains, give up
+                if target_block == BlockType::Lava
+                    && search.positions_checked > 50000
+                    && search.relevant_biomes_found == 0
+                {
+                    return Some(CommandResult::Error(
+                        "No mountain biomes found within search range. Lava only spawns in mountain caves."
+                            .to_string(),
+                    ));
+                }
+
                 // For lava, use terrain generator to predict spawns (doesn't require loaded chunks)
                 if target_block == BlockType::Lava {
                     // Check if this would be a lava spawn using terrain generation
@@ -221,6 +232,9 @@ fn update_block_search(
                     if !matches!(biome, crate::terrain_gen::BiomeType::Mountains) {
                         continue;
                     }
+
+                    // Track that we found a mountain biome
+                    search.relevant_biomes_found += 1;
 
                     // Check if there's a cave here
                     let surface_height = terrain.get_height(pos.x, pos.z);
@@ -300,10 +314,17 @@ fn update_block_search(
     }
 
     // Search complete, not found
-    Some(CommandResult::Error(format!(
-        "Could not find {:?} block within {} blocks (checked {} positions)",
-        target_block, search.max_range, search.positions_checked
-    )))
+    if target_block == BlockType::Lava {
+        Some(CommandResult::Error(format!(
+            "Could not find lava within {} blocks (checked {} positions, {} mountain biomes)",
+            search.max_range, search.positions_checked, search.relevant_biomes_found
+        )))
+    } else {
+        Some(CommandResult::Error(format!(
+            "Could not find {:?} block within {} blocks (checked {} positions)",
+            target_block, search.max_range, search.positions_checked
+        )))
+    }
 }
 
 /// Update cave search for one frame

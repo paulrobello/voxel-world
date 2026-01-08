@@ -144,6 +144,8 @@ pub struct PendingLocateSearch {
     pub positions_checked: usize,
     /// Positions to check per frame.
     pub positions_per_frame: usize,
+    /// For lava/block searches: count of relevant biomes found.
+    pub relevant_biomes_found: usize,
 }
 
 /// Parameter type for command autocomplete.

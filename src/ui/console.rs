@@ -39,21 +39,34 @@ impl ConsoleUI {
                     // Still searching, keep it for next frame
                     // Show progress update every 1000 positions
                     if search.positions_checked % 1000 == 0 {
-                        let search_name = match &search.search_type {
+                        let search_msg = match &search.search_type {
                             crate::console::LocateSearchType::Biome(biome) => {
-                                format!("{:?} biome", biome)
+                                format!(
+                                    "Searching for {:?} biome... ({} positions checked)",
+                                    biome, search.positions_checked
+                                )
                             }
                             crate::console::LocateSearchType::Block(block) => {
-                                format!("{:?} block", block)
+                                if *block == crate::chunk::BlockType::Lava {
+                                    format!(
+                                        "Searching for lava... ({} positions, {} mountain biomes found)",
+                                        search.positions_checked, search.relevant_biomes_found
+                                    )
+                                } else {
+                                    format!(
+                                        "Searching for {:?} block... ({} positions checked)",
+                                        block, search.positions_checked
+                                    )
+                                }
                             }
                             crate::console::LocateSearchType::Cave(size) => {
-                                format!("cave (min {} blocks)", size)
+                                format!(
+                                    "Searching for cave (min {} blocks)... ({} positions checked)",
+                                    size, search.positions_checked
+                                )
                             }
                         };
-                        console.info(format!(
-                            "Searching for {}... ({} positions checked)",
-                            search_name, search.positions_checked
-                        ));
+                        console.info(search_msg);
                     }
                     console.pending_locate_search = Some(search);
                 }
@@ -75,21 +88,34 @@ impl ConsoleUI {
                 // Still searching, keep it for next frame
                 // Show progress update every 1000 positions
                 if search.positions_checked % 1000 == 0 {
-                    let search_name = match &search.search_type {
+                    let search_msg = match &search.search_type {
                         crate::console::LocateSearchType::Biome(biome) => {
-                            format!("{:?} biome", biome)
+                            format!(
+                                "Searching for {:?} biome... ({} positions checked)",
+                                biome, search.positions_checked
+                            )
                         }
                         crate::console::LocateSearchType::Block(block) => {
-                            format!("{:?} block", block)
+                            if *block == crate::chunk::BlockType::Lava {
+                                format!(
+                                    "Searching for lava... ({} positions, {} mountain biomes found)",
+                                    search.positions_checked, search.relevant_biomes_found
+                                )
+                            } else {
+                                format!(
+                                    "Searching for {:?} block... ({} positions checked)",
+                                    block, search.positions_checked
+                                )
+                            }
                         }
                         crate::console::LocateSearchType::Cave(size) => {
-                            format!("cave (min {} blocks)", size)
+                            format!(
+                                "Searching for cave (min {} blocks)... ({} positions checked)",
+                                size, search.positions_checked
+                            )
                         }
                     };
-                    console.info(format!(
-                        "Searching for {}... ({} positions checked)",
-                        search_name, search.positions_checked
-                    ));
+                    console.info(search_msg);
                 }
                 console.pending_locate_search = Some(search);
             }

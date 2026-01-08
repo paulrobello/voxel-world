@@ -131,6 +131,7 @@ fn start_locate_biome(
         min_distance: i32::MAX,
         positions_checked: 0,
         positions_per_frame: 200, // Check 200 positions per frame
+        relevant_biomes_found: 0,
     })
 }
 
@@ -140,8 +141,12 @@ fn start_locate_block(
     player_pos: Vector3<i32>,
     max_range: i32,
 ) -> CommandResult {
-    // Use smaller step for rare blocks like lava
-    let step = 2i32;
+    // Use larger step for lava (biome-specific), smaller for other blocks
+    let step = if target_block == BlockType::Lava {
+        8i32 // Lava is biome-specific, use coarser search
+    } else {
+        4i32 // Other blocks use finer search
+    };
     CommandResult::StartLocateSearch(PendingLocateSearch {
         search_type: LocateSearchType::Block(target_block),
         player_pos,
@@ -154,6 +159,7 @@ fn start_locate_block(
         min_distance: i32::MAX,
         positions_checked: 0,
         positions_per_frame: 100, // Check 100 positions per frame for block searches
+        relevant_biomes_found: 0,
     })
 }
 
@@ -172,6 +178,7 @@ fn start_locate_cave(player_pos: Vector3<i32>, min_size: usize, max_range: i32) 
         min_distance: i32::MAX,
         positions_checked: 0,
         positions_per_frame: 50, // Check 50 positions per frame for cave searches
+        relevant_biomes_found: 0,
     })
 }
 
