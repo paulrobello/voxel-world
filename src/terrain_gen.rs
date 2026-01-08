@@ -49,6 +49,10 @@ pub struct BiomeInfo {
     pub temperature: f64,
     pub rainfall: f64,
     pub biome: BiomeType,
+    /// Secondary biome for transition zones (if different from primary)
+    pub secondary_biome: Option<BiomeType>,
+    /// Blend factor: 0.0 = pure primary biome, 1.0 = pure secondary biome
+    pub blend_factor: f64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -81,6 +85,7 @@ pub struct TerrainGenerator {
     // biome_noise replaced by temperature/rainfall logic
     temperature_noise: Perlin,
     rainfall_noise: Perlin,
+    blend_noise: Perlin, // For randomizing biome transitions
     cave_generator: CaveGenerator,
 }
 
@@ -106,6 +111,8 @@ impl TerrainGenerator {
         let temperature_noise = Perlin::new(seed.wrapping_add(6));
         // Rainfall noise - large scale variation
         let rainfall_noise = Perlin::new(seed.wrapping_add(7));
+        // Blend noise - for smooth biome transitions
+        let blend_noise = Perlin::new(seed.wrapping_add(8));
 
         // Cave generation system
         let cave_generator = CaveGenerator::new(seed);
@@ -116,11 +123,12 @@ impl TerrainGenerator {
             mountain_noise,
             temperature_noise,
             rainfall_noise,
+            blend_noise,
             cave_generator,
         }
     }
 
-    /// Get biome info (elevation, temp, rain) at world coordinates
+    /// Get biome info (elevation, temp, rain) at world coordinates with blending
     pub fn get_biome_info(&self, world_x: i32, world_z: i32) -> BiomeInfo {
         let x = world_x as f64;
         let z = world_z as f64;
@@ -140,16 +148,68 @@ impl TerrainGenerator {
         let elevation_cooling = base_height.max(0.0) * 0.4;
         let adjusted_temp = (temp - elevation_cooling).clamp(0.0, 1.0);
 
-        let biome = if adjusted_temp < 0.3 {
-            BiomeType::Snow
+        // Blend transition width (how wide the transition zone is)
+        const BLEND_WIDTH: f64 = 0.12;
+
+        // Determine primary and secondary biomes with blend factors
+        let (biome, secondary_biome, blend_factor) = if adjusted_temp < 0.3 {
+            // Snow biome
+            let blend = Self::smoothstep(0.3 - BLEND_WIDTH, 0.3, adjusted_temp);
+            if blend > 0.01 {
+                // Transition to next biome (grassland or mountains)
+                let next = if base_height > 0.6 {
+                    BiomeType::Mountains
+                } else {
+                    BiomeType::Grassland
+                };
+                (BiomeType::Snow, Some(next), blend)
+            } else {
+                (BiomeType::Snow, None, 0.0)
+            }
         } else if adjusted_temp > 0.7 && rain < 0.3 {
-            BiomeType::Desert
+            // Desert biome
+            let temp_blend = Self::smoothstep(0.7, 0.7 + BLEND_WIDTH, adjusted_temp);
+            let rain_blend = Self::smoothstep(0.3 - BLEND_WIDTH, 0.3, rain);
+            if rain_blend > 0.01 {
+                // Transition based on rainfall (to grassland)
+                (BiomeType::Desert, Some(BiomeType::Grassland), rain_blend)
+            } else if temp_blend < 0.99 {
+                // Transition based on temperature (to grassland)
+                (
+                    BiomeType::Desert,
+                    Some(BiomeType::Grassland),
+                    1.0 - temp_blend,
+                )
+            } else {
+                (BiomeType::Desert, None, 0.0)
+            }
         } else if adjusted_temp > 0.6 && rain > 0.7 {
-            BiomeType::Swamp
+            // Swamp biome
+            let temp_blend = Self::smoothstep(0.6, 0.6 + BLEND_WIDTH, adjusted_temp);
+            let rain_blend = Self::smoothstep(0.7, 0.7 + BLEND_WIDTH, rain);
+            let blend = temp_blend.min(rain_blend);
+            if blend < 0.99 {
+                // Transition to grassland
+                (BiomeType::Swamp, Some(BiomeType::Grassland), 1.0 - blend)
+            } else {
+                (BiomeType::Swamp, None, 0.0)
+            }
         } else if base_height > 0.6 {
-            BiomeType::Mountains
+            // Mountains biome
+            let blend = Self::smoothstep(0.6, 0.6 + BLEND_WIDTH, base_height);
+            if blend < 0.99 {
+                // Transition to grassland
+                (
+                    BiomeType::Mountains,
+                    Some(BiomeType::Grassland),
+                    1.0 - blend,
+                )
+            } else {
+                (BiomeType::Mountains, None, 0.0)
+            }
         } else {
-            BiomeType::Grassland
+            // Grassland (default)
+            (BiomeType::Grassland, None, 0.0)
         };
 
         BiomeInfo {
@@ -157,12 +217,46 @@ impl TerrainGenerator {
             temperature: adjusted_temp,
             rainfall: rain,
             biome,
+            secondary_biome,
+            blend_factor,
         }
+    }
+
+    /// Smooth interpolation function (smoothstep)
+    #[inline]
+    fn smoothstep(edge0: f64, edge1: f64, x: f64) -> f64 {
+        let t = ((x - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
+        t * t * (3.0 - 2.0 * t)
     }
 
     /// Get biome type at world coordinates
     pub fn get_biome(&self, world_x: i32, world_z: i32) -> BiomeType {
         self.get_biome_info(world_x, world_z).biome
+    }
+
+    /// Get blended biome for block placement (uses noise to randomize transitions)
+    pub fn get_blended_biome(&self, world_x: i32, world_z: i32) -> BiomeType {
+        let biome_info = self.get_biome_info(world_x, world_z);
+
+        // If there's no secondary biome or no blending, return primary
+        if biome_info.secondary_biome.is_none() || biome_info.blend_factor < 0.01 {
+            return biome_info.biome;
+        }
+
+        // Use blend noise to randomize which biome wins in transition zone
+        let x = world_x as f64;
+        let z = world_z as f64;
+        let noise = self.blend_noise.get([x * 0.1, z * 0.1]); // -1 to 1
+        let noise_01 = noise * 0.5 + 0.5; // 0 to 1
+
+        // Bias the noise by the blend factor
+        // If blend_factor is 0.0, heavily favor primary
+        // If blend_factor is 1.0, heavily favor secondary
+        if noise_01 < biome_info.blend_factor {
+            biome_info.secondary_biome.unwrap()
+        } else {
+            biome_info.biome
+        }
     }
 
     /// Get terrain height at world coordinates with biome blending
@@ -298,7 +392,8 @@ fn generate_normal_chunk(
             let world_x = chunk_world_x + lx as i32;
             let world_z = chunk_world_z + lz as i32;
             let height = terrain.get_height(world_x, world_z);
-            let biome = terrain.get_biome(world_x, world_z);
+            // Use blended biome for smooth transitions
+            let biome = terrain.get_blended_biome(world_x, world_z);
 
             for ly in 0..CHUNK_SIZE {
                 let world_y = chunk_world_y + ly as i32;
@@ -441,7 +536,7 @@ fn generate_ground_cover(
             let world_x = chunk_world_x + lx as i32;
             let world_z = chunk_world_z + lz as i32;
             let height = terrain.get_height(world_x, world_z);
-            let biome = terrain.get_biome(world_x, world_z);
+            let biome = terrain.get_blended_biome(world_x, world_z);
             let local_y = height - chunk_world_y;
 
             // Check if surface is in this chunk
@@ -539,7 +634,7 @@ fn generate_trees(
             let world_x = chunk_world_x + lx as i32;
             let world_z = chunk_world_z + lz as i32;
             let height = terrain.get_height(world_x, world_z);
-            let biome = terrain.get_biome(world_x, world_z);
+            let biome = terrain.get_blended_biome(world_x, world_z);
             let local_base_y = height - chunk_world_y;
 
             // Check if tree base is in this chunk
@@ -1661,7 +1756,7 @@ fn generate_cave_decorations(
         for lz in 0..CHUNK_SIZE {
             let world_x = chunk_world_x + lx as i32;
             let world_z = chunk_world_z + lz as i32;
-            let biome = terrain.get_biome(world_x, world_z);
+            let biome = terrain.get_blended_biome(world_x, world_z);
 
             for ly in 0..CHUNK_SIZE {
                 let world_y = chunk_world_y + ly as i32;
