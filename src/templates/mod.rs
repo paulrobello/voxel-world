@@ -5,6 +5,7 @@
 pub mod format;
 pub mod placement;
 pub mod selection;
+pub mod thumbnail;
 pub mod ui;
 
 // Re-exports for external use (will be used when integrated)
@@ -103,12 +104,18 @@ impl TemplateLibrary {
         Ok(names)
     }
 
-    /// Deletes a template from the library.
+    /// Deletes a template from the library (including its thumbnail).
     pub fn delete_template(&self, name: &str) -> io::Result<()> {
         let path = self.root_path.join(format!("{}.vxt", name));
 
         if path.exists() {
             fs::remove_file(path)?;
+
+            // Also delete thumbnail if it exists
+            let thumbnail_path = self.get_thumbnail_path(name);
+            if thumbnail_path.exists() {
+                let _ = fs::remove_file(thumbnail_path); // Ignore errors for thumbnail
+            }
         } else {
             return Err(io::Error::new(
                 io::ErrorKind::NotFound,
@@ -129,6 +136,7 @@ impl TemplateLibrary {
     /// Returns (name, author, dimensions, block_count, tags).
     pub fn get_template_info(&self, name: &str) -> io::Result<TemplateInfo> {
         let template = self.load_template(name)?;
+        let thumbnail_path = self.get_thumbnail_path(name);
 
         Ok(TemplateInfo {
             name: template.name.clone(),
@@ -140,7 +148,51 @@ impl TemplateLibrary {
             depth: template.depth,
             block_count: template.block_count(),
             volume: template.volume(),
+            thumbnail_path: if thumbnail_path.exists() {
+                Some(thumbnail_path)
+            } else {
+                None
+            },
         })
+    }
+
+    /// Gets the path to a template's thumbnail (may not exist yet).
+    pub fn get_thumbnail_path(&self, name: &str) -> PathBuf {
+        // Sanitize filename
+        let safe_name: String = name
+            .chars()
+            .map(|c| {
+                if c.is_alphanumeric() || c == '_' || c == '-' {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+
+        self.root_path.join(format!("{}.png", safe_name))
+    }
+
+    /// Checks if a thumbnail exists for a template.
+    pub fn has_thumbnail(&self, name: &str) -> bool {
+        self.get_thumbnail_path(name).exists()
+    }
+
+    /// Gets the path to the template file.
+    pub fn get_template_path(&self, name: &str) -> PathBuf {
+        // Sanitize filename
+        let safe_name: String = name
+            .chars()
+            .map(|c| {
+                if c.is_alphanumeric() || c == '_' || c == '-' {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+
+        self.root_path.join(format!("{}.vxt", safe_name))
     }
 }
 
@@ -156,6 +208,7 @@ pub struct TemplateInfo {
     pub depth: u8,
     pub block_count: usize,
     pub volume: usize,
+    pub thumbnail_path: Option<PathBuf>,
 }
 
 impl TemplateInfo {

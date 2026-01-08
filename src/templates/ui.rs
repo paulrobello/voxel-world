@@ -25,6 +25,9 @@ pub struct TemplateUi {
 
     /// Error message to display in browser.
     pub error_message: Option<String>,
+
+    /// Search/filter text for templates.
+    pub search_text: String,
 }
 
 impl Default for TemplateUi {
@@ -44,6 +47,7 @@ impl TemplateUi {
             selected_template: None,
             template_infos: Vec::new(),
             error_message: None,
+            search_text: String::new(),
         }
     }
 
@@ -202,19 +206,60 @@ pub fn draw_template_browser(
             // Saved templates list
             ui.heading("Saved Templates");
 
-            if ui.button("🔄 Refresh").clicked() {
-                needs_refresh = true;
-            }
+            ui.horizontal(|ui| {
+                ui.label("🔍 Search:");
+                ui.text_edit_singleline(&mut ui_state.search_text);
+                if ui.button("🔄 Refresh").clicked() {
+                    needs_refresh = true;
+                }
+            });
 
             ui.separator();
 
+            // Filter templates based on search text
+            let search_lower = ui_state.search_text.to_lowercase();
+            let filtered_templates: Vec<&TemplateInfo> = if search_lower.is_empty() {
+                ui_state.template_infos.iter().collect()
+            } else {
+                ui_state
+                    .template_infos
+                    .iter()
+                    .filter(|info| {
+                        // Search in name
+                        if info.name.to_lowercase().contains(&search_lower) {
+                            return true;
+                        }
+                        // Search in tags
+                        for tag in &info.tags {
+                            if tag.to_lowercase().contains(&search_lower) {
+                                return true;
+                            }
+                        }
+                        // Search in dimensions (e.g., "16x16")
+                        let dim_str = format!("{}x{}x{}", info.width, info.height, info.depth);
+                        if dim_str.contains(&search_lower) {
+                            return true;
+                        }
+                        false
+                    })
+                    .collect()
+            };
+
             if ui_state.template_infos.is_empty() {
                 ui.label("No templates found");
+            } else if filtered_templates.is_empty() {
+                ui.label(format!("No templates match '{}'", ui_state.search_text));
             } else {
+                ui.label(format!(
+                    "Showing {} of {} templates",
+                    filtered_templates.len(),
+                    ui_state.template_infos.len()
+                ));
+
                 egui::ScrollArea::vertical()
                     .max_height(350.0)
                     .show(ui, |ui| {
-                        for info in &ui_state.template_infos {
+                        for info in filtered_templates {
                             ui.group(|ui| {
                                 ui.horizontal(|ui| {
                                     ui.heading(&info.name);
