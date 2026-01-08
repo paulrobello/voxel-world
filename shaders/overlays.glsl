@@ -295,6 +295,121 @@ bool renderWaterSourceMarkers(vec3 origin, vec3 dir, inout vec3 color, float sce
     return anyHit;
 }
 
+// Check if selection markers are set
+bool hasSelectionPos1() { return pc.selection_pos1_x >= 0; }
+bool hasSelectionPos2() { return pc.selection_pos2_x >= 0; }
+bool hasCompleteSelection() { return hasSelectionPos1() && hasSelectionPos2(); }
+
+// Render selection marker cubes (glowing cubes at pos1 and pos2)
+bool renderSelectionMarkers(vec3 origin, vec3 dir, inout vec3 color, float sceneHitDistance) {
+    if (!hasSelectionPos1() && !hasSelectionPos2()) {
+        return false;
+    }
+
+    bool anyHit = false;
+    float closestT = sceneHitDistance;
+
+    // Render pos1 marker (green cube)
+    if (hasSelectionPos1()) {
+        ivec3 pos1 = ivec3(pc.selection_pos1_x, pc.selection_pos1_y, pc.selection_pos1_z);
+        vec3 boxMin = vec3(pos1);
+        vec3 boxMax = vec3(pos1) + vec3(1.0);
+
+        vec3 hitNormal;
+        float tHit;
+        if (rayBoxHit(origin, dir, boxMin, boxMax, tHit, hitNormal)) {
+            float tWorld = tHit * length(dir);
+            if (tHit >= 0.0 && tWorld < closestT + 0.5) {
+                vec3 hitPoint = origin + dir * tHit;
+                vec3 localHit = (hitPoint - boxMin) / (boxMax - boxMin);
+                localHit = clamp(localHit, vec3(0.0), vec3(1.0));
+
+                // Green glowing cube with pulsing wireframe
+                float wireframe = getWireframeFactor(localHit, hitNormal);
+                vec3 markerColor = vec3(0.2, 1.0, 0.2);
+                float pulse = 0.8 + 0.2 * sin(pc.animation_time * 4.0);
+                float alpha = mix(0.3, 0.9, wireframe) * pulse;
+
+                color = mix(color, markerColor, alpha);
+                anyHit = true;
+            }
+        }
+    }
+
+    // Render pos2 marker (blue cube)
+    if (hasSelectionPos2()) {
+        ivec3 pos2 = ivec3(pc.selection_pos2_x, pc.selection_pos2_y, pc.selection_pos2_z);
+        vec3 boxMin = vec3(pos2);
+        vec3 boxMax = vec3(pos2) + vec3(1.0);
+
+        vec3 hitNormal;
+        float tHit;
+        if (rayBoxHit(origin, dir, boxMin, boxMax, tHit, hitNormal)) {
+            float tWorld = tHit * length(dir);
+            if (tHit >= 0.0 && tWorld < closestT + 0.5) {
+                vec3 hitPoint = origin + dir * tHit;
+                vec3 localHit = (hitPoint - boxMin) / (boxMax - boxMin);
+                localHit = clamp(localHit, vec3(0.0), vec3(1.0));
+
+                // Blue glowing cube with pulsing wireframe
+                float wireframe = getWireframeFactor(localHit, hitNormal);
+                vec3 markerColor = vec3(0.2, 0.5, 1.0);
+                float pulse = 0.8 + 0.2 * sin(pc.animation_time * 4.0);
+                float alpha = mix(0.3, 0.9, wireframe) * pulse;
+
+                color = mix(color, markerColor, alpha);
+                anyHit = true;
+            }
+        }
+    }
+
+    return anyHit;
+}
+
+// Render selection wireframe box (outline showing the area to be captured)
+bool renderSelectionWireframe(vec3 origin, vec3 dir, inout vec3 color, float sceneHitDistance) {
+    if (!hasCompleteSelection()) {
+        return false;
+    }
+
+    // Calculate bounding box from pos1 and pos2
+    ivec3 pos1 = ivec3(pc.selection_pos1_x, pc.selection_pos1_y, pc.selection_pos1_z);
+    ivec3 pos2 = ivec3(pc.selection_pos2_x, pc.selection_pos2_y, pc.selection_pos2_z);
+
+    vec3 boxMin = vec3(min(pos1.x, pos2.x), min(pos1.y, pos2.y), min(pos1.z, pos2.z));
+    vec3 boxMax = vec3(max(pos1.x, pos2.x) + 1, max(pos1.y, pos2.y) + 1, max(pos1.z, pos2.z) + 1);
+
+    // Ray-box intersection
+    vec3 hitNormal;
+    float tHit;
+    if (!rayBoxHit(origin, dir, boxMin, boxMax, tHit, hitNormal)) {
+        return false;
+    }
+
+    float tWorld = tHit * length(dir);
+    if (tHit < 0.0 || tWorld > sceneHitDistance + 2.0) {
+        return false;
+    }
+
+    // Compute hit point
+    vec3 hitPoint = origin + dir * tHit;
+
+    // Use box edge wireframe to only show edges (where 2+ axes are at boundaries)
+    float edgeWireframe = getBoxEdgeWireframe(hitPoint, boxMin, boxMax);
+
+    if (edgeWireframe > 0.5) {
+        // Yellow wireframe with subtle pulsing
+        vec3 wireframeColor = vec3(1.0, 1.0, 0.3);
+        float pulse = 0.7 + 0.3 * sin(pc.animation_time * 2.0);
+        float alpha = 0.8 * pulse;
+
+        color = mix(color, wireframeColor, alpha);
+        return true;
+    }
+
+    return false;
+}
+
 // Render target block outline (wireframe only)
 bool renderTargetBlockOutline(vec3 origin, vec3 dir, inout vec3 color, float sceneHitDistance) {
     if (!hasTargetBlock()) {

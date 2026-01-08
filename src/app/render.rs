@@ -525,6 +525,42 @@ impl App {
                     .camera_world_pos(self.sim.world_extent, self.sim.texture_origin);
                 [cam.x as f32, cam.y as f32, cam.z as f32, 0.0]
             },
+            selection_pos1_x: self
+                .ui
+                .template_selection
+                .pos1
+                .map(|p| world_to_tex(p).0)
+                .unwrap_or(-1),
+            selection_pos1_y: self
+                .ui
+                .template_selection
+                .pos1
+                .map(|p| world_to_tex(p).1)
+                .unwrap_or(-1),
+            selection_pos1_z: self
+                .ui
+                .template_selection
+                .pos1
+                .map(|p| world_to_tex(p).2)
+                .unwrap_or(-1),
+            selection_pos2_x: self
+                .ui
+                .template_selection
+                .pos2
+                .map(|p| world_to_tex(p).0)
+                .unwrap_or(-1),
+            selection_pos2_y: self
+                .ui
+                .template_selection
+                .pos2
+                .map(|p| world_to_tex(p).1)
+                .unwrap_or(-1),
+            selection_pos2_z: self
+                .ui
+                .template_selection
+                .pos2
+                .map(|p| world_to_tex(p).2)
+                .unwrap_or(-1),
         };
 
         let mut builder = AutoCommandBufferBuilder::primary(

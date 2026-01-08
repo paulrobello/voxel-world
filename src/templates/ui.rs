@@ -144,6 +144,22 @@ pub fn draw_template_browser(
         .show(ctx, |ui| {
             // Current selection info
             ui.heading("Current Selection");
+
+            // Selection mode status indicator
+            ui.horizontal(|ui| {
+                if selection.visual_mode {
+                    ui.colored_label(
+                        egui::Color32::from_rgb(100, 255, 100),
+                        "● Selection Mode: ON",
+                    );
+                    ui.label("(Left-click: pos1, Right-click: pos2, V: exit)");
+                } else {
+                    ui.colored_label(egui::Color32::from_gray(150), "○ Selection Mode: OFF");
+                    ui.label("(Press V to enter)");
+                }
+            });
+            ui.separator();
+
             if let Some((min, max)) = selection.bounds() {
                 ui.label(format!("Position 1: ({}, {}, {})", min.x, min.y, min.z));
                 ui.label(format!("Position 2: ({}, {}, {})", max.x, max.y, max.z));

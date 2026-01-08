@@ -259,6 +259,19 @@ impl App {
             }
         }
 
+        // Toggle template selection mode (V key)
+        if self.input.key_pressed(KeyCode::KeyV) {
+            self.ui.template_selection.visual_mode = !self.ui.template_selection.visual_mode;
+            if self.ui.template_selection.visual_mode {
+                println!("Template selection mode: ON (Left-click for pos1, Right-click for pos2)");
+                // Clear existing selection when entering mode
+                self.ui.template_selection.pos1 = None;
+                self.ui.template_selection.pos2 = None;
+            } else {
+                println!("Template selection mode: OFF");
+            }
+        }
+
         // Block placing - continuous when holding right mouse button
         self.update_block_placing(delta_time as f32);
     }
@@ -267,6 +280,52 @@ impl App {
     pub fn handle_block_interactions(&mut self, delta_time: f32) {
         // Update raycast for block selection
         self.update_raycast();
+
+        // Handle selection marker placement (takes priority in selection mode)
+        if self.ui.template_selection.visual_mode && self.input.focused {
+            if let Some(hit) = self.ui.current_hit {
+                let pos = hit.block_pos;
+
+                // Left-click sets pos1 (green marker)
+                if self.input.mouse_pressed(MouseButton::Left) {
+                    self.ui.template_selection.set_pos1(pos);
+                    println!("Selection pos1 set to ({}, {}, {})", pos.x, pos.y, pos.z);
+                    if let Some((min, max)) = self.ui.template_selection.bounds() {
+                        if let Some((w, h, d)) = self.ui.template_selection.dimensions() {
+                            println!(
+                                "Selection: {}×{}×{} (from ({},{},{}) to ({},{},{}))",
+                                w, h, d, min.x, min.y, min.z, max.x, max.y, max.z
+                            );
+                        }
+                    }
+                    // Skip normal block breaking when in selection mode
+                    self.ui.skip_break_until_release = true;
+                }
+
+                // Right-click sets pos2 (blue marker)
+                if self.input.mouse_pressed(MouseButton::Right) {
+                    self.ui.template_selection.set_pos2(pos);
+                    println!("Selection pos2 set to ({}, {}, {})", pos.x, pos.y, pos.z);
+                    if let Some((min, max)) = self.ui.template_selection.bounds() {
+                        if let Some((w, h, d)) = self.ui.template_selection.dimensions() {
+                            println!(
+                                "Selection: {}×{}×{} (from ({},{},{}) to ({},{},{}))",
+                                w, h, d, min.x, min.y, min.z, max.x, max.y, max.z
+                            );
+                        }
+                    }
+                    // Skip normal block placing when in selection mode
+                    self.ui.place_needs_reclick = true;
+                }
+            }
+
+            // Skip remaining interactions when in selection mode
+            if self.input.mouse_pressed(MouseButton::Left)
+                || self.input.mouse_pressed(MouseButton::Right)
+            {
+                return;
+            }
+        }
 
         // Update template placement position from raycast
         if let Some(ref mut placement) = self.ui.active_placement {

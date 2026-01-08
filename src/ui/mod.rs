@@ -256,9 +256,93 @@ impl HUDRenderer {
             if let Some(placement) = active_placement {
                 Self::draw_template_placement_overlay(&ctx, placement);
             }
+
+            // Selection mode indicator
+            if template_selection.visual_mode {
+                Self::draw_selection_mode_overlay(&ctx, template_selection);
+            }
         });
 
         (scale_changed, editor_action)
+    }
+
+    fn draw_selection_mode_overlay(
+        ctx: &egui::Context,
+        selection: &crate::templates::TemplateSelection,
+    ) {
+        let screen_rect = ctx.screen_rect();
+
+        // Draw overlay at top center
+        egui::Area::new(egui::Id::new("selection_mode_overlay"))
+            .fixed_pos(egui::pos2(screen_rect.center().x, 40.0))
+            .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 0.0))
+            .show(ctx, |ui| {
+                egui::Frame::new()
+                    .fill(egui::Color32::from_rgba_unmultiplied(30, 30, 40, 220))
+                    .stroke(egui::Stroke::new(
+                        2.0,
+                        egui::Color32::from_rgb(100, 255, 100),
+                    ))
+                    .inner_margin(12.0)
+                    .corner_radius(6.0)
+                    .show(ui, |ui| {
+                        ui.vertical_centered(|ui| {
+                            ui.label(
+                                egui::RichText::new("✏ SELECTION MODE")
+                                    .color(egui::Color32::from_rgb(100, 255, 100))
+                                    .size(16.0)
+                                    .strong(),
+                            );
+
+                            // Show selection info if we have any markers
+                            if let Some((min, max)) = selection.bounds() {
+                                if let Some((w, h, d)) = selection.dimensions() {
+                                    ui.label(
+                                        egui::RichText::new(format!(
+                                            "Selection: {}×{}×{} blocks",
+                                            w, h, d
+                                        ))
+                                        .color(egui::Color32::from_gray(220))
+                                        .size(13.0),
+                                    );
+                                    ui.label(
+                                        egui::RichText::new(format!(
+                                            "From ({},{},{}) to ({},{},{})",
+                                            min.x, min.y, min.z, max.x, max.y, max.z
+                                        ))
+                                        .color(egui::Color32::from_gray(180))
+                                        .size(11.0),
+                                    );
+                                }
+                            } else if selection.pos1.is_some() {
+                                let pos = selection.pos1.unwrap();
+                                ui.label(
+                                    egui::RichText::new(format!(
+                                        "Pos1: ({},{},{}) • Right-click to set Pos2",
+                                        pos.x, pos.y, pos.z
+                                    ))
+                                    .color(egui::Color32::from_gray(220))
+                                    .size(13.0),
+                                );
+                            } else {
+                                ui.label(
+                                    egui::RichText::new("Left-click to set Pos1")
+                                        .color(egui::Color32::from_gray(220))
+                                        .size(13.0),
+                                );
+                            }
+
+                            ui.add_space(4.0);
+                            ui.label(
+                                egui::RichText::new(
+                                    "Left-click: Pos1 • Right-click: Pos2 • V: Exit",
+                                )
+                                .color(egui::Color32::from_rgb(255, 255, 100))
+                                .size(14.0),
+                            );
+                        });
+                    });
+            });
     }
 
     fn draw_template_placement_overlay(

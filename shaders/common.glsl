@@ -167,6 +167,12 @@ layout(push_constant) uniform PushConstants {
     int template_preview_max_y;
     int template_preview_max_z;
     vec4 camera_pos; // world-space camera position (already 16-byte aligned at offset 272)
+    int selection_pos1_x;
+    int selection_pos1_y;
+    int selection_pos1_z;
+    int selection_pos2_x;
+    int selection_pos2_y;
+    int selection_pos2_z;
 } pc;
 
 // Particles (set 3)

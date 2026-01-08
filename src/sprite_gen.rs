@@ -615,6 +615,12 @@ fn render_icon(
             cam_world.z as f32,
             0.0,
         ],
+        selection_pos1_x: -1,
+        selection_pos1_y: -1,
+        selection_pos1_z: -1,
+        selection_pos2_x: -1,
+        selection_pos2_y: -1,
+        selection_pos2_z: -1,
     };
 
     // Render
