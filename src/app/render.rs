@@ -523,6 +523,7 @@ impl App {
                     -1
                 }
             },
+            _padding: [0; 12],
             camera_pos: {
                 let cam = self
                     .sim
@@ -582,6 +583,7 @@ impl App {
         // Single-pass rendering with empty chunk skip optimization
         // (Two-pass beam optimization was tested but added overhead without benefit
         // since empty chunk skip already makes rays very fast)
+
         builder
             .bind_pipeline_compute(self.graphics.render_pipeline.clone())
             .unwrap()

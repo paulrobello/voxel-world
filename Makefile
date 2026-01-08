@@ -6,6 +6,7 @@ export DYLD_LIBRARY_PATH := /opt/homebrew/lib:/opt/homebrew/opt/vulkan-loader/li
 export DYLD_FALLBACK_LIBRARY_PATH := /opt/homebrew/lib:/opt/homebrew/opt/vulkan-loader/lib
 export VK_ICD_FILENAMES := /opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json
 export CMAKE_POLICY_VERSION_MINIMUM := 3.5
+export SHADERC_LIB_DIR := /opt/homebrew/lib
 
 .PHONY: build build-release build-debug run run-release run-debug profile run-profile auto-profile-flat auto-profile-normal clean test check fmt lint checkall sprite-gen run-p1 run-p2 reset reset-p1 reset-p2 new-flat new-normal
 

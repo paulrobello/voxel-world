@@ -319,7 +319,8 @@ pub struct PushConstants {
     pub template_preview_max_x: i32,
     pub template_preview_max_y: i32,
     pub template_preview_max_z: i32,
-    pub camera_pos: [f32; 4], // Already 16-byte aligned at offset 272
+    pub _padding: [u8; 12],   // GLSL aligns vec4 to 16 bytes
+    pub camera_pos: [f32; 4], // vec4 in GLSL requires 16-byte alignment
     pub selection_pos1_x: i32,
     pub selection_pos1_y: i32,
     pub selection_pos1_z: i32,

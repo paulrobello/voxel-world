@@ -614,6 +614,7 @@ fn render_icon(
         template_preview_max_x: -1,
         template_preview_max_y: -1,
         template_preview_max_z: -1,
+        _padding: [0; 12],
         camera_pos: [
             cam_world.x as f32,
             cam_world.y as f32,
