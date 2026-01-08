@@ -1,5 +1,6 @@
 //! Frame-distributed locate search updates.
 
+use crate::cave_gen::CaveGenerator;
 use crate::chunk::BlockType;
 use crate::console::{CommandResult, LocateSearchType, PendingLocateSearch};
 use crate::terrain_gen::TerrainGenerator;
@@ -13,6 +14,7 @@ pub fn update_locate_search(
     search: &mut PendingLocateSearch,
     world: &World,
     terrain: &TerrainGenerator,
+    cave_gen: &CaveGenerator,
 ) -> Option<CommandResult> {
     let mut positions_this_frame = 0;
 
@@ -21,9 +23,14 @@ pub fn update_locate_search(
         LocateSearchType::Biome(target_biome) => {
             update_biome_search(search, *target_biome, terrain, &mut positions_this_frame)
         }
-        LocateSearchType::Block(target_block) => {
-            update_block_search(search, *target_block, world, &mut positions_this_frame)
-        }
+        LocateSearchType::Block(target_block) => update_block_search(
+            search,
+            *target_block,
+            world,
+            terrain,
+            cave_gen,
+            &mut positions_this_frame,
+        ),
         LocateSearchType::Cave(min_size) => {
             update_cave_search(search, *min_size, world, &mut positions_this_frame)
         }
@@ -131,6 +138,8 @@ fn update_block_search(
     search: &mut PendingLocateSearch,
     target_block: BlockType,
     world: &World,
+    terrain: &TerrainGenerator,
+    cave_gen: &CaveGenerator,
     positions_this_frame: &mut usize,
 ) -> Option<CommandResult> {
     let start_x = search.player_pos.x;
@@ -200,19 +209,53 @@ fn update_block_search(
                     return None; // Continue next frame
                 }
 
-                if let Some(block) = world.get_block(pos) {
-                    search.positions_checked += 1;
-                    *positions_this_frame += 1;
+                search.positions_checked += 1;
+                *positions_this_frame += 1;
 
-                    if block == target_block {
-                        let dx = pos.x - start_x;
-                        let dy = pos.y - start_y;
-                        let dz = pos.z - start_z;
-                        let distance = dx * dx + dy * dy + dz * dz;
+                // For lava, use terrain generator to predict spawns (doesn't require loaded chunks)
+                if target_block == BlockType::Lava {
+                    // Check if this would be a lava spawn using terrain generation
+                    let biome = terrain.get_biome(pos.x, pos.z);
 
-                        if distance < search.min_distance {
-                            search.min_distance = distance;
-                            search.best_match = Some((pos, 0));
+                    // Only mountains have lava lakes
+                    if !matches!(biome, crate::terrain_gen::BiomeType::Mountains) {
+                        continue;
+                    }
+
+                    // Check if there's a cave here
+                    let surface_height = terrain.get_height(pos.x, pos.z);
+                    if !cave_gen.is_cave(pos.x, pos.y, pos.z, surface_height, biome) {
+                        continue;
+                    }
+
+                    // Check if lava would spawn here
+                    if !cave_gen.should_spawn_lava(biome, pos.y) {
+                        continue;
+                    }
+
+                    // Found a lava spawn location!
+                    let dx = pos.x - start_x;
+                    let dy = pos.y - start_y;
+                    let dz = pos.z - start_z;
+                    let distance = dx * dx + dy * dy + dz * dz;
+
+                    if distance < search.min_distance {
+                        search.min_distance = distance;
+                        search.best_match = Some((pos, 0));
+                    }
+                } else {
+                    // For other blocks, use world.get_block (requires loaded chunks)
+                    if let Some(block) = world.get_block(pos) {
+                        if block == target_block {
+                            let dx = pos.x - start_x;
+                            let dy = pos.y - start_y;
+                            let dz = pos.z - start_z;
+                            let distance = dx * dx + dy * dy + dz * dz;
+
+                            if distance < search.min_distance {
+                                search.min_distance = distance;
+                                search.best_match = Some((pos, 0));
+                            }
                         }
                     }
                 }

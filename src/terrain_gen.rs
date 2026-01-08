@@ -234,6 +234,11 @@ impl TerrainGenerator {
         self.get_biome_info(world_x, world_z).biome
     }
 
+    /// Get reference to the cave generator
+    pub fn cave_generator(&self) -> &CaveGenerator {
+        &self.cave_generator
+    }
+
     /// Get blended biome for block placement (uses noise to randomize transitions)
     pub fn get_blended_biome(&self, world_x: i32, world_z: i32) -> BiomeType {
         let biome_info = self.get_biome_info(world_x, world_z);

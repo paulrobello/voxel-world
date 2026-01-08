@@ -22,6 +22,7 @@ impl ConsoleUI {
         water_grid: &crate::water::WaterGrid,
         active_placement: &mut Option<TemplatePlacement>,
         terrain_generator: &crate::terrain_gen::TerrainGenerator,
+        cave_generator: &crate::cave_gen::CaveGenerator,
     ) {
         if !console.active {
             // Still update pending searches even when console is closed
@@ -30,6 +31,7 @@ impl ConsoleUI {
                     &mut search,
                     world,
                     terrain_generator,
+                    cave_generator,
                 ) {
                     // Search completed, handle result
                     console.handle_result(result);
@@ -65,6 +67,7 @@ impl ConsoleUI {
                 &mut search,
                 world,
                 terrain_generator,
+                cave_generator,
             ) {
                 // Search completed, handle result
                 console.handle_result(result);

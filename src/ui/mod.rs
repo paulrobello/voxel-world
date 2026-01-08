@@ -62,6 +62,7 @@ pub struct HudInputs<'a> {
     pub player: &'a mut Player,
     pub world: &'a mut crate::world::World,
     pub terrain_generator: &'a TerrainGenerator,
+    pub cave_generator: &'a crate::cave_gen::CaveGenerator,
     pub settings: &'a mut Settings,
     pub render_mode: &'a mut RenderMode,
     pub current_hit: &'a Option<RaycastHit>,
@@ -112,6 +113,7 @@ impl HUDRenderer {
             player,
             world,
             terrain_generator,
+            cave_generator,
             settings,
             render_mode,
             current_hit,
@@ -251,6 +253,7 @@ impl HUDRenderer {
                 water_grid,
                 active_placement,
                 terrain_generator,
+                cave_generator,
             );
 
             // Template placement overlay
