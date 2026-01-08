@@ -577,18 +577,38 @@ fn generate_trees(
     }
 }
 
-fn generate_oak(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
+fn generate_oak(
+    chunk: &mut Chunk,
+    x: i32,
+    y: i32,
+    z: i32,
+    hash: i32,
+    chunk_world_x: i32,
+    chunk_world_y: i32,
+    chunk_world_z: i32,
+    overflow_blocks: &mut Vec<OverflowBlock>,
+) {
     // Check if this should be a giant multi-deck tree (rare: ~10% chance)
     let is_giant = (hash % 10) == 0;
 
     if is_giant {
-        generate_giant_oak(chunk, x, y, z, hash);
+        generate_giant_oak(chunk, x, y, z, hash, chunk_world_x, chunk_world_y, chunk_world_z, overflow_blocks);
     } else {
-        generate_normal_oak(chunk, x, y, z, hash);
+        generate_normal_oak(chunk, x, y, z, hash, chunk_world_x, chunk_world_y, chunk_world_z, overflow_blocks);
     }
 }
 
-fn generate_normal_oak(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
+fn generate_normal_oak(
+    chunk: &mut Chunk,
+    x: i32,
+    y: i32,
+    z: i32,
+    hash: i32,
+    chunk_world_x: i32,
+    chunk_world_y: i32,
+    chunk_world_z: i32,
+    overflow_blocks: &mut Vec<OverflowBlock>,
+) {
     // Check if there's solid ground below (no floating trees over caves)
     if let Some(block_below) = get_block_safe(chunk, x, y, z) {
         if !block_below.is_solid() {
@@ -628,7 +648,7 @@ fn generate_normal_oak(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
 
     // Trunk - stops 1 block before top so leaves cover it
     for dy in 1..tree_top {
-        set_block_safe(chunk, x, y + dy, z, BlockType::Log);
+        set_block_safe(chunk, x, y + dy, z, BlockType::Log, chunk_world_x, chunk_world_y, chunk_world_z, overflow_blocks);
     }
 
     // Add 1-2 branches for taller trees with large canopies
@@ -649,14 +669,14 @@ fn generate_normal_oak(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
 
             // Place horizontal branch
             for i in 1..=branch_len {
-                set_block_safe(chunk, x + dx * i, branch_y, z + dz * i, BlockType::Log);
+                set_block_safe(chunk, x + dx * i, branch_y, z + dz * i, BlockType::Log, chunk_world_x, chunk_world_y, chunk_world_z, overflow_blocks);
             }
 
             // Small canopy at branch tip
             let tip_x = x + dx * branch_len;
             let tip_z = z + dz * branch_len;
             let branch_shape = (hash / (59 + branch_idx * 13)) % 4;
-            generate_oak_canopy(chunk, tip_x, branch_y, tip_z, 0, 3, branch_y, branch_shape);
+            generate_oak_canopy(chunk, tip_x, branch_y, tip_z, 0, 3, branch_y, branch_shape, chunk_world_x, chunk_world_y, chunk_world_z, overflow_blocks);
         }
     }
 
@@ -669,10 +689,24 @@ fn generate_normal_oak(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
         layers,
         tree_top - 1,
         canopy_shape,
+        chunk_world_x,
+        chunk_world_y,
+        chunk_world_z,
+        overflow_blocks,
     );
 }
 
-fn generate_giant_oak(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
+fn generate_giant_oak(
+    chunk: &mut Chunk,
+    x: i32,
+    y: i32,
+    z: i32,
+    hash: i32,
+    chunk_world_x: i32,
+    chunk_world_y: i32,
+    chunk_world_z: i32,
+    overflow_blocks: &mut Vec<OverflowBlock>,
+) {
     // Check if there's solid ground below (no floating trees over caves)
     if let Some(block_below) = get_block_safe(chunk, x, y, z) {
         if !block_below.is_solid() {
@@ -719,7 +753,7 @@ fn generate_giant_oak(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
 
     // Build continuous trunk - stops 1 block before top so leaves cover it
     for dy in 1..total_height {
-        set_block_safe(chunk, x, y + dy, z, BlockType::Log);
+        set_block_safe(chunk, x, y + dy, z, BlockType::Log, chunk_world_x, chunk_world_y, chunk_world_z, overflow_blocks);
     }
 
     // Place canopies at each deck position
@@ -734,6 +768,10 @@ fn generate_giant_oak(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
             layers,
             total_height + y - 1,
             deck_shape,
+            chunk_world_x,
+            chunk_world_y,
+            chunk_world_z,
+            overflow_blocks,
         );
 
         // Add branches from trunk section (not on the top deck)
@@ -768,7 +806,7 @@ fn generate_giant_oak(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
 
                 // Place horizontal branch
                 for i in 1..=branch_len {
-                    set_block_safe(chunk, x + dx * i, branch_y, z + dz * i, BlockType::Log);
+                    set_block_safe(chunk, x + dx * i, branch_y, z + dz * i, BlockType::Log, chunk_world_x, chunk_world_y, chunk_world_z, overflow_blocks);
                 }
 
                 let tip_x = x + dx * branch_len;
@@ -780,7 +818,7 @@ fn generate_giant_oak(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
                     // Vertical support column extends upward 4-10 blocks
                     let vertical_height = 4 + ((hash / (79 + branch_idx * 13)) % 7);
                     for vy in 1..=vertical_height {
-                        set_block_safe(chunk, tip_x, branch_y + vy, tip_z, BlockType::Log);
+                        set_block_safe(chunk, tip_x, branch_y + vy, tip_z, BlockType::Log, chunk_world_x, chunk_world_y, chunk_world_z, overflow_blocks);
                     }
 
                     // Track this vertical support for cross-bracing
@@ -800,6 +838,10 @@ fn generate_giant_oak(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
                         branch_layers,
                         vert_top_y,
                         branch_shape,
+                        chunk_world_x,
+                        chunk_world_y,
+                        chunk_world_z,
+                        overflow_blocks,
                     );
                 } else {
                     // No vertical - just canopy at horizontal branch tip
@@ -819,6 +861,10 @@ fn generate_giant_oak(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
                         branch_layers,
                         branch_y,
                         branch_shape,
+                        chunk_world_x,
+                        chunk_world_y,
+                        chunk_world_z,
+                        overflow_blocks,
                     );
                 }
             }
@@ -847,14 +893,14 @@ fn generate_giant_oak(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
                             let z_start = z1.min(z2);
                             let z_end = z1.max(z2);
                             for bz in z_start..=z_end {
-                                set_block_safe(chunk, x1, brace_y, bz, BlockType::Log);
+                                set_block_safe(chunk, x1, brace_y, bz, BlockType::Log, chunk_world_x, chunk_world_y, chunk_world_z, overflow_blocks);
                             }
                         } else {
                             // Same Z, connect along X
                             let x_start = x1.min(x2);
                             let x_end = x1.max(x2);
                             for bx in x_start..=x_end {
-                                set_block_safe(chunk, bx, brace_y, z1, BlockType::Log);
+                                set_block_safe(chunk, bx, brace_y, z1, BlockType::Log, chunk_world_x, chunk_world_y, chunk_world_z, overflow_blocks);
                             }
                         }
                     }
@@ -874,6 +920,10 @@ fn generate_oak_canopy(
     layers: i32,
     trunk_top_y: i32,
     shape: i32,
+    chunk_world_x: i32,
+    chunk_world_y: i32,
+    chunk_world_z: i32,
+    overflow_blocks: &mut Vec<OverflowBlock>,
 ) {
     // Get max radius for this canopy size
     let max_radius = match canopy_size {
@@ -932,21 +982,31 @@ fn generate_oak_canopy(
                     if dx == 0 && dz == 0 && ly <= trunk_top_y {
                         continue;
                     }
-                    set_block_safe(chunk, x + dx, ly, z + dz, BlockType::Leaves);
+                    set_block_safe(chunk, x + dx, ly, z + dz, BlockType::Leaves, chunk_world_x, chunk_world_y, chunk_world_z, overflow_blocks);
                 }
             }
         }
     }
 }
 
-fn generate_pine(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
+fn generate_pine(
+    chunk: &mut Chunk,
+    x: i32,
+    y: i32,
+    z: i32,
+    hash: i32,
+    chunk_world_x: i32,
+    chunk_world_y: i32,
+    chunk_world_z: i32,
+    overflow_blocks: &mut Vec<OverflowBlock>,
+) {
     // Check if this should be a giant multi-deck tree (rare: ~10% chance)
     let is_giant = (hash % 10) == 0;
 
     if is_giant {
-        generate_giant_pine(chunk, x, y, z, hash);
+        generate_giant_pine(chunk, x, y, z, hash, chunk_world_x, chunk_world_y, chunk_world_z, overflow_blocks);
     } else {
-        generate_normal_pine(chunk, x, y, z, hash);
+        generate_normal_pine(chunk, x, y, z, hash, chunk_world_x, chunk_world_y, chunk_world_z, overflow_blocks);
     }
 }
 
