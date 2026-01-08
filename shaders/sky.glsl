@@ -141,7 +141,7 @@ float getCloudDensity(vec3 rayOrigin, vec3 rayDir) {
     density = density + density2;
 
     // Apply coverage threshold
-    density = smoothstep(CLOUD_COVERAGE, CLOUD_COVERAGE + 0.3, density);
+    density = smoothstep(pc.cloud_coverage, pc.cloud_coverage + 0.3, density);
 
     // Fade clouds at edges and with distance
     float distFade = 1.0 - smoothstep(200.0, 400.0, t);
@@ -235,7 +235,7 @@ vec3 getSkyColorEx(vec3 rayDir, bool underwaterView) {
     }
 
     // Add clouds (only above horizon, dimmer at night)
-    if (y > 0.0) {
+    if (pc.clouds_enabled != 0u && y > 0.0) {
         vec3 worldOrigin = pc.pixelToRay[3].xyz;
         float cloudDensity = getCloudDensity(worldOrigin, dir);
 
@@ -243,8 +243,11 @@ vec3 getSkyColorEx(vec3 rayDir, bool underwaterView) {
         float sunLight = max(0.2, dot(dir, sunDir) * 0.5 + 0.5);
         float cloudBrightness = mix(0.15, 1.0, daylight) * sunLight;
 
+        // Use cloud color from push constants
+        vec3 baseCloudColor = vec3(pc.cloud_color_r, pc.cloud_color_g, pc.cloud_color_b);
+
         // Tint clouds orange at sunset
-        vec3 cloudColor = mix(CLOUD_COLOR * cloudBrightness, SUNSET_SUN_COLOR, sunset * 0.4);
+        vec3 cloudColor = mix(baseCloudColor * cloudBrightness, SUNSET_SUN_COLOR, sunset * 0.4);
 
         skyColor = mix(skyColor, cloudColor, cloudDensity * 0.9);
     }

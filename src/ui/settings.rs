@@ -162,11 +162,37 @@ impl SettingsUI {
                             egui::Slider::new(&mut atmosphere.ambient_light, 0.0..=1.0)
                                 .text("Ambient Light"),
                         );
-                        ui.add(
-                            egui::Slider::new(&mut atmosphere.cloud_speed, 0.0..=3.0)
-                                .text("Cloud Speed")
-                                .suffix("x"),
-                        );
+
+                        // Cloud settings in collapsible section
+                        ui.collapsing("Clouds", |ui| {
+                            ui.checkbox(&mut atmosphere.clouds_enabled, "Enable Clouds");
+
+                            ui.add_enabled(
+                                atmosphere.clouds_enabled,
+                                egui::Slider::new(&mut atmosphere.cloud_speed, 0.0..=3.0)
+                                    .text("Speed")
+                                    .suffix("x"),
+                            );
+
+                            ui.add_enabled(
+                                atmosphere.clouds_enabled,
+                                egui::Slider::new(&mut atmosphere.cloud_coverage, 0.0..=1.0)
+                                    .text("Coverage"),
+                            );
+
+                            ui.horizontal(|ui| {
+                                ui.label("Cloud Color:");
+                                if atmosphere.clouds_enabled {
+                                    egui::color_picker::color_edit_button_rgb(
+                                        ui,
+                                        &mut atmosphere.cloud_color,
+                                    );
+                                } else {
+                                    ui.add_enabled(false, egui::Button::new("   "));
+                                }
+                            });
+                        });
+
                         ui.add(
                             egui::Slider::new(&mut atmosphere.fog_density, 0.0..=0.1)
                                 .text("Fog Density"),

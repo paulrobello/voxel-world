@@ -6,6 +6,9 @@ pub struct AtmosphereSettings {
     pub fog_start: f32,
     pub fog_overlay_scale: f32,
     pub cloud_speed: f32,
+    pub cloud_coverage: f32,
+    pub cloud_color: [f32; 3],
+    pub clouds_enabled: bool,
 }
 
 impl Default for AtmosphereSettings {
@@ -16,6 +19,9 @@ impl Default for AtmosphereSettings {
             fog_start: 100.0,
             fog_overlay_scale: 1.0,
             cloud_speed: 1.0,
+            cloud_coverage: 0.45,
+            cloud_color: [1.0, 1.0, 1.0],
+            clouds_enabled: true,
         }
     }
 }

@@ -123,6 +123,11 @@ layout(push_constant) uniform PushConstants {
     float time_of_day;
     float animation_time;
     float cloud_speed;
+    float cloud_coverage;
+    float cloud_color_r;
+    float cloud_color_g;
+    float cloud_color_b;
+    uint clouds_enabled;
     int break_block_x;
     int break_block_y;
     int break_block_z;

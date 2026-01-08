@@ -566,6 +566,11 @@ fn render_icon(
         time_of_day: 14.0 / 24.0, // 14:00 requested lighting
         animation_time: 0.0,
         cloud_speed: 0.0,
+        cloud_coverage: 0.45,
+        cloud_color_r: 1.0,
+        cloud_color_g: 1.0,
+        cloud_color_b: 1.0,
+        clouds_enabled: 1,
         break_block_x: -1,
         break_block_y: -1,
         break_block_z: -1,
