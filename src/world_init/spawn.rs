@@ -15,6 +15,6 @@ pub fn find_ground_level(world: &World, world_x: i32, world_z: i32) -> i32 {
             }
         }
     }
-    // Fallback to base height if nothing found
-    32
+    // Fallback to base height if nothing found (raised terrain)
+    128
 }

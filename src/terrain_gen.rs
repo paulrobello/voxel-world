@@ -24,7 +24,8 @@ pub struct ChunkGenerationResult {
 
 // Terrain generation constants
 /// Sea level for water filling (blocks below this in valleys become water)
-pub const SEA_LEVEL: i32 = 28;
+/// Raised to create more space for cave systems
+pub const SEA_LEVEL: i32 = 124;
 
 // Model IDs for ground cover
 const MODEL_TALL_GRASS: u8 = 100;
@@ -164,7 +165,7 @@ impl TerrainGenerator {
         self.get_biome_info(world_x, world_z).biome
     }
 
-    /// Get terrain height at world coordinates
+    /// Get terrain height at world coordinates with biome blending
     pub fn get_height(&self, world_x: i32, world_z: i32) -> i32 {
         let x = world_x as f64;
         let z = world_z as f64;
@@ -178,22 +179,47 @@ impl TerrainGenerator {
         // Detail noise for subtle variation
         let detail = self.detail_noise.get([x * 0.02, z * 0.02]);
 
-        let biome = self.get_biome(world_x, world_z);
+        // Get biome parameters for blending
+        let temp_raw = self.temperature_noise.get([x * 0.002, z * 0.002]);
+        let rain_raw = self.rainfall_noise.get([x * 0.002, z * 0.002]);
+        let temp = temp_raw * 0.5 + 0.5;
+        let rain = rain_raw * 0.5 + 0.5;
+        let elevation_cooling = base.max(0.0) * 0.4;
+        let adjusted_temp = (temp - elevation_cooling).clamp(0.0, 1.0);
 
-        let height = match biome {
-            BiomeType::Grassland => 32.0 + detail * 2.0 + base * 4.0,
-            BiomeType::Mountains => 32.0 + base * 10.0 + ridges * 55.0,
-            BiomeType::Desert => 32.0 + detail * 1.0 + base * 2.0, // Flatter
-            BiomeType::Swamp => 28.0 + detail * 1.0,               // Low, near sea level (28)
-            BiomeType::Snow => {
-                // High peaks or flat tundra depending on base height
-                if base > 0.5 {
-                    32.0 + base * 8.0 + ridges * 40.0 // Snowy peaks
-                } else {
-                    32.0 + detail * 2.0 // Tundra
-                }
-            }
+        // Calculate biome weights for smooth blending
+        let weight_snow = (1.0 - (adjusted_temp - 0.0).abs() / 0.3).clamp(0.0, 1.0);
+        let weight_desert = if adjusted_temp > 0.7 && rain < 0.3 {
+            ((adjusted_temp - 0.7) / 0.3 * (1.0 - rain / 0.3)).clamp(0.0, 1.0)
+        } else {
+            0.0
         };
+        let weight_swamp = if adjusted_temp > 0.6 && rain > 0.7 {
+            ((adjusted_temp - 0.6) / 0.4 * (rain - 0.7) / 0.3).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let weight_mountain = ((base - 0.5) / 0.3).clamp(0.0, 1.0);
+        let weight_grassland =
+            1.0 - (weight_snow + weight_desert + weight_swamp + weight_mountain).min(1.0);
+
+        // Calculate height for each biome
+        let h_grassland = 128.0 + detail * 2.0 + base * 4.0;
+        let h_mountain = 128.0 + base * 10.0 + ridges * 55.0;
+        let h_desert = 128.0 + detail * 1.0 + base * 2.0;
+        let h_swamp = 124.0 + detail * 1.0; // At sea level
+        let h_snow = if base > 0.5 {
+            128.0 + base * 8.0 + ridges * 40.0 // Snowy peaks
+        } else {
+            128.0 + detail * 2.0 // Tundra
+        };
+
+        // Blend heights based on weights
+        let height = h_grassland * weight_grassland
+            + h_mountain * weight_mountain
+            + h_desert * weight_desert
+            + h_swamp * weight_swamp
+            + h_snow * weight_snow;
 
         height.round() as i32
     }
