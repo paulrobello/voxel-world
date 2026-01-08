@@ -53,8 +53,9 @@ impl CaveGenerator {
     ) -> bool {
         // Determine surface buffer based on whether this is an entrance location
         // Entrances reduce the buffer to allow caves to breach the surface
+        // Increased buffer from 5 to 12 to account for raised terrain (SEA_LEVEL=124)
         let is_entrance = self.is_entrance(world_x, world_z);
-        let surface_buffer = if is_entrance { 0 } else { 5 };
+        let surface_buffer = if is_entrance { 0 } else { 12 };
 
         // Don't carve near surface unless at entrance, and never below y=2
         if world_y > surface_height - surface_buffer || world_y < 2 {
