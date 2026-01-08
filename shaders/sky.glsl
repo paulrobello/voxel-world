@@ -140,8 +140,9 @@ float getCloudDensity(vec3 rayOrigin, vec3 rayDir) {
     float density2 = fbm(cloudUV2) * 0.3;
     density = density + density2;
 
-    // Apply coverage threshold
-    density = smoothstep(pc.cloud_coverage, pc.cloud_coverage + 0.3, density);
+    // Apply coverage threshold (invert so 0=no clouds, 1=full coverage)
+    float threshold = 1.0 - pc.cloud_coverage;
+    density = smoothstep(threshold, threshold + 0.3, density);
 
     // Fade clouds at edges and with distance
     float distFade = 1.0 - smoothstep(200.0, 400.0, t);
