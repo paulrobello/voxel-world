@@ -13,7 +13,7 @@ pub struct RegionFile {
 }
 
 pub const CHUNKS_PER_REGION_SIDE: i32 = 32;
-pub const REGION_HEIGHT: i32 = 4; // Matching WORLD_CHUNKS_Y
+pub const REGION_HEIGHT: i32 = 8; // Half of WORLD_CHUNKS_Y (16 chunks = 512 blocks)
 pub const CHUNKS_PER_REGION: usize =
     (CHUNKS_PER_REGION_SIDE * CHUNKS_PER_REGION_SIDE * REGION_HEIGHT) as usize;
 pub const SECTOR_SIZE: usize = 4096;

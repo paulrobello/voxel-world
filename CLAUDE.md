@@ -152,5 +152,5 @@ Models support three resolutions (8³, 16³, 32³) with 32-color palettes and pe
 - `BRICK_SIZE = 8` (svt.rs)
 - `ModelResolution::Low/Medium/High` = 8/16/32 (sub_voxel.rs)
 - `ATLAS_TILE_COUNT = 23.0` (materials.glsl)
-- World: 16x4x16 chunks = 512x128x512 blocks
+- World: 16x16x16 chunks loaded = 512x512x512 blocks (Y bounded 0-511, X/Z infinite via streaming)
 - View distance: 6 chunks
