@@ -252,6 +252,23 @@ impl ConsoleState {
         const HOLLOW_FLAG: &[&str] = &["hollow"];
         const BIOME_FLAGS: &[&str] = &["on", "off", "true", "false"];
         const ROTATION_FLAGS: &[&str] = &["rotate_90", "rotate_180", "rotate_270"];
+        const LOCATE_TARGETS: &[&str] = &[
+            "grassland",
+            "mountains",
+            "desert",
+            "swamp",
+            "snow",
+            "cave",
+            "lava",
+            "water",
+            "stone",
+            "dirt",
+            "grass",
+            "sand",
+            "gravel",
+            "iron",
+        ];
+        const LOCATE_FLAGS: &[&str] = &["tp"];
 
         vec![
             CommandSignature {
@@ -314,7 +331,11 @@ impl ConsoleState {
             CommandSignature {
                 name: "locate",
                 aliases: &[],
-                params: &[ParamType::Text, ParamType::Text, ParamType::Text], // biome/block/cave, size/range, range
+                params: &[
+                    ParamType::Flag(LOCATE_TARGETS), // Biomes, common blocks, and "cave"
+                    ParamType::Text,                 // Range or size
+                    ParamType::Flag(LOCATE_FLAGS),   // tp flag
+                ],
             },
             CommandSignature {
                 name: "cancel",

@@ -37,9 +37,16 @@ pub fn locate(
     // Check for teleport flag (can be anywhere after the first arg)
     let teleport = args.iter().any(|&arg| arg.to_lowercase() == "tp");
 
+    // Filter out "tp" from args for parsing numeric arguments
+    let filtered_args: Vec<&str> = args
+        .iter()
+        .filter(|&&arg| arg.to_lowercase() != "tp")
+        .copied()
+        .collect();
+
     // Try to parse as biome first
     if let Some(biome) = parse_biome(&search_term) {
-        let range = match parse_range(args.get(1)) {
+        let range = match parse_range(filtered_args.get(1)) {
             Ok(r) => r,
             Err(e) => return e,
         };
@@ -48,8 +55,8 @@ pub fn locate(
 
     // Special handling for cave search
     if search_term == "cave" || search_term == "caves" {
-        let min_size = if args.len() > 1 {
-            match args[1].parse::<usize>() {
+        let min_size = if filtered_args.len() > 1 {
+            match filtered_args[1].parse::<usize>() {
                 Ok(s) if s > 0 && s <= 100000 => s,
                 Ok(_) => {
                     return CommandResult::Error(
@@ -62,7 +69,7 @@ pub fn locate(
             50 // Default minimum cave size
         };
 
-        let range = match parse_range(args.get(2)) {
+        let range = match parse_range(filtered_args.get(2)) {
             Ok(r) => r,
             Err(e) => return e,
         };
@@ -72,7 +79,7 @@ pub fn locate(
     // Try to parse as block type
     match BlockType::from_name(&search_term) {
         Some(block_type) => {
-            let range = match parse_range(args.get(1)) {
+            let range = match parse_range(filtered_args.get(1)) {
                 Ok(r) => r,
                 Err(e) => return e,
             };
