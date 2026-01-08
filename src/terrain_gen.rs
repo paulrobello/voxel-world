@@ -542,8 +542,9 @@ fn generate_trees(
             let biome = terrain.get_biome(world_x, world_z);
             let local_base_y = height - chunk_world_y;
 
-            // Check if tree base is in this chunk (with some buffer for leaves)
-            if local_base_y < 0 || local_base_y >= (CHUNK_SIZE as i32 - 10) {
+            // Check if tree base is in this chunk
+            // Removed upper bound check - overflow system handles trees extending beyond chunk
+            if local_base_y < 0 || local_base_y >= CHUNK_SIZE as i32 {
                 continue;
             }
 

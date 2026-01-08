@@ -99,6 +99,8 @@ impl World {
                     chunk.set_block(local.0, local.1, local.2, overflow.block_type);
                 }
             }
+            // CRITICAL: Update metadata after applying overflow blocks
+            chunk.update_metadata();
         }
 
         self.chunks.insert(chunk_pos, chunk);
