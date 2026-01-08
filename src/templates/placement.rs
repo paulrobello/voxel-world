@@ -261,27 +261,6 @@ impl TemplatePlacement {
                     {
                         let final_rotation = self.apply_model_rotation(model_data.rotation);
 
-                        // Preserve model_id and just update rotation
-                        // Stair shapes are relative to facing direction, so they rotate correctly
-                        if crate::sub_voxel::ModelRegistry::is_stairs_model(model_data.model_id) {
-                            use crate::sub_voxel::ModelRegistry;
-                            let original_shape = ModelRegistry::stairs_shape(model_data.model_id);
-                            println!(
-                                "Stair: local({},{},{}) model_id {} ({:?}) rot {} -> world({},{},{}) model_id {} rot {}",
-                                block.x,
-                                block.y,
-                                block.z,
-                                model_data.model_id,
-                                original_shape,
-                                model_data.rotation,
-                                world_pos.x,
-                                world_pos.y,
-                                world_pos.z,
-                                model_data.model_id,
-                                final_rotation
-                            );
-                        }
-
                         world.set_model_block(
                             world_pos,
                             model_data.model_id,
@@ -370,13 +349,10 @@ impl TemplatePlacement {
         }
 
         // Update each type based on its neighbors
-        // Note: Stairs preserve their shapes from the template (shapes are relative to
-        // facing direction), so we skip stair shape recalculation
-        if !stair_positions.is_empty() {
-            println!(
-                "Placed {} stairs (shapes preserved from template)",
-                stair_positions.len()
-            );
+        // Stairs need shape recalculation after rotation because shapes depend on
+        // absolute neighbor positions, not relative to facing direction
+        for pos in stair_positions {
+            world.update_stair_shape_at(pos);
         }
 
         for pos in fence_positions {
