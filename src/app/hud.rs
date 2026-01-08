@@ -295,7 +295,8 @@ pub fn render_hud(
                     ui.template_ui.error_message =
                         Some(format!("✓ Regenerated thumbnail for '{}'", name));
                     ui.template_ui.clear_thumbnail_cache(&name);
-                    // No need to refresh full list, just cleared cache so it will reload
+                    // Refresh template list to pick up new thumbnail path
+                    ui.template_ui.refresh_templates(&ui.template_library);
                 }
                 Err(e) => {
                     eprintln!("Failed to regenerate thumbnail for '{}': {}", name, e);
