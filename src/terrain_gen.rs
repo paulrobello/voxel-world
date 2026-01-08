@@ -662,18 +662,19 @@ fn generate_giant_oak(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
     let mut current_y = y;
 
     for deck_idx in 0..num_decks {
-        let trunk_section = 5 + ((hash / (23 + deck_idx)) % 4); // 5-8 blocks
+        let trunk_section = 3 + ((hash / (23 + deck_idx)) % 3); // 3-5 blocks (reduced from 5-8)
         current_y += trunk_section;
 
-        // Scale canopy size: bottom deck largest, scales down as we go up
-        // For 2-deck: bottom=3 (huge), top=1 (medium)
-        // For 3-deck: bottom=3 (huge), middle=2 (large), top=1 (medium)
+        // Randomize canopy sizes with bias toward larger decks lower down
         let canopy_size = if deck_idx == 0 {
-            3 // Bottom deck is huge
+            // Bottom deck: 2-3 (large to huge)
+            2 + ((hash / (29 + deck_idx)) % 2)
         } else if deck_idx == num_decks - 1 {
-            1 // Top deck is medium
+            // Top deck: 1-2 (medium to large)
+            1 + ((hash / (31 + deck_idx)) % 2)
         } else {
-            2 // Middle deck is large
+            // Middle deck: 1-3 (medium to huge)
+            1 + ((hash / (37 + deck_idx)) % 3)
         };
 
         let layers = match canopy_size {
@@ -716,9 +717,9 @@ fn generate_giant_oak(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
             for branch_idx in 0..num_branches {
                 let branch_dir = (hash / (37 + branch_idx * 7)) % 4;
 
-                // Longer branches on lower decks: bottom=3-5, upper=2-4
-                let min_len = if deck_idx == 0 { 3 } else { 2 };
-                let max_len = if deck_idx == 0 { 5 } else { 4 };
+                // Longer horizontal branches: bottom=4-7, upper=3-6
+                let min_len = if deck_idx == 0 { 4 } else { 3 };
+                let max_len = if deck_idx == 0 { 7 } else { 6 };
                 let branch_len =
                     min_len + ((hash / (41 + branch_idx * 5)) % (max_len - min_len + 1));
 
