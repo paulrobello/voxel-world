@@ -822,6 +822,7 @@ impl ConsoleState {
                 world,
                 water_grid,
                 template_library,
+                confirmed,
             ),
             "clear" => {
                 self.output.clear();

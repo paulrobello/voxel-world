@@ -13,6 +13,7 @@ pub fn template(
     world: &World,
     water_grid: &WaterGrid,
     library: &TemplateLibrary,
+    confirmed: bool,
 ) -> CommandResult {
     if args.is_empty() {
         return CommandResult::Error(
@@ -23,10 +24,10 @@ pub fn template(
     let subcommand = args[0];
 
     match subcommand {
-        "save" => template_save(args, selection, world, water_grid, library),
+        "save" => template_save(args, selection, world, water_grid, library, confirmed),
         "load" => template_load(args, library),
         "list" => template_list(library),
-        "delete" => template_delete(args, library),
+        "delete" => template_delete(args, library, confirmed),
         "info" => template_info(args, library),
         _ => CommandResult::Error(format!(
             "Unknown subcommand '{}'. Use: save, load, list, delete, or info",
@@ -42,6 +43,7 @@ fn template_save(
     world: &World,
     water_grid: &WaterGrid,
     library: &TemplateLibrary,
+    confirmed: bool,
 ) -> CommandResult {
     if args.len() < 2 {
         return CommandResult::Error("Usage: /template save <name> [tags...]".to_string());
@@ -67,8 +69,8 @@ fn template_save(
     // Parse tags (remaining args)
     let tags: Vec<String> = args[2..].iter().map(|s| s.to_string()).collect();
 
-    // Check if template exists
-    if library.template_exists(&name) {
+    // Check if template exists (skip if already confirmed)
+    if !confirmed && library.template_exists(&name) {
         return CommandResult::NeedsConfirmation {
             message: format!("Template '{}' already exists. Overwrite? (yes/no)", name),
             command: format!("template save {} {}", name, tags.join(" ")),
@@ -137,7 +139,7 @@ fn template_list(library: &TemplateLibrary) -> CommandResult {
 }
 
 /// Deletes a template
-fn template_delete(args: &[&str], library: &TemplateLibrary) -> CommandResult {
+fn template_delete(args: &[&str], library: &TemplateLibrary, confirmed: bool) -> CommandResult {
     if args.len() < 2 {
         return CommandResult::Error("Usage: /template delete <name>".to_string());
     }
@@ -148,12 +150,21 @@ fn template_delete(args: &[&str], library: &TemplateLibrary) -> CommandResult {
         return CommandResult::Error(format!("Template '{}' not found", name));
     }
 
-    CommandResult::NeedsConfirmation {
-        message: format!(
-            "Delete template '{}'? This cannot be undone. (yes/no)",
-            name
-        ),
-        command: format!("template delete {}", name),
+    // Request confirmation if not already confirmed
+    if !confirmed {
+        return CommandResult::NeedsConfirmation {
+            message: format!(
+                "Delete template '{}'? This cannot be undone. (yes/no)",
+                name
+            ),
+            command: format!("template delete {}", name),
+        };
+    }
+
+    // Confirmed - perform deletion
+    match library.delete_template(name) {
+        Ok(_) => CommandResult::Success(format!("Deleted template '{}'", name)),
+        Err(e) => CommandResult::Error(format!("Failed to delete template: {}", e)),
     }
 }
 

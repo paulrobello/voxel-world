@@ -245,10 +245,11 @@ bool renderTemplatePreview(vec3 origin, vec3 dir, inout vec3 color, float sceneH
     // Distance to nearest block edge on each axis (0 at edge, 0.5 at center)
     vec3 gridDist = min(gridPos, 1.0 - gridPos);
 
-    // Grid line width (thinner for interior grid)
-    float gridWidth = 0.02;
+    // Grid line width
+    float gridWidth = 0.04;
 
-    // Check if we're near a block edge on at least 2 axes (shows edges, not faces)
+    // Check if we're near a block edge on at least 2 axes (shows edges, not full faces)
+    // This creates the "wireframe cube" effect for each voxel
     vec3 nearEdge = vec3(
         gridDist.x < gridWidth ? 1.0 : 0.0,
         gridDist.y < gridWidth ? 1.0 : 0.0,
@@ -258,7 +259,8 @@ bool renderTemplatePreview(vec3 origin, vec3 dir, inout vec3 color, float sceneH
     float gridLine = numNearEdges >= 2.0 ? 1.0 : 0.0;
 
     // Combine bounding box wireframe with grid lines
-    float wireframe = max(boxWireframe, gridLine * 0.5);
+    // Grid lines are slightly dimmer than the bounding box
+    float wireframe = max(boxWireframe, gridLine * 0.6);
 
     // Template preview color - green tint
     vec3 templateColor = vec3(0.3, 1.0, 0.3);
