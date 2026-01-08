@@ -376,6 +376,21 @@ impl App {
             let model_metadata = result.chunk.to_model_metadata();
             // Insert chunk into world
             self.sim.world.insert_chunk(result.position, result.chunk);
+
+            // Apply overflow blocks to neighboring chunks (if they exist)
+            for overflow in &result.overflow_blocks {
+                // Only apply if target position is air or transparent
+                if let Some(existing_block) = self.sim.world.get_block(overflow.world_pos) {
+                    if existing_block == crate::chunk::BlockType::Air
+                        || existing_block.is_transparent()
+                    {
+                        self.sim
+                            .world
+                            .set_block(overflow.world_pos, overflow.block_type);
+                    }
+                }
+            }
+
             chunks_to_upload.push((result.position, result.block_data, model_metadata));
             loaded += 1;
         }

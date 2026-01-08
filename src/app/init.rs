@@ -350,10 +350,8 @@ impl App {
                 let storage_clone = Arc::clone(&storage);
                 ChunkLoader::new(
                     move |pos| {
-                        // TODO: Apply overflow blocks to world when chunk loader supports it
-                        // For now, only discard overflow blocks in async loading
-                        let result = generate_chunk_terrain(&terrain, pos, world_gen);
-                        result.chunk
+                        // Generate chunk with overflow blocks for cross-chunk structures
+                        generate_chunk_terrain(&terrain, pos, world_gen)
                     },
                     Some(storage_clone),
                 )

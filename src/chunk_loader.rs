@@ -11,6 +11,7 @@ use std::thread::{self, JoinHandle};
 
 use crate::chunk::Chunk;
 use crate::storage::worker::StorageSystem;
+use crate::terrain_gen::{ChunkGenerationResult, OverflowBlock};
 
 /// Number of worker threads for chunk generation.
 /// Using 4 threads provides good parallelism without overwhelming the CPU.
@@ -34,6 +35,8 @@ pub struct ChunkResult {
     pub chunk: Chunk,
     /// Pre-computed block data for GPU upload.
     pub block_data: Vec<u8>,
+    /// Blocks that should be placed in neighboring chunks.
+    pub overflow_blocks: Vec<OverflowBlock>,
 }
 
 /// Async chunk loader that generates chunks in background threads.
@@ -54,12 +57,12 @@ impl ChunkLoader {
     /// Creates a new chunk loader with the given terrain generator function.
     ///
     /// # Arguments
-    /// * `generator` - A function that generates a Chunk from a chunk position.
+    /// * `generator` - A function that generates a ChunkGenerationResult from a chunk position.
     ///   This is typically a closure that captures a TerrainGenerator.
     /// * `storage` - Optional storage system to load chunks from disk.
     pub fn new<F>(generator: F, storage: Option<Arc<StorageSystem>>) -> Self
     where
-        F: Fn(Vector3<i32>) -> Chunk + Send + Sync + 'static,
+        F: Fn(Vector3<i32>) -> ChunkGenerationResult + Send + Sync + 'static,
     {
         let generator = Arc::new(generator);
 
@@ -106,7 +109,7 @@ impl ChunkLoader {
                         match request {
                             Ok(req) => {
                                 // Try to load from disk first
-                                let chunk = if let Some(ref storage) = storage {
+                                let (chunk, overflow_blocks) = if let Some(ref storage) = storage {
                                     match storage.load_chunk(req.position) {
                                         Ok(Some(mut chunk)) => {
                                             chunk.update_metadata();
@@ -114,28 +117,32 @@ impl ChunkLoader {
                                             chunk.mark_dirty();
                                             // Loaded from disk, so it's clean for persistence
                                             chunk.persistence_dirty = false;
-                                            chunk
+                                            // Loaded chunks have no overflow blocks
+                                            (chunk, Vec::new())
                                         }
                                         Ok(None) => {
-                                            let mut chunk = generator(req.position);
+                                            let result = generator(req.position);
+                                            let mut chunk = result.chunk;
                                             // New procedural chunk, clean for persistence until modified
                                             chunk.persistence_dirty = false;
-                                            chunk
+                                            (chunk, result.overflow_blocks)
                                         }
                                         Err(e) => {
                                             eprintln!(
                                                 "[Storage] Load error for {:?}: {}",
                                                 req.position, e
                                             );
-                                            let mut chunk = generator(req.position);
+                                            let result = generator(req.position);
+                                            let mut chunk = result.chunk;
                                             chunk.persistence_dirty = false;
-                                            chunk
+                                            (chunk, result.overflow_blocks)
                                         }
                                     }
                                 } else {
-                                    let mut chunk = generator(req.position);
+                                    let result = generator(req.position);
+                                    let mut chunk = result.chunk;
                                     chunk.persistence_dirty = false;
-                                    chunk
+                                    (chunk, result.overflow_blocks)
                                 };
 
                                 let block_data = chunk.to_block_data();
@@ -145,6 +152,7 @@ impl ChunkLoader {
                                     position: req.position,
                                     chunk,
                                     block_data,
+                                    overflow_blocks,
                                 });
                             }
                             Err(mpsc::RecvTimeoutError::Timeout) => {
@@ -284,7 +292,7 @@ mod tests {
     use crate::chunk::BlockType;
     use std::time::Duration;
 
-    fn test_generator(pos: Vector3<i32>) -> Chunk {
+    fn test_generator(pos: Vector3<i32>) -> ChunkGenerationResult {
         let mut chunk = Chunk::new();
         // Set a block based on position for testing
         chunk.set_block(0, 0, 0, BlockType::Stone);
@@ -294,7 +302,10 @@ mod tests {
             (pos.z.abs() % 32) as usize,
             BlockType::Dirt,
         );
-        chunk
+        ChunkGenerationResult {
+            chunk,
+            overflow_blocks: Vec::new(), // No overflow in tests
+        }
     }
 
     #[test]
