@@ -168,11 +168,8 @@ vec3 getBlockColor(uint blockType, vec3 local_hit, vec3 normal, uint stepped_axi
             return mix(dirtColor, grassColor, grassEdge);
         }
     } else if (blockType == BLOCK_LOG || blockType == BLOCK_PINE_LOG || blockType == BLOCK_WILLOW_LOG) {
-        if (abs(normal.y) > 0.5) {
-            textureIndex = TEX_LOG_TOP;
-        } else {
-            textureIndex = BLOCK_LOG;
-        }
+        // Always use bark texture on all sides for natural branch appearance
+        textureIndex = BLOCK_LOG;
     } else if (blockType == BLOCK_PINE_LEAVES || blockType == BLOCK_WILLOW_LEAVES) {
         textureIndex = BLOCK_LEAVES;
     } else if (blockType == BLOCK_WATER) {
