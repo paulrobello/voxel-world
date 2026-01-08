@@ -645,6 +645,22 @@ fn generate_trees(
                 continue;
             }
 
+            // Check terrain slope - prevent trees on steep terrain
+            let height_n = terrain.get_height(world_x, world_z + 4);
+            let height_s = terrain.get_height(world_x, world_z - 4);
+            let height_e = terrain.get_height(world_x + 4, world_z);
+            let height_w = terrain.get_height(world_x - 4, world_z);
+            let max_height_diff = (height_n - height)
+                .abs()
+                .max((height_s - height).abs())
+                .max((height_e - height).abs())
+                .max((height_w - height).abs());
+
+            // Skip if terrain is too steep (more than 3 blocks difference in 4 block radius)
+            if max_height_diff > 3 {
+                continue;
+            }
+
             // Randomness
             let hash = terrain.hash(world_x, world_z);
 

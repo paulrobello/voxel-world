@@ -193,18 +193,21 @@ impl SettingsUI {
                             });
                         });
 
-                        ui.add(
-                            egui::Slider::new(&mut atmosphere.fog_density, 0.0..=0.1)
-                                .text("Fog Density"),
-                        );
-                        ui.add(
-                            egui::Slider::new(&mut atmosphere.fog_start, 0.0..=128.0)
-                                .text("Fog Start"),
-                        );
-                        ui.add(
-                            egui::Slider::new(&mut atmosphere.fog_overlay_scale, 0.0..=2.0)
-                                .text("Fog Overlay Scale"),
-                        );
+                        // Fog settings in collapsible section
+                        ui.collapsing("Fog", |ui| {
+                            ui.add(
+                                egui::Slider::new(&mut atmosphere.fog_density, 0.0..=0.1)
+                                    .text("Density"),
+                            );
+                            ui.add(
+                                egui::Slider::new(&mut atmosphere.fog_start, 0.0..=128.0)
+                                    .text("Start Distance"),
+                            );
+                            ui.add(
+                                egui::Slider::new(&mut atmosphere.fog_overlay_scale, 0.0..=2.0)
+                                    .text("Overlay Scale"),
+                            );
+                        });
                         if ui
                             .add(
                                 egui::Slider::new(&mut settings.max_ray_steps, 128..=1024)
@@ -321,69 +324,72 @@ impl SettingsUI {
                         }
 
                         ui.separator();
-                        ui.label("LOD Distances (lower = faster):");
-                        ui.horizontal(|ui| {
-                            ui.label("AO:");
-                            if ui
-                                .add(
-                                    egui::Slider::new(&mut settings.lod_ao_distance, 8.0..=64.0)
-                                        .suffix(" blocks"),
-                                )
-                                .changed()
-                            {
-                                println!("[LOD] AO distance: {:.0}", settings.lod_ao_distance);
-                            }
-                        });
-                        ui.horizontal(|ui| {
-                            ui.label("Shadows:");
-                            if ui
-                                .add(
-                                    egui::Slider::new(
-                                        &mut settings.lod_shadow_distance,
-                                        16.0..=128.0,
+
+                        // LOD settings in collapsible section
+                        ui.collapsing("LOD Distances (lower = faster)", |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label("AO:");
+                                if ui
+                                    .add(
+                                        egui::Slider::new(&mut settings.lod_ao_distance, 8.0..=64.0)
+                                            .suffix(" blocks"),
                                     )
-                                    .suffix(" blocks"),
-                                )
-                                .changed()
-                            {
-                                println!(
-                                    "[LOD] Shadow distance: {:.0}",
-                                    settings.lod_shadow_distance
-                                );
-                            }
-                        });
-                        ui.horizontal(|ui| {
-                            ui.label("Lights:");
-                            if ui
-                                .add(
-                                    egui::Slider::new(
-                                        &mut settings.lod_point_light_distance,
-                                        8.0..=48.0,
-                                    )
-                                    .suffix(" blocks"),
-                                )
-                                .changed()
-                            {
-                                println!(
-                                    "[LOD] Point light distance: {:.0}",
-                                    settings.lod_point_light_distance
-                                );
-                            }
-                        });
-                        ui.horizontal(|ui| {
-                            ui.label("Models:");
-                            if ui
-                                .add(
-                                    egui::Slider::new(&mut settings.lod_model_distance, 8.0..=64.0)
+                                    .changed()
+                                {
+                                    println!("[LOD] AO distance: {:.0}", settings.lod_ao_distance);
+                                }
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label("Shadows:");
+                                if ui
+                                    .add(
+                                        egui::Slider::new(
+                                            &mut settings.lod_shadow_distance,
+                                            16.0..=128.0,
+                                        )
                                         .suffix(" blocks"),
-                                )
-                                .changed()
-                            {
-                                println!(
-                                    "[LOD] Model detail distance: {:.0}",
-                                    settings.lod_model_distance
-                                );
-                            }
+                                    )
+                                    .changed()
+                                {
+                                    println!(
+                                        "[LOD] Shadow distance: {:.0}",
+                                        settings.lod_shadow_distance
+                                    );
+                                }
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label("Lights:");
+                                if ui
+                                    .add(
+                                        egui::Slider::new(
+                                            &mut settings.lod_point_light_distance,
+                                            8.0..=48.0,
+                                        )
+                                        .suffix(" blocks"),
+                                    )
+                                    .changed()
+                                {
+                                    println!(
+                                        "[LOD] Point light distance: {:.0}",
+                                        settings.lod_point_light_distance
+                                    );
+                                }
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label("Models:");
+                                if ui
+                                    .add(
+                                        egui::Slider::new(&mut settings.lod_model_distance, 8.0..=64.0)
+                                            .suffix(" blocks"),
+                                    )
+                                    .changed()
+                                {
+                                    println!(
+                                        "[LOD] Model detail distance: {:.0}",
+                                        settings.lod_model_distance
+                                    );
+                                }
+                            });
                         });
 
                         ui.separator();
