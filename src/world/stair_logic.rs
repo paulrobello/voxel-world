@@ -140,6 +140,10 @@ impl World {
 
         let target_model = ModelRegistry::stairs_model_id(shape, inverted);
         if target_model != data.model_id {
+            println!(
+                "Updating stair at ({}, {}, {}) from model_id {} to {} (shape: {:?})",
+                pos.x, pos.y, pos.z, data.model_id, target_model, shape
+            );
             self.set_model_block(pos, target_model, rotation, data.waterlogged);
         }
     }

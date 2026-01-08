@@ -261,15 +261,25 @@ impl TemplatePlacement {
                     {
                         let final_rotation = self.apply_model_rotation(model_data.rotation);
 
-                        // For stairs, always place as "Straight" shape initially if template is rotated
-                        // The shape will be recalculated after all stairs are placed
+                        // For stairs in rotated templates, reset to Straight shape
+                        // Shapes are world-relative and will be recalculated after placement
                         let model_id = if self.rotation != 0
                             && crate::sub_voxel::ModelRegistry::is_stairs_model(model_data.model_id)
                         {
                             use crate::sub_voxel::{ModelRegistry, StairShape};
                             let is_inverted =
                                 ModelRegistry::is_stairs_inverted(model_data.model_id);
-                            ModelRegistry::stairs_model_id(StairShape::Straight, is_inverted)
+                            let straight_id =
+                                ModelRegistry::stairs_model_id(StairShape::Straight, is_inverted);
+                            println!(
+                                "Resetting stair from model_id {} to {} (Straight) at ({}, {}, {})",
+                                model_data.model_id,
+                                straight_id,
+                                world_pos.x,
+                                world_pos.y,
+                                world_pos.z
+                            );
+                            straight_id
                         } else {
                             model_data.model_id
                         };
@@ -365,9 +375,13 @@ impl TemplatePlacement {
         // For stairs, do multiple passes to ensure correct shape propagation
         // This is necessary because stair shape depends on neighbor shapes,
         // and a single pass might not be enough for complex configurations
+        //
+        // DEBUG: Print stair positions being updated
+        println!("Updating {} stair positions", stair_positions.len());
         for _ in 0..5 {
             for pos in &stair_positions {
                 world.update_stair_shape_at(*pos);
+                world.update_adjacent_stair_shapes(*pos);
             }
         }
 

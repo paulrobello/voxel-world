@@ -233,40 +233,37 @@ bool renderTemplatePreview(vec3 origin, vec3 dir, inout vec3 color, float sceneH
     else if (abs(hitPoint.z - boxMin.z) < epsilon.z) hitNormal = vec3(0.0, 0.0, -1.0);
     else if (abs(hitPoint.z - boxMax.z) < epsilon.z) hitNormal = vec3(0.0, 0.0, 1.0);
 
-    // Get distance to nearest edge for bounding box wireframe
+    // Simple voxel grid: show edges at integer coordinates
+    vec3 localPos = hitPoint - boxMin;
+
+    // Get fractional parts
+    vec3 frac = fract(localPos + 0.0001); // Small offset to avoid precision issues
+
+    // Detect edges: close to 0 means we're near a grid line
+    float edgeWidth = 0.1;
+    vec3 isEdge = vec3(
+        (frac.x < edgeWidth || frac.x > 1.0 - edgeWidth) ? 1.0 : 0.0,
+        (frac.y < edgeWidth || frac.y > 1.0 - edgeWidth) ? 1.0 : 0.0,
+        (frac.z < edgeWidth || frac.z > 1.0 - edgeWidth) ? 1.0 : 0.0
+    );
+
+    // Show edge if we're on at least 2 grid lines (corners and edges of cubes)
+    float numEdges = isEdge.x + isEdge.y + isEdge.z;
+    float showGrid = (numEdges >= 2.0) ? 1.0 : 0.0;
+
+    // Bounding box edges
     float boxEdgeDist = getBoxEdgeDistance(hitPoint, boxMin, boxMax);
     float boxWireframe = 1.0 - smoothstep(0.0, 1.0, boxEdgeDist);
 
-    // Add voxel grid pattern at block boundaries
-    // Get fractional part of position within box to detect block boundaries
-    vec3 localPos = hitPoint - boxMin;
-    vec3 gridPos = fract(localPos);
+    // Combine
+    float wireframe = max(showGrid, boxWireframe);
 
-    // Distance to nearest block edge on each axis (0 at edge, 0.5 at center)
-    vec3 gridDist = min(gridPos, 1.0 - gridPos);
-
-    // Grid line width - thicker for visibility
-    float gridWidth = 0.08;
-
-    // Check if we're near a block edge on at least 2 axes (shows edges, not faces)
-    // This creates wireframe cubes for each voxel
-    float nearEdgeX = gridDist.x < gridWidth ? 1.0 : 0.0;
-    float nearEdgeY = gridDist.y < gridWidth ? 1.0 : 0.0;
-    float nearEdgeZ = gridDist.z < gridWidth ? 1.0 : 0.0;
-    float numNearEdges = nearEdgeX + nearEdgeY + nearEdgeZ;
-    float gridLine = numNearEdges >= 2.0 ? 1.0 : 0.0;
-
-    // Combine bounding box wireframe with voxel grid
-    float wireframe = max(boxWireframe, gridLine);
-
-    // Template preview color - bright green
-    vec3 templateColor = vec3(0.4, 1.0, 0.4);
-
-    // Pulse animation
+    // Green color with pulse
+    vec3 templateColor = vec3(0.3, 1.0, 0.3);
     float pulse = 0.85 + 0.15 * sin(pc.animation_time * 3.0);
 
-    // ONLY show wireframe - everything else is transparent
-    float alpha = wireframe * 0.85 * pulse;
+    // Show wireframe bright, everything else dim
+    float alpha = mix(0.05, 0.9, wireframe) * pulse;
 
     color = mix(color, templateColor, alpha);
     return true;
