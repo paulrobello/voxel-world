@@ -261,9 +261,25 @@ impl TemplatePlacement {
                     {
                         let final_rotation = self.apply_model_rotation(model_data.rotation);
 
+                        // For stairs, reset to base Straight shape since shape will be
+                        // recalculated based on neighbors after rotation
+                        let final_model_id = if crate::sub_voxel::ModelRegistry::is_stairs_model(
+                            model_data.model_id,
+                        ) {
+                            let inverted = crate::sub_voxel::ModelRegistry::is_stairs_inverted(
+                                model_data.model_id,
+                            );
+                            crate::sub_voxel::ModelRegistry::stairs_model_id(
+                                crate::sub_voxel::StairShape::Straight,
+                                inverted,
+                            )
+                        } else {
+                            model_data.model_id
+                        };
+
                         world.set_model_block(
                             world_pos,
-                            model_data.model_id,
+                            final_model_id,
                             final_rotation,
                             model_data.waterlogged,
                         );
