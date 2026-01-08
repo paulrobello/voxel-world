@@ -243,12 +243,28 @@ pub fn render_hud(
                                 template.tags = tags;
                                 match ui.template_library.save_template(&template) {
                                     Ok(_) => {
+                                        // Generate thumbnail
+                                        let thumbnail_path =
+                                            ui.template_library.get_thumbnail_path(&name);
+                                        if let Err(e) =
+                                            crate::templates::rasterizer::generate_template_thumbnail(
+                                                &template,
+                                                &thumbnail_path,
+                                            )
+                                        {
+                                            eprintln!(
+                                                "[Template] Warning: Failed to generate thumbnail: {}",
+                                                e
+                                            );
+                                        }
+
                                         println!("Saved template '{}'", name);
                                         ui.template_ui.error_message = Some(format!(
                                             "✓ Successfully saved template '{}' ({} blocks)",
                                             name,
                                             template.block_count()
                                         ));
+                                        ui.template_ui.clear_thumbnail_cache(&name);
                                         ui.template_ui.refresh_templates(&ui.template_library);
                                     }
                                     Err(e) => {
@@ -269,6 +285,22 @@ pub fn render_hud(
                         eprintln!("Invalid selection: {}", e);
                         ui.template_ui.error_message = Some(format!("Invalid selection: {}", e));
                     }
+                }
+            }
+        }
+        TemplateBrowserAction::RegenerateThumbnail(name) => {
+            match ui.template_library.regenerate_thumbnail(&name) {
+                Ok(_) => {
+                    println!("Regenerated thumbnail for template '{}'", name);
+                    ui.template_ui.error_message =
+                        Some(format!("✓ Regenerated thumbnail for '{}'", name));
+                    ui.template_ui.clear_thumbnail_cache(&name);
+                    // No need to refresh full list, just cleared cache so it will reload
+                }
+                Err(e) => {
+                    eprintln!("Failed to regenerate thumbnail for '{}': {}", name, e);
+                    ui.template_ui.error_message =
+                        Some(format!("Failed to regenerate thumbnail: {}", e));
                 }
             }
         }
@@ -294,12 +326,28 @@ pub fn render_hud(
                             template.tags = tags;
                             match ui.template_library.save_template(&template) {
                                 Ok(_) => {
+                                    // Generate thumbnail
+                                    let thumbnail_path =
+                                        ui.template_library.get_thumbnail_path(&name);
+                                    if let Err(e) =
+                                        crate::templates::rasterizer::generate_template_thumbnail(
+                                            &template,
+                                            &thumbnail_path,
+                                        )
+                                    {
+                                        eprintln!(
+                                            "[Template] Warning: Failed to generate thumbnail: {}",
+                                            e
+                                        );
+                                    }
+
                                     println!("Saved template '{}'", name);
                                     ui.template_ui.error_message = Some(format!(
                                         "✓ Successfully saved template '{}' ({} blocks)",
                                         name,
                                         template.block_count()
                                     ));
+                                    ui.template_ui.clear_thumbnail_cache(&name);
                                     ui.template_ui.refresh_templates(&ui.template_library);
                                 }
                                 Err(e) => {

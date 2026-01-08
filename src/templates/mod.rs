@@ -194,6 +194,18 @@ impl TemplateLibrary {
 
         self.root_path.join(format!("{}.vxt", safe_name))
     }
+
+    /// Regenerates the thumbnail for an existing template.
+    pub fn regenerate_thumbnail(&self, name: &str) -> io::Result<()> {
+        // Load the template
+        let template = self.load_template(name)?;
+
+        // Generate thumbnail
+        let thumbnail_path = self.get_thumbnail_path(name);
+        crate::templates::rasterizer::generate_template_thumbnail(&template, &thumbnail_path)?;
+
+        Ok(())
+    }
 }
 
 /// Metadata about a template (without loading all block data).
@@ -338,5 +350,53 @@ mod tests {
         assert_eq!(format_number_with_commas(123), "123");
         assert_eq!(format_number_with_commas(1234), "1,234");
         assert_eq!(format_number_with_commas(1234567), "1,234,567");
+    }
+
+    #[test]
+    fn test_regenerate_thumbnail() {
+        use crate::chunk::BlockType;
+        use crate::templates::format::TemplateBuilder;
+        use nalgebra::Vector3;
+
+        // Use a temporary directory for testing
+        let temp_dir = env::temp_dir().join("voxel_world_thumbnail_regenerate_test");
+        let _ = fs::remove_dir_all(&temp_dir); // Clean up if exists
+
+        let library = TemplateLibrary::new(&temp_dir);
+        library.init().unwrap();
+
+        // Create a template with some blocks
+        let mut builder = TemplateBuilder::new(
+            "test_thumb".to_string(),
+            "test_author".to_string(),
+            Vector3::new(0, 0, 0),
+            10,
+            10,
+            10,
+        );
+        builder.add_block(Vector3::new(0, 0, 0), BlockType::Stone);
+        builder.add_block(Vector3::new(1, 1, 1), BlockType::Dirt);
+        builder.add_block(Vector3::new(2, 2, 2), BlockType::Grass);
+        let template = builder.build();
+
+        // Save template
+        library.save_template(&template).unwrap();
+
+        // Thumbnail should not exist yet (old templates before thumbnail feature)
+        let thumb_path = library.get_thumbnail_path("test_thumb");
+        if thumb_path.exists() {
+            fs::remove_file(&thumb_path).unwrap();
+        }
+        assert!(!library.has_thumbnail("test_thumb"));
+
+        // Regenerate thumbnail
+        library.regenerate_thumbnail("test_thumb").unwrap();
+
+        // Thumbnail should now exist
+        assert!(library.has_thumbnail("test_thumb"));
+        assert!(thumb_path.exists());
+
+        // Clean up
+        let _ = fs::remove_dir_all(&temp_dir);
     }
 }

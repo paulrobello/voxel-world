@@ -103,6 +103,11 @@ impl TemplateUi {
             }
         }
     }
+
+    /// Clears the cached thumbnail for a template (forces reload on next display).
+    pub fn clear_thumbnail_cache(&mut self, name: &str) {
+        self.thumbnail_cache.remove(name);
+    }
 }
 
 /// Result of template browser interaction.
@@ -120,6 +125,8 @@ pub enum TemplateBrowserAction {
     DeleteTemplate(String),
     /// User requested to clear the selection.
     ClearSelection,
+    /// User clicked regenerate thumbnail button for a template.
+    RegenerateThumbnail(String),
 }
 
 /// Draws the template browser window.
@@ -310,6 +317,17 @@ pub fn draw_template_browser(
                                                                 info.name.clone(),
                                                             );
                                                     }
+                                                    if ui
+                                                        .button("🔄 Thumbnail")
+                                                        .on_hover_text(
+                                                            "Regenerate thumbnail image",
+                                                        )
+                                                        .clicked()
+                                                    {
+                                                        action = TemplateBrowserAction::RegenerateThumbnail(
+                                                            info.name.clone(),
+                                                        );
+                                                    }
                                                     if ui.button("📥 Load").clicked() {
                                                         action =
                                                             TemplateBrowserAction::LoadTemplate(
@@ -364,7 +382,13 @@ pub fn draw_save_template_dialog(
         .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
         .show(ctx, |ui| {
             ui.label("Template Name:");
-            ui.add(egui::TextEdit::singleline(&mut ui_state.edit_name).char_limit(32));
+            let name_edit = egui::TextEdit::singleline(&mut ui_state.edit_name).char_limit(32);
+            let name_response = ui.add(name_edit);
+
+            // Auto-focus the name field when dialog opens
+            if ui_state.save_dialog_open {
+                name_response.request_focus();
+            }
 
             ui.label("Tags (comma-separated):");
             ui.add(
