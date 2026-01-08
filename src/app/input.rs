@@ -422,6 +422,13 @@ impl App {
             self.toggle_template_browser();
         }
 
+        // Handle deferred cursor grab request (from template loading)
+        if self.ui.request_cursor_grab {
+            self.ui.request_cursor_grab = false;
+            self.input.focused = true;
+            self.input.pending_grab = Some(true);
+        }
+
         // Rotate template placement (R key)
         if self.input.key_pressed(KeyCode::KeyR) {
             if let Some(ref mut placement) = self.ui.active_placement {

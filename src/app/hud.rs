@@ -200,6 +200,9 @@ pub fn render_hud(
                     // Close template browser after loading
                     ui.template_ui.browser_open = false;
 
+                    // Request cursor grab to begin placement
+                    ui.request_cursor_grab = true;
+
                     println!(
                         "Template placement ready. Use R to rotate, Right Click to confirm placement."
                     );

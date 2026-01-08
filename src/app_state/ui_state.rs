@@ -86,4 +86,6 @@ pub struct UiState {
     pub active_placement: Option<TemplatePlacement>,
     /// Whether we were focused before opening the template browser.
     pub template_previously_focused: bool,
+    /// Request cursor grab (set when loading template for placement).
+    pub request_cursor_grab: bool,
 }

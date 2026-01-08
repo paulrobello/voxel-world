@@ -503,6 +503,7 @@ impl App {
             },
             active_placement: None,
             template_previously_focused: false,
+            request_cursor_grab: false,
         };
 
         let input = InputState {
