@@ -714,6 +714,9 @@ fn generate_giant_oak(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
             let max_branches = if deck_idx == 0 { 4 } else { 3 };
             let num_branches = 2 + ((hash / (31 + deck_idx)) % max_branches);
 
+            // Track vertical support positions for cross-bracing
+            let mut vertical_supports: Vec<(i32, i32, i32, i32)> = Vec::new(); // (x, y, z, height)
+
             for branch_idx in 0..num_branches {
                 let branch_dir = (hash / (37 + branch_idx * 7)) % 4;
 
@@ -740,27 +743,94 @@ fn generate_giant_oak(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
                     set_block_safe(chunk, x + dx * i, branch_y, z + dz * i, BlockType::Log);
                 }
 
-                // Branch canopy size varies: 0=small, 1=medium, 2=large
-                let branch_canopy_size = (hash / (67 + branch_idx * 11)) % 3;
-                let branch_layers = match branch_canopy_size {
-                    0 => 3,
-                    1 => 4,
-                    _ => 5,
-                };
-
                 let tip_x = x + dx * branch_len;
                 let tip_z = z + dz * branch_len;
-                let branch_shape = (hash / (73 + branch_idx * 17)) % 4;
-                generate_oak_canopy(
-                    chunk,
-                    tip_x,
-                    branch_y,
-                    tip_z,
-                    branch_canopy_size,
-                    branch_layers,
-                    branch_y,
-                    branch_shape,
-                );
+
+                // Add vertical extension upward from branch tip (70% chance)
+                let has_vertical = (hash / (67 + branch_idx * 11)) % 10 < 7;
+                if has_vertical {
+                    // Vertical support column extends upward 4-10 blocks
+                    let vertical_height = 4 + ((hash / (79 + branch_idx * 13)) % 7);
+                    for vy in 1..=vertical_height {
+                        set_block_safe(chunk, tip_x, branch_y + vy, tip_z, BlockType::Log);
+                    }
+
+                    // Track this vertical support for cross-bracing
+                    vertical_supports.push((tip_x, branch_y, tip_z, vertical_height));
+
+                    // Add small canopy at top of vertical support
+                    let vert_top_y = branch_y + vertical_height;
+                    let branch_canopy_size = 1 + ((hash / (89 + branch_idx * 7)) % 2); // 1-2
+                    let branch_layers = 3 + ((hash / (97 + branch_idx * 5)) % 2); // 3-4
+                    let branch_shape = (hash / (73 + branch_idx * 17)) % 4;
+                    generate_oak_canopy(
+                        chunk,
+                        tip_x,
+                        vert_top_y,
+                        tip_z,
+                        branch_canopy_size,
+                        branch_layers,
+                        vert_top_y,
+                        branch_shape,
+                    );
+                } else {
+                    // No vertical - just canopy at horizontal branch tip
+                    let branch_canopy_size = (hash / (67 + branch_idx * 11)) % 3;
+                    let branch_layers = match branch_canopy_size {
+                        0 => 3,
+                        1 => 4,
+                        _ => 5,
+                    };
+                    let branch_shape = (hash / (73 + branch_idx * 17)) % 4;
+                    generate_oak_canopy(
+                        chunk,
+                        tip_x,
+                        branch_y,
+                        tip_z,
+                        branch_canopy_size,
+                        branch_layers,
+                        branch_y,
+                        branch_shape,
+                    );
+                }
+            }
+
+            // Add horizontal cross-bracing between nearby vertical supports
+            for i in 0..vertical_supports.len() {
+                for j in (i + 1)..vertical_supports.len() {
+                    let (x1, y1, z1, h1) = vertical_supports[i];
+                    let (x2, y2, z2, h2) = vertical_supports[j];
+
+                    // Check if supports are aligned (same X or same Z) and close enough
+                    let dx = (x2 - x1).abs();
+                    let dz = (z2 - z1).abs();
+
+                    // Connect if aligned on one axis and within reasonable distance
+                    if (dx == 0 && dz > 0 && dz <= 12) || (dz == 0 && dx > 0 && dx <= 12) {
+                        // Pick a height somewhere in the middle third of the shorter support
+                        let min_height = h1.min(h2);
+                        let brace_height_offset = min_height / 3
+                            + ((hash / (101 + i as i32 * 7)) % (min_height / 3).max(1));
+                        let brace_y = y1.max(y2) + brace_height_offset;
+
+                        // Place horizontal log connection
+                        if dx == 0 {
+                            // Same X, connect along Z
+                            let z_start = z1.min(z2);
+                            let z_end = z1.max(z2);
+                            for bz in z_start..=z_end {
+                                set_block_safe(chunk, x1, brace_y, bz, BlockType::Log);
+                            }
+                        } else {
+                            // Same Z, connect along X
+                            let x_start = x1.min(x2);
+                            let x_end = x1.max(x2);
+                            for bx in x_start..=x_end {
+                                set_block_safe(chunk, bx, brace_y, z1, BlockType::Log);
+                            }
+                        }
+                    }
+                }
             }
         }
     }
