@@ -271,6 +271,28 @@ impl BlockType {
             .unwrap_or(0.0)
     }
 
+    /// Returns true if this block is part of a tree structure (logs or leaves).
+    /// Used for overflow block placement priority.
+    #[inline]
+    pub fn is_tree_structure(self) -> bool {
+        matches!(
+            self,
+            BlockType::Log
+                | BlockType::Leaves
+                | BlockType::PineLog
+                | BlockType::PineLeaves
+                | BlockType::WillowLog
+                | BlockType::WillowLeaves
+        )
+    }
+
+    /// Returns true if this block can be replaced by tree structure during overflow.
+    /// Allows trees to replace surface terrain like grass and dirt.
+    #[inline]
+    pub fn is_replaceable_terrain(self) -> bool {
+        matches!(self, BlockType::Grass | BlockType::Dirt | BlockType::Sand)
+    }
+
     /// Returns the light radius in blocks for dynamic point light emission.
     /// Only used when dynamic lighting is enabled.
     /// Note: Lava self-illuminates but doesn't cast point lights.

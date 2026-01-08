@@ -94,8 +94,12 @@ impl World {
             for overflow in overflow_blocks {
                 let local = Self::world_to_local(overflow.world_pos);
                 let existing_block = chunk.get_block(local.0, local.1, local.2);
-                // Only place if target is air or transparent
-                if existing_block == BlockType::Air || existing_block.is_transparent() {
+                // Tree structure (logs/leaves) can replace surface terrain for proper cross-chunk trees
+                let can_replace = existing_block == BlockType::Air
+                    || existing_block.is_transparent()
+                    || (overflow.block_type.is_tree_structure()
+                        && existing_block.is_replaceable_terrain());
+                if can_replace {
                     chunk.set_block(local.0, local.1, local.2, overflow.block_type);
                 }
             }
@@ -443,7 +447,12 @@ impl World {
             if self.has_chunk(chunk_pos) {
                 // Target chunk exists - apply immediately
                 if let Some(existing_block) = self.get_block(overflow.world_pos) {
-                    if existing_block == BlockType::Air || existing_block.is_transparent() {
+                    // Tree structure (logs/leaves) can replace surface terrain for proper cross-chunk trees
+                    let can_replace = existing_block == BlockType::Air
+                        || existing_block.is_transparent()
+                        || (overflow.block_type.is_tree_structure()
+                            && existing_block.is_replaceable_terrain());
+                    if can_replace {
                         self.set_block(overflow.world_pos, overflow.block_type);
                     }
                 }

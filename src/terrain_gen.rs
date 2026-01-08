@@ -1703,11 +1703,12 @@ fn set_block_safe(
         && z < CHUNK_SIZE as i32
     {
         // Within chunk bounds - place directly
-        if chunk.get_block(x as usize, y as usize, z as usize) == BlockType::Air
-            || chunk
-                .get_block(x as usize, y as usize, z as usize)
-                .is_transparent()
-        {
+        let existing = chunk.get_block(x as usize, y as usize, z as usize);
+        // Tree structure (logs/leaves) can replace surface terrain for proper generation
+        let can_replace = existing == BlockType::Air
+            || existing.is_transparent()
+            || (block.is_tree_structure() && existing.is_replaceable_terrain());
+        if can_replace {
             chunk.set_block(x as usize, y as usize, z as usize, block);
         }
     } else {
