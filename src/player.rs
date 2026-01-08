@@ -189,7 +189,7 @@ impl Player {
 
         // Fly mode should ignore medium (water/ladder) speed modifiers
         let base_speed = if self.fly_mode {
-            MOVE_SPEED * 2.0
+            MOVE_SPEED * 4.0
         } else if touching_water {
             SWIM_SPEED
         } else if touching_ladder {

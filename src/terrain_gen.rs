@@ -244,9 +244,10 @@ impl TerrainGenerator {
         }
 
         // Use blend noise to randomize which biome wins in transition zone
+        // Low frequency (0.02) creates large natural-looking patches instead of scattered pixels
         let x = world_x as f64;
         let z = world_z as f64;
-        let noise = self.blend_noise.get([x * 0.1, z * 0.1]); // -1 to 1
+        let noise = self.blend_noise.get([x * 0.02, z * 0.02]); // -1 to 1
         let noise_01 = noise * 0.5 + 0.5; // 0 to 1
 
         // Bias the noise by the blend factor
