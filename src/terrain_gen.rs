@@ -787,12 +787,15 @@ fn generate_normal_oak(
     overflow_blocks: &mut Vec<OverflowBlock>,
 ) {
     // Check if there's solid ground below (no floating trees over caves)
-    if let Some(block_below) = get_block_safe(chunk, x, y, z) {
-        if !block_below.is_solid() {
-            return; // Don't place tree on air/water
+    // Check surface and 2 blocks below to ensure stable foundation
+    for check_y in (y.saturating_sub(2))..=y {
+        if let Some(block) = get_block_safe(chunk, x, check_y, z) {
+            if !block.is_solid() {
+                return; // Don't place tree on air/water or above cave
+            }
+        } else {
+            return; // Don't place tree if we can't check
         }
-    } else {
-        return; // Don't place tree if we can't check
     }
 
     // More variation: height 4-9, with different canopy sizes
@@ -918,12 +921,15 @@ fn generate_giant_oak(
     overflow_blocks: &mut Vec<OverflowBlock>,
 ) {
     // Check if there's solid ground below (no floating trees over caves)
-    if let Some(block_below) = get_block_safe(chunk, x, y, z) {
-        if !block_below.is_solid() {
-            return; // Don't place tree on air/water
+    // Check surface and 2 blocks below to ensure stable foundation
+    for check_y in (y.saturating_sub(2))..=y {
+        if let Some(block) = get_block_safe(chunk, x, check_y, z) {
+            if !block.is_solid() {
+                return; // Don't place tree on air/water or above cave
+            }
+        } else {
+            return; // Don't place tree if we can't check
         }
-    } else {
-        return; // Don't place tree if we can't check
     }
 
     // Giant trees: 2-3 decks, each deck separated by trunk blocks
@@ -1014,9 +1020,9 @@ fn generate_giant_oak(
             for branch_idx in 0..num_branches {
                 let branch_dir = (hash / (37 + branch_idx * 7)) % 4;
 
-                // Extra long horizontal branches: bottom=6-10, upper=4-8
-                let min_len = if deck_idx == 0 { 6 } else { 4 };
-                let max_len = if deck_idx == 0 { 10 } else { 8 };
+                // Extra long horizontal branches: bottom=3-7, upper=1-5
+                let min_len = if deck_idx == 0 { 3 } else { 1 };
+                let max_len = if deck_idx == 0 { 7 } else { 5 };
                 let branch_len =
                     min_len + ((hash / (41 + branch_idx * 5)) % (max_len - min_len + 1));
 
@@ -1320,12 +1326,15 @@ fn generate_normal_pine(
     overflow_blocks: &mut Vec<OverflowBlock>,
 ) {
     // Check if there's solid ground below (no floating trees over caves)
-    if let Some(block_below) = get_block_safe(chunk, x, y, z) {
-        if !block_below.is_solid() {
-            return; // Don't place tree on air/water
+    // Check surface and 2 blocks below to ensure stable foundation
+    for check_y in (y.saturating_sub(2))..=y {
+        if let Some(block) = get_block_safe(chunk, x, check_y, z) {
+            if !block.is_solid() {
+                return; // Don't place tree on air/water or above cave
+            }
+        } else {
+            return; // Don't place tree if we can't check
         }
-    } else {
-        return; // Don't place tree if we can't check
     }
 
     // More variation: height 6-13 blocks
@@ -1386,12 +1395,15 @@ fn generate_giant_pine(
     overflow_blocks: &mut Vec<OverflowBlock>,
 ) {
     // Check if there's solid ground below (no floating trees over caves)
-    if let Some(block_below) = get_block_safe(chunk, x, y, z) {
-        if !block_below.is_solid() {
-            return; // Don't place tree on air/water
+    // Check surface and 2 blocks below to ensure stable foundation
+    for check_y in (y.saturating_sub(2))..=y {
+        if let Some(block) = get_block_safe(chunk, x, check_y, z) {
+            if !block.is_solid() {
+                return; // Don't place tree on air/water or above cave
+            }
+        } else {
+            return; // Don't place tree if we can't check
         }
-    } else {
-        return; // Don't place tree if we can't check
     }
 
     // Giant pines: single large cone, much taller
