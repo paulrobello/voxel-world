@@ -284,7 +284,8 @@ impl App {
         // Handle selection marker placement (takes priority in selection mode)
         if self.ui.template_selection.visual_mode && self.input.focused {
             if let Some(hit) = self.ui.current_hit {
-                let pos = hit.block_pos;
+                // Use placement position (adjacent to hit face) instead of block position
+                let pos = get_place_position(&hit);
 
                 // Left-click sets pos1 (green marker)
                 if self.input.mouse_pressed(MouseButton::Left) {
