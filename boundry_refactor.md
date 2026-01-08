@@ -268,20 +268,22 @@ Caves don't need refactoring because they're generated using continuous noise fu
 - ✅ Update main generation functions to return results
 - ✅ Update set_block_safe() to support overflow
 
-### Phase 2: Application Layer Integration ✅ COMPLETED (Partial)
+### Phase 2: Application Layer Integration ✅ COMPLETED
 1. ✅ Found all `generate_chunk_terrain()` callers (3 locations)
 2. ✅ Updated `src/world_init/generation.rs` (2 locations) to handle `ChunkGenerationResult`
 3. ✅ Implemented overflow block application in synchronous generation paths
-4. ⚠️ **Limitation**: `src/app/init.rs` ChunkLoader currently discards overflow blocks
-   - ChunkLoader uses async threading and is complex to update
-   - Overflow blocks work in initial world generation but not dynamic chunk loading
-   - **TODO**: Update ChunkLoader to support overflow in future enhancement
+4. ✅ Updated ChunkLoader to support overflow blocks in async chunk loading
+   - Modified `ChunkResult` to include `overflow_blocks` field
+   - Updated `ChunkLoader::new` to accept generators returning `ChunkGenerationResult`
+   - Worker threads now pass through overflow blocks from generation
+   - `world_streaming.rs` applies overflow blocks when chunks are inserted into world
+   - Overflow blocks now work in both initial world generation AND dynamic chunk loading
 
-### Phase 3: Tree Generation (High Priority) ❌ TODO
-1. Update all tree function signatures (systematic, ~15 functions)
-2. Update all set_block_safe() calls (~20+ calls)
-3. Remove boundary guards from tree placement loops
-4. Test trees spanning chunk boundaries
+### Phase 3: Tree Generation ✅ COMPLETED
+1. ✅ Updated all tree function signatures (~15 functions)
+2. ✅ Updated all set_block_safe() calls (~20+ calls)
+3. ✅ Removed boundary guards from tree placement loops (6..CHUNK_SIZE-6 -> 0..CHUNK_SIZE)
+4. ✅ Trees now spawn at chunk edges and overflow into neighbors seamlessly
 
 ### Phase 4: Cave Decorations (Medium Priority) ❌ TODO
 1. Update set_block_safe() calls in generate_cave_decorations()
