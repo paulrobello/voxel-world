@@ -150,13 +150,20 @@ fn update_block_search(
 
     // 3D spiral search (horizontal spiral at each Y level)
     // For lava specifically, focus on Y: 5-30 range in mountains
-    while search.y_offset < 128 {
+    let mut y_levels_skipped = 0;
+    while search.y_offset < 256 {
         // Alternate between below and above player
         let y = start_y + (search.y_offset * search.y_dir);
 
-        // For lava, focus on cave depths (Y < 30) - skip high elevations
-        if target_block == BlockType::Lava && !(5..=30).contains(&y) {
-            // Skip this Y level
+        // Skip Y levels outside valid range
+        let should_skip = if target_block == BlockType::Lava {
+            !(5..=30).contains(&y)
+        } else {
+            !(0..512).contains(&y)
+        };
+
+        if should_skip {
+            // Move to next Y level
             if search.y_dir == -1 {
                 search.y_dir = 1;
             } else {
@@ -164,17 +171,10 @@ fn update_block_search(
                 search.y_offset += 8;
                 search.current_radius = step; // Reset radius for next Y level
             }
-            continue;
-        }
-
-        if !(0..512).contains(&y) {
-            // Out of bounds, move to next Y level
-            if search.y_dir == -1 {
-                search.y_dir = 1;
-            } else {
-                search.y_dir = -1;
-                search.y_offset += 8;
-                search.current_radius = step; // Reset radius for next Y level
+            y_levels_skipped += 1;
+            // Yield after skipping 20 Y levels to prevent tight loop
+            if y_levels_skipped >= 20 {
+                return None;
             }
             continue;
         }
