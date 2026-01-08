@@ -28,16 +28,16 @@ ARGS ?=
 run: run-release
 
 run-no-build:
-	./target/release/voxel_world --seed 12345 $(ARGS)
+	./target/release/voxel_world --seed 123456 $(ARGS)
 
 run-release: build-release
-	./target/release/voxel_world --seed 12345 $(ARGS)
+	./target/release/voxel_world --seed 123456 $(ARGS)
 
 run-debug: build-debug
 	@echo "DYLD_LIBRARY_PATH=$(DYLD_LIBRARY_PATH)"
 	@echo "DYLD_FALLBACK_LIBRARY_PATH=$(DYLD_FALLBACK_LIBRARY_PATH)"
 	@echo "VK_ICD_FILENAMES=$(VK_ICD_FILENAMES)"
-	DYLD_LIBRARY_PATH=$(DYLD_LIBRARY_PATH) DYLD_FALLBACK_LIBRARY_PATH=$(DYLD_FALLBACK_LIBRARY_PATH) VK_ICD_FILENAMES=$(VK_ICD_FILENAMES) RUST_BACKTRACE=1 ./target/debug/voxel_world --seed 12345 $(ARGS)
+	DYLD_LIBRARY_PATH=$(DYLD_LIBRARY_PATH) DYLD_FALLBACK_LIBRARY_PATH=$(DYLD_FALLBACK_LIBRARY_PATH) VK_ICD_FILENAMES=$(VK_ICD_FILENAMES) RUST_BACKTRACE=1 ./target/debug/voxel_world --seed 123456 $(ARGS)
 
 # Profiling target (writes timestamped csv to profiles/)
 profile: run-profile
@@ -48,10 +48,10 @@ run-profile: build-release
 # Auto-profile: automated 45s test cycling through each feature flag
 # Use auto-profile-flat or auto-profile-normal for clean world tests
 auto-profile-flat: reset build-release
-	./target/release/voxel_world --auto-profile --world-gen flat --seed 12345 --fly-mode $(ARGS)
+	./target/release/voxel_world --auto-profile --world-gen flat --seed 123456 --fly-mode $(ARGS)
 
 auto-profile-normal: reset build-release
-	./target/release/voxel_world --auto-profile --world-gen normal --seed 12345 --fly-mode $(ARGS)
+	./target/release/voxel_world --auto-profile --world-gen normal --seed 123456 --fly-mode $(ARGS)
 
 # Development targets
 clean:
@@ -83,11 +83,11 @@ reset:
 
 # Create fresh flat world
 new-flat: reset build-release
-	./target/release/voxel_world --world-gen flat --seed 12345 $(ARGS)
+	./target/release/voxel_world --world-gen flat --seed 123456 $(ARGS)
 
 # Create fresh normal world
 new-normal: reset build-release
-	./target/release/voxel_world --world-gen normal --seed 12345 $(ARGS)
+	./target/release/voxel_world --world-gen normal --seed 123456 $(ARGS)
 
 # Multi-instance targets (isolated data directories)
 run-p1: build-release
