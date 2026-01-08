@@ -22,9 +22,9 @@ pub struct Rasterizer {
 
 /// A 3D vertex with position and color.
 #[derive(Clone, Copy)]
-struct Vertex {
-    pos: [f32; 3],
-    color: [u8; 4],
+pub struct Vertex {
+    pub pos: [f32; 3],
+    pub color: [u8; 4],
 }
 
 impl Rasterizer {
@@ -120,9 +120,14 @@ impl Rasterizer {
     }
 
     /// Draws a quad (two triangles) with z-buffer depth testing.
-    fn draw_quad(&mut self, v0: Vertex, v1: Vertex, v2: Vertex, v3: Vertex) {
+    pub fn draw_quad(&mut self, v0: Vertex, v1: Vertex, v2: Vertex, v3: Vertex) {
         self.draw_triangle(v0, v1, v2);
         self.draw_triangle(v0, v2, v3);
+    }
+
+    /// Gets a reference to the color buffer for image export.
+    pub fn color_buffer(&self) -> &[u8] {
+        &self.color_buffer
     }
 
     /// Draws a line with z-buffer depth testing.
@@ -912,7 +917,7 @@ pub fn generate_model_sprite(model: &SubVoxelModel, output_path: &Path) -> std::
 
     // Save to PNG
     let img: ImageBuffer<Rgba<u8>, Vec<u8>> =
-        ImageBuffer::from_raw(size as u32, size as u32, rasterizer.color_buffer.clone())
+        ImageBuffer::from_raw(size as u32, size as u32, rasterizer.color_buffer().to_vec())
             .ok_or_else(|| std::io::Error::other("Failed to create image buffer"))?;
 
     img.save(output_path)

@@ -4,8 +4,8 @@
 
 pub mod format;
 pub mod placement;
+pub mod rasterizer;
 pub mod selection;
-pub mod thumbnail;
 pub mod ui;
 
 // Re-exports for external use (will be used when integrated)

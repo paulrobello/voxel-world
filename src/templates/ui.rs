@@ -2,6 +2,7 @@
 
 use super::{TemplateInfo, TemplateLibrary, TemplateSelection};
 use egui_winit_vulkano::egui;
+use std::collections::HashMap;
 
 /// Template UI state and dialog management.
 pub struct TemplateUi {
@@ -28,6 +29,9 @@ pub struct TemplateUi {
 
     /// Search/filter text for templates.
     pub search_text: String,
+
+    /// Cached thumbnail textures (template name -> texture handle).
+    pub thumbnail_cache: HashMap<String, egui::TextureHandle>,
 }
 
 impl Default for TemplateUi {
@@ -48,6 +52,7 @@ impl TemplateUi {
             template_infos: Vec::new(),
             error_message: None,
             search_text: String::new(),
+            thumbnail_cache: HashMap::new(),
         }
     }
 
@@ -262,34 +267,71 @@ pub fn draw_template_browser(
                         for info in filtered_templates {
                             ui.group(|ui| {
                                 ui.horizontal(|ui| {
-                                    ui.heading(&info.name);
-                                    ui.with_layout(
-                                        egui::Layout::right_to_left(egui::Align::Center),
-                                        |ui| {
-                                            if ui.button("🗑 Delete").clicked() {
-                                                action = TemplateBrowserAction::DeleteTemplate(
-                                                    info.name.clone(),
-                                                );
+                                    // Display thumbnail
+                                    if let Some(ref thumb_path) = info.thumbnail_path {
+                                        // Try to get from cache first
+                                        let texture = if let Some(cached) =
+                                            ui_state.thumbnail_cache.get(&info.name)
+                                        {
+                                            Some(cached.clone())
+                                        } else {
+                                            // Load and cache
+                                            if let Some(tex) =
+                                                load_thumbnail_texture(ctx, thumb_path, &info.name)
+                                            {
+                                                ui_state
+                                                    .thumbnail_cache
+                                                    .insert(info.name.clone(), tex.clone());
+                                                Some(tex)
+                                            } else {
+                                                None
                                             }
-                                            if ui.button("📥 Load").clicked() {
-                                                action = TemplateBrowserAction::LoadTemplate(
-                                                    info.name.clone(),
-                                                );
-                                            }
-                                        },
-                                    );
+                                        };
+
+                                        if let Some(tex) = texture {
+                                            ui.image(&tex);
+                                        } else {
+                                            show_placeholder_thumbnail(ui);
+                                        }
+                                    } else {
+                                        show_placeholder_thumbnail(ui);
+                                    }
+
+                                    // Template info and buttons
+                                    ui.vertical(|ui| {
+                                        ui.horizontal(|ui| {
+                                            ui.heading(&info.name);
+                                            ui.with_layout(
+                                                egui::Layout::right_to_left(egui::Align::Center),
+                                                |ui| {
+                                                    if ui.button("🗑 Delete").clicked() {
+                                                        action =
+                                                            TemplateBrowserAction::DeleteTemplate(
+                                                                info.name.clone(),
+                                                            );
+                                                    }
+                                                    if ui.button("📥 Load").clicked() {
+                                                        action =
+                                                            TemplateBrowserAction::LoadTemplate(
+                                                                info.name.clone(),
+                                                            );
+                                                    }
+                                                },
+                                            );
+                                        });
+
+                                        ui.label(format!("Author: {}", info.author));
+                                        ui.label(format!(
+                                            "Size: {} ({} blocks)",
+                                            info.dimensions_str(),
+                                            info.block_count_str()
+                                        ));
+
+                                        if !info.tags.is_empty() {
+                                            ui.label(format!("Tags: {}", info.tags.join(", ")));
+                                        }
+                                    });
                                 });
-
-                                ui.label(format!("Author: {}", info.author));
-                                ui.label(format!(
-                                    "Size: {} ({} blocks)",
-                                    info.dimensions_str(),
-                                    info.block_count_str()
-                                ));
-
-                                if !info.tags.is_empty() {
-                                    ui.label(format!("Tags: {}", info.tags.join(", ")));
-                                }
                             });
                         }
                     });
@@ -359,4 +401,41 @@ pub fn draw_save_template_dialog(
         });
 
     result
+}
+
+/// Loads a thumbnail image as an egui texture.
+fn load_thumbnail_texture(
+    ctx: &egui::Context,
+    path: &std::path::Path,
+    name: &str,
+) -> Option<egui::TextureHandle> {
+    // Try to load the image
+    let img = match image::open(path) {
+        Ok(img) => img,
+        Err(_) => return None,
+    };
+
+    let rgba_img = img.to_rgba8();
+    let size = [rgba_img.width() as usize, rgba_img.height() as usize];
+    let pixels = rgba_img.into_raw();
+
+    let color_image = egui::ColorImage::from_rgba_unmultiplied(size, &pixels);
+    let texture = ctx.load_texture(
+        format!("thumbnail_{}", name),
+        color_image,
+        egui::TextureOptions::LINEAR,
+    );
+
+    Some(texture)
+}
+
+/// Shows a placeholder for missing thumbnails.
+fn show_placeholder_thumbnail(ui: &mut egui::Ui) {
+    ui.allocate_ui_with_layout(
+        egui::vec2(64.0, 64.0),
+        egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+        |ui| {
+            ui.colored_label(egui::Color32::from_gray(100), "📦");
+        },
+    );
 }

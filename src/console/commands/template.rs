@@ -92,6 +92,16 @@ fn template_save(
     // Save to library
     match library.save_template(&template) {
         Ok(_) => {
+            // Generate thumbnail
+            let thumbnail_path = library.get_thumbnail_path(&name);
+            if let Err(e) = crate::templates::rasterizer::generate_template_thumbnail(
+                &template,
+                &thumbnail_path,
+            ) {
+                eprintln!("[Template] Warning: Failed to generate thumbnail: {}", e);
+                // Don't fail the save operation if thumbnail generation fails
+            }
+
             let (w, h, d) = selection.dimensions().unwrap();
             CommandResult::Success(format!(
                 "Saved template '{}' ({}×{}×{}, {} blocks)",
