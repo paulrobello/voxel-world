@@ -313,6 +313,11 @@ impl ConsoleState {
                 params: &[ParamType::Text, ParamType::Text, ParamType::Text], // biome/block/cave, size/range, range
             },
             CommandSignature {
+                name: "cancel",
+                aliases: &["cancellocate"],
+                params: &[],
+            },
+            CommandSignature {
                 name: "waterdebug",
                 aliases: &["wd"],
                 params: &[],
@@ -900,6 +905,14 @@ impl ConsoleState {
             "copy" => commands::copy(args, world, player_pos, confirmed),
             "tp" | "teleport" => commands::tp(args, player_pos),
             "locate" => commands::locate(args, player_pos, terrain_generator, world),
+            "cancel" | "cancellocate" => {
+                if self.pending_locate_search.is_some() {
+                    self.pending_locate_search = None;
+                    CommandResult::Success("Locate search cancelled.".to_string())
+                } else {
+                    CommandResult::Error("No active locate search to cancel.".to_string())
+                }
+            }
             "waterdebug" | "wd" => CommandResult::FluidDebug,
             "waterforce" | "wf" => CommandResult::ForceWaterActive,
             "wateranalyze" | "wa" => CommandResult::WaterAnalyze,

@@ -57,6 +57,10 @@ pub fn help() -> CommandResult {
     Blocks: stone, water, lava, etc. (any block type)
     Cave: locate cave [min_size] [range] (default size: 50 blocks)
     Reports coordinates, distance, and direction.
+    Searches run in background and show progress updates.
+
+  cancel, cancellocate
+    Cancel an active locate search.
 
   select pos1|pos2|clear [x] [y] [z]
     Manage template region selection.
