@@ -182,7 +182,7 @@ fn update_block_search(
             } else {
                 search.y_dir = -1;
                 search.y_offset += 8;
-                search.current_radius = step; // Reset radius for next Y level
+                // Don't reset radius - let it accumulate to properly limit search distance
             }
             y_levels_skipped += 1;
             // Yield after skipping 20 Y levels to prevent tight loop
@@ -190,6 +190,11 @@ fn update_block_search(
                 return None;
             }
             continue;
+        }
+
+        // If current radius already exceeds max range, we're done searching
+        if search.current_radius > search.max_range {
+            break;
         }
 
         // Search this Y level in spiral pattern
@@ -330,7 +335,7 @@ fn update_block_search(
         } else {
             search.y_dir = -1;
             search.y_offset += 8;
-            search.current_radius = step; // Reset radius for next Y level
+            // Don't reset radius - let it accumulate to properly limit search distance
         }
     }
 
@@ -367,8 +372,13 @@ fn update_cave_search(
 
         if !(10..500).contains(&y) {
             search.y_offset += 8;
-            search.current_radius = step; // Reset radius for next Y level
+            // Don't reset radius - let it accumulate to properly limit search distance
             continue;
+        }
+
+        // If current radius already exceeds max range, we're done searching
+        if search.current_radius > search.max_range {
+            break;
         }
 
         // Search this Y level in spiral pattern
@@ -462,7 +472,7 @@ fn update_cave_search(
 
         // Move to next Y level
         search.y_offset += 8;
-        search.current_radius = step; // Reset radius for next Y level
+        // Don't reset radius - let it accumulate to properly limit search distance
     }
 
     // Search complete, not found
