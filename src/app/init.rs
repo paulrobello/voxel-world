@@ -349,7 +349,12 @@ impl App {
                 let terrain = terrain_generator.clone();
                 let storage_clone = Arc::clone(&storage);
                 ChunkLoader::new(
-                    move |pos| generate_chunk_terrain(&terrain, pos, world_gen),
+                    move |pos| {
+                        // TODO: Apply overflow blocks to world when chunk loader supports it
+                        // For now, only discard overflow blocks in async loading
+                        let result = generate_chunk_terrain(&terrain, pos, world_gen);
+                        result.chunk
+                    },
                     Some(storage_clone),
                 )
             },

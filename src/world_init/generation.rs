@@ -52,8 +52,19 @@ pub fn create_initial_world_with_seed(
                 }
 
                 if !loaded {
-                    let chunk = generate_chunk_terrain(&terrain, chunk_pos, world_gen_type);
-                    world.insert_chunk(chunk_pos, chunk);
+                    let result = generate_chunk_terrain(&terrain, chunk_pos, world_gen_type);
+
+                    // Apply overflow blocks to neighboring chunks (if they exist)
+                    for overflow in &result.overflow_blocks {
+                        // Only apply if target position is air or transparent
+                        if let Some(existing_block) = world.get_block(overflow.world_pos) {
+                            if existing_block == BlockType::Air || existing_block.is_transparent() {
+                                world.set_block(overflow.world_pos, overflow.block_type);
+                            }
+                        }
+                    }
+
+                    world.insert_chunk(chunk_pos, result.chunk);
                 }
             }
         }
@@ -74,8 +85,18 @@ pub fn create_game_world_full() -> World {
         for cy in 0..WORLD_CHUNKS_Y {
             for cz in 0..LOADED_CHUNKS_Z {
                 let chunk_pos = vector![cx, cy, cz];
-                let chunk = generate_chunk_terrain(&terrain, chunk_pos, WorldGenType::Normal);
-                world.insert_chunk(chunk_pos, chunk);
+                let result = generate_chunk_terrain(&terrain, chunk_pos, WorldGenType::Normal);
+
+                // Apply overflow blocks to neighboring chunks (if they exist)
+                for overflow in &result.overflow_blocks {
+                    if let Some(existing_block) = world.get_block(overflow.world_pos) {
+                        if existing_block == BlockType::Air || existing_block.is_transparent() {
+                            world.set_block(overflow.world_pos, overflow.block_type);
+                        }
+                    }
+                }
+
+                world.insert_chunk(chunk_pos, result.chunk);
             }
         }
     }

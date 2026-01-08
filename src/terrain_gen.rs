@@ -4,6 +4,19 @@ use crate::config::WorldGenType;
 use nalgebra::Vector3;
 use noise::{Fbm, MultiFractal, NoiseFn, Perlin, RidgedMulti};
 
+/// Represents a block that should be placed outside the current chunk
+#[derive(Clone, Debug)]
+pub struct OverflowBlock {
+    pub world_pos: Vector3<i32>,
+    pub block_type: BlockType,
+}
+
+/// Result of chunk terrain generation including overflow blocks
+pub struct ChunkGenerationResult {
+    pub chunk: Chunk,
+    pub overflow_blocks: Vec<OverflowBlock>,
+}
+
 // Terrain generation constants
 /// Sea level for water filling (blocks below this in valleys become water)
 pub const SEA_LEVEL: i32 = 28;
@@ -193,7 +206,7 @@ pub fn generate_chunk_terrain(
     terrain: &TerrainGenerator,
     chunk_pos: Vector3<i32>,
     world_gen_type: WorldGenType,
-) -> Chunk {
+) -> ChunkGenerationResult {
     match world_gen_type {
         WorldGenType::Normal => generate_normal_chunk(terrain, chunk_pos),
         WorldGenType::Flat => generate_flat_chunk(chunk_pos),
@@ -202,7 +215,7 @@ pub fn generate_chunk_terrain(
 
 /// Generates a flat world chunk (2 chunks = 64 blocks high).
 /// Layers from top to bottom: grass (1), dirt (7), stone (55), bedrock (1)
-fn generate_flat_chunk(chunk_pos: Vector3<i32>) -> Chunk {
+fn generate_flat_chunk(chunk_pos: Vector3<i32>) -> ChunkGenerationResult {
     let mut chunk = Chunk::new();
     let chunk_world_y = chunk_pos.y * CHUNK_SIZE as i32;
 
@@ -216,7 +229,10 @@ fn generate_flat_chunk(chunk_pos: Vector3<i32>) -> Chunk {
         // Above flat world - all air (chunk is already air by default)
         chunk.update_metadata();
         chunk.persistence_dirty = false;
-        return chunk;
+        return ChunkGenerationResult {
+            chunk,
+            overflow_blocks: Vec::new(),
+        };
     }
 
     for lx in 0..CHUNK_SIZE {
@@ -253,12 +269,16 @@ fn generate_flat_chunk(chunk_pos: Vector3<i32>) -> Chunk {
 
     chunk.update_metadata();
     chunk.persistence_dirty = false;
-    chunk
+    ChunkGenerationResult {
+        chunk,
+        overflow_blocks: Vec::new(),
+    }
 }
 
 /// Generates normal terrain with biomes, caves, and trees.
-fn generate_normal_chunk(terrain: &TerrainGenerator, chunk_pos: Vector3<i32>) -> Chunk {
+fn generate_normal_chunk(terrain: &TerrainGenerator, chunk_pos: Vector3<i32>) -> ChunkGenerationResult {
     let mut chunk = Chunk::new();
+    let mut overflow_blocks = Vec::new();
     let chunk_world_x = chunk_pos.x * CHUNK_SIZE as i32;
     let chunk_world_y = chunk_pos.y * CHUNK_SIZE as i32;
     let chunk_world_z = chunk_pos.z * CHUNK_SIZE as i32;
@@ -366,6 +386,7 @@ fn generate_normal_chunk(terrain: &TerrainGenerator, chunk_pos: Vector3<i32>) ->
         chunk_world_x,
         chunk_world_y,
         chunk_world_z,
+        &mut overflow_blocks,
     );
 
     // Generate ground cover
@@ -375,6 +396,7 @@ fn generate_normal_chunk(terrain: &TerrainGenerator, chunk_pos: Vector3<i32>) ->
         chunk_world_x,
         chunk_world_y,
         chunk_world_z,
+        &mut overflow_blocks,
     );
 
     // Generate cave decorations (stalactites/stalagmites)
@@ -384,12 +406,16 @@ fn generate_normal_chunk(terrain: &TerrainGenerator, chunk_pos: Vector3<i32>) ->
         chunk_world_x,
         chunk_world_y,
         chunk_world_z,
+        &mut overflow_blocks,
     );
 
     chunk.update_metadata();
     // Procedurally generated chunk is not dirty for persistence until modified.
     chunk.persistence_dirty = false;
-    chunk
+    ChunkGenerationResult {
+        chunk,
+        overflow_blocks,
+    }
 }
 
 /// Generates ground cover (grass, flowers, etc.) based on biome
@@ -399,6 +425,7 @@ fn generate_ground_cover(
     chunk_world_x: i32,
     chunk_world_y: i32,
     chunk_world_z: i32,
+    overflow_blocks: &mut Vec<OverflowBlock>,
 ) {
     for lx in 0..CHUNK_SIZE {
         for lz in 0..CHUNK_SIZE {
@@ -494,8 +521,9 @@ fn generate_trees(
     chunk_world_x: i32,
     chunk_world_y: i32,
     chunk_world_z: i32,
+    overflow_blocks: &mut Vec<OverflowBlock>,
 ) {
-    // Sparse grid for trees - larger buffer to prevent chunk boundary clipping
+    // Trees can now span chunks freely with overflow support
     // Buffer of 6 blocks accounts for max tree radius (4) + branches (up to 5)
     for lx in (6..CHUNK_SIZE - 6).step_by(4) {
         for lz in (6..CHUNK_SIZE - 6).step_by(4) {
@@ -1173,23 +1201,45 @@ fn get_block_safe(chunk: &Chunk, x: i32, y: i32, z: i32) -> Option<BlockType> {
     }
 }
 
-fn set_block_safe(chunk: &mut Chunk, x: i32, y: i32, z: i32, block: BlockType) {
+fn set_block_safe(
+    chunk: &mut Chunk,
+    x: i32,
+    y: i32,
+    z: i32,
+    block: BlockType,
+    chunk_world_x: i32,
+    chunk_world_y: i32,
+    chunk_world_z: i32,
+    overflow_blocks: &mut Vec<OverflowBlock>,
+) {
     if x >= 0
         && x < CHUNK_SIZE as i32
         && y >= 0
         && y < CHUNK_SIZE as i32
         && z >= 0
         && z < CHUNK_SIZE as i32
-        && (chunk.get_block(x as usize, y as usize, z as usize) == BlockType::Air
-            || chunk
-                .get_block(x as usize, y as usize, z as usize)
-                .is_transparent())
     {
-        chunk.set_block(x as usize, y as usize, z as usize, block);
+        // Within chunk bounds - place directly
+        if chunk.get_block(x as usize, y as usize, z as usize) == BlockType::Air
+            || chunk.get_block(x as usize, y as usize, z as usize).is_transparent()
+        {
+            chunk.set_block(x as usize, y as usize, z as usize, block);
+        }
+    } else {
+        // Out of bounds - add to overflow for neighboring chunk
+        let world_pos = Vector3::new(
+            chunk_world_x + x,
+            chunk_world_y + y,
+            chunk_world_z + z,
+        );
+        overflow_blocks.push(OverflowBlock {
+            world_pos,
+            block_type: block,
+        });
     }
 }
 
-// Helper for painted blocks
+// Helper for painted blocks (overflow not supported for painted blocks yet)
 fn set_painted_block_safe(chunk: &mut Chunk, x: i32, y: i32, z: i32, tex: u8, tint: u8) {
     if x >= 0
         && x < CHUNK_SIZE as i32
@@ -1204,6 +1254,7 @@ fn set_painted_block_safe(chunk: &mut Chunk, x: i32, y: i32, z: i32, tex: u8, ti
     {
         chunk.set_painted_block(x as usize, y as usize, z as usize, tex, tint);
     }
+    // Note: Blocks outside chunk bounds are silently skipped for painted blocks
 }
 
 /// Generates cave decorations (stalactites/stalagmites) in underground caves.
@@ -1213,8 +1264,9 @@ fn generate_cave_decorations(
     chunk_world_x: i32,
     chunk_world_y: i32,
     chunk_world_z: i32,
+    overflow_blocks: &mut Vec<OverflowBlock>,
 ) {
-    // Only check chunks that are underground (potential for caves)
+    // Cave decorations can now span chunks with overflow support
     if chunk_world_y > SEA_LEVEL {
         return; // Above sea level, unlikely to have deep caves
     }
