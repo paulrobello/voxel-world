@@ -709,10 +709,10 @@ fn generate_giant_oak(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
         );
 
         // Add branches from trunk section (not on the top deck)
-        if deck_idx < num_decks - 1 && trunk_section >= 5 {
+        if deck_idx < num_decks - 1 {
             // More branches on lower decks
-            let max_branches = if deck_idx == 0 { 3 } else { 2 };
-            let num_branches = 1 + ((hash / (31 + deck_idx)) % max_branches);
+            let max_branches = if deck_idx == 0 { 4 } else { 3 };
+            let num_branches = 2 + ((hash / (31 + deck_idx)) % max_branches);
 
             for branch_idx in 0..num_branches {
                 let branch_dir = (hash / (37 + branch_idx * 7)) % 4;
@@ -777,84 +777,65 @@ fn generate_oak_canopy(
     trunk_top_y: i32,
     shape: i32,
 ) {
-    for dy in 0..layers {
-        // Get base radius for this canopy size
-        let base_radius = match canopy_size {
-            0 => 2, // Small
-            1 => 2, // Medium
-            2 => 3, // Large
-            _ => 4, // Huge
-        };
+    // Get max radius for this canopy size
+    let max_radius = match canopy_size {
+        0 => 2.5, // Small
+        1 => 3.0, // Medium
+        2 => 4.0, // Large
+        _ => 5.0, // Huge
+    };
 
-        // Apply shape variation to radius pattern
-        let radius: i32 = match shape {
-            0 => {
-                // Tapered: classic shape
-                if canopy_size <= 1 {
-                    if dy == 0 || dy == layers - 1 { 1 } else { 2 }
-                } else if canopy_size == 2 {
-                    if dy == 0 || dy == layers - 1 {
-                        1
-                    } else if dy == 2 {
-                        3
-                    } else {
-                        2
-                    }
-                } else {
-                    // Huge
-                    if dy == layers - 1 {
-                        1
-                    } else if dy == 0 || dy == layers - 2 {
-                        2
-                    } else if dy == 2 {
-                        4
-                    } else {
-                        3
-                    }
-                }
-            }
-            1 => {
-                // Cube: consistent radius
-                if dy == 0 || dy == layers - 1 {
-                    base_radius.max(1) - 1 // Slightly smaller top/bottom
-                } else {
-                    base_radius
-                }
-            }
-            2 => {
-                // Blob: bulges in middle
-                if dy == 0 || dy == layers - 1 {
-                    base_radius.max(1) - 1
-                } else if dy == layers / 2 {
-                    base_radius + 1 // Extra wide in middle
-                } else {
-                    base_radius
-                }
-            }
-            _ => {
-                // Round: smooth taper
-                if dy == 0 || dy == layers - 1 {
-                    1
-                } else if dy < layers / 2 {
-                    (dy + 1).min(base_radius)
-                } else {
-                    (layers - dy).min(base_radius)
-                }
-            }
-        };
+    let height = layers as f32;
 
-        for dx in -radius..=radius {
-            for dz in -radius..=radius {
-                // Skip corners for rounded look
-                if dx.abs() == radius && dz.abs() == radius && radius > 1 {
-                    continue;
+    // Use spherical/ellipsoid shape instead of stacked discs
+    for dx in -(max_radius as i32)..=(max_radius as i32) {
+        for dz in -(max_radius as i32)..=(max_radius as i32) {
+            for dy in 0..layers {
+                let dist_xz_squared = (dx * dx + dz * dz) as f32;
+
+                // Normalize position within canopy (0.0 at bottom, 1.0 at top)
+                let y_norm = dy as f32 / height;
+
+                // Create ellipsoid shape: wider in middle, narrower at top/bottom
+                // Adjust radius based on height position
+                let radius_at_height = match shape {
+                    0 => {
+                        // Round/spherical - widest in middle
+                        let t = y_norm - 0.5;
+                        max_radius * (1.0 - 4.0 * t * t).max(0.3)
+                    }
+                    1 => {
+                        // Cylinder - consistent width
+                        max_radius * (1.0 - 0.3 * y_norm.abs())
+                    }
+                    2 => {
+                        // Cone - wider at bottom
+                        max_radius * (1.0 - 0.7 * y_norm)
+                    }
+                    _ => {
+                        // Inverted cone - wider at top
+                        max_radius * (0.4 + 0.6 * y_norm)
+                    }
+                };
+
+                let r_squared_at_height = radius_at_height * radius_at_height;
+
+                // Use distance check for organic shape
+                if dist_xz_squared <= r_squared_at_height {
+                    // Add some random gaps for natural look (10% chance)
+                    let hash =
+                        ((x + dx) * 73856093) ^ ((base_y + dy) * 19349663) ^ ((z + dz) * 83492791);
+                    if (hash.abs() % 10) == 0 {
+                        continue; // Skip this block for variation
+                    }
+
+                    let ly = base_y + dy;
+                    // Don't replace trunk
+                    if dx == 0 && dz == 0 && ly <= trunk_top_y {
+                        continue;
+                    }
+                    set_block_safe(chunk, x + dx, ly, z + dz, BlockType::Leaves);
                 }
-                let ly = base_y + dy;
-                // Don't replace trunk
-                if dx == 0 && dz == 0 && ly <= trunk_top_y {
-                    continue;
-                }
-                set_block_safe(chunk, x + dx, ly, z + dz, BlockType::Leaves);
             }
         }
     }
