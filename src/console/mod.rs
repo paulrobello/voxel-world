@@ -76,6 +76,15 @@ pub enum CommandResult {
     SetBiomeDebug(bool),
     /// Load template for placement.
     LoadTemplate(crate::templates::VxtFile),
+    /// Biome location found.
+    LocateBiome {
+        biome_name: String,
+        x: i32,
+        y: i32,
+        z: i32,
+        distance: i32,
+        direction: String,
+    },
 }
 
 /// Pending command awaiting confirmation.
@@ -194,6 +203,7 @@ impl ConsoleState {
     pub fn command_signatures() -> Vec<CommandSignature> {
         const HOLLOW_FLAG: &[&str] = &["hollow"];
         const BIOME_FLAGS: &[&str] = &["on", "off", "true", "false"];
+        const BIOME_NAMES: &[&str] = &["grassland", "mountains", "desert", "swamp", "snow"];
         const ROTATION_FLAGS: &[&str] = &["rotate_90", "rotate_180", "rotate_270"];
 
         vec![
@@ -253,6 +263,11 @@ impl ConsoleState {
                 name: "tp",
                 aliases: &["teleport"],
                 params: &[ParamType::CoordX, ParamType::CoordY, ParamType::CoordZ],
+            },
+            CommandSignature {
+                name: "locate",
+                aliases: &[],
+                params: &[ParamType::Flag(BIOME_NAMES), ParamType::Text], // biome, range
             },
             CommandSignature {
                 name: "waterdebug",
@@ -630,6 +645,7 @@ impl ConsoleState {
     }
 
     /// Submit the current input for execution.
+    #[allow(clippy::too_many_arguments)]
     pub fn submit(
         &mut self,
         world: &mut World,
@@ -637,6 +653,7 @@ impl ConsoleState {
         template_selection: &mut crate::templates::TemplateSelection,
         template_library: &crate::templates::TemplateLibrary,
         water_grid: &crate::water::WaterGrid,
+        terrain_generator: &crate::terrain_gen::TerrainGenerator,
     ) {
         let input = self.input.trim().to_string();
         if input.is_empty() {
@@ -663,10 +680,12 @@ impl ConsoleState {
             template_selection,
             template_library,
             water_grid,
+            terrain_generator,
         );
     }
 
     /// Execute a command string.
+    #[allow(clippy::too_many_arguments)]
     fn execute(
         &mut self,
         input: &str,
@@ -675,6 +694,7 @@ impl ConsoleState {
         template_selection: &mut crate::templates::TemplateSelection,
         template_library: &crate::templates::TemplateLibrary,
         water_grid: &crate::water::WaterGrid,
+        terrain_generator: &crate::terrain_gen::TerrainGenerator,
     ) {
         // Echo the command
         self.info(format!("> {}", input));
@@ -691,6 +711,7 @@ impl ConsoleState {
                     template_selection,
                     template_library,
                     water_grid,
+                    terrain_generator,
                 );
             } else {
                 self.info("Command cancelled.");
@@ -706,12 +727,14 @@ impl ConsoleState {
             template_selection,
             template_library,
             water_grid,
+            terrain_generator,
             false,
         );
         self.handle_result(result);
     }
 
     /// Execute a confirmed command (bypass volume check).
+    #[allow(clippy::too_many_arguments)]
     fn execute_confirmed(
         &mut self,
         input: &str,
@@ -720,6 +743,7 @@ impl ConsoleState {
         template_selection: &mut crate::templates::TemplateSelection,
         template_library: &crate::templates::TemplateLibrary,
         water_grid: &crate::water::WaterGrid,
+        terrain_generator: &crate::terrain_gen::TerrainGenerator,
     ) {
         let result = self.parse_and_execute(
             input,
@@ -728,6 +752,7 @@ impl ConsoleState {
             template_selection,
             template_library,
             water_grid,
+            terrain_generator,
             true,
         );
         self.handle_result(result);
@@ -777,6 +802,20 @@ impl ConsoleState {
                 ));
                 self.pending_template_load = Some(template);
             }
+            CommandResult::LocateBiome {
+                biome_name,
+                x,
+                y,
+                z,
+                distance,
+                direction,
+            } => {
+                self.success(format!(
+                    "{} biome found {} blocks {} at ({}, {}, {})",
+                    biome_name, distance, direction, x, y, z
+                ));
+                self.info(format!("Use 'tp {} {} {}' to teleport there", x, y, z));
+            }
         }
     }
 
@@ -790,6 +829,7 @@ impl ConsoleState {
         template_selection: &mut crate::templates::TemplateSelection,
         template_library: &crate::templates::TemplateLibrary,
         water_grid: &crate::water::WaterGrid,
+        terrain_generator: &crate::terrain_gen::TerrainGenerator,
         confirmed: bool,
     ) -> CommandResult {
         let parts: Vec<&str> = input.split_whitespace().collect();
@@ -807,6 +847,7 @@ impl ConsoleState {
             "boxme" => commands::boxme(args, world, player_pos, confirmed),
             "copy" => commands::copy(args, world, player_pos, confirmed),
             "tp" | "teleport" => commands::tp(args, player_pos),
+            "locate" => commands::locate(args, player_pos, terrain_generator),
             "waterdebug" | "wd" => CommandResult::FluidDebug,
             "waterforce" | "wf" => CommandResult::ForceWaterActive,
             "wateranalyze" | "wa" => CommandResult::WaterAnalyze,

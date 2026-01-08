@@ -250,6 +250,7 @@ impl HUDRenderer {
                 template_library,
                 water_grid,
                 active_placement,
+                terrain_generator,
             );
 
             // Template placement overlay

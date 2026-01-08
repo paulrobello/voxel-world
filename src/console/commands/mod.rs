@@ -5,6 +5,7 @@
 mod boxme;
 mod copy;
 mod fill;
+mod locate;
 mod select;
 mod sphere;
 mod template;
@@ -13,6 +14,7 @@ mod tp;
 pub use boxme::boxme;
 pub use copy::copy;
 pub use fill::fill;
+pub use locate::locate;
 #[allow(unused_imports)] // TODO: Remove once integrated with main.rs
 pub use select::select;
 pub use sphere::sphere;
@@ -45,7 +47,12 @@ pub fn help() -> CommandResult {
     Rotation flags: rotate_90, rotate_180, rotate_270
 
   tp <x> <y> <z>
-    Teleport to coordinates. Y must be 0-255.
+    Teleport to coordinates. Y must be 0-511.
+
+  locate <biome> [range]
+    Find the nearest biome within range (default: 2048 blocks).
+    Biomes: grassland, mountains, desert, swamp, snow
+    Reports coordinates, distance, and direction.
 
   select pos1|pos2|clear [x] [y] [z]
     Manage template region selection.
@@ -86,6 +93,8 @@ Examples:
   copy ~ ~ ~ ~10 ~5 ~10 ~20 ~ ~ rotate_90
   tp 100 64 200
   tp ~ ~10 ~
+  locate mountains
+  locate desert 4096
   select pos1
   select pos2 100 64 200
   select clear

@@ -21,6 +21,7 @@ impl ConsoleUI {
         template_library: &crate::templates::TemplateLibrary,
         water_grid: &crate::water::WaterGrid,
         active_placement: &mut Option<TemplatePlacement>,
+        terrain_generator: &crate::terrain_gen::TerrainGenerator,
     ) {
         if !console.active {
             return;
@@ -161,6 +162,7 @@ impl ConsoleUI {
                                 template_selection,
                                 template_library,
                                 water_grid,
+                                terrain_generator,
                             );
 
                             // Handle pending template load
