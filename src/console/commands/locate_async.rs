@@ -170,7 +170,7 @@ fn update_block_search(
 
         // Skip Y levels outside valid range
         let should_skip = if target_block == BlockType::Lava {
-            !(5..=30).contains(&y)
+            !(2..=29).contains(&y)
         } else {
             !(0..512).contains(&y)
         };
@@ -261,7 +261,7 @@ fn update_block_search(
                     }
 
                     // Check if lava would spawn here
-                    if !cave_gen.should_spawn_lava(biome, pos.y) {
+                    if !cave_gen.should_spawn_lava(pos.x, biome, pos.y, pos.z) {
                         continue;
                     }
 

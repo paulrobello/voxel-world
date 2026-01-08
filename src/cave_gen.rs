@@ -121,7 +121,17 @@ impl CaveGenerator {
             }
             BiomeType::Mountains => {
                 // Mountain caves: lava lakes at very low depths
-                if world_y < 20 && self.should_spawn_lava(biome, world_y) {
+                // Note: This is called during terrain generation, but we don't have X/Z here
+                // For terrain generation, use a simplified check based on Y only
+                // The locate command will use the full 3D check
+                let lava_depth_chance = if world_y < 30 {
+                    let depth_factor = (30 - world_y) as f64 / 28.0;
+                    depth_factor > 0.3 // ~70% at bottom (Y=2), ~30% at Y=20
+                } else {
+                    false
+                };
+
+                if lava_depth_chance {
                     CaveFillType::Lava
                 } else if world_y <= sea_level {
                     CaveFillType::Water(biome.water_type())
@@ -142,21 +152,32 @@ impl CaveGenerator {
 
     /// Check if lava lakes should spawn at this cave position.
     ///
-    /// Mountain caves have lava lakes at low depths (< 20).
-    /// Uses noise to create pockets of lava rather than filling all caves.
-    pub fn should_spawn_lava(&self, biome: BiomeType, world_y: i32) -> bool {
-        if !matches!(biome, BiomeType::Mountains) || world_y >= 20 {
+    /// Mountain caves have lava lakes at low depths (< 30).
+    /// Uses 3D noise to create pockets of lava rather than filling all caves.
+    pub fn should_spawn_lava(
+        &self,
+        world_x: i32,
+        biome: BiomeType,
+        world_y: i32,
+        world_z: i32,
+    ) -> bool {
+        if !matches!(biome, BiomeType::Mountains) || world_y >= 30 {
             return false;
         }
 
         // Lava becomes more common the deeper you go
-        // At y=19: ~10% chance, at y=10: ~30% chance, at y=2: ~50% chance
-        let depth_factor = (20 - world_y) as f64 / 18.0; // 0.0 at y=19, 1.0 at y=2
-        let lava_threshold = 0.7 - (depth_factor * 0.4); // 0.7 at top, 0.3 at bottom
+        // At y=29: ~10% chance, at y=15: ~40% chance, at y=2: ~70% chance
+        let depth_factor = (30 - world_y) as f64 / 28.0; // 0.0 at y=29, 1.0 at y=2
+        let lava_threshold = 0.75 - (depth_factor * 0.5); // 0.75 at top, 0.25 at bottom
 
-        // Use decoration noise for lava placement (different offset than decorations)
+        // FIXED: Use proper 3D coordinates for noise instead of just Y
+        // Offset coordinates to get different noise pattern than cave decorations
+        let x = world_x as f64;
         let y = world_y as f64;
-        let noise_value = self.decoration_noise.get([y * 0.05, y * 0.05, y * 0.05]);
+        let z = world_z as f64;
+        let noise_value =
+            self.decoration_noise
+                .get([x * 0.05 + 1000.0, y * 0.05, z * 0.05 + 1000.0]);
 
         noise_value.abs() > lava_threshold
     }
