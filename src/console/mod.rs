@@ -827,9 +827,10 @@ impl ConsoleState {
             }
             "select" => {
                 // Convert player_pos from i32 to f64 for the select command
+                // Note: player_pos.y is already +1 from feet position
                 let player_pos_f64 = Vector3::new(
                     player_pos.x as f64 + 0.5,
-                    player_pos.y as f64 + 1.0,
+                    player_pos.y as f64,
                     player_pos.z as f64 + 0.5,
                 );
                 commands::select(args, player_pos_f64, template_selection)

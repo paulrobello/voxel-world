@@ -149,9 +149,10 @@ impl ConsoleUI {
                     if response.lost_focus() {
                         if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                             // Submit command
+                            // Note: Y is +1 so ~ ~ ~ is one block above the ground you're standing on
                             let player_pos = Vector3::new(
                                 player_world_pos.x.floor() as i32,
-                                player_world_pos.y.floor() as i32,
+                                player_world_pos.y.floor() as i32 + 1,
                                 player_world_pos.z.floor() as i32,
                             );
                             console.submit(
