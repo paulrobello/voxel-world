@@ -194,6 +194,7 @@ impl ConsoleState {
     pub fn command_signatures() -> Vec<CommandSignature> {
         const HOLLOW_FLAG: &[&str] = &["hollow"];
         const BIOME_FLAGS: &[&str] = &["on", "off", "true", "false"];
+        const ROTATION_FLAGS: &[&str] = &["rotate_90", "rotate_180", "rotate_270"];
 
         vec![
             CommandSignature {
@@ -231,6 +232,22 @@ impl ConsoleState {
                 name: "boxme",
                 aliases: &[],
                 params: &[ParamType::Block, ParamType::Flag(HOLLOW_FLAG)],
+            },
+            CommandSignature {
+                name: "copy",
+                aliases: &[],
+                params: &[
+                    ParamType::CoordX,
+                    ParamType::CoordY,
+                    ParamType::CoordZ,
+                    ParamType::CoordX,
+                    ParamType::CoordY,
+                    ParamType::CoordZ,
+                    ParamType::CoordX,
+                    ParamType::CoordY,
+                    ParamType::CoordZ,
+                    ParamType::Flag(ROTATION_FLAGS),
+                ],
             },
             CommandSignature {
                 name: "tp",
@@ -788,6 +805,7 @@ impl ConsoleState {
             "fill" => commands::fill(args, world, player_pos, confirmed),
             "sphere" => commands::sphere(args, world, player_pos, confirmed),
             "boxme" => commands::boxme(args, world, player_pos, confirmed),
+            "copy" => commands::copy(args, world, player_pos, confirmed),
             "tp" | "teleport" => commands::tp(args, player_pos),
             "waterdebug" | "wd" => CommandResult::FluidDebug,
             "waterforce" | "wf" => CommandResult::ForceWaterActive,

@@ -3,6 +3,7 @@
 //! Each command function takes arguments and returns a `CommandResult`.
 
 mod boxme;
+mod copy;
 mod fill;
 mod select;
 mod sphere;
@@ -10,6 +11,7 @@ mod template;
 mod tp;
 
 pub use boxme::boxme;
+pub use copy::copy;
 pub use fill::fill;
 #[allow(unused_imports)] // TODO: Remove once integrated with main.rs
 pub use select::select;
@@ -36,6 +38,11 @@ pub fn help() -> CommandResult {
   boxme <block> <size>
     Create a hollow box around you (shortcut for fill hollow).
     Equivalent to: fill <block> ~-size ~ ~-size ~size ~size ~size hollow
+
+  copy <x1> <y1> <z1> <x2> <y2> <z2> <dx> <dy> <dz> [rotate_90|rotate_180|rotate_270]
+    Copy a region from source to destination with optional rotation.
+    Coordinates support ~ for relative positions.
+    Rotation flags: rotate_90, rotate_180, rotate_270
 
   tp <x> <y> <z>
     Teleport to coordinates. Y must be 0-255.
@@ -75,6 +82,8 @@ Examples:
   sphere stone ~ ~5 ~ 10
   sphere glass ~ ~ ~ 15 hollow
   boxme brick 5
+  copy 0 0 0 10 5 10 20 0 0
+  copy ~ ~ ~ ~10 ~5 ~10 ~20 ~ ~ rotate_90
   tp 100 64 200
   tp ~ ~10 ~
   select pos1
