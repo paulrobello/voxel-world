@@ -1010,7 +1010,17 @@ fn generate_pine(
     }
 }
 
-fn generate_normal_pine(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
+fn generate_normal_pine(
+    chunk: &mut Chunk,
+    x: i32,
+    y: i32,
+    z: i32,
+    hash: i32,
+    chunk_world_x: i32,
+    chunk_world_y: i32,
+    chunk_world_z: i32,
+    overflow_blocks: &mut Vec<OverflowBlock>,
+) {
     // Check if there's solid ground below (no floating trees over caves)
     if let Some(block_below) = get_block_safe(chunk, x, y, z) {
         if !block_below.is_solid() {
@@ -1039,7 +1049,7 @@ fn generate_normal_pine(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
 
     // Trunk extends to full height
     for dy in 1..height {
-        set_block_safe(chunk, x, y + dy, z, BlockType::PineLog);
+        set_block_safe(chunk, x, y + dy, z, BlockType::PineLog, chunk_world_x, chunk_world_y, chunk_world_z, overflow_blocks);
     }
     generate_pine_cone(
         chunk,
@@ -1049,10 +1059,24 @@ fn generate_normal_pine(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
         max_radius,
         cone_height,
         y + height - 1,
+        chunk_world_x,
+        chunk_world_y,
+        chunk_world_z,
+        overflow_blocks,
     );
 }
 
-fn generate_giant_pine(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
+fn generate_giant_pine(
+    chunk: &mut Chunk,
+    x: i32,
+    y: i32,
+    z: i32,
+    hash: i32,
+    chunk_world_x: i32,
+    chunk_world_y: i32,
+    chunk_world_z: i32,
+    overflow_blocks: &mut Vec<OverflowBlock>,
+) {
     // Check if there's solid ground below (no floating trees over caves)
     if let Some(block_below) = get_block_safe(chunk, x, y, z) {
         if !block_below.is_solid() {
@@ -1081,7 +1105,7 @@ fn generate_giant_pine(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
 
     // Build trunk to full height
     for dy in 1..height {
-        set_block_safe(chunk, x, y + dy, z, BlockType::PineLog);
+        set_block_safe(chunk, x, y + dy, z, BlockType::PineLog, chunk_world_x, chunk_world_y, chunk_world_z, overflow_blocks);
     }
     generate_pine_cone(
         chunk,
@@ -1091,6 +1115,10 @@ fn generate_giant_pine(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
         max_radius,
         cone_height,
         y + height - 1,
+        chunk_world_x,
+        chunk_world_y,
+        chunk_world_z,
+        overflow_blocks,
     );
 }
 
@@ -1102,6 +1130,10 @@ fn generate_pine_cone(
     max_radius: i32,
     cone_height: i32,
     trunk_top_y: i32,
+    chunk_world_x: i32,
+    chunk_world_y: i32,
+    chunk_world_z: i32,
+    overflow_blocks: &mut Vec<OverflowBlock>,
 ) {
     for dy in 0..cone_height {
         // Calculate radius with linear taper for classic pine shape
@@ -1134,21 +1166,31 @@ fn generate_pine_cone(
                 if dx == 0 && dz == 0 && ly <= trunk_top_y {
                     continue;
                 }
-                set_block_safe(chunk, x + dx, ly, z + dz, BlockType::PineLeaves);
+                set_block_safe(chunk, x + dx, ly, z + dz, BlockType::PineLeaves, chunk_world_x, chunk_world_y, chunk_world_z, overflow_blocks);
             }
         }
     }
 
     // Place tip leaf above trunk to ensure it's covered
-    set_block_safe(chunk, x, trunk_top_y + 1, z, BlockType::PineLeaves);
+    set_block_safe(chunk, x, trunk_top_y + 1, z, BlockType::PineLeaves, chunk_world_x, chunk_world_y, chunk_world_z, overflow_blocks);
 }
 
-fn generate_willow(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
+fn generate_willow(
+    chunk: &mut Chunk,
+    x: i32,
+    y: i32,
+    z: i32,
+    hash: i32,
+    chunk_world_x: i32,
+    chunk_world_y: i32,
+    chunk_world_z: i32,
+    overflow_blocks: &mut Vec<OverflowBlock>,
+) {
     let height = 4 + (hash % 3);
 
     // Trunk
     for dy in 1..=height {
-        set_block_safe(chunk, x, y + dy, z, BlockType::WillowLog);
+        set_block_safe(chunk, x, y + dy, z, BlockType::WillowLog, chunk_world_x, chunk_world_y, chunk_world_z, overflow_blocks);
     }
 
     // Wide canopy
@@ -1157,8 +1199,8 @@ fn generate_willow(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
         for dz in -3i32..=3 {
             let dist = dx.abs() + dz.abs();
             if dist <= 3 {
-                set_block_safe(chunk, x + dx, canopy_y, z + dz, BlockType::WillowLeaves);
-                set_block_safe(chunk, x + dx, canopy_y + 1, z + dz, BlockType::WillowLeaves);
+                set_block_safe(chunk, x + dx, canopy_y, z + dz, BlockType::WillowLeaves, chunk_world_x, chunk_world_y, chunk_world_z, overflow_blocks);
+                set_block_safe(chunk, x + dx, canopy_y + 1, z + dz, BlockType::WillowLeaves, chunk_world_x, chunk_world_y, chunk_world_z, overflow_blocks);
 
                 // Hanging vines
                 if dist > 1 && (hash.wrapping_add(dx * 30 + dz) % 3 == 0) {
@@ -1170,6 +1212,10 @@ fn generate_willow(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
                             canopy_y - v,
                             z + dz,
                             BlockType::WillowLeaves,
+                            chunk_world_x,
+                            chunk_world_y,
+                            chunk_world_z,
+                            overflow_blocks,
                         );
                     }
                 }
@@ -1178,7 +1224,17 @@ fn generate_willow(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
     }
 }
 
-fn generate_cactus(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
+fn generate_cactus(
+    chunk: &mut Chunk,
+    x: i32,
+    y: i32,
+    z: i32,
+    hash: i32,
+    _chunk_world_x: i32,
+    _chunk_world_y: i32,
+    _chunk_world_z: i32,
+    _overflow_blocks: &mut Vec<OverflowBlock>,
+) {
     let height = 3 + (hash % 3);
 
     // Main column (trunk)
