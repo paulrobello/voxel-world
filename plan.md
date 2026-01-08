@@ -217,9 +217,10 @@
 - [x] Template list with Load/Delete actions
 - [x] Current selection display (dimensions, block count)
 - [x] Selection mode toggle and status
-- [ ] Search/filter: by name, tags, size, date (basic list implemented)
-- [ ] Preview pane: 3D isometric view (wireframe preview during placement only)
-- [ ] Import/Export sharing (files can be manually copied)
+- [x] Search/filter: by name, tags, dimensions (real-time filtering)
+- [x] Thumbnail infrastructure (GPU-rendered, requires batch tool for generation)
+- [ ] Preview pane: 3D isometric thumbnails (infrastructure ready, needs batch generation tool)
+- [ ] Import/Export UI (files can be manually shared via user_templates/)
 
 **Technical Approach:**
 ```rust
@@ -765,23 +766,31 @@ Enter                       # Confirm placement
 /copy ~ ~ ~ ~10 ~5 ~10 ~20 ~ ~ rotate_90
 ```
 
+**Recently Added** (2026-01-07):
+- Search/filter functionality (by name, tags, dimensions)
+- Thumbnail generation infrastructure (GPU-rendered via thumbnail.rs)
+- Template metadata includes thumbnail_path
+- Delete operation now removes thumbnails too
+
 **Optional Enhancements** (future work):
-1. Search/filter in template browser (by name, tags, size)
-2. Isometric preview thumbnails (currently wireframe only)
-3. Import/Export UI (files can be manually shared via user_templates/)
+1. Batch thumbnail generation tool (similar to sprite_gen)
+2. Import/Export UI (files can be manually shared via user_templates/)
+3. Template categories/folders for better organization
 
 ---
 
 ## Done Recently
 
-- **Phase 16.1: Template Library** (2026-01-07): ✅ CORE COMPLETE
+- **Phase 16.1: Template Library** (2026-01-07): ✅ FEATURE COMPLETE
   - Visual selection system with V key toggle and shader-rendered markers
   - Copy command with rotation and full metadata preservation
   - Template save/load system (.vxt file format with zstd compression)
   - Template placement with ghost preview and frame-distributed loading
   - Template browser UI (L key) with save/load/delete actions
+  - Search/filter by name, tags, and dimensions (real-time)
+  - Thumbnail generation infrastructure (GPU-rendered, ready for batch tool)
   - Console Y coordinate fix (~ ~ ~ = feet_pos + 1)
-  - Optional enhancements remain: search/filter, isometric thumbnails
+  - Optional: Batch thumbnail tool, import/export UI
 - **Phase 15.4: Cave Biome Integration** (2026-01-07): ✅ COMPLETE
   - Cave generation module (src/cave_gen.rs) with biome-aware logic
   - 4 new cave decoration models: stalactites/stalagmites (stone and ice variants)
