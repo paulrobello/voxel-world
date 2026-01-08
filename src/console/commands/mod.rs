@@ -6,6 +6,7 @@ mod boxme;
 mod copy;
 mod fill;
 mod locate;
+mod locate_async;
 mod select;
 mod sphere;
 mod template;
@@ -15,6 +16,7 @@ pub use boxme::boxme;
 pub use copy::copy;
 pub use fill::fill;
 pub use locate::locate;
+pub use locate_async::update_locate_search;
 #[allow(unused_imports)] // TODO: Remove once integrated with main.rs
 pub use select::select;
 pub use sphere::sphere;

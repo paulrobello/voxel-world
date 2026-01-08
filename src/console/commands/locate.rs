@@ -3,7 +3,7 @@
 //! Finds the nearest occurrence of a biome, block type, or cave.
 
 use crate::chunk::BlockType;
-use crate::console::CommandResult;
+use crate::console::{CommandResult, LocateSearchType, PendingLocateSearch};
 use crate::terrain_gen::{BiomeType, TerrainGenerator};
 use crate::world::World;
 use nalgebra::Vector3;
@@ -18,8 +18,8 @@ use std::collections::{HashSet, VecDeque};
 pub fn locate(
     args: &[&str],
     player_pos: Vector3<i32>,
-    terrain: &TerrainGenerator,
-    world: &World,
+    _terrain: &TerrainGenerator,
+    _world: &World,
 ) -> CommandResult {
     if args.is_empty() {
         return CommandResult::Error(
@@ -39,7 +39,7 @@ pub fn locate(
             Ok(r) => r,
             Err(e) => return e,
         };
-        return locate_biome(biome, player_pos, terrain, range);
+        return start_locate_biome(biome, player_pos, range);
     }
 
     // Special handling for cave search
@@ -62,7 +62,7 @@ pub fn locate(
             Ok(r) => r,
             Err(e) => return e,
         };
-        return locate_cave(player_pos, world, min_size, range);
+        return start_locate_cave(player_pos, min_size, range);
     }
 
     // Try to parse as block type
@@ -72,7 +72,7 @@ pub fn locate(
                 Ok(r) => r,
                 Err(e) => return e,
             };
-            locate_block(block_type, player_pos, world, range)
+            start_locate_block(block_type, player_pos, range)
         }
         None => CommandResult::Error(format!(
             "Unknown biome or block type: '{}'\n\
@@ -112,7 +112,71 @@ fn parse_range(arg: Option<&&str>) -> Result<i32, CommandResult> {
     }
 }
 
-/// Locate a biome
+/// Start an asynchronous biome search
+fn start_locate_biome(
+    target_biome: BiomeType,
+    player_pos: Vector3<i32>,
+    max_range: i32,
+) -> CommandResult {
+    let step = 16i32;
+    CommandResult::StartLocateSearch(PendingLocateSearch {
+        search_type: LocateSearchType::Biome(target_biome),
+        player_pos,
+        max_range,
+        current_radius: step,
+        step,
+        y_offset: 0,
+        y_dir: -1,
+        best_match: None,
+        min_distance: i32::MAX,
+        positions_checked: 0,
+        positions_per_frame: 200, // Check 200 positions per frame
+    })
+}
+
+/// Start an asynchronous block search
+fn start_locate_block(
+    target_block: BlockType,
+    player_pos: Vector3<i32>,
+    max_range: i32,
+) -> CommandResult {
+    // Use smaller step for rare blocks like lava
+    let step = 2i32;
+    CommandResult::StartLocateSearch(PendingLocateSearch {
+        search_type: LocateSearchType::Block(target_block),
+        player_pos,
+        max_range,
+        current_radius: step,
+        step,
+        y_offset: 0,
+        y_dir: -1,
+        best_match: None,
+        min_distance: i32::MAX,
+        positions_checked: 0,
+        positions_per_frame: 100, // Check 100 positions per frame for block searches
+    })
+}
+
+/// Start an asynchronous cave search
+fn start_locate_cave(player_pos: Vector3<i32>, min_size: usize, max_range: i32) -> CommandResult {
+    let step = 8i32;
+    CommandResult::StartLocateSearch(PendingLocateSearch {
+        search_type: LocateSearchType::Cave(min_size),
+        player_pos,
+        max_range,
+        current_radius: step,
+        step,
+        y_offset: 8,
+        y_dir: -1,
+        best_match: None,
+        min_distance: i32::MAX,
+        positions_checked: 0,
+        positions_per_frame: 50, // Check 50 positions per frame for cave searches
+    })
+}
+
+/// Locate a biome (synchronous version for frame updates)
+#[allow(dead_code)]
 fn locate_biome(
     target_biome: BiomeType,
     player_pos: Vector3<i32>,
@@ -201,6 +265,7 @@ fn locate_biome(
 }
 
 /// Locate a specific block type
+#[allow(dead_code)]
 fn locate_block(
     target_block: BlockType,
     player_pos: Vector3<i32>,
@@ -308,6 +373,7 @@ fn locate_block(
 }
 
 /// Locate a cave (air pocket of minimum size)
+#[allow(dead_code)]
 fn locate_cave(
     player_pos: Vector3<i32>,
     world: &World,
@@ -415,6 +481,7 @@ fn locate_cave(
 }
 
 /// Measure the size of a cave using flood-fill
+#[allow(dead_code)]
 fn measure_cave_size(world: &World, start: Vector3<i32>, max_check: usize) -> usize {
     let mut visited = HashSet::new();
     let mut queue = VecDeque::new();

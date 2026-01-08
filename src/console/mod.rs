@@ -86,6 +86,8 @@ pub enum CommandResult {
         distance: i32,
         direction: String,
     },
+    /// Start an asynchronous locate search.
+    StartLocateSearch(PendingLocateSearch),
 }
 
 /// Pending command awaiting confirmation.
@@ -104,6 +106,44 @@ pub struct PendingTeleport {
     pub y: f64,
     /// Target Z coordinate.
     pub z: f64,
+}
+
+/// Type of search being performed.
+#[derive(Clone, Debug)]
+pub enum LocateSearchType {
+    /// Searching for a biome.
+    Biome(crate::terrain_gen::BiomeType),
+    /// Searching for a block type.
+    Block(crate::chunk::BlockType),
+    /// Searching for a cave of minimum size.
+    Cave(usize),
+}
+
+/// Pending locate search state for frame-distributed searching.
+#[derive(Clone)]
+pub struct PendingLocateSearch {
+    /// Type of search.
+    pub search_type: LocateSearchType,
+    /// Player position when search started.
+    pub player_pos: Vector3<i32>,
+    /// Maximum search range.
+    pub max_range: i32,
+    /// Current radius being searched.
+    pub current_radius: i32,
+    /// Step size for spiral search.
+    pub step: i32,
+    /// Current Y offset (for 3D searches).
+    pub y_offset: i32,
+    /// Current Y direction (-1 or 1).
+    pub y_dir: i32,
+    /// Best match found so far.
+    pub best_match: Option<(Vector3<i32>, usize)>, // (position, size for caves)
+    /// Minimum distance found.
+    pub min_distance: i32,
+    /// Total positions checked.
+    pub positions_checked: usize,
+    /// Positions to check per frame.
+    pub positions_per_frame: usize,
 }
 
 /// Parameter type for command autocomplete.
@@ -165,6 +205,8 @@ pub struct ConsoleState {
     pub pending_biome_debug: Option<bool>,
     /// Pending template to be loaded for placement.
     pub pending_template_load: Option<crate::templates::VxtFile>,
+    /// Pending locate search being processed frame by frame.
+    pub pending_locate_search: Option<PendingLocateSearch>,
     /// Current autocomplete suggestions.
     pub suggestions: Vec<String>,
     /// Currently selected suggestion index.
@@ -194,6 +236,7 @@ impl ConsoleState {
             pending_water_analyze: false,
             pending_biome_debug: None,
             pending_template_load: None,
+            pending_locate_search: None,
             suggestions: Vec::new(),
             suggestion_index: 0,
             move_cursor_to_end: false,
@@ -759,7 +802,7 @@ impl ConsoleState {
     }
 
     /// Handle command result.
-    fn handle_result(&mut self, result: CommandResult) {
+    pub fn handle_result(&mut self, result: CommandResult) {
         match result {
             CommandResult::Success(msg) => self.success(msg),
             CommandResult::Error(msg) => self.error(msg),
@@ -815,6 +858,15 @@ impl ConsoleState {
                     biome_name, distance, direction, x, y, z
                 ));
                 self.info(format!("Use 'tp {} {} {}' to teleport there", x, y, z));
+            }
+            CommandResult::StartLocateSearch(search) => {
+                let search_name = match &search.search_type {
+                    LocateSearchType::Biome(biome) => format!("{:?} biome", biome),
+                    LocateSearchType::Block(block) => format!("{:?} block", block),
+                    LocateSearchType::Cave(size) => format!("cave (min {} blocks)", size),
+                };
+                self.info(format!("Searching for {}...", search_name));
+                self.pending_locate_search = Some(search);
             }
         }
     }

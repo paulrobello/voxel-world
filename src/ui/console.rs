@@ -24,7 +24,72 @@ impl ConsoleUI {
         terrain_generator: &crate::terrain_gen::TerrainGenerator,
     ) {
         if !console.active {
+            // Still update pending searches even when console is closed
+            if let Some(mut search) = console.pending_locate_search.take() {
+                if let Some(result) = crate::console::commands::update_locate_search(
+                    &mut search,
+                    world,
+                    terrain_generator,
+                ) {
+                    // Search completed, handle result
+                    console.handle_result(result);
+                } else {
+                    // Still searching, keep it for next frame
+                    // Show progress update every 1000 positions
+                    if search.positions_checked % 1000 == 0 {
+                        let search_name = match &search.search_type {
+                            crate::console::LocateSearchType::Biome(biome) => {
+                                format!("{:?} biome", biome)
+                            }
+                            crate::console::LocateSearchType::Block(block) => {
+                                format!("{:?} block", block)
+                            }
+                            crate::console::LocateSearchType::Cave(size) => {
+                                format!("cave (min {} blocks)", size)
+                            }
+                        };
+                        console.info(format!(
+                            "Searching for {}... ({} positions checked)",
+                            search_name, search.positions_checked
+                        ));
+                    }
+                    console.pending_locate_search = Some(search);
+                }
+            }
             return;
+        }
+
+        // Update pending locate search if active
+        if let Some(mut search) = console.pending_locate_search.take() {
+            if let Some(result) = crate::console::commands::update_locate_search(
+                &mut search,
+                world,
+                terrain_generator,
+            ) {
+                // Search completed, handle result
+                console.handle_result(result);
+            } else {
+                // Still searching, keep it for next frame
+                // Show progress update every 1000 positions
+                if search.positions_checked % 1000 == 0 {
+                    let search_name = match &search.search_type {
+                        crate::console::LocateSearchType::Biome(biome) => {
+                            format!("{:?} biome", biome)
+                        }
+                        crate::console::LocateSearchType::Block(block) => {
+                            format!("{:?} block", block)
+                        }
+                        crate::console::LocateSearchType::Cave(size) => {
+                            format!("cave (min {} blocks)", size)
+                        }
+                    };
+                    console.info(format!(
+                        "Searching for {}... ({} positions checked)",
+                        search_name, search.positions_checked
+                    ));
+                }
+                console.pending_locate_search = Some(search);
+            }
         }
 
         let screen_rect = ctx.screen_rect();
