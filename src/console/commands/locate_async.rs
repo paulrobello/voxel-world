@@ -53,6 +53,11 @@ fn update_biome_search(
     while search.current_radius <= search.max_range {
         let radius = search.current_radius;
 
+        // Safety check: if radius exceeds max_range, stop
+        if radius > search.max_range {
+            break;
+        }
+
         // Generate positions for this radius
         let positions = [
             (-radius..=radius)
@@ -112,13 +117,21 @@ fn update_biome_search(
                 "north"
             };
 
-            return Some(CommandResult::LocateBiome {
-                biome_name: format!("{:?}", target_biome),
-                x: pos.x,
-                y: pos.y,
-                z: pos.z,
-                distance,
-                direction: direction.to_string(),
+            return Some(if search.teleport_on_find {
+                CommandResult::Teleport {
+                    x: pos.x as f64 + 0.5,
+                    y: pos.y as f64,
+                    z: pos.z as f64 + 0.5,
+                }
+            } else {
+                CommandResult::LocateBiome {
+                    biome_name: format!("{:?}", target_biome),
+                    x: pos.x,
+                    y: pos.y,
+                    z: pos.z,
+                    distance,
+                    direction: direction.to_string(),
+                }
             });
         }
 
@@ -290,13 +303,21 @@ fn update_block_search(
                     "north"
                 };
 
-                return Some(CommandResult::LocateBiome {
-                    biome_name: format!("{:?}", target_block),
-                    x: pos.x,
-                    y: pos.y,
-                    z: pos.z,
-                    distance,
-                    direction: direction.to_string(),
+                return Some(if search.teleport_on_find {
+                    CommandResult::Teleport {
+                        x: pos.x as f64 + 0.5,
+                        y: pos.y as f64,
+                        z: pos.z as f64 + 0.5,
+                    }
+                } else {
+                    CommandResult::LocateBiome {
+                        biome_name: format!("{:?}", target_block),
+                        x: pos.x,
+                        y: pos.y,
+                        z: pos.z,
+                        distance,
+                        direction: direction.to_string(),
+                    }
                 });
             }
 
@@ -418,13 +439,21 @@ fn update_cave_search(
                     "north"
                 };
 
-                return Some(CommandResult::LocateBiome {
-                    biome_name: format!("Cave ({} blocks)", cave_size),
-                    x: pos.x,
-                    y: pos.y,
-                    z: pos.z,
-                    distance,
-                    direction: direction.to_string(),
+                return Some(if search.teleport_on_find {
+                    CommandResult::Teleport {
+                        x: pos.x as f64 + 0.5,
+                        y: pos.y as f64,
+                        z: pos.z as f64 + 0.5,
+                    }
+                } else {
+                    CommandResult::LocateBiome {
+                        biome_name: format!("Cave ({} blocks)", cave_size),
+                        x: pos.x,
+                        y: pos.y,
+                        z: pos.z,
+                        distance,
+                        direction: direction.to_string(),
+                    }
                 });
             }
 

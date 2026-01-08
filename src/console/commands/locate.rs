@@ -23,15 +23,19 @@ pub fn locate(
 ) -> CommandResult {
     if args.is_empty() {
         return CommandResult::Error(
-            "Usage: locate <biome|block|cave> [range]\n\
+            "Usage: locate <biome|block|cave> [range] [tp]\n\
              Biomes: grassland, mountains, desert, swamp, snow\n\
              Blocks: stone, dirt, water, lava, etc.\n\
-             Cave: locate cave [min_size] [range]"
+             Cave: locate cave [min_size] [range] [tp]\n\
+             tp flag: teleport to location when found"
                 .to_string(),
         );
     }
 
     let search_term = args[0].to_lowercase();
+
+    // Check for teleport flag (can be anywhere after the first arg)
+    let teleport = args.iter().any(|&arg| arg.to_lowercase() == "tp");
 
     // Try to parse as biome first
     if let Some(biome) = parse_biome(&search_term) {
@@ -39,7 +43,7 @@ pub fn locate(
             Ok(r) => r,
             Err(e) => return e,
         };
-        return start_locate_biome(biome, player_pos, range);
+        return start_locate_biome(biome, player_pos, range, teleport);
     }
 
     // Special handling for cave search
@@ -62,7 +66,7 @@ pub fn locate(
             Ok(r) => r,
             Err(e) => return e,
         };
-        return start_locate_cave(player_pos, min_size, range);
+        return start_locate_cave(player_pos, min_size, range, teleport);
     }
 
     // Try to parse as block type
@@ -72,7 +76,7 @@ pub fn locate(
                 Ok(r) => r,
                 Err(e) => return e,
             };
-            start_locate_block(block_type, player_pos, range)
+            start_locate_block(block_type, player_pos, range, teleport)
         }
         None => CommandResult::Error(format!(
             "Unknown biome or block type: '{}'\n\
@@ -117,6 +121,7 @@ fn start_locate_biome(
     target_biome: BiomeType,
     player_pos: Vector3<i32>,
     max_range: i32,
+    teleport: bool,
 ) -> CommandResult {
     let step = 16i32;
     CommandResult::StartLocateSearch(PendingLocateSearch {
@@ -132,6 +137,7 @@ fn start_locate_biome(
         positions_checked: 0,
         positions_per_frame: 200, // Check 200 positions per frame
         relevant_biomes_found: 0,
+        teleport_on_find: teleport,
     })
 }
 
@@ -140,6 +146,7 @@ fn start_locate_block(
     target_block: BlockType,
     player_pos: Vector3<i32>,
     max_range: i32,
+    teleport: bool,
 ) -> CommandResult {
     // Use larger step for lava (biome-specific), smaller for other blocks
     let step = if target_block == BlockType::Lava {
@@ -160,11 +167,17 @@ fn start_locate_block(
         positions_checked: 0,
         positions_per_frame: 100, // Check 100 positions per frame for block searches
         relevant_biomes_found: 0,
+        teleport_on_find: teleport,
     })
 }
 
 /// Start an asynchronous cave search
-fn start_locate_cave(player_pos: Vector3<i32>, min_size: usize, max_range: i32) -> CommandResult {
+fn start_locate_cave(
+    player_pos: Vector3<i32>,
+    min_size: usize,
+    max_range: i32,
+    teleport: bool,
+) -> CommandResult {
     let step = 8i32;
     CommandResult::StartLocateSearch(PendingLocateSearch {
         search_type: LocateSearchType::Cave(min_size),
@@ -179,6 +192,7 @@ fn start_locate_cave(player_pos: Vector3<i32>, min_size: usize, max_range: i32) 
         positions_checked: 0,
         positions_per_frame: 50, // Check 50 positions per frame for cave searches
         relevant_biomes_found: 0,
+        teleport_on_find: teleport,
     })
 }
 
