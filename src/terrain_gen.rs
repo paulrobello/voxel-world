@@ -834,16 +834,12 @@ fn generate_normal_oak(
         y + height - 2 - trunk_offset // Taller trees can have longer trunk
     };
 
-    // Ensure canopy top is at least 1 above trunk
-    let canopy_top = canopy_base + layers - 1;
-    let tree_top = if canopy_top < y + height {
-        canopy_top + 1 // Extend tree to ensure leaves cover trunk
-    } else {
-        y + height
-    };
+    // Trunk should stop at canopy_base to ensure it's fully covered by leaves
+    // The canopy generation will skip center column up to trunk_top_y
+    let trunk_top = canopy_base;
 
-    // Trunk - stops 1 block before top so leaves cover it
-    for dy in 1..tree_top {
+    // Trunk - extends to canopy base
+    for dy in 1..trunk_top {
         set_block_safe(
             chunk,
             x,
@@ -859,7 +855,7 @@ fn generate_normal_oak(
 
     // Add 1-2 branches for taller trees with large canopies
     if height >= 7 && canopy_size == 2 && (hash % 3) == 0 {
-        let branch_y = tree_top - 3;
+        let branch_y = trunk_top - 3;
         let num_branches = 1 + ((hash / 43) % 2); // 1-2 branches
 
         for branch_idx in 0..num_branches {
@@ -916,7 +912,7 @@ fn generate_normal_oak(
         z,
         canopy_size,
         layers,
-        tree_top - 1,
+        trunk_top - 1,
         canopy_shape,
         chunk_world_x,
         chunk_world_y,
