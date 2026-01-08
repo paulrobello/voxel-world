@@ -280,8 +280,13 @@ impl TemplatePlacement {
         }
 
         // Update each type based on its neighbors
-        for pos in stair_positions {
-            world.update_stair_shape_at(pos);
+        // For stairs, do multiple passes to ensure correct shape propagation
+        // This is necessary because stair shape depends on neighbor shapes,
+        // and a single pass might not be enough for complex configurations
+        for _ in 0..3 {
+            for pos in &stair_positions {
+                world.update_stair_shape_at(*pos);
+            }
         }
 
         for pos in fence_positions {
