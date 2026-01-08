@@ -245,8 +245,8 @@ bool renderTemplatePreview(vec3 origin, vec3 dir, inout vec3 color, float sceneH
     // Distance to nearest block edge on each axis (0 at edge, 0.5 at center)
     vec3 gridDist = min(gridPos, 1.0 - gridPos);
 
-    // Grid line width
-    float gridWidth = 0.04;
+    // Grid line width (wider for better visibility)
+    float gridWidth = 0.05;
 
     // Check if we're near a block edge on at least 2 axes (shows edges, not full faces)
     // This creates the "wireframe cube" effect for each voxel
@@ -259,8 +259,7 @@ bool renderTemplatePreview(vec3 origin, vec3 dir, inout vec3 color, float sceneH
     float gridLine = numNearEdges >= 2.0 ? 1.0 : 0.0;
 
     // Combine bounding box wireframe with grid lines
-    // Grid lines are slightly dimmer than the bounding box
-    float wireframe = max(boxWireframe, gridLine * 0.6);
+    float wireframe = max(boxWireframe, gridLine);
 
     // Template preview color - green tint
     vec3 templateColor = vec3(0.3, 1.0, 0.3);
@@ -268,8 +267,9 @@ bool renderTemplatePreview(vec3 origin, vec3 dir, inout vec3 color, float sceneH
     // Pulse animation
     float pulse = 0.85 + 0.15 * sin(pc.animation_time * 3.0);
 
-    // More opaque at wireframe edges, semi-transparent in between
-    float alpha = mix(0.08, 0.9, wireframe) * pulse;
+    // ONLY show grid lines - make non-grid areas completely transparent
+    // This prevents the solid cube appearance
+    float alpha = wireframe > 0.5 ? 0.85 * pulse : 0.0;
 
     color = mix(color, templateColor, alpha);
     return true;
