@@ -179,22 +179,48 @@ impl TerrainGenerator {
         // Detail noise for subtle variation
         let detail = self.detail_noise.get([x * 0.02, z * 0.02]);
 
-        // Get dominant biome for height calculation
-        let biome = self.get_biome(world_x, world_z);
+        // Sample neighboring biomes for smooth blending
+        let blend_radius = 16; // Blend over ~16 blocks
+        let samples = [
+            (world_x, world_z, 1.0),                // Center (higher weight)
+            (world_x + blend_radius, world_z, 0.5), // East
+            (world_x - blend_radius, world_z, 0.5), // West
+            (world_x, world_z + blend_radius, 0.5), // South
+            (world_x, world_z - blend_radius, 0.5), // North
+            (world_x + blend_radius / 2, world_z + blend_radius / 2, 0.3), // SE
+            (world_x - blend_radius / 2, world_z + blend_radius / 2, 0.3), // SW
+            (world_x + blend_radius / 2, world_z - blend_radius / 2, 0.3), // NE
+            (world_x - blend_radius / 2, world_z - blend_radius / 2, 0.3), // NW
+        ];
 
-        let height = match biome {
-            BiomeType::Grassland => 128.0 + detail * 2.0 + base * 4.0,
-            BiomeType::Mountains => 128.0 + base * 10.0 + ridges * 55.0,
-            BiomeType::Desert => 128.0 + detail * 1.0 + base * 2.0,
-            BiomeType::Swamp => 124.0 + detail * 1.0,
-            BiomeType::Snow => {
-                if base > 0.5 {
-                    128.0 + base * 8.0 + ridges * 40.0 // Snowy peaks
-                } else {
-                    128.0 + detail * 2.0 // Tundra
+        // Accumulate weighted heights from neighboring biomes
+        let mut total_height = 0.0;
+        let mut total_weight = 0.0;
+
+        for (sample_x, sample_z, weight) in samples.iter() {
+            let sample_biome = self.get_biome(*sample_x, *sample_z);
+
+            // Calculate height for this biome
+            let biome_height = match sample_biome {
+                BiomeType::Grassland => 128.0 + detail * 2.0 + base * 4.0,
+                BiomeType::Mountains => 128.0 + base * 10.0 + ridges * 55.0,
+                BiomeType::Desert => 128.0 + detail * 1.0 + base * 2.0,
+                BiomeType::Swamp => 124.0 + detail * 1.0,
+                BiomeType::Snow => {
+                    if base > 0.5 {
+                        128.0 + base * 8.0 + ridges * 40.0 // Snowy peaks
+                    } else {
+                        128.0 + detail * 2.0 // Tundra
+                    }
                 }
-            }
-        };
+            };
+
+            total_height += biome_height * weight;
+            total_weight += weight;
+        }
+
+        // Normalize by total weight to get blended height
+        let height = total_height / total_weight;
 
         height.round() as i32
     }
