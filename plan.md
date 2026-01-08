@@ -191,9 +191,13 @@
 - [ ] Storage: `user_templates/` directory
 
 **16.1.2 Template Selection & Copy**
-- [ ] Selection mode: left-click first corner, right-click second corner (wireframe preview)
-- [ ] Console command: `/template copy <name>` after selecting region
-- [ ] Include all block types, metadata, water states, sub-voxel models
+- [x] Selection mode: V key toggle, left-click pos1, right-click pos2 (green/blue markers + yellow wireframe)
+- [x] Visual HUD overlay showing selection status and dimensions
+- [x] Console command: `/copy <x1> <y1> <z1> <x2> <y2> <z2> <dx> <dy> <dz> [rotate_90|rotate_180|rotate_270]`
+- [x] Include all block types, metadata, water states, sub-voxel models
+- [x] Rotation support (90°, 180°, 270° around Y-axis)
+- [x] Volume confirmation for large operations (>volume threshold)
+- [ ] Template save/load system (file format implementation pending)
 - [ ] Maximum size: 128×128×128 blocks (enforced with warning)
 
 **16.1.3 Template Placement**
@@ -693,62 +697,62 @@ git commit -m "type: description"
 
 ## Current Work (2026-01-07)
 
-**Status**: Phase 15.4 (Cave Biome Integration) ✅ COMPLETE
+**Status**: Phase 16.1 (Template Library - Selection & Copy) 🚧 IN PROGRESS
 
 **Recent Work:**
-- **Cave Generation Module** (src/cave_gen.rs):
-  - Extracted cave logic into dedicated module from terrain_gen
-  - Implemented biome-aware cave density multipliers
-  - Added CaveFillType enum for biome-specific cave contents
-  - Created decoration placement system with noise-based spawning
-  - Implemented depth-based lava spawn probability
-- **Cave Decorations** (4 new models: IDs 106-109):
-  - Created stalactite and stalagmite sub-voxel models (8³ resolution)
-  - Ice variants for snow biome caves
-  - Stone variants for other biomes
-  - ~15% spawn rate on cave ceilings and floors
-- **Biome-Specific Cave Rules**:
-  - Mountains: 1.5x cave density, lava lakes at depth <20 (10-50% chance based on depth)
-  - Desert: 0.6x density, always dry (no water)
-  - Swamp: 0.8x density, heavily flooded (water up to sea_level+5)
-  - Snow: 0.9x density, ice stalactites/stalagmites
-  - Grassland: 1.0x density (baseline)
-- **Code Quality**:
-  - Updated FIRST_CUSTOM_MODEL_ID from 106 to 110
-  - Updated CLAUDE.md with new model IDs
-  - All tests passing (106/106)
+- **Visual Selection System**:
+  - V key toggles selection mode (with HUD indicator)
+  - Left-click places green pos1 marker, right-click places blue pos2 marker
+  - Yellow wireframe box shows selection bounds in real-time
+  - Selection markers use placement position (adjacent to hit face)
+  - Top-center HUD overlay shows selection status and dimensions
+  - Shader-rendered markers and wireframe (overlays.glsl)
+- **Copy Command** (src/console/commands/copy.rs):
+  - Syntax: `/copy <x1> <y1> <z1> <x2> <y2> <z2> <dx> <dy> <dz> [rotate_90|rotate_180|rotate_270]`
+  - Preserves all block metadata (models, tinted glass, painted blocks, water types)
+  - Y-axis rotation support (90°, 180°, 270°)
+  - Volume confirmation for large operations (>threshold)
+  - Relative coordinate support with `~`
+  - Autocomplete integration
+- **Console Y Coordinate Fix**:
+  - `~ ~ ~` now refers to one block above the ground (feet_pos + 1)
+  - Removed duplicate Y adjustments in select command
+  - All console commands use consistent player position
 
 **Testing Guide:**
-To test cave features in-game, use these commands:
 ```bash
-# Create a fresh world with normal generation
-make new-normal
+# Enter selection mode
+V key
 
-# Enable biome debug overlay to find specific biomes
-/biome_debug on
+# Place markers visually (click on blocks)
+Left-click: set pos1 (green marker)
+Right-click: set pos2 (blue marker)
 
-# Teleport to specific heights to explore caves
-/tp ~ 15 ~    # Mid-depth caves
-/tp ~ 10 ~    # Deep caves (lava zone in mountains)
+# Or use console with coordinates
+/select pos1 ~ ~ ~
+/select pos2 ~10 ~5 ~10
 
-# Fly mode recommended for cave exploration
+# Copy region to new location
+/copy ~ ~ ~ ~10 ~5 ~10 ~20 ~ ~
+
+# Copy with rotation
+/copy 0 64 0 10 69 10 30 64 0 rotate_90
 ```
 
-**Expected Cave Features by Biome:**
-- **Grassland**: Normal cave density, water below sea level (y≤28), stone stalactites/stalagmites
-- **Mountains**: Dense caves (1.5x), lava lakes below y=20, stone decorations
-- **Desert**: Sparse caves (0.6x), always dry, stone decorations
-- **Swamp**: Moderate caves (0.8x), heavily flooded (up to y=33), stone decorations
-- **Snow**: Normal caves (0.9x), water below sea level, ice stalactites/stalagmites
-
 **Next Actions:**
-1. Consider Phase 16: Building Tools System
-2. Optional: Add glowing mushrooms to swamp caves (future enhancement)
+1. Implement template save/load system (.vxt file format)
+2. Add template library UI (L key browser)
+3. Implement template placement with ghost preview
 
 ---
 
 ## Done Recently
 
+- **Phase 16.1: Template Selection & Copy** (2026-01-07): 🚧 PARTIAL
+  - Visual selection system with V key toggle and shader-rendered markers
+  - Copy command with rotation and metadata preservation
+  - Console Y coordinate fix (~ ~ ~ = feet_pos + 1)
+  - Template save/load and placement system pending
 - **Phase 15.4: Cave Biome Integration** (2026-01-07): ✅ COMPLETE
   - Cave generation module (src/cave_gen.rs) with biome-aware logic
   - 4 new cave decoration models: stalactites/stalagmites (stone and ice variants)
