@@ -278,10 +278,12 @@ impl App {
                 player_data.position[2],
             )
         } else {
-            let spawn_x = 0;
-            let spawn_z = 0;
-            let spawn_y = find_ground_level(&world, spawn_x, spawn_z);
-            Vector3::new(spawn_x as f64, spawn_y as f64 + 1.0, spawn_z as f64)
+            let spawn_y = find_ground_level(&world, spawn_block_x, spawn_block_z);
+            Vector3::new(
+                spawn_block_x as f64,
+                spawn_y as f64 + 1.0,
+                spawn_block_z as f64,
+            )
         };
 
         let mut player = Player::new(spawn_pos, texture_origin, world_extent, args.fly_mode);

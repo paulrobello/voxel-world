@@ -51,6 +51,8 @@ pub struct Player {
     pub sprint_mode: bool,
     pub auto_jump: bool,
     pub light_enabled: bool,
+    /// Spawn position in world coordinates (for respawning when falling out of world)
+    spawn_pos: Vector3<f64>,
 }
 
 impl Player {
@@ -87,6 +89,7 @@ impl Player {
             sprint_mode: false,
             auto_jump: true,
             light_enabled: false,
+            spawn_pos,
         }
     }
 
@@ -427,11 +430,8 @@ impl Player {
         self.set_feet_pos(feet, world_extent, texture_origin);
     }
 
-    pub fn get_spawn_pos(&self, world: &World) -> Vector3<f64> {
-        let spawn_x = 0;
-        let spawn_z = 0;
-        let spawn_y = crate::world_init::find_ground_level(world, spawn_x, spawn_z);
-        Vector3::new(spawn_x as f64, spawn_y as f64 + 1.0, spawn_z as f64)
+    pub fn get_spawn_pos(&self, _world: &World) -> Vector3<f64> {
+        self.spawn_pos
     }
 
     pub fn check_collision(
