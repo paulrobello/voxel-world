@@ -100,7 +100,7 @@ const vec3 TINT_PALETTE[32] = vec3[32](
 // World/chunk sizes (must mirror Rust)
 const uint CHUNK_SIZE = 32;
 const uint CHUNKS_X = 16;
-const uint CHUNKS_Y = 4;
+const uint CHUNKS_Y = 8;  // Must match WORLD_CHUNKS_Y in constants.rs (8 × 32 = 256 blocks)
 const uint CHUNKS_Z = 16;
 
 // Brick metadata
