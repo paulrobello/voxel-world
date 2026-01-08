@@ -307,14 +307,14 @@ pub struct PushConstants {
     pub falling_block_count: u32,
     pub show_water_sources: u32,
     pub water_source_count: u32,
+    pub template_block_count: u32,
     pub template_preview_min_x: i32,
     pub template_preview_min_y: i32,
     pub template_preview_min_z: i32,
     pub template_preview_max_x: i32,
     pub template_preview_max_y: i32,
     pub template_preview_max_z: i32,
-    pub _padding0: u32, // Align camera_pos to 16 bytes
-    pub camera_pos: [f32; 4],
+    pub camera_pos: [f32; 4], // Already 16-byte aligned at offset 272
 }
 
 pub fn get_swapchain_images(
@@ -665,8 +665,17 @@ pub struct GpuWaterSource {
     pub position: [f32; 4],
 }
 
-/// Creates storage buffers and descriptor set for particle, falling block, and water source data.
-/// All share set index 3: particles at binding 0, falling blocks at binding 1, water sources at binding 2.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct GpuTemplateBlock {
+    /// Position XYZ + unused W
+    pub position: [f32; 4],
+}
+
+pub const MAX_TEMPLATE_BLOCKS: usize = 256;
+
+/// Creates storage buffers and descriptor set for particle, falling block, water source, and template block data.
+/// All share set index 3: particles at binding 0, falling blocks at binding 1, water sources at binding 2, template blocks at binding 3.
 #[allow(clippy::type_complexity)]
 pub fn get_particle_and_falling_block_set(
     memory_allocator: Arc<StandardMemoryAllocator>,
@@ -676,6 +685,7 @@ pub fn get_particle_and_falling_block_set(
     Subbuffer<[particles::GpuParticle]>,
     Subbuffer<[GpuFallingBlock]>,
     Subbuffer<[GpuWaterSource]>,
+    Subbuffer<[GpuTemplateBlock]>,
     Arc<DescriptorSet>,
 ) {
     use particles::{GpuParticle, MAX_PARTICLES};
@@ -687,6 +697,8 @@ pub fn get_particle_and_falling_block_set(
         make_storage_buffer::<GpuFallingBlock>(&memory_allocator, MAX_FALLING_BLOCKS as u64);
     let water_source_buffer =
         make_storage_buffer::<GpuWaterSource>(&memory_allocator, MAX_WATER_SOURCES as u64);
+    let template_block_buffer =
+        make_storage_buffer::<GpuTemplateBlock>(&memory_allocator, MAX_TEMPLATE_BLOCKS as u64);
 
     // Create descriptor set at set index 3 with all buffers
     let descriptor_set = make_set(
@@ -697,6 +709,7 @@ pub fn get_particle_and_falling_block_set(
             WriteDescriptorSet::buffer(0, particle_buffer.clone()),
             WriteDescriptorSet::buffer(1, falling_block_buffer.clone()),
             WriteDescriptorSet::buffer(2, water_source_buffer.clone()),
+            WriteDescriptorSet::buffer(3, template_block_buffer.clone()),
         ],
     );
 
@@ -704,6 +717,7 @@ pub fn get_particle_and_falling_block_set(
         particle_buffer,
         falling_block_buffer,
         water_source_buffer,
+        template_block_buffer,
         descriptor_set,
     )
 }

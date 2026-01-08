@@ -1,0 +1,99 @@
+cargo build --release
+    Finished `release` profile [optimized] target(s) in 0.15s
+./target/release/voxel_world --seed 12345 
+[Prefs] Loaded user preferences from ./user_prefs.json
+[Launcher] Loading world: 'default'
+[Storage] Loaded world metadata. Seed: 12345, WorldGen: Flat
+[Region] Reading chunk (-1, 1, 0) from sector 9 (count 1)
+[Region] Reading chunk (-1, 2, 0) from sector 8 (count 1)
+[Region] Reading chunk (0, 1, -1) from sector 8 (count 1)
+[Region] Reading chunk (0, 1, 0) from sector 8 (count 1)
+[Region] Reading chunk (0, 2, 0) from sector 9 (count 1)
+Initial world created with 904 chunks
+Loaded texture: 1728x64 from "/Users/probello/Repos/voxel_world/textures/texture_atlas.png"
+[DEBUG] Torch model created:
+  - Voxel count: 48/512
+  - Collision mask: 0x0000666666660000
+  - Resolution: Low
+Loaded 1 custom models from library
+[DEBUG] Packing 111 models for GPU atlas
+[DEBUG] Model ID 1 (torch): packed 384 non-zero voxels from Low resolution (inline resampling)
+[DEBUG]   Sample atlas voxel at (22,6,6): 1
+[DEBUG] Total atlas size: 1048576 bytes
+[DEBUG] >>> USING FIXED INLINE RESAMPLING CODE <<<
+[DEBUG] Uploaded 1048576 bytes of atlas data to GPU
+Voxel Game started! Click to focus, then use WASD to move, mouse to look, left/right click to edit blocks.
+[DEBUG] Packing 111 models for GPU atlas
+[DEBUG] Model ID 1 (torch): packed 384 non-zero voxels from Low resolution (inline resampling)
+[DEBUG]   Sample atlas voxel at (22,6,6): 1
+[DEBUG] Total atlas size: 1048576 bytes
+[DEBUG] >>> USING FIXED INLINE RESAMPLING CODE <<<
+[DEBUG] Uploaded 1048576 bytes of atlas data to GPU
+[STATS] FPS: 83 (12.0ms) | Win: 1200x1080 Render: 1200x1080 | Chunks: 1000 | Gen: 0 | Pos: (-2.2, 65.6, -1.5)
+[PROFILE] ChunkLoad: 0.17ms | Upload: 0.00ms (904 chunks) | Metadata: 0.02ms | Render: 9.01ms
+[STATS] FPS: 118 (8.5ms) | Win: 1200x1080 Render: 1200x1080 | Chunks: 1000 | Gen: 0 | Pos: (-2.2, 65.6, -1.5)
+[PROFILE] ChunkLoad: 0.04ms | Upload: 0.00ms (0 chunks) | Metadata: 0.00ms | Render: 8.39ms
+[STATS] FPS: 118 (8.5ms) | Win: 1200x1080 Render: 1200x1080 | Chunks: 1000 | Gen: 0 | Pos: (-2.2, 65.6, -1.5)
+[PROFILE] ChunkLoad: 0.04ms | Upload: 0.00ms (0 chunks) | Metadata: 0.00ms | Render: 8.37ms
+[STATS] FPS: 119 (8.4ms) | Win: 1200x1080 Render: 1200x1080 | Chunks: 1000 | Gen: 0 | Pos: (-2.2, 65.6, -1.5)
+[PROFILE] ChunkLoad: 0.04ms | Upload: 0.00ms (0 chunks) | Metadata: 0.00ms | Render: 8.37ms
+[STATS] FPS: 116 (8.6ms) | Win: 1200x1080 Render: 1200x1080 | Chunks: 1000 | Gen: 0 | Pos: (-2.2, 65.6, -1.5)
+[PROFILE] ChunkLoad: 0.05ms | Upload: 0.00ms (0 chunks) | Metadata: 0.00ms | Render: 8.51ms
+[STATS] FPS: 117 (8.5ms) | Win: 1200x1080 Render: 1200x1080 | Chunks: 1000 | Gen: 0 | Pos: (-2.2, 65.6, -1.5)
+[PROFILE] ChunkLoad: 0.04ms | Upload: 0.00ms (0 chunks) | Metadata: 0.00ms | Render: 8.48ms
+[STATS] FPS: 115 (8.7ms) | Win: 1200x1080 Render: 1200x1080 | Chunks: 1000 | Gen: 0 | Pos: (-2.2, 65.6, -1.5)
+[PROFILE] ChunkLoad: 0.05ms | Upload: 0.00ms (0 chunks) | Metadata: 0.00ms | Render: 8.59ms
+Focus click...
+Focus complete - cursor will be grabbed
+Cursor grabbed and hidden (native macOS API)
+[STATS] FPS: 113 (8.8ms) | Win: 1200x1080 Render: 1200x1080 | Chunks: 1000 | Gen: 0 | Pos: (-2.2, 64.8, -1.5)
+[PROFILE] ChunkLoad: 0.05ms | Upload: 0.00ms (0 chunks) | Metadata: 0.00ms | Render: 8.37ms
+[STATS] FPS: 135 (7.4ms) | Win: 1200x1080 Render: 1200x1080 | Chunks: 1000 | Gen: 0 | Pos: (-3.7, 64.0, -3.0)
+[PROFILE] ChunkLoad: 0.04ms | Upload: 0.00ms (0 chunks) | Metadata: 0.00ms | Render: 7.32ms
+[STATS] FPS: 120 (8.3ms) | Win: 1200x1080 Render: 1200x1080 | Chunks: 1000 | Gen: 0 | Pos: (-3.7, 64.0, -3.0)
+[PROFILE] ChunkLoad: 0.05ms | Upload: 0.00ms (1 chunks) | Metadata: 0.00ms | Render: 8.19ms
+[STATS] FPS: 111 (9.0ms) | Win: 1200x1080 Render: 1200x1080 | Chunks: 1000 | Gen: 0 | Pos: (-3.7, 64.0, -3.0)
+[PROFILE] ChunkLoad: 0.04ms | Upload: 0.02ms (7 chunks) | Metadata: 0.00ms | Render: 8.81ms
+[STATS] FPS: 116 (8.6ms) | Win: 1200x1080 Render: 1200x1080 | Chunks: 1000 | Gen: 0 | Pos: (-3.7, 64.0, -3.0)
+[PROFILE] ChunkLoad: 0.04ms | Upload: 0.00ms (1 chunks) | Metadata: 0.00ms | Render: 8.48ms
+[STATS] FPS: 126 (7.9ms) | Win: 1200x1080 Render: 1200x1080 | Chunks: 1000 | Gen: 0 | Pos: (-5.3, 64.0, -3.2)
+[PROFILE] ChunkLoad: 0.04ms | Upload: 0.00ms (1 chunks) | Metadata: 0.00ms | Render: 7.80ms
+Template browser: ON
+Cursor released and shown (native macOS API)
+[STATS] FPS: 122 (8.2ms) | Win: 1200x1080 Render: 1200x1080 | Chunks: 1000 | Gen: 0 | Pos: (-5.3, 64.0, -2.3)
+[PROFILE] ChunkLoad: 0.04ms | Upload: 0.00ms (0 chunks) | Metadata: 0.00ms | Render: 8.06ms
+[STATS] FPS: 125 (8.0ms) | Win: 1200x1080 Render: 1200x1080 | Chunks: 1000 | Gen: 0 | Pos: (-5.3, 64.0, -2.3)
+[PROFILE] ChunkLoad: 0.04ms | Upload: 0.00ms (0 chunks) | Metadata: 0.00ms | Render: 7.72ms
+Loaded template 'P' (5×6×3, 10 blocks)
+Template placement ready. Use R to rotate, Right Click to confirm placement.
+[STATS] FPS: 127 (7.9ms) | Win: 1200x1080 Render: 1200x1080 | Chunks: 1000 | Gen: 0 | Pos: (-5.3, 64.0, -2.3)
+[PROFILE] ChunkLoad: 0.04ms | Upload: 0.00ms (0 chunks) | Metadata: 0.00ms | Render: 7.74ms
+Focus click...
+Focus complete - cursor will be grabbed
+Cursor grabbed and hidden (native macOS API)
+[STATS] FPS: 133 (7.5ms) | Win: 1200x1080 Render: 1200x1080 | Chunks: 1000 | Gen: 0 | Pos: (-5.3, 64.0, -2.3)
+[PROFILE] ChunkLoad: 0.05ms | Upload: 0.00ms (0 chunks) | Metadata: 0.00ms | Render: 7.39ms
+Rotated template to 90°
+[STATS] FPS: 133 (7.5ms) | Win: 1200x1080 Render: 1200x1080 | Chunks: 1000 | Gen: 0 | Pos: (-5.3, 64.0, -2.3)
+[PROFILE] ChunkLoad: 0.04ms | Upload: 0.00ms (0 chunks) | Metadata: 0.00ms | Render: 7.43ms
+[STATS] FPS: 136 (7.4ms) | Win: 1200x1080 Render: 1200x1080 | Chunks: 1000 | Gen: 0 | Pos: (-5.3, 64.0, -2.3)
+[PROFILE] ChunkLoad: 0.04ms | Upload: 0.00ms (0 chunks) | Metadata: 0.00ms | Render: 7.22ms
+Stair: local(1,2,1) model_id 30 (Some(Straight)) rot 1 -> world(-6,66,2) model_id 30 rot 2
+Stair: local(1,4,1) model_id 28 (Some(Straight)) rot 1 -> world(-6,68,2) model_id 28 rot 2
+Placed 2 stairs (shapes preserved from template)
+Placed template 'P' (10 blocks) at (-8, 64, 2)
+[STATS] FPS: 143 (7.0ms) | Win: 1200x1080 Render: 1200x1080 | Chunks: 1000 | Gen: 0 | Pos: (-5.3, 64.0, -2.3)
+[PROFILE] ChunkLoad: 0.04ms | Upload: 0.00ms (1 chunks) | Metadata: 0.00ms | Render: 6.94ms
+[STATS] FPS: 123 (8.1ms) | Win: 1200x1080 Render: 1200x1080 | Chunks: 1040 | Gen: 0 | Pos: (-1.5, 64.0, -0.2)
+[PROFILE] ChunkLoad: 0.07ms | Upload: 0.00ms (0 chunks) | Metadata: 0.00ms | Render: 7.98ms
+[STATS] FPS: 120 (8.3ms) | Win: 1200x1080 Render: 1200x1080 | Chunks: 1040 | Gen: 0 | Pos: (0.7, 64.0, -1.5)
+[PROFILE] ChunkLoad: 0.10ms | Upload: 0.00ms (0 chunks) | Metadata: 0.01ms | Render: 8.18ms
+Unfocused - cursor will be released
+Cursor released and shown (native macOS API)
+[STATS] FPS: 120 (8.3ms) | Win: 1200x1080 Render: 1200x1080 | Chunks: 1040 | Gen: 0 | Pos: (0.7, 64.0, -1.5)
+[PROFILE] ChunkLoad: 0.05ms | Upload: 0.00ms (0 chunks) | Metadata: 0.00ms | Render: 8.19ms
+[STATS] FPS: 121 (8.3ms) | Win: 1200x1080 Render: 1200x1080 | Chunks: 1040 | Gen: 0 | Pos: (0.7, 64.0, -1.5)
+[PROFILE] ChunkLoad: 0.05ms | Upload: 0.00ms (0 chunks) | Metadata: 0.00ms | Render: 8.13ms
+[Storage] Saving world before exit...
+[Storage] Saved 1 chunks to disk
+[Prefs] Saving user preferences...

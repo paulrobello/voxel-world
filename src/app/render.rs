@@ -304,6 +304,24 @@ impl App {
             )
         };
 
+        // Populate template block buffer if a template is being placed
+        let template_block_count = if let Some(ref placement) = self.ui.active_placement {
+            let block_positions = placement.get_preview_blocks(gpu_resources::MAX_TEMPLATE_BLOCKS);
+            let count = block_positions.len();
+
+            let mut write = self.graphics.template_block_buffer.write().unwrap();
+            for (i, pos) in block_positions.iter().enumerate() {
+                // Convert world coordinates to texture coordinates
+                let tex_pos = world_to_tex(*pos);
+                write[i] = gpu_resources::GpuTemplateBlock {
+                    position: [tex_pos.0 as f32, tex_pos.1 as f32, tex_pos.2 as f32, 0.0],
+                };
+            }
+            count as u32
+        } else {
+            0
+        };
+
         let (break_x, break_y, break_z) = self
             .ui
             .breaking_block
@@ -451,6 +469,7 @@ impl App {
             falling_block_count: self.sim.falling_blocks.count() as u32,
             show_water_sources: self.ui.settings.show_water_sources as u32,
             water_source_count,
+            template_block_count,
             template_preview_min_x: {
                 if let Some(ref placement) = self.ui.active_placement {
                     let (min, _) = placement.get_bounding_box();
@@ -499,7 +518,6 @@ impl App {
                     -1
                 }
             },
-            _padding0: 0,
             camera_pos: {
                 let cam = self
                     .sim

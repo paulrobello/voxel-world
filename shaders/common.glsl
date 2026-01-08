@@ -159,14 +159,14 @@ layout(push_constant) uniform PushConstants {
     uint falling_block_count;
     uint show_water_sources;
     uint water_source_count;
+    uint template_block_count;
     int template_preview_min_x;
     int template_preview_min_y;
     int template_preview_min_z;
     int template_preview_max_x;
     int template_preview_max_y;
     int template_preview_max_z;
-    uint _padding0; // Align camera_pos to 16 bytes
-    vec4 camera_pos; // world-space camera position
+    vec4 camera_pos; // world-space camera position (already 16-byte aligned at offset 272)
 } pc;
 
 // Particles (set 3)
@@ -193,6 +193,14 @@ struct WaterSource {
 };
 layout(set = 3, binding = 2) readonly buffer WaterSourceBuffer {
     WaterSource water_sources[];
+};
+
+// Template preview block positions (shares particle set)
+struct TemplateBlock {
+    vec4 position;  // xyz = block world position, w = unused
+};
+layout(set = 3, binding = 3) readonly buffer TemplateBlockBuffer {
+    TemplateBlock template_blocks[];
 };
 
 // Point lights (set 4)

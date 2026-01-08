@@ -180,93 +180,70 @@ bool renderPreviewBlock(vec3 origin, vec3 dir, inout vec3 color, float sceneHitD
     return true;
 }
 
-// Helper function to get distance to nearest box edge (for wireframe)
-float getBoxEdgeDistance(vec3 p, vec3 boxMin, vec3 boxMax) {
+// Helper function to detect box edges (where 2+ axes are at boundaries)
+float getBoxEdgeWireframe(vec3 p, vec3 boxMin, vec3 boxMax) {
     // Get local position within box (0 to 1)
     vec3 localPos = (p - boxMin) / (boxMax - boxMin);
 
     // Distance to edges on each axis
     vec3 dist = min(localPos, 1.0 - localPos);
 
-    // Get distance to nearest edge (considering we're on a face)
-    float edgeWidth = 0.015; // Thinner edges for box
-
-    // Find which face we're on and get edge distance
-    float minDist = min(min(dist.x, dist.y), dist.z);
-
-    return minDist / edgeWidth;
-}
-
-// Render template placement bounding box preview
-bool renderTemplatePreview(vec3 origin, vec3 dir, inout vec3 color, float sceneHitDistance) {
-    if (!hasTemplatePreview()) return false;
-
-    vec3 boxMin = vec3(pc.template_preview_min_x, pc.template_preview_min_y, pc.template_preview_min_z);
-    vec3 boxMax = vec3(pc.template_preview_max_x, pc.template_preview_max_y, pc.template_preview_max_z);
-
-    // Ray-box intersection
-    vec3 invDir = 1.0 / dir;
-    vec3 t0s = (boxMin - origin) * invDir;
-    vec3 t1s = (boxMax - origin) * invDir;
-
-    vec3 tsmaller = min(t0s, t1s);
-    vec3 tbigger = max(t0s, t1s);
-
-    float tmin = max(max(tsmaller.x, tsmaller.y), tsmaller.z);
-    float tmax = min(min(tbigger.x, tbigger.y), tbigger.z);
-
-    if (tmax < 0.0 || tmin > tmax || tmin > sceneHitDistance) {
-        return false;
-    }
-
-    // Use entry point for rendering
-    float t = max(tmin, 0.0);
-    vec3 hitPoint = origin + dir * t;
-
-    // Determine which face was hit
-    vec3 hitNormal = vec3(0.0);
-    vec3 epsilon = vec3(0.001);
-    if (abs(hitPoint.x - boxMin.x) < epsilon.x) hitNormal = vec3(-1.0, 0.0, 0.0);
-    else if (abs(hitPoint.x - boxMax.x) < epsilon.x) hitNormal = vec3(1.0, 0.0, 0.0);
-    else if (abs(hitPoint.y - boxMin.y) < epsilon.y) hitNormal = vec3(0.0, -1.0, 0.0);
-    else if (abs(hitPoint.y - boxMax.y) < epsilon.y) hitNormal = vec3(0.0, 1.0, 0.0);
-    else if (abs(hitPoint.z - boxMin.z) < epsilon.z) hitNormal = vec3(0.0, 0.0, -1.0);
-    else if (abs(hitPoint.z - boxMax.z) < epsilon.z) hitNormal = vec3(0.0, 0.0, 1.0);
-
-    // Simple voxel grid: show edges at integer coordinates
-    vec3 localPos = hitPoint - boxMin;
-
-    // Get fractional parts
-    vec3 frac = fract(localPos + 0.0001); // Small offset to avoid precision issues
-
-    // Detect edges: close to 0 means we're near a grid line
-    float edgeWidth = 0.1;
-    vec3 isEdge = vec3(
-        (frac.x < edgeWidth || frac.x > 1.0 - edgeWidth) ? 1.0 : 0.0,
-        (frac.y < edgeWidth || frac.y > 1.0 - edgeWidth) ? 1.0 : 0.0,
-        (frac.z < edgeWidth || frac.z > 1.0 - edgeWidth) ? 1.0 : 0.0
+    // Detect which axes are near boundaries
+    float edgeThreshold = 0.02;
+    vec3 isAtEdge = vec3(
+        (dist.x < edgeThreshold) ? 1.0 : 0.0,
+        (dist.y < edgeThreshold) ? 1.0 : 0.0,
+        (dist.z < edgeThreshold) ? 1.0 : 0.0
     );
 
-    // Show edge if we're on at least 2 grid lines (corners and edges of cubes)
-    float numEdges = isEdge.x + isEdge.y + isEdge.z;
-    float showGrid = (numEdges >= 2.0) ? 1.0 : 0.0;
+    // Show wireframe only where at least 2 axes are at boundaries (actual edges, not faces)
+    float numEdges = isAtEdge.x + isAtEdge.y + isAtEdge.z;
+    return (numEdges >= 2.0) ? 1.0 : 0.0;
+}
 
-    // Bounding box edges
-    float boxEdgeDist = getBoxEdgeDistance(hitPoint, boxMin, boxMax);
-    float boxWireframe = 1.0 - smoothstep(0.0, 1.0, boxEdgeDist);
+// Render template placement as solid holographic blocks
+bool renderTemplatePreview(vec3 origin, vec3 dir, inout vec3 color, float sceneHitDistance) {
+    if (pc.template_block_count == 0) return false;
 
-    // Combine
-    float wireframe = max(showGrid, boxWireframe);
+    // Iterate through each template block and check for ray intersection
+    bool anyHit = false;
+    float closestT = sceneHitDistance;
+    vec3 closestColor = color;
 
-    // Green color with pulse
-    vec3 templateColor = vec3(0.3, 1.0, 0.3);
-    float pulse = 0.85 + 0.15 * sin(pc.animation_time * 3.0);
+    for (uint i = 0; i < pc.template_block_count; i++) {
+        vec3 blockPos = template_blocks[i].position.xyz;
 
-    // Show wireframe bright, everything else dim
-    float alpha = mix(0.05, 0.9, wireframe) * pulse;
+        // Ray-AABB intersection for this block
+        vec3 blockMin = blockPos;
+        vec3 blockMax = blockPos + vec3(1.0);
 
-    color = mix(color, templateColor, alpha);
-    return true;
+        vec3 invDir = 1.0 / dir;
+        vec3 t0s = (blockMin - origin) * invDir;
+        vec3 t1s = (blockMax - origin) * invDir;
+
+        vec3 tsmaller = min(t0s, t1s);
+        vec3 tbigger = max(t0s, t1s);
+
+        float tmin = max(max(tsmaller.x, tsmaller.y), tsmaller.z);
+        float tmax = min(min(tbigger.x, tbigger.y), tbigger.z);
+
+        if (tmax >= 0.0 && tmin <= tmax && tmin < closestT) {
+            closestT = tmin;
+            anyHit = true;
+        }
+    }
+
+    if (anyHit) {
+        // Render as semi-transparent holographic block
+        vec3 templateColor = vec3(0.3, 1.0, 0.3);
+        float pulse = 0.7 + 0.3 * sin(pc.animation_time * 3.0);
+        float alpha = 0.5 * pulse;
+
+        color = mix(color, templateColor, alpha);
+        return true;
+    }
+
+    return false;
 }
 
 // Render water/lava source debug markers

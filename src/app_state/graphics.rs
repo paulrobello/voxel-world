@@ -43,6 +43,7 @@ pub struct Graphics {
     pub brick_and_model_set: Arc<DescriptorSet>,
     pub falling_block_buffer: Subbuffer<[GpuFallingBlock]>,
     pub water_source_buffer: Subbuffer<[gpu_resources::GpuWaterSource]>,
+    pub template_block_buffer: Subbuffer<[gpu_resources::GpuTemplateBlock]>,
     pub voxel_image: Arc<Image>,
     pub model_atlas_8: Arc<Image>,
     pub model_atlas_16: Arc<Image>,

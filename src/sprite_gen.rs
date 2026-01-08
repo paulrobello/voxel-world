@@ -88,12 +88,17 @@ pub fn run(_args: &Args, event_loop: &EventLoop<()>) -> Result<(), Box<dyn Error
         &texture_path,
     );
 
-    let (_particle_buffer, _falling_block_buffer, _water_source_buffer, particle_set) =
-        get_particle_and_falling_block_set(
-            memory_allocator.clone(),
-            descriptor_set_allocator.clone(),
-            &render_pipeline,
-        );
+    let (
+        _particle_buffer,
+        _falling_block_buffer,
+        _water_source_buffer,
+        _template_block_buffer,
+        particle_set,
+    ) = get_particle_and_falling_block_set(
+        memory_allocator.clone(),
+        descriptor_set_allocator.clone(),
+        &render_pipeline,
+    );
 
     let (_light_buffer, light_set) = get_light_set(
         memory_allocator.clone(),
@@ -597,13 +602,13 @@ fn render_icon(
         falling_block_count: 0,
         show_water_sources: 0,
         water_source_count: 0,
+        template_block_count: 0,
         template_preview_min_x: -1,
         template_preview_min_y: -1,
         template_preview_min_z: -1,
         template_preview_max_x: -1,
         template_preview_max_y: -1,
         template_preview_max_z: -1,
-        _padding0: 0,
         camera_pos: [
             cam_world.x as f32,
             cam_world.y as f32,

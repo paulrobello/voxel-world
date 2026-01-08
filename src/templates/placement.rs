@@ -261,32 +261,30 @@ impl TemplatePlacement {
                     {
                         let final_rotation = self.apply_model_rotation(model_data.rotation);
 
-                        // For stairs in rotated templates, reset to Straight shape
-                        // Shapes are world-relative and will be recalculated after placement
-                        let model_id = if self.rotation != 0
-                            && crate::sub_voxel::ModelRegistry::is_stairs_model(model_data.model_id)
-                        {
-                            use crate::sub_voxel::{ModelRegistry, StairShape};
-                            let is_inverted =
-                                ModelRegistry::is_stairs_inverted(model_data.model_id);
-                            let straight_id =
-                                ModelRegistry::stairs_model_id(StairShape::Straight, is_inverted);
+                        // Preserve model_id and just update rotation
+                        // Stair shapes are relative to facing direction, so they rotate correctly
+                        if crate::sub_voxel::ModelRegistry::is_stairs_model(model_data.model_id) {
+                            use crate::sub_voxel::ModelRegistry;
+                            let original_shape = ModelRegistry::stairs_shape(model_data.model_id);
                             println!(
-                                "Resetting stair from model_id {} to {} (Straight) at ({}, {}, {})",
+                                "Stair: local({},{},{}) model_id {} ({:?}) rot {} -> world({},{},{}) model_id {} rot {}",
+                                block.x,
+                                block.y,
+                                block.z,
                                 model_data.model_id,
-                                straight_id,
+                                original_shape,
+                                model_data.rotation,
                                 world_pos.x,
                                 world_pos.y,
-                                world_pos.z
+                                world_pos.z,
+                                model_data.model_id,
+                                final_rotation
                             );
-                            straight_id
-                        } else {
-                            model_data.model_id
-                        };
+                        }
 
                         world.set_model_block(
                             world_pos,
-                            model_id,
+                            model_data.model_id,
                             final_rotation,
                             model_data.waterlogged,
                         );
@@ -372,17 +370,13 @@ impl TemplatePlacement {
         }
 
         // Update each type based on its neighbors
-        // For stairs, do multiple passes to ensure correct shape propagation
-        // This is necessary because stair shape depends on neighbor shapes,
-        // and a single pass might not be enough for complex configurations
-        //
-        // DEBUG: Print stair positions being updated
-        println!("Updating {} stair positions", stair_positions.len());
-        for _ in 0..5 {
-            for pos in &stair_positions {
-                world.update_stair_shape_at(*pos);
-                world.update_adjacent_stair_shapes(*pos);
-            }
+        // Note: Stairs preserve their shapes from the template (shapes are relative to
+        // facing direction), so we skip stair shape recalculation
+        if !stair_positions.is_empty() {
+            println!(
+                "Placed {} stairs (shapes preserved from template)",
+                stair_positions.len()
+            );
         }
 
         for pos in fence_positions {

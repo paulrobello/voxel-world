@@ -206,13 +206,18 @@ impl App {
             &texture_path,
         );
 
-        // Create particle, falling block, and water source buffers (share set 3)
-        let (particle_buffer, falling_block_buffer, water_source_buffer, particle_set) =
-            get_particle_and_falling_block_set(
-                vk.memory_allocator.clone(),
-                vk.descriptor_set_allocator.clone(),
-                &render_pipeline,
-            );
+        // Create particle, falling block, water source, and template block buffers (share set 3)
+        let (
+            particle_buffer,
+            falling_block_buffer,
+            water_source_buffer,
+            template_block_buffer,
+            particle_set,
+        ) = get_particle_and_falling_block_set(
+            vk.memory_allocator.clone(),
+            vk.descriptor_set_allocator.clone(),
+            &render_pipeline,
+        );
 
         // Create light buffer and descriptor set
         let (light_buffer, light_set) = get_light_set(
@@ -315,6 +320,7 @@ impl App {
             brick_and_model_set,
             falling_block_buffer,
             water_source_buffer,
+            template_block_buffer,
             voxel_image,
             model_atlas_8,
             model_atlas_16,
