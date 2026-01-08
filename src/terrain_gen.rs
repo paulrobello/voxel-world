@@ -717,9 +717,9 @@ fn generate_giant_oak(chunk: &mut Chunk, x: i32, y: i32, z: i32, hash: i32) {
             for branch_idx in 0..num_branches {
                 let branch_dir = (hash / (37 + branch_idx * 7)) % 4;
 
-                // Longer horizontal branches: bottom=4-7, upper=3-6
-                let min_len = if deck_idx == 0 { 4 } else { 3 };
-                let max_len = if deck_idx == 0 { 7 } else { 6 };
+                // Extra long horizontal branches: bottom=6-10, upper=4-8
+                let min_len = if deck_idx == 0 { 6 } else { 4 };
+                let max_len = if deck_idx == 0 { 10 } else { 8 };
                 let branch_len =
                     min_len + ((hash / (41 + branch_idx * 5)) % (max_len - min_len + 1));
 
