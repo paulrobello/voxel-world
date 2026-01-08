@@ -183,12 +183,12 @@ impl TemplatePlacement {
         let rx = x as i32 - cx;
         let rz = z as i32 - cz;
 
-        // Apply Y-axis rotation
+        // Apply Y-axis rotation (clockwise when viewed from above)
         let (tx, tz) = match self.rotation {
             0 => (rx, rz),   // 0°
-            1 => (-rz, rx),  // 90°
+            1 => (rz, -rx),  // 90° clockwise
             2 => (-rx, -rz), // 180°
-            3 => (rz, -rx),  // 270°
+            3 => (-rz, rx),  // 270° clockwise
             _ => (rx, rz),   // Invalid, default to 0°
         };
 
@@ -495,16 +495,16 @@ mod tests {
     fn test_apply_rotation_90() {
         let template = create_test_template();
         let mut placement = TemplatePlacement::new(template, Vector3::new(0, 0, 0));
-        placement.set_rotation(1); // 90°
+        placement.set_rotation(1); // 90° clockwise
 
-        // 90° rotation: (x, z) -> (-z, x) relative to center
+        // 90° clockwise rotation: (x, z) -> (z, -x) relative to center
         let offset = placement.apply_rotation(0, 0, 0); // Top-left corner
         // This should rotate to a different corner
         // Center is (1, 1), corner (0, 0) is (-1, -1) relative to center
-        // After 90°: (-z, x) = (1, -1) relative to center
-        // Back to coords: (1+1, 1+(-1)) = (2, 0)
-        assert_eq!(offset.x, 2);
-        assert_eq!(offset.z, 0);
+        // After 90° clockwise: (z, -x) = (-1, 1) relative to center
+        // Back to coords: (1+(-1), 1+1) = (0, 2)
+        assert_eq!(offset.x, 0);
+        assert_eq!(offset.z, 2);
     }
 
     #[test]
