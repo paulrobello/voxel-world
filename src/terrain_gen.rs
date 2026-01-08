@@ -194,9 +194,9 @@ impl TerrainGenerator {
             } else {
                 (BiomeType::Swamp, None, 0.0)
             }
-        } else if base_height > 0.6 {
-            // Mountains biome
-            let blend = Self::smoothstep(0.6, 0.6 + BLEND_WIDTH, base_height);
+        } else if base_height > 0.3 {
+            // Mountains biome (lowered threshold from 0.6 to 0.3 for more mountains)
+            let blend = Self::smoothstep(0.3, 0.3 + BLEND_WIDTH, base_height);
             if blend < 0.99 {
                 // Transition to grassland
                 (
