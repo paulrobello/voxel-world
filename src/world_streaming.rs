@@ -374,22 +374,12 @@ impl App {
         for result in completed {
             // Get model metadata before inserting chunk
             let model_metadata = result.chunk.to_model_metadata();
-            // Insert chunk into world
-            self.sim.world.insert_chunk(result.position, result.chunk);
 
-            // Apply overflow blocks to neighboring chunks (if they exist)
-            for overflow in &result.overflow_blocks {
-                // Only apply if target position is air or transparent
-                if let Some(existing_block) = self.sim.world.get_block(overflow.world_pos) {
-                    if existing_block == crate::chunk::BlockType::Air
-                        || existing_block.is_transparent()
-                    {
-                        self.sim
-                            .world
-                            .set_block(overflow.world_pos, overflow.block_type);
-                    }
-                }
-            }
+            // Apply overflow blocks (immediate if chunk exists, pending if not)
+            self.sim.world.apply_overflow_blocks(result.overflow_blocks);
+
+            // Insert chunk into world (will also apply any pending overflow for this chunk)
+            self.sim.world.insert_chunk(result.position, result.chunk);
 
             chunks_to_upload.push((result.position, result.block_data, model_metadata));
             loaded += 1;

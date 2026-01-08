@@ -2,6 +2,7 @@
 
 use super::{ChunkPos, WorldPos};
 use crate::chunk::{BlockModelData, BlockType, CHUNK_SIZE, Chunk};
+use crate::terrain_gen::OverflowBlock;
 use nalgebra::vector;
 use std::collections::{HashMap, HashSet};
 
@@ -17,6 +18,10 @@ pub struct World {
 
     /// Height cache for minimap: (x, z) -> (block_type, height)
     pub(super) minimap_height_cache: HashMap<(i32, i32), (BlockType, i32)>,
+
+    /// Pending overflow blocks waiting for their target chunks to be loaded.
+    /// Key: target chunk position, Value: blocks to place in that chunk
+    pub(super) pending_overflow: HashMap<ChunkPos, Vec<OverflowBlock>>,
 }
 
 impl Default for World {
@@ -33,6 +38,7 @@ impl World {
             dirty_chunks: Vec::new(),
             dirty_set: HashSet::new(),
             minimap_height_cache: HashMap::new(),
+            pending_overflow: HashMap::new(),
         }
     }
 
@@ -82,7 +88,19 @@ impl World {
     }
 
     /// Inserts a chunk at the given position.
-    pub fn insert_chunk(&mut self, chunk_pos: ChunkPos, chunk: Chunk) {
+    pub fn insert_chunk(&mut self, chunk_pos: ChunkPos, mut chunk: Chunk) {
+        // Apply any pending overflow blocks for this chunk position
+        if let Some(overflow_blocks) = self.pending_overflow.remove(&chunk_pos) {
+            for overflow in overflow_blocks {
+                let local = Self::world_to_local(overflow.world_pos);
+                let existing_block = chunk.get_block(local.0, local.1, local.2);
+                // Only place if target is air or transparent
+                if existing_block == BlockType::Air || existing_block.is_transparent() {
+                    chunk.set_block(local.0, local.1, local.2, overflow.block_type);
+                }
+            }
+        }
+
         self.chunks.insert(chunk_pos, chunk);
         self.push_dirty(chunk_pos);
 
@@ -411,5 +429,29 @@ impl World {
         self.get_block(world_pos)
             .map(|b| b.is_solid())
             .unwrap_or(false)
+    }
+
+    /// Applies overflow blocks to the world.
+    /// - If target chunk exists: applies immediately and marks chunk dirty
+    /// - If target chunk doesn't exist: stores in pending_overflow for later application
+    pub fn apply_overflow_blocks(&mut self, overflow_blocks: Vec<OverflowBlock>) {
+        for overflow in overflow_blocks {
+            let chunk_pos = Self::world_to_chunk(overflow.world_pos);
+
+            if self.has_chunk(chunk_pos) {
+                // Target chunk exists - apply immediately
+                if let Some(existing_block) = self.get_block(overflow.world_pos) {
+                    if existing_block == BlockType::Air || existing_block.is_transparent() {
+                        self.set_block(overflow.world_pos, overflow.block_type);
+                    }
+                }
+            } else {
+                // Target chunk doesn't exist yet - store for later
+                self.pending_overflow
+                    .entry(chunk_pos)
+                    .or_default()
+                    .push(overflow);
+            }
+        }
     }
 }
