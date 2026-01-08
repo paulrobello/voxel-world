@@ -863,10 +863,18 @@ fn generate_giant_oak(
         current_y += layers;
     }
 
-    let total_height = current_y - y;
+    // Find the highest canopy base to determine where trunk should stop
+    let highest_canopy_base = deck_positions
+        .iter()
+        .map(|(canopy_y, _, _, _, _)| *canopy_y)
+        .max()
+        .unwrap_or(y);
 
-    // Build continuous trunk - stops 1 block before top so leaves cover it
-    for dy in 1..total_height {
+    // Trunk should stop at the base of the highest canopy
+    let trunk_top = highest_canopy_base;
+
+    // Build continuous trunk - stops at highest canopy base so leaves can cover it
+    for dy in 1..trunk_top {
         set_block_safe(
             chunk,
             x,
@@ -890,7 +898,7 @@ fn generate_giant_oak(
             z,
             canopy_size,
             layers,
-            total_height + y - 1,
+            trunk_top - 1,
             deck_shape,
             chunk_world_x,
             chunk_world_y,
