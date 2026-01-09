@@ -165,6 +165,12 @@ fn update_block_search(
     // For lava specifically, focus on Y: 5-30 range in mountains
     let mut y_levels_skipped = 0;
     while search.y_offset < 256 {
+        // CRITICAL: Check termination FIRST, before skipping Y levels
+        // If we've exceeded max range, stop searching regardless of Y level
+        if search.current_radius > search.max_range {
+            break;
+        }
+
         // Alternate between below and above player
         let y = start_y + (search.y_offset * search.y_dir);
 
@@ -190,11 +196,6 @@ fn update_block_search(
                 return None;
             }
             continue;
-        }
-
-        // If current radius already exceeds max range, we're done searching
-        if search.current_radius > search.max_range {
-            break;
         }
 
         // Search this Y level in spiral pattern
@@ -368,17 +369,17 @@ fn update_cave_search(
 
     // Search underground primarily
     while search.y_offset < 256 {
+        // CRITICAL: Check termination FIRST, before skipping Y levels
+        if search.current_radius > search.max_range {
+            break;
+        }
+
         let y = start_y - search.y_offset; // Search downward
 
         if !(10..500).contains(&y) {
             search.y_offset += 8;
             // Don't reset radius - let it accumulate to properly limit search distance
             continue;
-        }
-
-        // If current radius already exceeds max range, we're done searching
-        if search.current_radius > search.max_range {
-            break;
         }
 
         // Search this Y level in spiral pattern
