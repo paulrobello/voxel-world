@@ -155,7 +155,7 @@ impl Default for Settings {
             instant_place: true,
             break_cooldown_duration: 0.5,
             place_cooldown_duration: 0.5,
-            collision_enabled_fly: true,
+            collision_enabled_fly: false,
         }
     }
 }
