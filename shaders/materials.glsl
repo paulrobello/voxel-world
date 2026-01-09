@@ -18,6 +18,41 @@ const uint TEX_MUD = 24;
 const uint TEX_SANDSTONE = 25;
 const uint TEX_ICE = 26;
 
+// Map BlockType enum values to texture atlas positions
+// This is needed because enum values don't directly correspond to atlas positions
+uint blockTypeToAtlasIndex(uint blockType) {
+    // Blocks 0-16 map directly (Air through Bedrock)
+    if (blockType <= BLOCK_BEDROCK) {
+        return blockType;
+    }
+
+    // Special cases for blocks that share textures or have no texture
+    switch (blockType) {
+        case BLOCK_TINTED_GLASS:
+            return BLOCK_GLASS;  // Use glass texture
+        case BLOCK_PAINTED:
+            return BLOCK_STONE;  // Painted blocks use paint_data for texture selection
+        case BLOCK_LAVA:
+            return TEX_LAVA;
+        case BLOCK_GLOWSTONE:
+            return TEX_GLOWSTONE;
+        case BLOCK_GLOWMUSHROOM:
+            return TEX_GLOWMUSHROOM;
+        case BLOCK_CRYSTAL:
+            return TEX_CRYSTAL;
+        case BLOCK_PINE_LOG:
+        case BLOCK_WILLOW_LOG:
+            return BLOCK_LOG;  // All logs share log texture
+        case BLOCK_PINE_LEAVES:
+        case BLOCK_WILLOW_LEAVES:
+            return BLOCK_LEAVES;  // All leaves share leaves texture
+        case BLOCK_ICE:
+            return TEX_ICE;
+        default:
+            return BLOCK_AIR;  // Fallback for unknown blocks
+    }
+}
+
 // Check if a block type is emissive
 bool isEmissiveBlock(uint blockType) {
     return blockType == BLOCK_LAVA ||
@@ -145,7 +180,7 @@ float getWaterCaustics(vec3 texPos, float time) {
 
 // Get block color by sampling from texture atlas, with multi-face support
 vec3 getBlockColor(uint blockType, vec3 local_hit, vec3 normal, uint stepped_axis, vec3 worldPos, uint extraData) {
-    uint textureIndex = blockType;
+    uint textureIndex = blockTypeToAtlasIndex(blockType);
     vec2 uv;
 
     if (stepped_axis == 0) {
