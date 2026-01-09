@@ -156,8 +156,9 @@ impl TerrainGenerator {
         const BLEND_WIDTH: f64 = 0.12;
 
         // Check mountain region early for snow biome logic
+        // Perlin noise ranges from -1 to 1, so threshold of -0.2 gives ~40% coverage
         let mountain_region = self.mountain_region_noise.get([x * 0.001, z * 0.001]);
-        let in_mountain_region = mountain_region > 0.2;
+        let in_mountain_region = mountain_region > -0.2;
 
         // Determine primary and secondary biomes with blend factors
         let (biome, secondary_biome, blend_factor) = if adjusted_temp < 0.3 {
@@ -165,7 +166,7 @@ impl TerrainGenerator {
             let blend = Self::smoothstep(0.3 - BLEND_WIDTH, 0.3, adjusted_temp);
             if blend > 0.01 {
                 // Transition to next biome (mountains if in mountain region, otherwise grassland)
-                let next = if in_mountain_region && base_height > 0.4 {
+                let next = if in_mountain_region && base_height > 0.2 {
                     BiomeType::Mountains
                 } else {
                     BiomeType::Grassland
@@ -206,12 +207,13 @@ impl TerrainGenerator {
             // Mountain biome determination - use regional noise for contiguous ranges
             // Mountains require BOTH elevated terrain AND being in a mountain region
             // This creates large contiguous ranges instead of fragmented peaks
-            let is_mountains = in_mountain_region && base_height > 0.4;
+            // Note: mountain_region ranges from -1 to 1, so threshold of -0.2 gives ~40% coverage
+            let is_mountains = in_mountain_region && base_height > 0.2;
 
             if is_mountains {
                 // Strong mountain region - check for transition
-                let height_blend = Self::smoothstep(0.4, 0.4 + BLEND_WIDTH, base_height);
-                let region_blend = Self::smoothstep(0.2, 0.2 + BLEND_WIDTH, mountain_region);
+                let height_blend = Self::smoothstep(0.2, 0.2 + BLEND_WIDTH, base_height);
+                let region_blend = Self::smoothstep(-0.2, -0.2 + BLEND_WIDTH, mountain_region);
                 let blend = height_blend.min(region_blend);
 
                 if blend < 0.99 {

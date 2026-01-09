@@ -82,6 +82,9 @@ fn update_biome_search(
         // Check positions for this frame
         for (x, z) in positions {
             if *positions_this_frame >= search.positions_per_frame {
+                // CRITICAL FIX: Move to next radius before yielding
+                // Otherwise we'll re-check the same radius forever
+                search.current_radius += step;
                 return None; // Continue next frame
             }
 
