@@ -110,6 +110,8 @@ pub enum BlockType {
     PineLeaves = 25,
     /// Willow tree leaves (olive green).
     WillowLeaves = 26,
+    /// Ice block - transparent frozen water.
+    Ice = 27,
 }
 
 /// Water types for enhanced water system.
@@ -174,6 +176,7 @@ impl BlockType {
                 | BlockType::Glass
                 | BlockType::TintedGlass
                 | BlockType::Lava
+                | BlockType::Ice
         )
     }
 
@@ -227,6 +230,7 @@ impl BlockType {
                 | BlockType::WillowLeaves
                 | BlockType::Model
                 | BlockType::Lava
+                | BlockType::Ice
         )
     }
 
@@ -350,6 +354,7 @@ impl BlockType {
             BlockType::WillowLog => [0.45, 0.35, 0.25], // Brown
             BlockType::PineLeaves => [0.15, 0.5, 0.1], // Dark green
             BlockType::WillowLeaves => [0.4, 0.5, 0.2], // Olive green
+            BlockType::Ice => [0.7, 0.85, 0.95],   // Light blue-white, transparent ice
         }
     }
 
@@ -374,7 +379,8 @@ impl BlockType {
             | BlockType::WillowLog
             | BlockType::Glass
             | BlockType::TintedGlass
-            | BlockType::Painted => 0.5,
+            | BlockType::Painted
+            | BlockType::Ice => 0.5,
             // Slow
             BlockType::Stone | BlockType::Cobblestone | BlockType::Brick => 0.8,
             // Very slow
@@ -486,6 +492,7 @@ impl From<u8> for BlockType {
             24 => BlockType::WillowLog,
             25 => BlockType::PineLeaves,
             26 => BlockType::WillowLeaves,
+            27 => BlockType::Ice,
             _ => BlockType::Air,
         }
     }

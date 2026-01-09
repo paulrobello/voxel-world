@@ -38,6 +38,7 @@ const uint BLOCK_PINE_LOG = 23;
 const uint BLOCK_WILLOW_LOG = 24;
 const uint BLOCK_PINE_LEAVES = 25;
 const uint BLOCK_WILLOW_LEAVES = 26;
+const uint BLOCK_ICE = 27;
 
 // Sub-voxel model IDs (must match Rust ModelRegistry IDs)
 const uint CRYSTAL_MODEL_ID = 99u;

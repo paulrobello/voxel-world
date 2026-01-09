@@ -12,6 +12,8 @@ pub struct CaveGenerator {
     entrance_noise: Perlin,
     /// 3D noise for cave decoration placement (stalactites/stalagmites)
     decoration_noise: Perlin,
+    /// 3D noise for ice cave determination in snow biomes
+    ice_cave_noise: Perlin,
 }
 
 impl CaveGenerator {
@@ -22,6 +24,7 @@ impl CaveGenerator {
             cave_mask_noise: Perlin::new(seed + 4),
             entrance_noise: Perlin::new(seed + 5),
             decoration_noise: Perlin::new(seed + 8),
+            ice_cave_noise: Perlin::new(seed + 9),
         }
     }
 
@@ -120,9 +123,18 @@ impl CaveGenerator {
                 }
             }
             BiomeType::Snow => {
-                // Ice caves: possible anywhere (no water filling)
-                // Ice placement handled by terrain generation
-                CaveFillType::Air
+                // Ice caves: ice blocks fill some caves for frozen cave effect
+                // Use 3D noise to create pockets of ice vs air caves
+                let ice_chance =
+                    self.ice_cave_noise
+                        .get([(world_y as f64) * 0.15, world_y as f64 * 0.08, 0.0]);
+
+                // ~60% of caves have ice, 40% are air caves
+                if ice_chance > 0.2 {
+                    CaveFillType::Ice
+                } else {
+                    CaveFillType::Air
+                }
             }
             BiomeType::Mountains => {
                 // Mountain caves: lava lakes at mid-to-deep depths (Y < 100)
@@ -278,4 +290,6 @@ pub enum CaveFillType {
     Water(crate::chunk::WaterType),
     /// Filled with lava (mountain caves at low depths)
     Lava,
+    /// Filled with ice (snow biome caves)
+    Ice,
 }

@@ -192,6 +192,8 @@ vec3 getBlockColor(uint blockType, vec3 local_hit, vec3 normal, uint stepped_axi
         veins = smoothstep(0.4, 0.6, veins);
         lavaColor = mix(lavaColor, vec3(1.0, 0.8, 0.3), veins * 0.4);
         return lavaColor;
+    } else if (blockType == BLOCK_ICE) {
+        textureIndex = TEX_ICE;
     }
 
     return sampleTexture(textureIndex, uv);
