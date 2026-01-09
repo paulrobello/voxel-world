@@ -261,37 +261,48 @@ impl ModelRegistry {
             for ly in 0..SUB_VOXEL_SIZE {
                 for lz in 0..SUB_VOXEL_SIZE {
                     for lx in 0..SUB_VOXEL_SIZE {
-                        // Scale coordinates based on model resolution
-                        // For downsampling, sample from center of each region (not corner)
-                        let src_x = if model_res > SUB_VOXEL_SIZE {
-                            // Downsampling: sample from center
+                        let voxel = if model_res > SUB_VOXEL_SIZE {
+                            // Downsampling: use max pooling to preserve all voxels
+                            // Check all voxels in the source region and pick first non-zero
                             let scale = model_res / SUB_VOXEL_SIZE;
-                            let offset = scale / 2;
-                            lx * scale + offset
+                            let base_x = lx * scale;
+                            let base_y = ly * scale;
+                            let base_z = lz * scale;
+
+                            let mut result = 0u8;
+                            'outer: for oz in 0..scale {
+                                for oy in 0..scale {
+                                    for ox in 0..scale {
+                                        let src_x = base_x + ox;
+                                        let src_y = base_y + oy;
+                                        let src_z = base_z + oz;
+                                        let src_idx = src_x
+                                            + src_y * model_res
+                                            + src_z * model_res * model_res;
+
+                                        if src_idx < model.voxels.len() {
+                                            let v = model.voxels[src_idx];
+                                            if v != 0 {
+                                                result = v;
+                                                break 'outer;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            result
                         } else {
                             // Upsampling or same size: nearest neighbor
-                            lx * model_res / SUB_VOXEL_SIZE
-                        };
-                        let src_y = if model_res > SUB_VOXEL_SIZE {
-                            let scale = model_res / SUB_VOXEL_SIZE;
-                            let offset = scale / 2;
-                            ly * scale + offset
-                        } else {
-                            ly * model_res / SUB_VOXEL_SIZE
-                        };
-                        let src_z = if model_res > SUB_VOXEL_SIZE {
-                            let scale = model_res / SUB_VOXEL_SIZE;
-                            let offset = scale / 2;
-                            lz * scale + offset
-                        } else {
-                            lz * model_res / SUB_VOXEL_SIZE
-                        };
-                        let src_idx = src_x + src_y * model_res + src_z * model_res * model_res;
+                            let src_x = lx * model_res / SUB_VOXEL_SIZE;
+                            let src_y = ly * model_res / SUB_VOXEL_SIZE;
+                            let src_z = lz * model_res / SUB_VOXEL_SIZE;
+                            let src_idx = src_x + src_y * model_res + src_z * model_res * model_res;
 
-                        let voxel = if src_idx < model.voxels.len() {
-                            model.voxels[src_idx]
-                        } else {
-                            0
+                            if src_idx < model.voxels.len() {
+                                model.voxels[src_idx]
+                            } else {
+                                0
+                            }
                         };
 
                         if voxel != 0 {
