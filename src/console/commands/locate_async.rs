@@ -228,6 +228,8 @@ fn update_block_search(
             // Check positions for this frame
             for pos in positions {
                 if *positions_this_frame >= search.positions_per_frame {
+                    // CRITICAL: Increment radius before yielding, otherwise we re-check same radius forever
+                    search.current_radius += step;
                     return None; // Continue next frame
                 }
 
@@ -412,6 +414,8 @@ fn update_cave_search(
             // Check positions for this frame
             for pos in positions {
                 if *positions_this_frame >= search.positions_per_frame {
+                    // CRITICAL: Increment radius before yielding, otherwise we re-check same radius forever
+                    search.current_radius += step;
                     return None; // Continue next frame
                 }
 
