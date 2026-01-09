@@ -38,13 +38,21 @@ Creates `layer_viz.html` in the project root with interactive tabs for all biome
 
 ### Biome Characteristics
 
-| Biome | Surface Y | Dry Caves | Vegetation | Light Sources | Decorations |
-|-------|-----------|-----------|------------|---------------|-------------|
-| Grassland 🌱 | ~128 | 4 blocks | Oak trees (8-12 tall) | Rare glowstone, crystals | Common stalactites/stalagmites |
-| Mountains ⛰️ | ~155 | 30 blocks | Pine trees (12-18 tall) | Abundant crystals in peaks | Very common formations |
-| Desert 🏜️ | ~128 | 125 blocks | Sparse cacti | Common exposed crystals | Minimal formations |
-| Swamp 🌿 | ~124 | 0 blocks | Willow trees (10-14 tall) | Glowmushrooms, underwater crystals | Dripping/submerged |
-| Snow ❄️ | ~140 | 15 blocks | Sparse pine trees | Ice crystals abundant | Ice formations + icicles |
+| Biome | Surface Y | Dry Caves | Vegetation | Light Sources | Cave Features |
+|-------|-----------|-----------|------------|---------------|---------------|
+| Grassland 🌱 | ~128 | 121 blocks | Oak trees (8-12 tall) | Rare glowstone, crystals | All dry, lava Y: 3-7 |
+| Mountains ⛰️ | ~155 | 30 blocks | Pine trees (12-18 tall) | Abundant crystals in peaks | Lava Y: 3-7 & <100, water below sea level |
+| Desert 🏜️ | ~128 | 121 blocks | Sparse cacti | Common exposed crystals | All dry, lava Y: 3-7 |
+| Swamp 🌿 | ~124 | 0 blocks | Willow trees (10-14 tall) | Glowmushrooms, underwater | Flooded to Y: 129, lava Y: 3-7 |
+| Snow ❄️ | ~140 | 133 blocks | Sparse pine trees | Ice crystals abundant | Ice caves throughout, lava Y: 3-7 |
+
+**Cave Filling Rules:**
+- All biomes: Possible lava pockets at Y: 3-7 (just above bedrock)
+- Grassland: No water, all caves dry and explorable
+- Mountains: Lava lakes below Y: 100, water below sea level (Y: 124)
+- Desert: No water, all caves dry (most explorable)
+- Swamp: Water flooding up to Y: 129 (5 blocks above sea level)
+- Snow: No water, ice caves possible anywhere
 
 ### Claude Code Skill
 

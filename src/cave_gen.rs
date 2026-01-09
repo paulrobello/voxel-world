@@ -97,6 +97,15 @@ impl CaveGenerator {
     /// * `CaveFillType::Water(WaterType)` - Water-filled cave
     /// * `CaveFillType::Lava` - Lava-filled cave (mountain caves at low depths)
     pub fn get_cave_fill(&self, biome: BiomeType, world_y: i32, sea_level: i32) -> CaveFillType {
+        // All biomes: possible lava in 5 layers above bedrock (Y: 3-7)
+        if (3..=7).contains(&world_y) {
+            let depth_factor = (7 - world_y) as f64 / 5.0;
+            if depth_factor > 0.4 {
+                // ~60% chance at Y=3, decreasing to ~40% at Y=7
+                return CaveFillType::Lava;
+            }
+        }
+
         match biome {
             BiomeType::Desert => {
                 // Desert caves are always dry (no water)
@@ -111,22 +120,15 @@ impl CaveGenerator {
                 }
             }
             BiomeType::Snow => {
-                // Ice caves: frozen water below sea level
-                if world_y <= sea_level {
-                    // TODO: In future, could place ice blocks instead of water
-                    CaveFillType::Water(biome.water_type())
-                } else {
-                    CaveFillType::Air
-                }
+                // Ice caves: possible anywhere (no water filling)
+                // Ice placement handled by terrain generation
+                CaveFillType::Air
             }
             BiomeType::Mountains => {
                 // Mountain caves: lava lakes at mid-to-deep depths (Y < 100)
-                // Note: This is called during terrain generation, but we don't have X/Z here
-                // For terrain generation, use a simplified check based on Y only
-                // The locate command will use the full 3D check
                 let lava_depth_chance = if world_y < 100 {
                     let depth_factor = (100 - world_y) as f64 / 98.0;
-                    depth_factor > 0.2 // ~80% at bottom (Y=2), ~50% at Y=50, ~20% at Y=99
+                    depth_factor > 0.2
                 } else {
                     false
                 };
@@ -140,12 +142,8 @@ impl CaveGenerator {
                 }
             }
             BiomeType::Grassland => {
-                // Normal cave water filling
-                if world_y <= sea_level {
-                    CaveFillType::Water(biome.water_type())
-                } else {
-                    CaveFillType::Air
-                }
+                // Grassland: no water filling in caves
+                CaveFillType::Air
             }
         }
     }
