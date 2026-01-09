@@ -775,27 +775,33 @@ impl EditorState {
         let model_size = self.scratch_pad.size() as i32;
         let mut any_change = false;
 
-        // Check if any position will actually change
+        // Check if any position will actually change (including mirrored positions)
         for dz in -(half)..=(half) {
             for dy in -(half)..=(half) {
                 for dx in -(half)..=(half) {
                     let pos = center + Vector3::new(dx, dy, dz);
-                    if pos.x >= 0
-                        && pos.x < model_size
-                        && pos.y >= 0
-                        && pos.y < model_size
-                        && pos.z >= 0
-                        && pos.z < model_size
-                    {
-                        let current = self.scratch_pad.get_voxel(
-                            pos.x as usize,
-                            pos.y as usize,
-                            pos.z as usize,
-                        );
-                        if current != self.selected_palette_index {
-                            any_change = true;
-                            break;
+                    let mirrored_positions = self.get_mirrored_positions(pos);
+                    for p in &mirrored_positions {
+                        if p.x >= 0
+                            && p.x < model_size
+                            && p.y >= 0
+                            && p.y < model_size
+                            && p.z >= 0
+                            && p.z < model_size
+                        {
+                            let current = self.scratch_pad.get_voxel(
+                                p.x as usize,
+                                p.y as usize,
+                                p.z as usize,
+                            );
+                            if current != self.selected_palette_index {
+                                any_change = true;
+                                break;
+                            }
                         }
+                    }
+                    if any_change {
+                        break;
                     }
                 }
                 if any_change {
@@ -813,19 +819,23 @@ impl EditorState {
                 for dy in -(half)..=(half) {
                     for dx in -(half)..=(half) {
                         let pos = center + Vector3::new(dx, dy, dz);
-                        if pos.x >= 0
-                            && pos.x < model_size
-                            && pos.y >= 0
-                            && pos.y < model_size
-                            && pos.z >= 0
-                            && pos.z < model_size
-                        {
-                            self.scratch_pad.set_voxel(
-                                pos.x as usize,
-                                pos.y as usize,
-                                pos.z as usize,
-                                self.selected_palette_index,
-                            );
+                        // Apply mirroring to each voxel position
+                        let mirrored_positions = self.get_mirrored_positions(pos);
+                        for p in mirrored_positions {
+                            if p.x >= 0
+                                && p.x < model_size
+                                && p.y >= 0
+                                && p.y < model_size
+                                && p.z >= 0
+                                && p.z < model_size
+                            {
+                                self.scratch_pad.set_voxel(
+                                    p.x as usize,
+                                    p.y as usize,
+                                    p.z as usize,
+                                    self.selected_palette_index,
+                                );
+                            }
                         }
                     }
                 }
@@ -844,7 +854,7 @@ impl EditorState {
         let model_size = self.scratch_pad.size() as i32;
         let mut any_change = false;
 
-        // Check if any position will actually change
+        // Check if any position will actually change (including mirrored positions)
         for dz in -(half)..=(half) {
             for dy in -(half)..=(half) {
                 for dx in -(half)..=(half) {
@@ -853,22 +863,28 @@ impl EditorState {
                         + (dz as f32 + 0.5).powi(2);
                     if dist_sq <= radius_sq {
                         let pos = center + Vector3::new(dx, dy, dz);
-                        if pos.x >= 0
-                            && pos.x < model_size
-                            && pos.y >= 0
-                            && pos.y < model_size
-                            && pos.z >= 0
-                            && pos.z < model_size
-                        {
-                            let current = self.scratch_pad.get_voxel(
-                                pos.x as usize,
-                                pos.y as usize,
-                                pos.z as usize,
-                            );
-                            if current != self.selected_palette_index {
-                                any_change = true;
-                                break;
+                        let mirrored_positions = self.get_mirrored_positions(pos);
+                        for p in &mirrored_positions {
+                            if p.x >= 0
+                                && p.x < model_size
+                                && p.y >= 0
+                                && p.y < model_size
+                                && p.z >= 0
+                                && p.z < model_size
+                            {
+                                let current = self.scratch_pad.get_voxel(
+                                    p.x as usize,
+                                    p.y as usize,
+                                    p.z as usize,
+                                );
+                                if current != self.selected_palette_index {
+                                    any_change = true;
+                                    break;
+                                }
                             }
+                        }
+                        if any_change {
+                            break;
                         }
                     }
                 }
@@ -891,19 +907,23 @@ impl EditorState {
                             + (dz as f32 + 0.5).powi(2);
                         if dist_sq <= radius_sq {
                             let pos = center + Vector3::new(dx, dy, dz);
-                            if pos.x >= 0
-                                && pos.x < model_size
-                                && pos.y >= 0
-                                && pos.y < model_size
-                                && pos.z >= 0
-                                && pos.z < model_size
-                            {
-                                self.scratch_pad.set_voxel(
-                                    pos.x as usize,
-                                    pos.y as usize,
-                                    pos.z as usize,
-                                    self.selected_palette_index,
-                                );
+                            // Apply mirroring to each voxel position
+                            let mirrored_positions = self.get_mirrored_positions(pos);
+                            for p in mirrored_positions {
+                                if p.x >= 0
+                                    && p.x < model_size
+                                    && p.y >= 0
+                                    && p.y < model_size
+                                    && p.z >= 0
+                                    && p.z < model_size
+                                {
+                                    self.scratch_pad.set_voxel(
+                                        p.x as usize,
+                                        p.y as usize,
+                                        p.z as usize,
+                                        self.selected_palette_index,
+                                    );
+                                }
                             }
                         }
                     }
