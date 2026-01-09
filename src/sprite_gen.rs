@@ -165,7 +165,7 @@ pub fn run(_args: &Args, event_loop: &EventLoop<()>) -> Result<(), Box<dyn Error
     )
     .unwrap();
 
-    let blocks: [BlockType; 18] = [
+    let blocks: [BlockType; 19] = [
         BlockType::Stone,
         BlockType::Dirt,
         BlockType::Grass,
@@ -179,6 +179,7 @@ pub fn run(_args: &Args, event_loop: &EventLoop<()>) -> Result<(), Box<dyn Error
         BlockType::Log,
         BlockType::Brick,
         BlockType::Snow,
+        BlockType::Ice,
         BlockType::Cobblestone,
         BlockType::Iron,
         BlockType::Bedrock,

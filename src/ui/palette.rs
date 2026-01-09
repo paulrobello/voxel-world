@@ -15,7 +15,7 @@ impl PaletteUI {
         registry: &ModelRegistry,
     ) -> Vec<(PaletteItem, String)> {
         // Regular blocks (excluding TintedGlass and Crystal which have separate color entries)
-        const BLOCK_PALETTE: [BlockType; 18] = [
+        const BLOCK_PALETTE: [BlockType; 19] = [
             BlockType::Stone,
             BlockType::Dirt,
             BlockType::Grass,
@@ -28,6 +28,7 @@ impl PaletteUI {
             BlockType::Log,
             BlockType::Brick,
             BlockType::Snow,
+            BlockType::Ice,
             BlockType::Cobblestone,
             BlockType::Iron,
             BlockType::Bedrock,
