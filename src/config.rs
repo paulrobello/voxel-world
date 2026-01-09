@@ -121,7 +121,6 @@ pub struct Settings {
     pub instant_place: bool,
     pub break_cooldown_duration: f32,
     pub place_cooldown_duration: f32,
-    pub collision_enabled_walk: bool,
     pub collision_enabled_fly: bool,
 }
 
@@ -156,7 +155,6 @@ impl Default for Settings {
             instant_place: true,
             break_cooldown_duration: 0.5,
             place_cooldown_duration: 0.5,
-            collision_enabled_walk: true,
             collision_enabled_fly: true,
         }
     }

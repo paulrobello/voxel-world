@@ -167,16 +167,15 @@ impl Player {
         input: &WinitInputHelper,
         model_registry: &ModelRegistry,
         verbose: bool,
-        collision_enabled_walk: bool,
         collision_enabled_fly: bool,
     ) {
         let mut feet = self.feet_pos(world_extent, texture_origin);
 
-        // Determine if collision should be checked based on current mode
+        // Walk mode always has collision enabled, fly mode respects the setting
         let collision_enabled = if self.fly_mode {
             collision_enabled_fly
         } else {
-            collision_enabled_walk
+            true
         };
 
         let head_in_water = self.check_in_water(feet, world);

@@ -104,6 +104,23 @@ pub fn draw_editor_ui(
                     editor.tool = EditorTool::Bridge;
                 }
             });
+            // Bridge tool indicator (show when first point is set)
+            if editor.tool == EditorTool::Bridge {
+                if let Some(first_point) = editor.bridge_first_point {
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "📍 First point: ({}, {}, {})",
+                            first_point.x, first_point.y, first_point.z
+                        ))
+                        .color(egui::Color32::from_rgb(100, 200, 100)),
+                    );
+                } else {
+                    ui.label(
+                        egui::RichText::new("Click to place first point")
+                            .color(egui::Color32::GRAY),
+                    );
+                }
+            }
             // Shape size slider (only shown for Cube/Sphere tools)
             if editor.tool == EditorTool::Cube || editor.tool == EditorTool::Sphere {
                 let model_size = editor.scratch_pad.size() as i32;

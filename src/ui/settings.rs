@@ -437,7 +437,6 @@ impl SettingsUI {
                         ui.separator();
 
                         // Collision settings
-                        ui.checkbox(&mut settings.collision_enabled_walk, "Collision (walk mode)");
                         ui.checkbox(&mut settings.collision_enabled_fly, "Collision (fly mode)");
 
                         ui.separator();
