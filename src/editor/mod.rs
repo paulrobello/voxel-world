@@ -1254,8 +1254,15 @@ impl EditorState {
         }
     }
 
-    /// Handles a right-click action (always erase).
+    /// Handles a right-click action (erase or cancel bridge).
     pub fn on_right_click(&mut self) {
+        // Bridge tool: right-click cancels the bridge
+        if self.tool == EditorTool::Bridge {
+            self.bridge_first_point = None;
+            return;
+        }
+
+        // All other tools: erase voxel
         if let Some(voxel) = self.hovered_voxel {
             self.erase_voxel(voxel);
         }

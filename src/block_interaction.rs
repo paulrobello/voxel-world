@@ -502,8 +502,9 @@ impl App {
             }
 
             // Priority 1b: Stack model on top of existing custom model (Right-Click without Shift)
-            if !shift_held && self.stack_model_at(hit.block_pos) {
-                self.ui.place_needs_reclick = true; // Use place reclick flag for stacking
+            // Check model_needs_reclick to prevent double-placement
+            if !shift_held && !self.ui.model_needs_reclick && self.stack_model_at(hit.block_pos) {
+                // Don't set place_needs_reclick - let place_block_at handle model_needs_reclick
                 return;
             }
 
