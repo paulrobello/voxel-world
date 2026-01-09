@@ -36,6 +36,7 @@ pub struct UiState {
     pub palette_open: bool,
     pub palette_tab: PaletteTab,
     pub palette_previously_focused: bool,
+    pub palette_search: String,
     pub dragging_item: Option<PaletteItem>,
 
     pub hotbar_index: usize,

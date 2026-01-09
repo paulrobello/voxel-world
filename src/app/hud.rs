@@ -62,6 +62,7 @@ pub fn render_hud(
             minimap_cached_image: &mut ui.minimap_cached_image,
             palette_open: &mut ui.palette_open,
             palette_tab: &mut ui.palette_tab,
+            palette_search: &mut ui.palette_search,
             dragging_item: &mut ui.dragging_item,
             model_registry: &sim.model_registry,
             editor: &mut ui.editor,

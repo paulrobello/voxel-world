@@ -365,6 +365,7 @@ impl PaletteUI {
         sprite_icons: Option<&SpriteIcons>,
         palette_open: &mut bool,
         palette_tab: &mut PaletteTab,
+        palette_search: &mut String,
         dragging_item: &mut Option<PaletteItem>,
         model_registry: &ModelRegistry,
         hotbar_blocks: &mut [BlockType; 9],
@@ -386,14 +387,39 @@ impl PaletteUI {
                     ui.selectable_value(palette_tab, PaletteTab::Blocks, "Blocks");
                     ui.selectable_value(palette_tab, PaletteTab::Models, "Models");
                 });
+
+                // Search bar
+                ui.horizontal(|ui| {
+                    ui.label("Search:");
+                    let response = ui.text_edit_singleline(palette_search);
+                    if response.changed() {
+                        // Convert to lowercase for case-insensitive search
+                        *palette_search = palette_search.to_lowercase();
+                    }
+                    if ui.button("✖").clicked() {
+                        palette_search.clear();
+                    }
+                });
+
                 ui.label("Drag items to the hotbar, left-click to set current slot, middle-click to fill (or replace if full).");
                 ui.separator();
 
                 let items = Self::palette_items_for_tab(*palette_tab, model_registry);
+
+                // Filter items based on search
+                let search_lower = palette_search.to_lowercase();
+                let filtered_items: Vec<_> = if search_lower.is_empty() {
+                    items
+                } else {
+                    items
+                        .into_iter()
+                        .filter(|(_, label)| label.to_lowercase().contains(&search_lower))
+                        .collect()
+                };
                 egui::ScrollArea::vertical()
                     .auto_shrink([false; 2])
                     .show(ui, |ui| {
-                        for row in items.chunks(12) {
+                        for row in filtered_items.chunks(12) {
                             ui.horizontal(|ui| {
                                 for (item, label) in row.iter() {
                                     Self::draw_palette_item(

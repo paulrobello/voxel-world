@@ -469,6 +469,7 @@ impl App {
             palette_open: false,
             palette_tab: PaletteTab::default(),
             palette_previously_focused: false,
+            palette_search: String::new(),
             dragging_item: None,
             hotbar_index: prefs.hotbar_index,
             hotbar_blocks: prefs.get_hotbar_blocks(),
