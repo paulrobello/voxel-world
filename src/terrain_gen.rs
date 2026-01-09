@@ -644,6 +644,56 @@ fn generate_ground_cover(
             }
         }
     }
+
+    // Post-process: Convert lava blocks adjacent to water into cobblestone
+    convert_lava_water_contacts(chunk);
+}
+
+/// Converts lava blocks adjacent to water blocks into cobblestone.
+/// This prevents lava from appearing next to water during terrain generation.
+fn convert_lava_water_contacts(chunk: &mut Chunk) {
+    let mut conversions = Vec::new();
+
+    // Scan all blocks in chunk
+    for lx in 0..CHUNK_SIZE {
+        for ly in 0..CHUNK_SIZE {
+            for lz in 0..CHUNK_SIZE {
+                let block = chunk.get_block(lx, ly, lz);
+                if block != BlockType::Lava {
+                    continue;
+                }
+
+                // Check all 6 adjacent neighbors
+                let neighbors = [
+                    (lx.wrapping_sub(1), ly, lz),
+                    (lx + 1, ly, lz),
+                    (lx, ly.wrapping_sub(1), lz),
+                    (lx, ly + 1, lz),
+                    (lx, ly, lz.wrapping_sub(1)),
+                    (lx, ly, lz + 1),
+                ];
+
+                for (nx, ny, nz) in neighbors {
+                    // Check bounds
+                    if nx >= CHUNK_SIZE || ny >= CHUNK_SIZE || nz >= CHUNK_SIZE {
+                        continue;
+                    }
+
+                    let neighbor = chunk.get_block(nx, ny, nz);
+                    if neighbor == BlockType::Water {
+                        // Lava touching water - convert to cobblestone
+                        conversions.push((lx, ly, lz));
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    // Apply conversions
+    for (lx, ly, lz) in conversions {
+        chunk.set_block(lx, ly, lz, BlockType::Cobblestone);
+    }
 }
 
 /// Generates trees based on biome
