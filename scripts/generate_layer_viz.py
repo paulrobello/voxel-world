@@ -590,14 +590,14 @@ def generate_html():
 
         .stats {{
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
             margin-bottom: 30px;
         }}
 
         .stat-box {{
             background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
-            padding: 15px;
+            padding: 12px 10px;
             border-radius: 10px;
             border: 2px solid #60a5fa;
             text-align: center;
@@ -605,13 +605,13 @@ def generate_html():
 
         .stat-label {{
             color: #93c5fd;
-            font-size: 0.9em;
-            margin-bottom: 5px;
+            font-size: 0.8em;
+            margin-bottom: 4px;
         }}
 
         .stat-value {{
             color: white;
-            font-size: 1.5em;
+            font-size: 1.3em;
             font-weight: bold;
         }}
 
