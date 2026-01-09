@@ -135,6 +135,10 @@ pub enum EditorTool {
     Cube,
     /// Place a filled sphere shape.
     Sphere,
+    /// Change the color of existing voxels.
+    ColorChange,
+    /// Flood fill connected voxels with a color.
+    PaintBucket,
 }
 
 /// Mirror axis for symmetrical editing.
@@ -246,7 +250,7 @@ impl EditorState {
             mirror_axes: [false, false, false],
             orbit_yaw: std::f32::consts::FRAC_PI_4,
             orbit_pitch: std::f32::consts::FRAC_PI_6,
-            orbit_distance: 30.0, // Default zoom for 16³ models
+            orbit_distance: 40.0, // Default zoom (increased to see whole model)
             is_dragging: false,
             last_mouse_pos: None,
             hovered_voxel: None,
@@ -295,9 +299,9 @@ impl EditorState {
         self.history.clear();
         // Adjust camera distance based on resolution
         self.orbit_distance = match resolution {
-            ModelResolution::Low => 18.0,
-            ModelResolution::Medium => 30.0,
-            ModelResolution::High => 50.0,
+            ModelResolution::Low => 25.0,
+            ModelResolution::Medium => 40.0,
+            ModelResolution::High => 70.0,
         };
     }
 
@@ -308,9 +312,9 @@ impl EditorState {
         self.history.clear();
         // Adjust camera distance based on loaded model's resolution
         self.orbit_distance = match model.resolution {
-            ModelResolution::Low => 18.0,
-            ModelResolution::Medium => 30.0,
-            ModelResolution::High => 50.0,
+            ModelResolution::Low => 25.0,
+            ModelResolution::Medium => 40.0,
+            ModelResolution::High => 70.0,
         };
     }
 
@@ -327,9 +331,9 @@ impl EditorState {
             self.history.clear();
             // Adjust camera distance for new resolution
             self.orbit_distance = match target {
-                ModelResolution::Low => 18.0,
-                ModelResolution::Medium => 30.0,
-                ModelResolution::High => 50.0,
+                ModelResolution::Low => 25.0,
+                ModelResolution::Medium => 40.0,
+                ModelResolution::High => 70.0,
             };
             true
         } else {
@@ -766,6 +770,121 @@ impl EditorState {
         }
     }
 
+    /// Changes the color of an existing voxel (without mirroring).
+    pub fn change_voxel_color(&mut self, pos: Vector3<i32>) {
+        let model_size = self.scratch_pad.size() as i32;
+        if pos.x >= 0
+            && pos.x < model_size
+            && pos.y >= 0
+            && pos.y < model_size
+            && pos.z >= 0
+            && pos.z < model_size
+        {
+            let current =
+                self.scratch_pad
+                    .get_voxel(pos.x as usize, pos.y as usize, pos.z as usize);
+            // Only change if there's a voxel there and it's a different color
+            if current != 0 && current != self.selected_palette_index {
+                self.save_state();
+                self.scratch_pad.set_voxel(
+                    pos.x as usize,
+                    pos.y as usize,
+                    pos.z as usize,
+                    self.selected_palette_index,
+                );
+            }
+        }
+    }
+
+    /// Flood fills connected voxels starting from the given position.
+    ///
+    /// Fills all voxels of the same color that are connected (6-way connectivity).
+    pub fn flood_fill(&mut self, start_pos: Vector3<i32>) {
+        let model_size = self.scratch_pad.size() as i32;
+
+        // Bounds check
+        if start_pos.x < 0
+            || start_pos.x >= model_size
+            || start_pos.y < 0
+            || start_pos.y >= model_size
+            || start_pos.z < 0
+            || start_pos.z >= model_size
+        {
+            return;
+        }
+
+        let start_color = self.scratch_pad.get_voxel(
+            start_pos.x as usize,
+            start_pos.y as usize,
+            start_pos.z as usize,
+        );
+
+        // Can't fill air or if already the target color
+        if start_color == 0 || start_color == self.selected_palette_index {
+            return;
+        }
+
+        self.save_state();
+
+        // Use BFS for flood fill
+        let mut queue = std::collections::VecDeque::new();
+        let mut visited = std::collections::HashSet::new();
+
+        queue.push_back(start_pos);
+        visited.insert((start_pos.x, start_pos.y, start_pos.z));
+
+        // 6-way connectivity offsets
+        let offsets = [
+            Vector3::new(1, 0, 0),
+            Vector3::new(-1, 0, 0),
+            Vector3::new(0, 1, 0),
+            Vector3::new(0, -1, 0),
+            Vector3::new(0, 0, 1),
+            Vector3::new(0, 0, -1),
+        ];
+
+        while let Some(pos) = queue.pop_front() {
+            // Set this voxel to the new color
+            self.scratch_pad.set_voxel(
+                pos.x as usize,
+                pos.y as usize,
+                pos.z as usize,
+                self.selected_palette_index,
+            );
+
+            // Check all 6 neighbors
+            for offset in &offsets {
+                let next = pos + offset;
+
+                // Bounds check
+                if next.x < 0
+                    || next.x >= model_size
+                    || next.y < 0
+                    || next.y >= model_size
+                    || next.z < 0
+                    || next.z >= model_size
+                {
+                    continue;
+                }
+
+                // Skip if already visited
+                if visited.contains(&(next.x, next.y, next.z)) {
+                    continue;
+                }
+
+                // Check if same color as start
+                let color =
+                    self.scratch_pad
+                        .get_voxel(next.x as usize, next.y as usize, next.z as usize);
+
+                if color == start_color {
+                    visited.insert((next.x, next.y, next.z));
+                    queue.push_back(next);
+                }
+            }
+        }
+    }
+
     /// Places a filled cube centered at the given position.
     ///
     /// The cube size is determined by `shape_size` (diameter).
@@ -977,7 +1096,17 @@ impl EditorState {
                 }
             }
             EditorTool::Fill => {
-                // TODO: Implement flood fill
+                // Legacy fill tool - not used, replaced by PaintBucket
+            }
+            EditorTool::ColorChange => {
+                if let Some(voxel) = self.hovered_voxel {
+                    self.change_voxel_color(voxel);
+                }
+            }
+            EditorTool::PaintBucket => {
+                if let Some(voxel) = self.hovered_voxel {
+                    self.flood_fill(voxel);
+                }
             }
             EditorTool::Cube => {
                 if let Some(voxel) = self.hovered_voxel {

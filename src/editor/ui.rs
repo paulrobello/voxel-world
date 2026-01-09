@@ -71,6 +71,22 @@ pub fn draw_editor_ui(
                     editor.tool = EditorTool::Sphere;
                 }
             });
+            ui.horizontal(|ui| {
+                if ui
+                    .selectable_label(editor.tool == EditorTool::ColorChange, "🎨 Color")
+                    .on_hover_text("Change color of existing voxels")
+                    .clicked()
+                {
+                    editor.tool = EditorTool::ColorChange;
+                }
+                if ui
+                    .selectable_label(editor.tool == EditorTool::PaintBucket, "🪣 Fill")
+                    .on_hover_text("Flood fill connected voxels")
+                    .clicked()
+                {
+                    editor.tool = EditorTool::PaintBucket;
+                }
+            });
             // Shape size slider (only shown for Cube/Sphere tools)
             if editor.tool == EditorTool::Cube || editor.tool == EditorTool::Sphere {
                 let model_size = editor.scratch_pad.size() as i32;
@@ -706,9 +722,9 @@ pub fn draw_model_preview(ctx: &egui::Context, editor: &mut EditorState) {
                     editor.orbit_distance -= scroll_delta * 0.05;
                     // Clamp to reasonable range based on model resolution
                     let (min_zoom, max_zoom) = match editor.scratch_pad.resolution {
-                        ModelResolution::Low => (8.0, 35.0),
-                        ModelResolution::Medium => (12.0, 55.0),
-                        ModelResolution::High => (20.0, 90.0),
+                        ModelResolution::Low => (8.0, 50.0),
+                        ModelResolution::Medium => (12.0, 80.0),
+                        ModelResolution::High => (20.0, 150.0),
                     };
                     editor.orbit_distance = editor.orbit_distance.clamp(min_zoom, max_zoom);
                 }
