@@ -32,3 +32,10 @@ __pycache__/
 .python-version
 .pytest_cache/
 .idea/
+
+# Generated visualizations
+layer_viz_*.html
+voxel_world_layer_infographic.html
+
+# Scratch folder for one-off scripts and data transformations
+claude_scratch/
