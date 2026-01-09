@@ -179,7 +179,7 @@ fn update_block_search(
 
         // Skip Y levels outside valid range
         let should_skip = if target_block == BlockType::Lava {
-            !(2..=29).contains(&y)
+            !(2..=99).contains(&y)
         } else {
             !(0..512).contains(&y)
         };
