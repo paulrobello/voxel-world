@@ -114,7 +114,8 @@ impl TerrainGenerator {
         let rainfall_noise = Perlin::new(seed.wrapping_add(7));
         // Blend noise - for smooth biome transitions
         let blend_noise = Perlin::new(seed.wrapping_add(8));
-        // Mountain region noise - very large scale to create contiguous mountain ranges
+        // Mountain region noise - VERY large scale to create long mountain ranges and plateaus
+        // Using extremely low frequency (0.0005) for continent-sized features
         let mountain_region_noise = Perlin::new(seed.wrapping_add(9));
 
         // Cave generation system
@@ -156,9 +157,10 @@ impl TerrainGenerator {
         const BLEND_WIDTH: f64 = 0.12;
 
         // Check mountain region early for snow biome logic
-        // Perlin noise ranges from -1 to 1, so threshold of -0.2 gives ~40% coverage
-        let mountain_region = self.mountain_region_noise.get([x * 0.001, z * 0.001]);
-        let in_mountain_region = mountain_region > -0.2;
+        // Use very low frequency (0.0005) for continent-sized mountain ranges
+        // Perlin noise ranges from -1 to 1, threshold of -0.3 gives ~35% coverage but in large blocks
+        let mountain_region = self.mountain_region_noise.get([x * 0.0005, z * 0.0005]);
+        let in_mountain_region = mountain_region > -0.3;
 
         // Determine primary and secondary biomes with blend factors
         let (biome, secondary_biome, blend_factor) = if adjusted_temp < 0.3 {
@@ -166,7 +168,7 @@ impl TerrainGenerator {
             let blend = Self::smoothstep(0.3 - BLEND_WIDTH, 0.3, adjusted_temp);
             if blend > 0.01 {
                 // Transition to next biome (mountains if in mountain region, otherwise grassland)
-                let next = if in_mountain_region && base_height > 0.2 {
+                let next = if in_mountain_region && base_height > 0.1 {
                     BiomeType::Mountains
                 } else {
                     BiomeType::Grassland
@@ -206,14 +208,14 @@ impl TerrainGenerator {
         } else {
             // Mountain biome determination - use regional noise for contiguous ranges
             // Mountains require BOTH elevated terrain AND being in a mountain region
-            // This creates large contiguous ranges instead of fragmented peaks
-            // Note: mountain_region ranges from -1 to 1, so threshold of -0.2 gives ~40% coverage
-            let is_mountains = in_mountain_region && base_height > 0.2;
+            // This creates large contiguous ranges and plateaus instead of fragmented peaks
+            // Lower height threshold (0.1) allows more of the mountain region to be mountains
+            let is_mountains = in_mountain_region && base_height > 0.1;
 
             if is_mountains {
                 // Strong mountain region - check for transition
-                let height_blend = Self::smoothstep(0.2, 0.2 + BLEND_WIDTH, base_height);
-                let region_blend = Self::smoothstep(-0.2, -0.2 + BLEND_WIDTH, mountain_region);
+                let height_blend = Self::smoothstep(0.1, 0.1 + BLEND_WIDTH, base_height);
+                let region_blend = Self::smoothstep(-0.3, -0.3 + BLEND_WIDTH, mountain_region);
                 let blend = height_blend.min(region_blend);
 
                 if blend < 0.99 {
@@ -667,6 +669,11 @@ fn generate_trees(
             // Buffer at top ensures enough of tree is in this chunk for proper generation
             // (overflow handles canopy extending into next chunk)
             if local_base_y < 0 || local_base_y >= (CHUNK_SIZE as i32 - 5) {
+                continue;
+            }
+
+            // Don't spawn trees underwater (height at or below sea level means water surface)
+            if height <= SEA_LEVEL {
                 continue;
             }
 
