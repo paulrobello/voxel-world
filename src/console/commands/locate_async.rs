@@ -457,10 +457,45 @@ fn update_cave_search(
                     "north"
                 };
 
+                // For cave teleport, find surface above cave and place player there
+                // This prevents teleporting into solid rock or floating in air
+                let surface_y = if search.teleport_on_find {
+                    // Search upward from cave to find surface (first solid block, then first air above it)
+                    let mut y = pos.y;
+
+                    // First, go up until we hit solid ground (exit the cave)
+                    while y < 500 {
+                        if let Some(block) = world.get_block(Vector3::new(pos.x, y, pos.z)) {
+                            if block != crate::chunk::BlockType::Air
+                                && block != crate::chunk::BlockType::Water
+                                && block != crate::chunk::BlockType::Lava
+                            {
+                                // Hit solid terrain, now find air above it
+                                break;
+                            }
+                        }
+                        y += 1;
+                    }
+
+                    // Now find the first air block above the solid terrain (the surface)
+                    while y < 500 {
+                        if let Some(block) = world.get_block(Vector3::new(pos.x, y, pos.z)) {
+                            if block == crate::chunk::BlockType::Air {
+                                break;
+                            }
+                        }
+                        y += 1;
+                    }
+
+                    y
+                } else {
+                    pos.y
+                };
+
                 return Some(if search.teleport_on_find {
                     CommandResult::Teleport {
                         x: pos.x as f64 + 0.5,
-                        y: pos.y as f64,
+                        y: surface_y as f64,
                         z: pos.z as f64 + 0.5,
                     }
                 } else {
