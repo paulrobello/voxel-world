@@ -86,6 +86,104 @@ Vulkan compute shader voxel engine with GPU ray marching. See README.md for deta
 - Sub-voxel: 8³, 16³, or 32³ voxels per block for models (per-model resolution)
 - Conversion: `World::world_to_chunk()`, `World::world_to_local()`
 
+## Image Generation Tools
+
+This project uses specialized skills and MCP servers for different types of image generation. **Always use the appropriate tool for the task:**
+
+### 1. Block Textures: `/voxel-texture` Skill
+
+**Use for:** Creating flat, tileable 64x64 block textures for the texture atlas.
+
+**Examples:** Stone, dirt, grass, ice, sand, wood, etc.
+
+**How to use:**
+```bash
+/voxel-texture ice
+/voxel-texture sandstone
+/voxel-texture obsidian
+```
+
+**What it does:**
+- Generates flat, seamless tileable texture patterns (NOT 3D cubes)
+- Automatically resizes to exact 64x64 dimensions
+- Creates tiled preview for verification
+- Saves to `textures/{name}_64x64.png`
+- Uses strong negative prompts to prevent 3D renders
+
+**Important:** This skill enforces MCP availability and will stop if nanobanana is not running. Do NOT fall back to other methods.
+
+### 2. Sprite Icons: `/game-sprite` Skill
+
+**Use for:** Creating sprite icons for UI elements (hotbar, palette, inventory).
+
+**Examples:** Item icons, block preview sprites, UI elements.
+
+**Note:** In this project, sprites are generated via `make sprite-gen` which renders 3D voxel previews of blocks and models. The `/game-sprite` skill is available for custom 2D sprite assets if needed.
+
+**Sprite generation workflow:**
+```bash
+make sprite-gen  # Generates all block/model sprites automatically
+```
+
+This creates `textures/rendered/block_*.png` and `textures/rendered/model_*.png` files.
+
+### 3. General Images: nanobanana MCP
+
+**Use for:** Any other image generation not covered by the above skills.
+
+**Examples:**
+- Concept art
+- Reference images
+- Documentation diagrams (when not using mermaid)
+- Promotional materials
+- Custom artwork
+
+**How to use:**
+```python
+mcp__nanobanana__generate_image(
+    prompt="detailed description of image",
+    aspect_ratio="16:9",  # or appropriate ratio
+    resolution="high",
+    model_tier="pro",     # or "flash" for speed
+    output_path="/path/to/output.png"
+)
+```
+
+### Tool Selection Decision Tree
+
+```
+Need an image?
+├─ Is it a flat, tileable block texture for the game?
+│  └─ YES → Use `/voxel-texture <name>`
+│
+├─ Is it a 2D sprite icon for UI (hotbar/palette)?
+│  ├─ Block or model preview? → Use `make sprite-gen`
+│  └─ Custom sprite asset? → Use `/game-sprite`
+│
+└─ Is it something else (concept art, diagrams, etc.)?
+   └─ YES → Use nanobanana MCP directly
+```
+
+### Critical Rules
+
+1. **NEVER** bypass the `/voxel-texture` skill for block textures
+   - It has essential safeguards against 3D renders
+   - It enforces proper dimensions and seamless tiling
+   - It validates MCP availability
+
+2. **NEVER** manually create block textures with generic prompts
+   - The skill uses tested prompt templates
+   - It prevents common AI generation failures
+
+3. **ALWAYS** regenerate sprites after adding new blocks
+   - Run `make sprite-gen` after texture atlas updates
+   - This ensures palette UI shows correct icons
+
+4. **VERIFY** textures before committing
+   - Check for 3D perspective (should be flat)
+   - Verify seamless tiling with 2x2 preview
+   - Confirm exact 64x64 dimensions
+
 ## Adding New Block Types
 
 1. Generate texture: `/voxel-texture <name>`
@@ -93,7 +191,9 @@ Vulkan compute shader voxel engine with GPU ray marching. See README.md for deta
 3. Update `From<u8>` impl, `color()`, `break_time()`, and property methods
 4. Add `BLOCK_<NAME>` constant in `common.glsl`
 5. Update `ATLAS_TILE_COUNT` in `materials.glsl` if adding new texture slot
-6. Regenerate atlas:
+6. Add block to palette: Update `BLOCK_PALETTE` array in `src/ui/palette.rs`
+7. Add to sprite generation: Update blocks array in `src/sprite_gen.rs`
+8. Regenerate atlas:
 ```bash
 cd textures
 magick air_64x64.png stone_64x64.png dirt_64x64.png grass_64x64.png planks_64x64.png \
@@ -101,8 +201,15 @@ magick air_64x64.png stone_64x64.png dirt_64x64.png grass_64x64.png planks_64x64
   log_64x64.png torch_64x64.png brick_64x64.png snow_64x64.png cobblestone_64x64.png \
   iron_64x64.png bedrock_64x64.png grass_side_64x64.png log_top_64x64.png \
   lava_64x64.png glowstone_64x64.png glowmushroom_64x64.png crystal_64x64.png \
+  cactus_64x64.png mud_64x64.png sandstone_64x64.png ice_64x64.png \
   +append texture_atlas.png
 ```
+9. Update `blockTypeToAtlasIndex()` function in `shaders/materials.glsl` if needed
+10. Regenerate sprites:
+```bash
+make sprite-gen
+```
+11. Test in-game and verify texture renders correctly
 
 ## Block Type Sync
 
@@ -111,9 +218,18 @@ BlockType enum in `chunk.rs` must match constants in `common.glsl`:
 0=Air, 1=Stone, 2=Dirt, 3=Grass, 4=Planks, 5=Leaves, 6=Sand, 7=Gravel,
 8=Water, 9=Glass, 10=Log, 11=Model, 12=Brick, 13=Snow, 14=Cobblestone, 15=Iron, 16=Bedrock,
 17=TintedGlass, 18=Painted, 19=Lava, 20=GlowStone, 21=GlowMushroom, 22=Crystal,
-23=PineLog, 24=WillowLog, 25=PineLeaves, 26=WillowLeaves
+23=PineLog, 24=WillowLog, 25=PineLeaves, 26=WillowLeaves, 27=Ice
 ```
-Extra texture slots: 17=grass_side, 18=log_top
+
+**Texture Atlas Mapping:**
+- Positions 0-16: Direct mapping (Air through Bedrock)
+- Position 17: grass_side (special texture)
+- Position 18: log_top (special texture)
+- Positions 19-22: Emissive blocks (Lava, GlowStone, GlowMushroom, Crystal)
+- Positions 23-26: Extra textures (Cactus, Mud, Sandstone, Ice)
+- Total: 27 textures in atlas (1728x64 pixels)
+
+**Important:** BlockType enum values DO NOT directly map to atlas positions for all blocks. The shader uses `blockTypeToAtlasIndex()` function in `materials.glsl` to perform the mapping.
 
 **Emissive blocks** (19-22): Lava, GlowStone, GlowMushroom, Crystal emit light and have visual glow. Crystal blocks use tint_data for 32 colored variations with tinted point lights.
 
