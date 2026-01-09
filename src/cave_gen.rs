@@ -71,7 +71,7 @@ impl CaveGenerator {
 
         // Biome-specific cave density multipliers
         let biome_density_multiplier = match biome {
-            BiomeType::Mountains => 1.5, // More caves in mountains
+            BiomeType::Mountains => 2.0, // Much more caves in mountains (increased from 1.5 for lava)
             BiomeType::Desert => 0.6,    // Fewer caves in desert
             BiomeType::Swamp => 0.8,     // Slightly fewer caves
             BiomeType::Snow => 0.9,      // Slightly fewer caves

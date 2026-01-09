@@ -85,7 +85,8 @@ pub struct TerrainGenerator {
     // biome_noise replaced by temperature/rainfall logic
     temperature_noise: Perlin,
     rainfall_noise: Perlin,
-    blend_noise: Perlin, // For randomizing biome transitions
+    blend_noise: Perlin,           // For randomizing biome transitions
+    mountain_region_noise: Perlin, // Large-scale mountain region definition
     cave_generator: CaveGenerator,
 }
 
@@ -113,6 +114,8 @@ impl TerrainGenerator {
         let rainfall_noise = Perlin::new(seed.wrapping_add(7));
         // Blend noise - for smooth biome transitions
         let blend_noise = Perlin::new(seed.wrapping_add(8));
+        // Mountain region noise - very large scale to create contiguous mountain ranges
+        let mountain_region_noise = Perlin::new(seed.wrapping_add(9));
 
         // Cave generation system
         let cave_generator = CaveGenerator::new(seed);
@@ -124,6 +127,7 @@ impl TerrainGenerator {
             temperature_noise,
             rainfall_noise,
             blend_noise,
+            mountain_region_noise,
             cave_generator,
         }
     }
@@ -151,13 +155,17 @@ impl TerrainGenerator {
         // Blend transition width (how wide the transition zone is)
         const BLEND_WIDTH: f64 = 0.12;
 
+        // Check mountain region early for snow biome logic
+        let mountain_region = self.mountain_region_noise.get([x * 0.001, z * 0.001]);
+        let in_mountain_region = mountain_region > 0.2;
+
         // Determine primary and secondary biomes with blend factors
         let (biome, secondary_biome, blend_factor) = if adjusted_temp < 0.3 {
             // Snow biome
             let blend = Self::smoothstep(0.3 - BLEND_WIDTH, 0.3, adjusted_temp);
             if blend > 0.01 {
-                // Transition to next biome (grassland or mountains)
-                let next = if base_height > 0.6 {
+                // Transition to next biome (mountains if in mountain region, otherwise grassland)
+                let next = if in_mountain_region && base_height > 0.4 {
                     BiomeType::Mountains
                 } else {
                     BiomeType::Grassland
@@ -194,22 +202,32 @@ impl TerrainGenerator {
             } else {
                 (BiomeType::Swamp, None, 0.0)
             }
-        } else if base_height > 0.3 {
-            // Mountains biome (lowered threshold from 0.6 to 0.3 for more mountains)
-            let blend = Self::smoothstep(0.3, 0.3 + BLEND_WIDTH, base_height);
-            if blend < 0.99 {
-                // Transition to grassland
-                (
-                    BiomeType::Mountains,
-                    Some(BiomeType::Grassland),
-                    1.0 - blend,
-                )
-            } else {
-                (BiomeType::Mountains, None, 0.0)
-            }
         } else {
-            // Grassland (default)
-            (BiomeType::Grassland, None, 0.0)
+            // Mountain biome determination - use regional noise for contiguous ranges
+            // Mountains require BOTH elevated terrain AND being in a mountain region
+            // This creates large contiguous ranges instead of fragmented peaks
+            let is_mountains = in_mountain_region && base_height > 0.4;
+
+            if is_mountains {
+                // Strong mountain region - check for transition
+                let height_blend = Self::smoothstep(0.4, 0.4 + BLEND_WIDTH, base_height);
+                let region_blend = Self::smoothstep(0.2, 0.2 + BLEND_WIDTH, mountain_region);
+                let blend = height_blend.min(region_blend);
+
+                if blend < 0.99 {
+                    // Transition to grassland at edges
+                    (
+                        BiomeType::Mountains,
+                        Some(BiomeType::Grassland),
+                        1.0 - blend,
+                    )
+                } else {
+                    (BiomeType::Mountains, None, 0.0)
+                }
+            } else {
+                // Grassland (default)
+                (BiomeType::Grassland, None, 0.0)
+            }
         };
 
         BiomeInfo {
