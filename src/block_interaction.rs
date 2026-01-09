@@ -410,6 +410,46 @@ impl App {
         true
     }
 
+    fn stack_model_at(&mut self, pos: Vector3<i32>) -> bool {
+        // Check if there's a model block at this position
+        let Some(block) = self.sim.world.get_block(pos) else {
+            return false;
+        };
+
+        if block != BlockType::Model {
+            return false;
+        }
+
+        // Get model data
+        let Some(model_data) = self.sim.world.get_model_data(pos) else {
+            return false;
+        };
+
+        // Only stack custom models (ID >= FIRST_CUSTOM_MODEL_ID)
+        if model_data.model_id < FIRST_CUSTOM_MODEL_ID {
+            return false;
+        }
+
+        // Check if we have a Model block selected
+        if self.selected_block() != BlockType::Model {
+            return false;
+        }
+
+        // Get the model ID from the hotbar selection
+        let selected_model_id = self.ui.hotbar_model_ids[self.ui.hotbar_index];
+
+        // Only stack if the selected model is a custom model
+        if selected_model_id < FIRST_CUSTOM_MODEL_ID {
+            return false;
+        }
+
+        // Calculate position above the clicked block
+        let stack_pos = pos + Vector3::new(0, 1, 0);
+
+        // Try to place the model on top
+        self.place_block_at(stack_pos)
+    }
+
     pub fn update_block_placing(&mut self, delta_time: f32) {
         // Skip block placement if in template placement mode or selection mode
         if self.ui.active_placement.is_some() || self.ui.template_selection.visual_mode {
@@ -451,9 +491,19 @@ impl App {
         }
 
         if let Some(hit) = self.ui.current_hit {
-            // Priority 1: Rotate existing custom model
-            if self.rotate_custom_model_at(hit.block_pos) {
+            // Check shift state early for custom model interactions
+            let shift_held =
+                self.input.key_held(KeyCode::ShiftLeft) || self.input.key_held(KeyCode::ShiftRight);
+
+            // Priority 1a: Rotate existing custom model (Shift+Right-Click)
+            if shift_held && self.rotate_custom_model_at(hit.block_pos) {
                 self.ui.custom_rotate_needs_reclick = true;
+                return;
+            }
+
+            // Priority 1b: Stack model on top of existing custom model (Right-Click without Shift)
+            if !shift_held && self.stack_model_at(hit.block_pos) {
+                self.ui.place_needs_reclick = true; // Use place reclick flag for stacking
                 return;
             }
 
@@ -476,8 +526,6 @@ impl App {
             }
 
             // Priority 5: Repaint existing Painted block (Shift+Right-Click while holding Painted)
-            let shift_held =
-                self.input.key_held(KeyCode::ShiftLeft) || self.input.key_held(KeyCode::ShiftRight);
             if self.selected_block() == BlockType::Painted
                 && shift_held
                 && !self.ui.gate_needs_reclick
