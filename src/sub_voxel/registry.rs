@@ -262,9 +262,30 @@ impl ModelRegistry {
                 for lz in 0..SUB_VOXEL_SIZE {
                     for lx in 0..SUB_VOXEL_SIZE {
                         // Scale coordinates based on model resolution
-                        let src_x = lx * model_res / SUB_VOXEL_SIZE;
-                        let src_y = ly * model_res / SUB_VOXEL_SIZE;
-                        let src_z = lz * model_res / SUB_VOXEL_SIZE;
+                        // For downsampling, sample from center of each region (not corner)
+                        let src_x = if model_res > SUB_VOXEL_SIZE {
+                            // Downsampling: sample from center
+                            let scale = model_res / SUB_VOXEL_SIZE;
+                            let offset = scale / 2;
+                            lx * scale + offset
+                        } else {
+                            // Upsampling or same size: nearest neighbor
+                            lx * model_res / SUB_VOXEL_SIZE
+                        };
+                        let src_y = if model_res > SUB_VOXEL_SIZE {
+                            let scale = model_res / SUB_VOXEL_SIZE;
+                            let offset = scale / 2;
+                            ly * scale + offset
+                        } else {
+                            ly * model_res / SUB_VOXEL_SIZE
+                        };
+                        let src_z = if model_res > SUB_VOXEL_SIZE {
+                            let scale = model_res / SUB_VOXEL_SIZE;
+                            let offset = scale / 2;
+                            lz * scale + offset
+                        } else {
+                            lz * model_res / SUB_VOXEL_SIZE
+                        };
                         let src_idx = src_x + src_y * model_res + src_z * model_res * model_res;
 
                         let voxel = if src_idx < model.voxels.len() {
