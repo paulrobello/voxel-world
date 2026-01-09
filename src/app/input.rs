@@ -101,6 +101,8 @@ impl App {
             &self.input,
             &self.sim.model_registry,
             self.args.verbose,
+            self.ui.settings.collision_enabled_walk,
+            self.ui.settings.collision_enabled_fly,
         );
 
         // Mouse look

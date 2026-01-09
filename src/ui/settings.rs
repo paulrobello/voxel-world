@@ -436,16 +436,22 @@ impl SettingsUI {
 
                         ui.separator();
 
+                        // Collision settings
+                        ui.checkbox(&mut settings.collision_enabled_walk, "Collision (walk mode)");
+                        ui.checkbox(&mut settings.collision_enabled_fly, "Collision (fly mode)");
+
+                        ui.separator();
+
                         // HUD visibility
-                        ui.checkbox(&mut settings.show_compass, "Show compass");
                         ui.checkbox(&mut settings.show_position, "Show position");
                         ui.checkbox(&mut settings.show_stats, "Show FPS/stats");
 
                         ui.separator();
 
                         // Minimap settings
-                        ui.label("Minimap (Toggle: M):");
+                        ui.collapsing("Minimap (Toggle: M)", |ui| {
                         ui.checkbox(show_minimap, "Show minimap");
+                        ui.checkbox(&mut settings.show_compass, "Show compass");
                         ui.horizontal(|ui| {
                             ui.label("Mode:");
                             ui.selectable_value(
@@ -486,6 +492,7 @@ impl SettingsUI {
                                 if minimap.skip_decorative { "ON" } else { "OFF" }
                             );
                         }
+                        });
 
                         ui.separator();
 

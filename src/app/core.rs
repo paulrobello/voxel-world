@@ -29,11 +29,12 @@ impl App {
             .player
             .feet_pos(self.sim.world_extent, self.sim.texture_origin);
         for _ in 0..12 {
-            if !self
-                .sim
-                .player
-                .check_collision(feet, &self.sim.world, &self.sim.model_registry)
-            {
+            if !self.sim.player.check_collision(
+                feet,
+                &self.sim.world,
+                &self.sim.model_registry,
+                true,
+            ) {
                 break;
             }
             feet.y += 0.25;

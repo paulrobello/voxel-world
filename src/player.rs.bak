@@ -250,7 +250,6 @@ impl Player {
                 Vector3::new(new_x, horiz_check_y, feet.z),
                 world,
                 model_registry,
-                collision_enabled,
             ) {
                 feet.x = new_x;
             } else {
@@ -262,7 +261,6 @@ impl Player {
                 Vector3::new(feet.x, horiz_check_y, new_z),
                 world,
                 model_registry,
-                collision_enabled,
             ) {
                 feet.z = new_z;
             } else {
@@ -270,12 +268,7 @@ impl Player {
             }
 
             let new_y = feet.y + self.velocity.y * delta_time;
-            if !self.check_collision(
-                Vector3::new(feet.x, new_y, feet.z),
-                world,
-                model_registry,
-                collision_enabled,
-            ) {
+            if !self.check_collision(Vector3::new(feet.x, new_y, feet.z), world, model_registry) {
                 feet.y = new_y;
             } else {
                 self.velocity.y = 0.0;
@@ -299,7 +292,6 @@ impl Player {
                 true,
                 world,
                 model_registry,
-                collision_enabled,
             ) {
                 feet.x = new_x;
             } else {
@@ -312,7 +304,6 @@ impl Player {
                 true,
                 world,
                 model_registry,
-                collision_enabled,
             ) {
                 feet.z = new_z;
             } else {
@@ -325,7 +316,6 @@ impl Player {
                 true,
                 world,
                 model_registry,
-                collision_enabled,
             ) {
                 feet.y = new_y;
             } else {
@@ -347,7 +337,6 @@ impl Player {
                 Vector3::new(new_x, horiz_check_y, feet.z),
                 world,
                 model_registry,
-                collision_enabled,
             ) {
                 feet.x = new_x;
             } else {
@@ -358,7 +347,6 @@ impl Player {
                         Vector3::new(new_x, feet.y + 1.01, feet.z),
                         world,
                         model_registry,
-                        collision_enabled,
                     )
                 {
                     should_auto_jump = true;
@@ -371,7 +359,6 @@ impl Player {
                 Vector3::new(feet.x, horiz_check_y, new_z),
                 world,
                 model_registry,
-                collision_enabled,
             ) {
                 feet.z = new_z;
             } else {
@@ -382,7 +369,6 @@ impl Player {
                         Vector3::new(feet.x, feet.y + 1.01, new_z),
                         world,
                         model_registry,
-                        collision_enabled,
                     )
                 {
                     should_auto_jump = true;
@@ -396,12 +382,7 @@ impl Player {
             }
 
             let new_y = feet.y + self.velocity.y * delta_time;
-            if !self.check_collision(
-                Vector3::new(feet.x, new_y, feet.z),
-                world,
-                model_registry,
-                collision_enabled,
-            ) {
+            if !self.check_collision(Vector3::new(feet.x, new_y, feet.z), world, model_registry) {
                 feet.y = new_y;
                 self.on_ground = false;
             } else {
@@ -422,13 +403,10 @@ impl Player {
         // Push player up if stuck inside a solid block (but not when in water,
         // as water physics handles collision differently and this would cause
         // the player to be shoved to the surface when entering water).
-        if self.check_collision(feet, world, model_registry, collision_enabled)
-            && !self.fly_mode
-            && !touching_water
-        {
+        if self.check_collision(feet, world, model_registry) && !self.fly_mode && !touching_water {
             for offset in 1..10 {
                 let test_pos = Vector3::new(feet.x, feet.y + offset as f64, feet.z);
-                if !self.check_collision(test_pos, world, model_registry, collision_enabled) {
+                if !self.check_collision(test_pos, world, model_registry) {
                     feet = test_pos;
                     self.velocity.y = 0.0;
                     break;
