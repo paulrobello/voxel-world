@@ -7,7 +7,7 @@
 - **Pure Creative Expression**: No mining progression, no crafting recipes, no health/danger mechanics
 - **Rich Building Tools**: Templates, measurement guides, stencils, flood fill for efficient construction
 - **Diverse Biomes**: Procedurally generated worlds with grasslands, mountains, deserts, swamps, snow, and caves
-- **Sub-Voxel Detail**: 16³ voxel models for furniture, decorations, and architectural elements
+- **Sub-Voxel Detail**: Multi-resolution voxel models (8³/16³/32³) for furniture, decorations, and architectural elements
 - **Collaborative Building**: Multiplayer support for shared creative projects (deferred until single-player complete)
 - **Performance First**: 90+ FPS on mid-range hardware with optional graphics features
 
@@ -33,7 +33,7 @@
 - **Glowing Blocks**: Lava and luminescent blocks with optional real-time lighting
 - **Water Varieties**: Ocean, lake, swamp water with distinct colors and flow rates
 - **Biome-Specific Assets**: Unique trees, ground cover, and block types per biome
-- **Sub-Voxel Models**: Detailed 16³ models for doors, furniture, decorations
+- **Sub-Voxel Models**: Multi-resolution models (8³/16³/32³) for doors, furniture, decorations with native GPU rendering
 - **Painted Blocks**: 19 textures × 32 tints = 608 customizable block variants
 
 ### Multiplayer (Deferred)
@@ -50,7 +50,7 @@
 - **World**: Global block positions (i32), infinite horizontal bounds
 - **Chunk**: 32³ blocks, organized in unlimited HashMap
 - **Region**: 32×32 chunks saved to disk (1024×128×1024 blocks per file)
-- **Sub-Voxel**: 16³ voxels per block for models
+- **Sub-Voxel**: 8³, 16³, or 32³ voxels per block for models (per-model resolution)
 
 ### Core Systems
 - **Vulkan Compute Shader Rendering**: GPU ray marching for blocks and sub-voxels
@@ -90,19 +90,20 @@
 - Migration and versioning support
 
 ### Phase 4: Sub-Voxel Model System ✅
-- 16³ voxel models with 16-color palettes (upgraded from 8³)
-- GPU ray marching for sub-voxel rendering
+- Multi-resolution voxel models: 8³, 16³, and 32³ with 32-color palettes
+- Three-tier GPU atlas system for native resolution rendering (no downsampling)
+- GPU ray marching for sub-voxel rendering with dynamic resolution
 - Collision detection and shadow casting
 - Translucency support with colored shadows
 - Model rotation and LOD system
 
 ### Phase 5: In-Game Model Editor ✅
-- Modal editor (N key) with 3D canvas (600×600 viewport for 16³ models)
+- Modal editor (N key) with 3D canvas supporting 8³, 16³, and 32³ resolutions
 - Tools: pencil, eraser, fill, eyedropper, rotate, mirror, cube, sphere
-- Scroll to zoom, adjustable shape sizes (1-16 voxels)
+- Scroll to zoom, adjustable shape sizes (1-32 voxels for 32³ models)
 - Library management with save/load/overwrite
 - Runtime sprite generation for HUD (auto-scaled for model size)
-- Custom models placeable in world
+- Custom models placeable in world at native resolution
 
 ### Phase 6: Interactive Block Types ✅
 - 5 door variants (40 models total: upper/lower × hinge × open/closed)
@@ -146,7 +147,7 @@
 - **Tinted Glass**: Colored shadows through translucent blocks
 - **Model Editor Mirror Mode**: Multi-axis symmetry with visual guides
 - **Undo/Redo**: 50-state history for model editor
-- **Sub-Voxel 16³ Upgrade**: Doubled model resolution from 8³ to 16³
+- **Multi-Resolution Sub-Voxels**: Support for 8³, 16³, and 32³ models with native GPU rendering
 - **Crystal Blocks**: Sub-voxel crystal models with 32 tint colors and point light emission
 
 ---
@@ -789,6 +790,15 @@ Enter                       # Confirm placement
 
 ## Done Recently
 
+- **Multi-Resolution Sub-Voxel System** (2026-01-09): ✅ COMPLETE
+  - Three-tier GPU atlas system for native 8³, 16³, and 32³ model rendering
+  - Separate texture atlases (128×8×128, 256×16×256, 512×32×512) with zero voxel loss
+  - Dynamic shader resolution: all functions query model_properties for actual resolution
+  - Shadow quality upgrade: 96-step limit for accurate 32³ model shadows
+  - Built-in models use 8³ for performance, custom models support all resolutions
+  - Player physics fixes: fly mode collision detection and walk mode collision always-on
+  - Editor UX improvements: bridge tool first-point indicator, right-click cancellation
+  - Model placement fixes: prevented double-placement of custom models
 - **Phase 16.1: Template Library** (2026-01-07): ✅ FEATURE COMPLETE
   - Visual selection system with V key toggle and shader-rendered markers
   - Copy command with rotation and full metadata preservation
@@ -818,15 +828,16 @@ Enter                       # Confirm placement
   - Lava, GlowStone, GlowMushroom, Crystal blocks with emission
   - Point light system with tinted colors for crystals
   - Settings toggles for point lights and LOD distance
-- **Sub-Voxel 16³ Upgrade** (2026-01-05): ✅ COMPLETE
-  - Doubled model resolution from 8³ to 16³
-  - Updated all model-related constants and atlas sizing
+- **Sub-Voxel Resolution Upgrades** (2026-01-05 → 2026-01-09): ✅ COMPLETE
+  - Initial upgrade: Doubled model resolution from 8³ to 16³
+  - Final upgrade: Added 32³ support with multi-tier GPU atlas system
+  - Updated all model-related constants and shader code for dynamic resolution
 - **Model Editor Enhancements** (2026-01-05): ✅ COMPLETE
-  - Cube and sphere placement tools with adjustable size (1-16)
+  - Cube and sphere placement tools with adjustable size (1-32 for 32³ models)
   - Scroll to zoom functionality
-  - Fixed viewport size for 16³ models (600×600)
+  - Dynamic viewport scaling for 8³, 16³, and 32³ models
   - Fixed axis labels and depth testing
-  - Fixed sprite generation scaling
+  - Fixed sprite generation scaling for all resolutions
 - **Paintable Blocks Feature** (2026-01-05): ✅ COMPLETE
 - **Phase 6: Interactive Block Types** (2026-01-04): ✅ COMPLETE
 - **Sphere Console Command** (2026-01-04): ✅ COMPLETE
@@ -838,5 +849,5 @@ Enter                       # Confirm placement
 
 ---
 
-*Last Updated: 2026-01-06*
-*Plan Version: 2.1 - Biome & Building Tools*
+*Last Updated: 2026-01-09*
+*Plan Version: 2.2 - Multi-Resolution Models & Building Tools*
