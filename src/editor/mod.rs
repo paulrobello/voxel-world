@@ -139,6 +139,8 @@ pub enum EditorTool {
     ColorChange,
     /// Flood fill connected voxels with a color.
     PaintBucket,
+    /// Draw a line of voxels between two points.
+    Bridge,
 }
 
 /// Mirror axis for symmetrical editing.
@@ -212,6 +214,9 @@ pub struct EditorState {
 
     /// Size of shapes when using Cube or Sphere tool (diameter in voxels).
     pub shape_size: usize,
+
+    /// First point for Bridge tool (set on first click, cleared on second or tool change).
+    pub bridge_first_point: Option<Vector3<i32>>,
 }
 
 impl Default for EditorState {
@@ -263,6 +268,7 @@ impl EditorState {
             pending_resolution_change: None,
             history: UndoHistory::new(),
             shape_size: 3, // Default 3x3 cube/sphere
+            bridge_first_point: None,
         }
     }
 
@@ -1051,6 +1057,81 @@ impl EditorState {
         }
     }
 
+    /// Draws a line of voxels between two points using 3D Bresenham algorithm.
+    ///
+    /// Saves state to undo history before drawing.
+    pub fn draw_bridge(&mut self, start: Vector3<i32>, end: Vector3<i32>) {
+        let model_size = self.scratch_pad.size() as i32;
+
+        // Calculate deltas
+        let dx = (end.x - start.x).abs();
+        let dy = (end.y - start.y).abs();
+        let dz = (end.z - start.z).abs();
+
+        // Calculate step directions
+        let sx = if end.x > start.x { 1 } else { -1 };
+        let sy = if end.y > start.y { 1 } else { -1 };
+        let sz = if end.z > start.z { 1 } else { -1 };
+
+        // Determine which axis is dominant
+        let dm = dx.max(dy).max(dz);
+
+        // Calculate error terms
+        let mut x = start.x;
+        let mut y = start.y;
+        let mut z = start.z;
+
+        let mut err_x = dm / 2;
+        let mut err_y = dm / 2;
+        let mut err_z = dm / 2;
+
+        // Save state before drawing
+        self.save_state();
+
+        // Draw line using 3D Bresenham
+        for _ in 0..=dm {
+            let pos = Vector3::new(x, y, z);
+
+            // Apply mirroring
+            let mirrored_positions = self.get_mirrored_positions(pos);
+            for p in mirrored_positions {
+                if p.x >= 0
+                    && p.x < model_size
+                    && p.y >= 0
+                    && p.y < model_size
+                    && p.z >= 0
+                    && p.z < model_size
+                {
+                    self.scratch_pad.set_voxel(
+                        p.x as usize,
+                        p.y as usize,
+                        p.z as usize,
+                        self.selected_palette_index,
+                    );
+                }
+            }
+
+            // Update error terms and positions
+            err_x += dx;
+            if err_x >= dm {
+                err_x -= dm;
+                x += sx;
+            }
+
+            err_y += dy;
+            if err_y >= dm {
+                err_y -= dm;
+                y += sy;
+            }
+
+            err_z += dz;
+            if err_z >= dm {
+                err_z -= dm;
+                z += sz;
+            }
+        }
+    }
+
     /// Handles a left-click action based on current tool.
     pub fn on_left_click(&mut self) {
         match self.tool {
@@ -1155,6 +1236,18 @@ impl EditorState {
                         let half = (self.shape_size / 2) as i32;
                         let center = voxel + Vector3::new(0, half, 0);
                         self.place_sphere(center);
+                    }
+                }
+            }
+            EditorTool::Bridge => {
+                if let Some(voxel) = self.hovered_voxel {
+                    if let Some(first_point) = self.bridge_first_point {
+                        // Second click - draw line from first_point to voxel
+                        self.draw_bridge(first_point, voxel);
+                        self.bridge_first_point = None; // Clear for next bridge
+                    } else {
+                        // First click - store position
+                        self.bridge_first_point = Some(voxel);
                     }
                 }
             }

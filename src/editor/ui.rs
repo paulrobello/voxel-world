@@ -40,18 +40,21 @@ pub fn draw_editor_ui(
                     .selectable_label(editor.tool == EditorTool::Pencil, "🖊 Pencil")
                     .clicked()
                 {
+                    editor.bridge_first_point = None; // Clear bridge state
                     editor.tool = EditorTool::Pencil;
                 }
                 if ui
                     .selectable_label(editor.tool == EditorTool::Eraser, "🧹 Eraser")
                     .clicked()
                 {
+                    editor.bridge_first_point = None; // Clear bridge state
                     editor.tool = EditorTool::Eraser;
                 }
                 if ui
                     .selectable_label(editor.tool == EditorTool::Eyedropper, "💧 Pick")
                     .clicked()
                 {
+                    editor.bridge_first_point = None; // Clear bridge state
                     editor.tool = EditorTool::Eyedropper;
                 }
             });
@@ -61,6 +64,7 @@ pub fn draw_editor_ui(
                     .on_hover_text("Place filled cube shapes")
                     .clicked()
                 {
+                    editor.bridge_first_point = None; // Clear bridge state
                     editor.tool = EditorTool::Cube;
                 }
                 if ui
@@ -68,6 +72,7 @@ pub fn draw_editor_ui(
                     .on_hover_text("Place filled sphere shapes")
                     .clicked()
                 {
+                    editor.bridge_first_point = None; // Clear bridge state
                     editor.tool = EditorTool::Sphere;
                 }
             });
@@ -77,6 +82,7 @@ pub fn draw_editor_ui(
                     .on_hover_text("Change color of existing voxels")
                     .clicked()
                 {
+                    editor.bridge_first_point = None; // Clear bridge state
                     editor.tool = EditorTool::ColorChange;
                 }
                 if ui
@@ -84,7 +90,18 @@ pub fn draw_editor_ui(
                     .on_hover_text("Flood fill connected voxels")
                     .clicked()
                 {
+                    editor.bridge_first_point = None; // Clear bridge state
                     editor.tool = EditorTool::PaintBucket;
+                }
+            });
+            ui.horizontal(|ui| {
+                if ui
+                    .selectable_label(editor.tool == EditorTool::Bridge, "🌉 Bridge")
+                    .on_hover_text("Draw a line between two points")
+                    .clicked()
+                {
+                    editor.bridge_first_point = None; // Clear bridge state
+                    editor.tool = EditorTool::Bridge;
                 }
             });
             // Shape size slider (only shown for Cube/Sphere tools)
