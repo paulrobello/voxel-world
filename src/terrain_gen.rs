@@ -168,7 +168,7 @@ impl TerrainGenerator {
             let blend = Self::smoothstep(0.3 - BLEND_WIDTH, 0.3, adjusted_temp);
             if blend > 0.01 {
                 // Transition to next biome (mountains if in mountain region, otherwise grassland)
-                let next = if in_mountain_region && base_height > 0.1 {
+                let next = if in_mountain_region && base_height > 0.25 {
                     BiomeType::Mountains
                 } else {
                     BiomeType::Grassland
@@ -209,12 +209,12 @@ impl TerrainGenerator {
             // Mountain biome determination - use regional noise for contiguous ranges
             // Mountains require BOTH elevated terrain AND being in a mountain region
             // This creates large contiguous ranges and plateaus instead of fragmented peaks
-            // Lower height threshold (0.1) allows more of the mountain region to be mountains
-            let is_mountains = in_mountain_region && base_height > 0.1;
+            // Height threshold of 0.25 ensures mountains are elevated (prevents sea-level stone patches)
+            let is_mountains = in_mountain_region && base_height > 0.25;
 
             if is_mountains {
                 // Strong mountain region - check for transition
-                let height_blend = Self::smoothstep(0.1, 0.1 + BLEND_WIDTH, base_height);
+                let height_blend = Self::smoothstep(0.25, 0.25 + BLEND_WIDTH, base_height);
                 let region_blend = Self::smoothstep(-0.3, -0.3 + BLEND_WIDTH, mountain_region);
                 let blend = height_blend.min(region_blend);
 
