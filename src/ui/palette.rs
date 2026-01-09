@@ -142,7 +142,6 @@ impl PaletteUI {
             const TEX_CACTUS: u8 = 23;
             const TEX_MUD: u8 = 24;
             const TEX_SANDSTONE: u8 = 25;
-            const TEX_ICE: u8 = 26;
             const TINT_WHITE: u8 = 12;
 
             items.push((
@@ -175,16 +174,7 @@ impl PaletteUI {
                 },
                 "Sandstone".to_string(),
             ));
-            items.push((
-                PaletteItem {
-                    block: BlockType::Painted,
-                    model_id: 0,
-                    tint_index: TINT_WHITE,
-                    paint_texture_idx: TEX_ICE,
-                    water_type: WaterType::Ocean,
-                },
-                "Ice".to_string(),
-            ));
+            // Ice removed - now a proper BlockType::Ice instead of painted block
         }
 
         if matches!(tab, PaletteTab::Models | PaletteTab::All) {
