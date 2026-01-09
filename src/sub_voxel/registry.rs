@@ -256,6 +256,13 @@ impl ModelRegistry {
             let model_z = model_id / 16;
             let model_res = model.resolution.size();
 
+            // Count source voxels for debugging (especially for 32³ models)
+            let source_non_zero_count = if model_res == 32 {
+                model.voxels.iter().filter(|&&v| v != 0).count()
+            } else {
+                0
+            };
+
             // Copy voxels with inline resampling if necessary
             let mut non_zero_count = 0;
             for ly in 0..SUB_VOXEL_SIZE {
@@ -318,6 +325,19 @@ impl ModelRegistry {
                         data[dst_idx] = voxel;
                     }
                 }
+            }
+
+            // Debug output for 32³ models
+            if model_res == 32 && source_non_zero_count > 0 {
+                let loss_pct = if source_non_zero_count > 0 {
+                    100.0 * (1.0 - (non_zero_count as f32 / source_non_zero_count as f32))
+                } else {
+                    0.0
+                };
+                println!(
+                    "[DEBUG] Model ID {} (32³→16³): {} source voxels → {} packed voxels ({:.1}% loss)",
+                    model_id, source_non_zero_count, non_zero_count, loss_pct
+                );
             }
 
             if model_id == 1 {
