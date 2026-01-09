@@ -235,11 +235,13 @@ layout(set = 6, binding = 0, r32f) uniform image2D distanceImage;
 layout(set = 7, binding = 0) readonly buffer BrickMasks { uint brick_masks[]; };
 layout(set = 7, binding = 1) readonly buffer BrickDistances { uint brick_distances[]; };
 
-// Sub-voxel models (set 7, bindings 2-6)
-// Single 16³ atlas - all models resampled to this resolution for performance
-layout(set = 7, binding = 2, r8ui) readonly uniform uimage3D modelAtlas;
-layout(set = 7, binding = 3) uniform sampler2D modelPalettes;
-layout(set = 7, binding = 4, rg8ui) readonly uniform uimage3D modelMetadata;
+// Sub-voxel models (set 7, bindings 2-8)
+// Three tiered atlases - models at native resolutions (8³, 16³, 32³)
+layout(set = 7, binding = 2, r8ui) readonly uniform uimage3D modelAtlas8;   // 8³ resolution
+layout(set = 7, binding = 3, r8ui) readonly uniform uimage3D modelAtlas16;  // 16³ resolution
+layout(set = 7, binding = 4, r8ui) readonly uniform uimage3D modelAtlas32;  // 32³ resolution
+layout(set = 7, binding = 5) uniform sampler2D modelPalettes;
+layout(set = 7, binding = 6, rg8ui) readonly uniform uimage3D modelMetadata;
 struct ModelProperties {
     uvec2 collision_mask;   // 8 bytes - 4×4×4 collision grid
     uint aabb_min;          // 4 bytes - packed xyz
@@ -250,10 +252,10 @@ struct ModelProperties {
     float light_radius;     // 4 bytes - light radius in blocks
     float light_intensity;  // 4 bytes - light intensity multiplier
 };
-layout(set = 7, binding = 5) readonly buffer ModelPropertiesBuffer {
+layout(set = 7, binding = 7) readonly buffer ModelPropertiesBuffer {
     ModelProperties model_properties[];
 };
-layout(set = 7, binding = 6) uniform sampler2D modelPaletteEmission;
+layout(set = 7, binding = 8) uniform sampler2D modelPaletteEmission;
 
 // Sub-voxel constants
 // Default resolution (medium) - for backward compatibility

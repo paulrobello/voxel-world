@@ -1,16 +1,38 @@
-// Sample voxel from the model atlas (all models are resampled to 16³ for GPU).
+// Sample voxel from the model atlas (three tiers: 8³, 16³, 32³).
 // Model layout: 16 models per row, 16 rows = 256 models max.
+// Automatically selects the correct atlas based on model resolution.
 uint sampleModelVoxel(uint model_id, ivec3 local_pos) {
     uint model_x = model_id % 16u;
     uint model_z = model_id / 16u;
 
-    ivec3 atlas_pos = ivec3(
-        int(model_x * 16u) + local_pos.x,
-        local_pos.y,
-        int(model_z * 16u) + local_pos.z
-    );
+    // Get model resolution from properties
+    uint res = model_properties[model_id].resolution;
 
-    return imageLoad(modelAtlas, atlas_pos).r;
+    // Calculate atlas position based on resolution
+    ivec3 atlas_pos;
+    if (res == 8u) {
+        atlas_pos = ivec3(
+            int(model_x * 8u) + local_pos.x,
+            local_pos.y,
+            int(model_z * 8u) + local_pos.z
+        );
+        return imageLoad(modelAtlas8, atlas_pos).r;
+    } else if (res == 32u) {
+        atlas_pos = ivec3(
+            int(model_x * 32u) + local_pos.x,
+            local_pos.y,
+            int(model_z * 32u) + local_pos.z
+        );
+        return imageLoad(modelAtlas32, atlas_pos).r;
+    } else {
+        // Default to 16³
+        atlas_pos = ivec3(
+            int(model_x * 16u) + local_pos.x,
+            local_pos.y,
+            int(model_z * 16u) + local_pos.z
+        );
+        return imageLoad(modelAtlas16, atlas_pos).r;
+    }
 }
 
 // Get model color from palette
@@ -36,9 +58,9 @@ float getModelPaletteEmission(uint model_id, uint palette_idx) {
     return texture(modelPaletteEmission, uv).r;
 }
 
-// Get model resolution (always 16 on GPU - models are resampled)
+// Get model resolution from properties (8, 16, or 32)
 uint getModelResolution(uint model_id) {
-    return SUB_VOXEL_SIZE;
+    return model_properties[model_id].resolution;
 }
 
 // Rotate a position within the model based on rotation value (0-3 = 0°/90°/180°/270°)

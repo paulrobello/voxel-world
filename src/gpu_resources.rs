@@ -1013,10 +1013,22 @@ pub fn get_brick_and_model_set(
         .wait(None)
         .unwrap();
 
-    // Create image view for the 16³ atlas (all models resampled to this resolution)
+    // Create image views for all three resolution tiers
+    let atlas_8_view = ImageView::new(
+        model_atlas_8.clone(),
+        ImageViewCreateInfo::from_image(&model_atlas_8),
+    )
+    .unwrap();
+
     let atlas_16_view = ImageView::new(
         model_atlas_16.clone(),
         ImageViewCreateInfo::from_image(&model_atlas_16),
+    )
+    .unwrap();
+
+    let atlas_32_view = ImageView::new(
+        model_atlas_32.clone(),
+        ImageViewCreateInfo::from_image(&model_atlas_32),
     )
     .unwrap();
 
@@ -1059,16 +1071,19 @@ pub fn get_brick_and_model_set(
             // Brick metadata (bindings 0-1)
             WriteDescriptorSet::buffer(0, brick_mask_buffer.clone()),
             WriteDescriptorSet::buffer(1, brick_dist_buffer.clone()),
-            // Model resources (bindings 2-6) - single 16³ atlas + palettes + emission
-            WriteDescriptorSet::image_view(2, atlas_16_view),
+            // Model atlases at native resolutions (bindings 2-4)
+            WriteDescriptorSet::image_view(2, atlas_8_view),
+            WriteDescriptorSet::image_view(3, atlas_16_view),
+            WriteDescriptorSet::image_view(4, atlas_32_view),
+            // Model resources (bindings 5-8)
             WriteDescriptorSet::image_view_sampler(
-                3,
+                5,
                 palette_view.clone(),
                 palette_sampler.clone(),
             ),
-            WriteDescriptorSet::image_view(4, metadata_view),
-            WriteDescriptorSet::buffer(5, model_properties_buffer.clone()),
-            WriteDescriptorSet::image_view_sampler(6, emission_view, palette_sampler.clone()),
+            WriteDescriptorSet::image_view(6, metadata_view),
+            WriteDescriptorSet::buffer(7, model_properties_buffer.clone()),
+            WriteDescriptorSet::image_view_sampler(8, emission_view, palette_sampler.clone()),
         ],
     );
 
@@ -1127,29 +1142,33 @@ pub const MODEL_ATLAS_32_HEIGHT: u32 = 32;
 pub const MODEL_ATLAS_32_DEPTH: u32 = 16 * 32;
 
 /// Uploads model registry data (atlas, palettes, properties) to GPU.
-/// All models are resampled to 16³ resolution for the GPU atlas.
+/// Uploads models to three separate atlases (8³, 16³, 32³) at native resolutions.
 #[allow(clippy::too_many_arguments)]
 pub fn upload_model_registry(
     memory_allocator: Arc<StandardMemoryAllocator>,
     command_buffer_allocator: Arc<StandardCommandBufferAllocator>,
     queue: &Arc<Queue>,
     registry: &ModelRegistry,
-    _atlas_8: &Arc<Image>,
+    atlas_8: &Arc<Image>,
     atlas_16: &Arc<Image>,
-    _atlas_32: &Arc<Image>,
+    atlas_32: &Arc<Image>,
     palettes: &Arc<Image>,
     palette_emission: &Arc<Image>,
     properties_buffer: &Subbuffer<[GpuModelProperties]>,
 ) {
-    // Pack all models to 16³ atlas (resampling as needed)
-    let atlas_data = registry.pack_voxels_for_gpu();
+    // Pack models by resolution tier (native resolution, no downsampling)
+    let atlas_data_8 = registry.pack_voxels_for_tier(0); // Tier 0: 8³
+    let atlas_data_16 = registry.pack_voxels_for_tier(1); // Tier 1: 16³
+    let atlas_data_32 = registry.pack_voxels_for_tier(2); // Tier 2: 32³
     let palette_data = registry.pack_palettes_for_gpu();
     let emission_data = registry.pack_palette_emission_for_gpu();
     let properties_data = registry.pack_properties_for_gpu();
 
     // Reuse host-visible staging buffers
     thread_local! {
-        static ATLAS_POOL: std::cell::RefCell<Vec<Subbuffer<[u8]>>> = const { std::cell::RefCell::new(Vec::new()) };
+        static ATLAS_POOL_8: std::cell::RefCell<Vec<Subbuffer<[u8]>>> = const { std::cell::RefCell::new(Vec::new()) };
+        static ATLAS_POOL_16: std::cell::RefCell<Vec<Subbuffer<[u8]>>> = const { std::cell::RefCell::new(Vec::new()) };
+        static ATLAS_POOL_32: std::cell::RefCell<Vec<Subbuffer<[u8]>>> = const { std::cell::RefCell::new(Vec::new()) };
         static PALETTE_POOL: std::cell::RefCell<Vec<Subbuffer<[u8]>>> = const { std::cell::RefCell::new(Vec::new()) };
         static EMISSION_POOL: std::cell::RefCell<Vec<Subbuffer<[u8]>>> = const { std::cell::RefCell::new(Vec::new()) };
     }
@@ -1184,22 +1203,36 @@ pub fn upload_model_registry(
         .unwrap()
     }
 
-    // Allocate staging buffers
-    let atlas_staging =
-        ATLAS_POOL.with(|pool| take_or_alloc_host(pool, atlas_data.len(), &memory_allocator));
+    // Allocate staging buffers for all three atlas tiers
+    let atlas_staging_8 =
+        ATLAS_POOL_8.with(|pool| take_or_alloc_host(pool, atlas_data_8.len(), &memory_allocator));
+    let atlas_staging_16 =
+        ATLAS_POOL_16.with(|pool| take_or_alloc_host(pool, atlas_data_16.len(), &memory_allocator));
+    let atlas_staging_32 =
+        ATLAS_POOL_32.with(|pool| take_or_alloc_host(pool, atlas_data_32.len(), &memory_allocator));
     let palette_staging =
         PALETTE_POOL.with(|pool| take_or_alloc_host(pool, palette_data.len(), &memory_allocator));
     let emission_staging =
         EMISSION_POOL.with(|pool| take_or_alloc_host(pool, emission_data.len(), &memory_allocator));
 
-    // Write data to staging buffers
+    // Write atlas data to staging buffers
     {
-        let mut write = atlas_staging.write().unwrap();
-        write[..atlas_data.len()].copy_from_slice(&atlas_data);
+        let mut write = atlas_staging_8.write().unwrap();
+        write[..atlas_data_8.len()].copy_from_slice(&atlas_data_8);
+    }
+    {
+        let mut write = atlas_staging_16.write().unwrap();
+        write[..atlas_data_16.len()].copy_from_slice(&atlas_data_16);
+    }
+    {
+        let mut write = atlas_staging_32.write().unwrap();
+        write[..atlas_data_32.len()].copy_from_slice(&atlas_data_32);
     }
     println!(
-        "[DEBUG] Uploaded {} bytes of atlas data to GPU",
-        atlas_data.len()
+        "[DEBUG] Uploaded {} bytes (8³) + {} bytes (16³) + {} bytes (32³) of atlas data to GPU",
+        atlas_data_8.len(),
+        atlas_data_16.len(),
+        atlas_data_32.len()
     );
 
     {
@@ -1273,7 +1306,19 @@ pub fn upload_model_registry(
     )
     .unwrap();
 
-    // Copy atlas data (16³ unified atlas)
+    // Copy atlas data for all three resolution tiers
+    command_buffer_builder
+        .copy_buffer_to_image(CopyBufferToImageInfo {
+            regions: [BufferImageCopy {
+                image_subresource: atlas_8.subresource_layers(),
+                image_extent: atlas_8.extent(),
+                ..Default::default()
+            }]
+            .into(),
+            ..CopyBufferToImageInfo::buffer_image(atlas_staging_8.clone(), atlas_8.clone())
+        })
+        .unwrap();
+
     command_buffer_builder
         .copy_buffer_to_image(CopyBufferToImageInfo {
             regions: [BufferImageCopy {
@@ -1282,7 +1327,19 @@ pub fn upload_model_registry(
                 ..Default::default()
             }]
             .into(),
-            ..CopyBufferToImageInfo::buffer_image(atlas_staging.clone(), atlas_16.clone())
+            ..CopyBufferToImageInfo::buffer_image(atlas_staging_16.clone(), atlas_16.clone())
+        })
+        .unwrap();
+
+    command_buffer_builder
+        .copy_buffer_to_image(CopyBufferToImageInfo {
+            regions: [BufferImageCopy {
+                image_subresource: atlas_32.subresource_layers(),
+                image_extent: atlas_32.extent(),
+                ..Default::default()
+            }]
+            .into(),
+            ..CopyBufferToImageInfo::buffer_image(atlas_staging_32.clone(), atlas_32.clone())
         })
         .unwrap();
 
@@ -1326,10 +1383,22 @@ pub fn upload_model_registry(
         .unwrap();
 
     // Return staging buffers to pools with cap
-    ATLAS_POOL.with(|pool| {
+    ATLAS_POOL_8.with(|pool| {
         let mut p = pool.borrow_mut();
         if p.len() < HOST_POOL_MAX_BUFFERS {
-            p.push(atlas_staging);
+            p.push(atlas_staging_8);
+        }
+    });
+    ATLAS_POOL_16.with(|pool| {
+        let mut p = pool.borrow_mut();
+        if p.len() < HOST_POOL_MAX_BUFFERS {
+            p.push(atlas_staging_16);
+        }
+    });
+    ATLAS_POOL_32.with(|pool| {
+        let mut p = pool.borrow_mut();
+        if p.len() < HOST_POOL_MAX_BUFFERS {
+            p.push(atlas_staging_32);
         }
     });
     PALETTE_POOL.with(|pool| {
