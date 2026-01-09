@@ -127,21 +127,23 @@ vec3 inverseRotateDirection(vec3 d, uint rotation) {
 
 // Sample a model voxel with rotation and bounds checks.
 // Returns true if the rotated position is inside the model and non-empty.
-// All models use 16³ resolution on GPU.
+// Supports 8³, 16³, and 32³ resolutions.
 bool sampleModelFilled(uint model_id, ivec3 local_pos, uint rotation) {
-    if (any(lessThan(local_pos, ivec3(0))) || any(greaterThanEqual(local_pos, ivec3(SUB_VOXEL_SIZE)))) {
+    uint res = model_properties[model_id].resolution;
+    if (any(lessThan(local_pos, ivec3(0))) || any(greaterThanEqual(local_pos, ivec3(int(res))))) {
         return false;
     }
-    ivec3 rotated = rotateModelPos(local_pos, rotation, SUB_VOXEL_SIZE);
-    rotated = clamp(rotated, ivec3(0), ivec3(SUB_VOXEL_SIZE - 1));
+    ivec3 rotated = rotateModelPos(local_pos, rotation, res);
+    rotated = clamp(rotated, ivec3(0), ivec3(int(res) - 1));
     return sampleModelVoxel(model_id, rotated) != 0u;
 }
 
 // Sample with awareness of fence connections across block boundaries.
 // Returns 1.0 for a solid voxel inside this model, 0.0 otherwise.
 float sampleModelOcclusion(uint model_id, ivec3 local_pos, uint rotation) {
+    uint res = model_properties[model_id].resolution;
     bool inside = all(greaterThanEqual(local_pos, ivec3(0))) &&
-                  all(lessThan(local_pos, ivec3(SUB_VOXEL_SIZE)));
+                  all(lessThan(local_pos, ivec3(int(res))));
     if (inside) {
         return sampleModelFilled(model_id, local_pos, rotation) ? 1.0 : 0.0;
     }
@@ -151,10 +153,11 @@ float sampleModelOcclusion(uint model_id, ivec3 local_pos, uint rotation) {
 // Compute fine voxel bounds for a model (in block-local 0-1 space)
 void modelCollisionBounds(uint model_id, out vec3 minB, out vec3 maxB) {
     ModelProperties props = model_properties[model_id];
+    uint res = props.resolution;
     uvec3 minU = uvec3(props.aabb_min & 0xFF, (props.aabb_min >> 8) & 0xFF, (props.aabb_min >> 16) & 0xFF);
     uvec3 maxU = uvec3(props.aabb_max & 0xFF, (props.aabb_max >> 8) & 0xFF, (props.aabb_max >> 16) & 0xFF);
-    minB = vec3(minU) / float(SUB_VOXEL_SIZE);
-    maxB = vec3(maxU) / float(SUB_VOXEL_SIZE);
+    minB = vec3(minU) / float(res);
+    maxB = vec3(maxU) / float(res);
 }
 
 // Quick coarse 4x4x4 mask ray test (block-local 0-1 space). Returns true on hit.
@@ -244,10 +247,10 @@ bool marchSubVoxelModel(
     out float out_t,
     out float out_alpha
 ) {
-    // All models use 16³ resolution on GPU (fixed for performance)
-    uint res = SUB_VOXEL_SIZE;
-    float fres = 16.0;
-    int maxSteps = 48; // SUB_VOXEL_SIZE * 3
+    // Get actual model resolution (8, 16, or 32)
+    uint res = model_properties[model_id].resolution;
+    float fres = float(res);
+    int maxSteps = int(res) * 3;
 
     // Initialize alpha for translucency accumulation
     out_alpha = 0.0;
@@ -445,9 +448,9 @@ float marchSubVoxelShadow(
 ) {
     accumulatedTint = vec3(1.0);
 
-    // All models use 16³ resolution on GPU (fixed for performance)
-    uint res = SUB_VOXEL_SIZE;
-    float fres = 16.0;
+    // Get actual model resolution (8, 16, or 32)
+    uint res = model_properties[model_id].resolution;
+    float fres = float(res);
 
     // Early out using coarse mask
     if (!modelMaskBlocksRay(origin, dir, model_id, rotation)) {
@@ -455,7 +458,7 @@ float marchSubVoxelShadow(
     }
 
     // Clamp step budget to the maximum possible voxels we could traverse.
-    int stepsLeft = clamp(maxSteps, 1, 48); // 48 = SUB_VOXEL_SIZE * 3
+    int stepsLeft = clamp(maxSteps, 1, int(res) * 3);
 
     // Track accumulated transmission (starts at 1.0 = full light)
     float transmission = 1.0;
