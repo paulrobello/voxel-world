@@ -4,42 +4,47 @@ Utility scripts for voxel world development and visualization.
 
 ## generate_layer_viz.py
 
-Generate professional HTML infographics showing vertical layer structure for voxel world biomes.
+Generate professional HTML infographics showing depth-dependent features across all voxel world biomes.
 
 ### Usage
 
 ```bash
-# Generate for a specific biome
-python3 scripts/generate_layer_viz.py grassland
-python3 scripts/generate_layer_viz.py mountains
-python3 scripts/generate_layer_viz.py desert
-python3 scripts/generate_layer_viz.py swamp
-python3 scripts/generate_layer_viz.py snow
-
-# Generate for all biomes at once
-python3 scripts/generate_layer_viz.py all
+# Generate interactive visualization for all biomes
+python3 scripts/generate_layer_viz.py
 ```
 
 ### Output
 
-Creates `layer_viz_{biome}.html` files in the project root showing:
+Creates `layer_viz.html` in the project root with interactive tabs for all biomes showing:
+
+**Layer Structure:**
 - World height and layer structure (Y: 0-511)
 - Sea level and biome-specific surface heights
 - Explorable dry cave zones (green)
 - Water-filled cave zones (blue/red)
 - Lava zones for mountains (orange)
 - Statistical overview of explorable vs flooded space
-- Interactive hover effects
+
+**Depth-Dependent Features:**
+- 🌳 **Vegetation**: Tree types, heights, and undergrowth by biome
+- 💡 **Natural Light Sources**: Glowstone, crystals, and glowmushroom spawning zones
+- 🏔️ **Cave Decorations**: Stalactites, stalagmites, icicles distribution
+
+**Interactive Features:**
+- Tab-based biome switching with emoji icons
+- Hover effects on all layers
+- Color-coded depth zones
+- Biome-specific badges
 
 ### Biome Characteristics
 
-| Biome | Surface Y | Explorable Dry Caves | Special Features |
-|-------|-----------|---------------------|------------------|
-| Grassland | ~128 | 4 blocks (Y: 125-128) | Standard terrain |
-| Mountains | ~155 | 30 blocks (Y: 125-155) | Lava lakes below Y: 100 |
-| Desert | ~128 | 125 blocks (Y: 3-128) | ALL caves dry - no water |
-| Swamp | ~124 | 0 blocks | Flooded to Y: 129 |
-| Snow | ~140 | 15 blocks (Y: 125-140) | Tundra and peaks |
+| Biome | Surface Y | Dry Caves | Vegetation | Light Sources | Decorations |
+|-------|-----------|-----------|------------|---------------|-------------|
+| Grassland 🌱 | ~128 | 4 blocks | Oak trees (8-12 tall) | Rare glowstone, crystals | Common stalactites/stalagmites |
+| Mountains ⛰️ | ~155 | 30 blocks | Pine trees (12-18 tall) | Abundant crystals in peaks | Very common formations |
+| Desert 🏜️ | ~128 | 125 blocks | Sparse cacti | Common exposed crystals | Minimal formations |
+| Swamp 🌿 | ~124 | 0 blocks | Willow trees (10-14 tall) | Glowmushrooms, underwater crystals | Dripping/submerged |
+| Snow ❄️ | ~140 | 15 blocks | Sparse pine trees | Ice crystals abundant | Ice formations + icicles |
 
 ### Claude Code Skill
 

@@ -34,6 +34,7 @@ __pycache__/
 .idea/
 
 # Generated visualizations
+layer_viz.html
 layer_viz_*.html
 voxel_world_layer_infographic.html
 
