@@ -228,9 +228,50 @@ impl Player {
             let up = t(KeyCode::Space) - shift_held;
             self.velocity.y = up * current_speed;
 
-            feet.x += self.velocity.x * delta_time;
-            feet.y += self.velocity.y * delta_time;
-            feet.z += self.velocity.z * delta_time;
+            // Apply collision if enabled, otherwise move freely
+            if collision_enabled {
+                // Check each axis independently
+                let new_x = feet.x + self.velocity.x * delta_time;
+                if !self.check_collision(
+                    Vector3::new(new_x, feet.y, feet.z),
+                    world,
+                    model_registry,
+                    collision_enabled,
+                ) {
+                    feet.x = new_x;
+                } else {
+                    self.velocity.x = 0.0;
+                }
+
+                let new_z = feet.z + self.velocity.z * delta_time;
+                if !self.check_collision(
+                    Vector3::new(feet.x, feet.y, new_z),
+                    world,
+                    model_registry,
+                    collision_enabled,
+                ) {
+                    feet.z = new_z;
+                } else {
+                    self.velocity.z = 0.0;
+                }
+
+                let new_y = feet.y + self.velocity.y * delta_time;
+                if !self.check_collision(
+                    Vector3::new(feet.x, new_y, feet.z),
+                    world,
+                    model_registry,
+                    collision_enabled,
+                ) {
+                    feet.y = new_y;
+                } else {
+                    self.velocity.y = 0.0;
+                }
+            } else {
+                // No collision checking - move freely
+                feet.x += self.velocity.x * delta_time;
+                feet.y += self.velocity.y * delta_time;
+                feet.z += self.velocity.z * delta_time;
+            }
             feet.y = feet.y.clamp(0.5, TEXTURE_SIZE_Y as f64 - 0.5);
         } else if touching_water {
             self.velocity.y -= WATER_GRAVITY * delta_time;
