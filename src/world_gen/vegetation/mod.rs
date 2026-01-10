@@ -178,6 +178,13 @@ pub fn generate_ground_cover(
 }
 
 /// Generates cave decorations (stalactites/stalagmites) in underground caves.
+///
+/// Uses 3D biome selection to place appropriate decorations based on underground biome type:
+/// - Standard caves: Stone stalactites/stalagmites
+/// - Snow biome caves: Ice stalactites/stalagmites
+/// - Lush caves: Would have moss and glow berries (future)
+/// - Dripstone caves: Denser stalactite/stalagmite formations (future)
+/// - Deep dark: Sculk decorations (future)
 pub fn generate_cave_decorations(
     chunk: &mut Chunk,
     terrain: &TerrainGenerator,
@@ -195,14 +202,16 @@ pub fn generate_cave_decorations(
         for lz in 0..CHUNK_SIZE {
             let world_x = chunk_world_x + lx as i32;
             let world_z = chunk_world_z + lz as i32;
-            let biome = terrain.get_biome(world_x, world_z);
 
             for ly in 0..CHUNK_SIZE {
                 let world_y = chunk_world_y + ly as i32;
                 let block = chunk.get_block(lx, ly, lz);
 
+                // Use 3D biome for underground biome-aware decoration
+                let biome = terrain.get_biome_3d(world_x, world_y, world_z);
+
                 // Check for cave ceiling (solid block with air below)
-                if block == BlockType::Stone && ly > 0 {
+                if (block == BlockType::Stone || block == BlockType::Deepslate) && ly > 0 {
                     let below = chunk.get_block(lx, ly - 1, lz);
                     if below == BlockType::Air {
                         // This is a cave ceiling
@@ -217,7 +226,9 @@ pub fn generate_cave_decorations(
                 }
 
                 // Check for cave floor (solid block with air above)
-                if block == BlockType::Stone && ly < CHUNK_SIZE - 1 {
+                if (block == BlockType::Stone || block == BlockType::Deepslate)
+                    && ly < CHUNK_SIZE - 1
+                {
                     let above = chunk.get_block(lx, ly + 1, lz);
                     if above == BlockType::Air {
                         // This is a cave floor

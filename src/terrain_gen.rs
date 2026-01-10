@@ -137,50 +137,111 @@ fn generate_normal_chunk(
                     #[allow(deprecated)]
                     match biome {
                         // Snowy biomes - snow on top
-                        BiomeType::SnowyPlains | BiomeType::SnowyTaiga | BiomeType::Snow => {
-                            BlockType::Snow
-                        }
+                        BiomeType::SnowyPlains | BiomeType::Snow => BlockType::Snow,
+                        BiomeType::SnowyTaiga => BlockType::Snow, // Snow over podzol
+
                         // Desert - sand surface
                         BiomeType::Desert => BlockType::Sand,
-                        // Mountains - exposed stone
-                        BiomeType::Mountains => BlockType::Stone,
+
+                        // Mountains - exposed stone or gravel at high elevation
+                        BiomeType::Mountains => {
+                            if world_y > 160 {
+                                // High peaks - bare stone with some gravel
+                                if terrain.hash(world_x, world_z) % 5 == 0 {
+                                    BlockType::Gravel
+                                } else {
+                                    BlockType::Stone
+                                }
+                            } else {
+                                BlockType::Stone
+                            }
+                        }
+
                         // Swamp - mud surface
                         BiomeType::Swamp => {
                             chunk.set_block(lx, ly, lz, BlockType::Mud);
                             continue;
                         }
-                        // Beach - always sand
-                        BiomeType::Beach => BlockType::Sand,
-                        // Ocean floor - sand or gravel
-                        BiomeType::Ocean => {
-                            if terrain.hash(world_x, world_z) % 3 == 0 {
-                                BlockType::Gravel
+
+                        // Beach - sand with occasional clay
+                        BiomeType::Beach => {
+                            if terrain.hash(world_x, world_z) % 12 == 0 {
+                                BlockType::Clay
                             } else {
                                 BlockType::Sand
                             }
                         }
-                        // Savanna - dry grass (regular grass block)
-                        BiomeType::Savanna => BlockType::Grass,
-                        // Taiga - grass (cold but not frozen)
-                        BiomeType::Taiga => BlockType::Grass,
+
+                        // Ocean floor - varied: sand, gravel, clay
+                        BiomeType::Ocean => {
+                            let hash = terrain.hash(world_x, world_z) % 10;
+                            if hash < 2 {
+                                BlockType::Gravel
+                            } else if hash < 4 {
+                                BlockType::Clay
+                            } else {
+                                BlockType::Sand
+                            }
+                        }
+
+                        // Savanna - coarse dirt patches in grass
+                        BiomeType::Savanna => {
+                            if terrain.hash(world_x, world_z) % 4 == 0 {
+                                BlockType::CoarseDirt
+                            } else {
+                                BlockType::Grass
+                            }
+                        }
+
+                        // Taiga - podzol forest floor
+                        BiomeType::Taiga => {
+                            if terrain.hash(world_x, world_z) % 3 == 0 {
+                                BlockType::Podzol
+                            } else {
+                                BlockType::Grass
+                            }
+                        }
+
+                        // Dark forest - podzol with coarse dirt
+                        BiomeType::DarkForest => {
+                            let hash = terrain.hash(world_x, world_z) % 5;
+                            if hash < 2 {
+                                BlockType::Podzol
+                            } else if hash < 3 {
+                                BlockType::CoarseDirt
+                            } else {
+                                BlockType::Grass
+                            }
+                        }
+
+                        // Jungle - mix of grass and coarse dirt
+                        BiomeType::Jungle => {
+                            if world_y <= SEA_LEVEL + 2 {
+                                BlockType::Sand
+                            } else if terrain.hash(world_x, world_z) % 6 == 0 {
+                                BlockType::CoarseDirt
+                            } else {
+                                BlockType::Grass
+                            }
+                        }
+
                         // All other biomes - grass or sand near water
                         BiomeType::Plains
                         | BiomeType::Grassland
                         | BiomeType::Forest
-                        | BiomeType::DarkForest
                         | BiomeType::BirchForest
-                        | BiomeType::Meadow
-                        | BiomeType::Jungle => {
+                        | BiomeType::Meadow => {
                             if world_y <= SEA_LEVEL + 2 {
                                 BlockType::Sand
                             } else {
                                 BlockType::Grass
                             }
                         }
-                        // Underground biomes - stone at surface (shouldn't normally be visible)
-                        BiomeType::LushCaves | BiomeType::DripstoneCaves | BiomeType::DeepDark => {
-                            BlockType::Stone
-                        }
+
+                        // Underground biomes - shouldn't normally be visible at surface
+                        BiomeType::LushCaves => BlockType::Moss,
+                        BiomeType::DripstoneCaves => BlockType::Stone,
+                        BiomeType::DeepDark => BlockType::Deepslate,
                     }
                 } else if world_y > height - 4 {
                     // Subsurface layer (1-4 blocks below surface)
@@ -191,14 +252,77 @@ fn generate_normal_chunk(
                             chunk.set_block(lx, ly, lz, BlockType::Sandstone);
                             continue;
                         }
+
                         // Mountains - stone all the way
                         BiomeType::Mountains => BlockType::Stone,
-                        // Snowy biomes - ice subsurface
-                        BiomeType::SnowyPlains | BiomeType::SnowyTaiga | BiomeType::Snow => {
-                            BlockType::Ice
+
+                        // Snowy biomes - packed ice or regular ice
+                        BiomeType::SnowyPlains | BiomeType::Snow => {
+                            if terrain.hash(world_x, world_z) % 3 == 0 {
+                                BlockType::PackedIce
+                            } else {
+                                BlockType::Ice
+                            }
                         }
-                        // Ocean/Beach - sand under surface
-                        BiomeType::Ocean | BiomeType::Beach => BlockType::Sand,
+                        BiomeType::SnowyTaiga => {
+                            // Podzol under snow, then dirt
+                            if world_y == height - 1 {
+                                BlockType::Podzol
+                            } else {
+                                BlockType::Dirt
+                            }
+                        }
+
+                        // Ocean/Beach - sand with clay pockets
+                        BiomeType::Ocean | BiomeType::Beach => {
+                            if terrain.hash(world_x, world_z) % 8 == 0 {
+                                BlockType::Clay
+                            } else {
+                                BlockType::Sand
+                            }
+                        }
+
+                        // Swamp - clay under mud
+                        BiomeType::Swamp => {
+                            if world_y == height - 1 {
+                                BlockType::Mud
+                            } else {
+                                BlockType::Clay
+                            }
+                        }
+
+                        // Taiga - dirt under podzol
+                        BiomeType::Taiga => BlockType::Dirt,
+
+                        // Dark forest - coarse dirt under surface
+                        BiomeType::DarkForest => {
+                            if terrain.hash(world_x, world_z) % 4 == 0 {
+                                BlockType::CoarseDirt
+                            } else {
+                                BlockType::Dirt
+                            }
+                        }
+
+                        // Savanna - coarse dirt subsurface
+                        BiomeType::Savanna => {
+                            if terrain.hash(world_x, world_z) % 3 == 0 {
+                                BlockType::CoarseDirt
+                            } else {
+                                BlockType::Dirt
+                            }
+                        }
+
+                        // Underground biomes
+                        BiomeType::LushCaves => {
+                            if terrain.hash(world_x, world_z) % 3 == 0 {
+                                BlockType::RootedDirt
+                            } else {
+                                BlockType::Moss
+                            }
+                        }
+                        BiomeType::DripstoneCaves => BlockType::Stone,
+                        BiomeType::DeepDark => BlockType::Deepslate,
+
                         // All other biomes - dirt or sand near water
                         _ => {
                             if height <= SEA_LEVEL + 2 {
@@ -208,16 +332,47 @@ fn generate_normal_chunk(
                             }
                         }
                     }
-                } else {
-                    // Deep underground
+                } else if world_y > 32 {
+                    // Mid-level underground (stone layer)
                     #[allow(deprecated)]
                     match biome {
-                        // Snowy biomes have ice below surface
+                        // Snowy biomes have ice layer
                         BiomeType::SnowyPlains | BiomeType::SnowyTaiga | BiomeType::Snow => {
-                            BlockType::Ice
+                            if world_y > height - 12 {
+                                BlockType::Ice
+                            } else {
+                                BlockType::Stone
+                            }
                         }
+                        // Underground biomes have special stone
+                        BiomeType::LushCaves => {
+                            if terrain.hash(world_x, world_z) % 6 == 0 {
+                                BlockType::MossyCobblestone
+                            } else {
+                                BlockType::Stone
+                            }
+                        }
+                        BiomeType::DripstoneCaves => BlockType::Stone,
+                        BiomeType::DeepDark => BlockType::Deepslate,
                         // Everything else is stone
                         _ => BlockType::Stone,
+                    }
+                } else {
+                    // Deep underground (Y <= 32) - Deepslate layer
+                    #[allow(deprecated)]
+                    match biome {
+                        // Deep dark is always deepslate
+                        BiomeType::DeepDark => BlockType::Deepslate,
+                        // Other biomes transition to deepslate
+                        _ => {
+                            // Gradient: more deepslate the deeper you go
+                            let deepslate_chance = (32 - world_y) * 3;
+                            if terrain.hash(world_x + world_y, world_z) % 100 < deepslate_chance {
+                                BlockType::Deepslate
+                            } else {
+                                BlockType::Stone
+                            }
+                        }
                     }
                 };
 
