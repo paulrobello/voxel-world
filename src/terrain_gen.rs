@@ -748,8 +748,8 @@ fn generate_trees(
                             chunk_world_z,
                             overflow_blocks,
                         );
-                    } else if tree_roll < 8 {
-                        // Dead trees (logs only, no leaves) - 2% density
+                    } else if tree_roll < 14 {
+                        // Dead trees with branches and snow - 8% density
                         generate_dead_tree(
                             chunk,
                             lx as i32,
@@ -1587,7 +1587,7 @@ fn generate_pine_cone(
     );
 }
 
-/// Generates a dead tree (logs only, no leaves) with snow coverage for snow biome
+/// Generates a dead tree with bare branches and snow coverage for snow biome
 fn generate_dead_tree(
     chunk: &mut Chunk,
     x: i32,
@@ -1610,10 +1610,10 @@ fn generate_dead_tree(
         }
     }
 
-    // Dead trees are shorter (4-8 blocks)
-    let height = 4 + (hash % 5);
+    // Dead trees are medium height (5-9 blocks)
+    let height = 5 + (hash % 5);
 
-    // Just the trunk, no branches or leaves
+    // Build the trunk
     for dy in 1..height {
         set_block_safe(
             chunk,
@@ -1628,8 +1628,58 @@ fn generate_dead_tree(
         );
     }
 
-    // Add snow on top and around the trunk
-    // Snow cap on top
+    // Add 2-4 horizontal branches at different heights
+    let num_branches = 2 + (hash % 3);
+    for branch_idx in 0..num_branches {
+        // Place branches starting from 40% up the tree
+        let branch_y = y + (height * 2 / 5) + branch_idx;
+        if branch_y >= y + height {
+            break; // Don't place branches above tree top
+        }
+
+        // Each branch extends 1-3 blocks in a cardinal direction
+        let direction = (hash.wrapping_add(branch_idx * 13)) % 4;
+        let length = 1 + ((hash.wrapping_add(branch_idx * 17)) % 3);
+
+        let (dx, dz) = match direction {
+            0 => (1, 0),  // East
+            1 => (-1, 0), // West
+            2 => (0, 1),  // South
+            _ => (0, -1), // North
+        };
+
+        // Place horizontal branch blocks
+        for dist in 1..=length {
+            set_block_safe(
+                chunk,
+                x + dx * dist,
+                branch_y,
+                z + dz * dist,
+                BlockType::PineLog,
+                chunk_world_x,
+                chunk_world_y,
+                chunk_world_z,
+                overflow_blocks,
+            );
+
+            // Place snow on top of each branch segment (80% chance)
+            if (hash.wrapping_add(dist * 11 + branch_idx * 7) % 10) < 8 {
+                set_block_safe(
+                    chunk,
+                    x + dx * dist,
+                    branch_y + 1,
+                    z + dz * dist,
+                    BlockType::Snow,
+                    chunk_world_x,
+                    chunk_world_y,
+                    chunk_world_z,
+                    overflow_blocks,
+                );
+            }
+        }
+    }
+
+    // Snow cap on top of trunk
     set_block_safe(
         chunk,
         x,
@@ -1642,33 +1692,34 @@ fn generate_dead_tree(
         overflow_blocks,
     );
 
-    // Optional: Add snow around base for drifts (50% chance)
-    if hash % 2 == 0 {
+    // Add snow drifts around base (60% chance)
+    if (hash % 10) < 6 {
         for dx in -1..=1 {
             for dz in -1..=1 {
                 if dx == 0 && dz == 0 {
                     continue; // Skip center (trunk is there)
                 }
-                // Place snow around base
-                set_block_safe(
-                    chunk,
-                    x + dx,
-                    y + 1,
-                    z + dz,
-                    BlockType::Snow,
-                    chunk_world_x,
-                    chunk_world_y,
-                    chunk_world_z,
-                    overflow_blocks,
-                );
+                // Place snow around base (70% chance per position)
+                if (hash.wrapping_add(dx * 5 + dz * 3) % 10) < 7 {
+                    set_block_safe(
+                        chunk,
+                        x + dx,
+                        y + 1,
+                        z + dz,
+                        BlockType::Snow,
+                        chunk_world_x,
+                        chunk_world_y,
+                        chunk_world_z,
+                        overflow_blocks,
+                    );
+                }
             }
         }
     }
 
-    // Add some snow partway up the trunk (30% chance per level)
-    for dy in 2..height {
-        if (hash.wrapping_add(dy) % 10) < 3 {
-            // Random side for snow accumulation
+    // Occasional snow accumulation on trunk sides (20% chance per level)
+    for dy in 2..(height - 1) {
+        if (hash.wrapping_add(dy * 19) % 10) < 2 {
             let side = (hash.wrapping_add(dy * 7)) % 4;
             let (dx, dz) = match side {
                 0 => (1, 0),
