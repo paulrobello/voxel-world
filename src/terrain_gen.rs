@@ -723,9 +723,8 @@ fn generate_trees(
             let local_base_y = height - chunk_world_y;
 
             // Check if tree base is in this chunk
-            // Buffer at top ensures enough of tree is in this chunk for proper generation
-            // (overflow handles canopy extending into next chunk)
-            if local_base_y < 0 || local_base_y >= (CHUNK_SIZE as i32 - 5) {
+            // Small buffer ensures at least tree base is in chunk (overflow handles the rest)
+            if local_base_y < 0 || local_base_y >= (CHUNK_SIZE as i32) {
                 continue;
             }
 
