@@ -129,8 +129,8 @@ impl CaveGenerator {
                 }
             }
             BiomeType::Snow => {
-                // Ice caves: ALL caves filled with ice in snow biome
-                CaveFillType::Ice
+                // Ice caves: Empty caves with ice walls (underground is ice in snow biome)
+                CaveFillType::Air
             }
             BiomeType::Mountains => {
                 // Mountain caves: lava lakes all the way to sea level
@@ -304,6 +304,4 @@ pub enum CaveFillType {
     Water(crate::chunk::WaterType),
     /// Filled with lava (mountain caves at low depths)
     Lava,
-    /// Filled with ice (snow biome caves)
-    Ice,
 }

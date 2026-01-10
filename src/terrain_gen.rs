@@ -402,10 +402,6 @@ fn generate_normal_chunk(
                             // Mountain caves at low depths have lava lakes
                             BlockType::Lava
                         }
-                        CaveFillType::Ice => {
-                            // Snow biome caves filled with ice
-                            BlockType::Ice
-                        }
                     }
                 } else if world_y == height {
                     // Surface block - varies by biome
