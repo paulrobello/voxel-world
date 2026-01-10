@@ -734,8 +734,22 @@ fn generate_trees(
                     }
                 }
                 BiomeType::Snow => {
-                    // Dead trees (logs only, no leaves) - Very low density
-                    if hash % 100 < 2 {
+                    let tree_roll = hash % 100;
+                    if tree_roll < 6 {
+                        // Snow-covered pine trees - 6% density
+                        generate_snow_pine(
+                            chunk,
+                            lx as i32,
+                            local_base_y,
+                            lz as i32,
+                            hash,
+                            chunk_world_x,
+                            chunk_world_y,
+                            chunk_world_z,
+                            overflow_blocks,
+                        );
+                    } else if tree_roll < 8 {
+                        // Dead trees (logs only, no leaves) - 2% density
                         generate_dead_tree(
                             chunk,
                             lx as i32,
@@ -1677,7 +1691,198 @@ fn generate_dead_tree(
     }
 }
 
+/// Generates a snow-covered pine tree for snow biome
+/// Living pine with leaves, but heavily covered in snow
+fn generate_snow_pine(
+    chunk: &mut Chunk,
+    x: i32,
+    y: i32,
+    z: i32,
+    hash: i32,
+    chunk_world_x: i32,
+    chunk_world_y: i32,
+    chunk_world_z: i32,
+    overflow_blocks: &mut Vec<OverflowBlock>,
+) {
+    // Check if there's solid ground below
+    for check_y in (y.saturating_sub(2))..=y {
+        if let Some(block) = get_block_safe(chunk, x, check_y, z) {
+            if !block.is_solid() {
+                return; // Don't place tree on air/water or above cave
+            }
+        } else {
+            return;
+        }
+    }
+
+    // Snow pines are medium height (8-14 blocks)
+    let height = 8 + (hash % 7);
+
+    // Pine trunk
+    for dy in 1..height {
+        set_block_safe(
+            chunk,
+            x,
+            y + dy,
+            z,
+            BlockType::PineLog,
+            chunk_world_x,
+            chunk_world_y,
+            chunk_world_z,
+            overflow_blocks,
+        );
+    }
+
+    // Conical shape with layers of pine leaves and snow
+    // Start from top and work down, getting wider
+    let layers = height / 2; // Number of foliage layers
+
+    for layer in 0..layers {
+        let layer_y = y + height - 1 - layer;
+        // Radius increases as we go down (1, 2, 2, 3, 3...)
+        let radius = 1 + (layer / 2);
+
+        for dx in -radius..=radius {
+            for dz in -radius..=radius {
+                if dx == 0 && dz == 0 {
+                    continue; // Skip center (trunk)
+                }
+
+                let dist_sq = dx * dx + dz * dz;
+                let max_dist_sq = radius * radius + radius;
+
+                if dist_sq <= max_dist_sq {
+                    // Place pine leaves
+                    set_block_safe(
+                        chunk,
+                        x + dx,
+                        layer_y,
+                        z + dz,
+                        BlockType::PineLeaves,
+                        chunk_world_x,
+                        chunk_world_y,
+                        chunk_world_z,
+                        overflow_blocks,
+                    );
+
+                    // Heavy snow coverage on top of leaves (60% chance)
+                    if (hash.wrapping_add(dx * 13 + dz * 17 + layer * 5) % 10) < 6 {
+                        set_block_safe(
+                            chunk,
+                            x + dx,
+                            layer_y + 1,
+                            z + dz,
+                            BlockType::Snow,
+                            chunk_world_x,
+                            chunk_world_y,
+                            chunk_world_z,
+                            overflow_blocks,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    // Snow cap at the very top
+    set_block_safe(
+        chunk,
+        x,
+        y + height,
+        z,
+        BlockType::Snow,
+        chunk_world_x,
+        chunk_world_y,
+        chunk_world_z,
+        overflow_blocks,
+    );
+
+    // Snow drifts around base (70% chance)
+    if hash % 10 < 7 {
+        for dx in -2..=2 {
+            for dz in -2..=2 {
+                if dx == 0 && dz == 0 {
+                    continue; // Skip center
+                }
+                let dist_sq = dx * dx + dz * dz;
+                if dist_sq <= 4 && (hash.wrapping_add(dx + dz) % 3) != 0 {
+                    set_block_safe(
+                        chunk,
+                        x + dx,
+                        y + 1,
+                        z + dz,
+                        BlockType::Snow,
+                        chunk_world_x,
+                        chunk_world_y,
+                        chunk_world_z,
+                        overflow_blocks,
+                    );
+                }
+            }
+        }
+    }
+}
+
 fn generate_willow(
+    chunk: &mut Chunk,
+    x: i32,
+    y: i32,
+    z: i32,
+    hash: i32,
+    chunk_world_x: i32,
+    chunk_world_y: i32,
+    chunk_world_z: i32,
+    overflow_blocks: &mut Vec<OverflowBlock>,
+) {
+    // Size variation: 60% small, 30% medium, 10% large
+    let size_roll = hash % 10;
+    let tree_size = if size_roll < 6 {
+        0 // Small (60%)
+    } else if size_roll < 9 {
+        1 // Medium (30%)
+    } else {
+        2 // Large (10%)
+    };
+
+    match tree_size {
+        0 => generate_willow_small(
+            chunk,
+            x,
+            y,
+            z,
+            hash,
+            chunk_world_x,
+            chunk_world_y,
+            chunk_world_z,
+            overflow_blocks,
+        ),
+        1 => generate_willow_medium(
+            chunk,
+            x,
+            y,
+            z,
+            hash,
+            chunk_world_x,
+            chunk_world_y,
+            chunk_world_z,
+            overflow_blocks,
+        ),
+        _ => generate_willow_large(
+            chunk,
+            x,
+            y,
+            z,
+            hash,
+            chunk_world_x,
+            chunk_world_y,
+            chunk_world_z,
+            overflow_blocks,
+        ),
+    }
+}
+
+/// Small willow tree (current implementation - minimum size)
+fn generate_willow_small(
     chunk: &mut Chunk,
     x: i32,
     y: i32,
@@ -1713,7 +1918,6 @@ fn generate_willow(
         for dz in -3i32..=3 {
             let dist_sq = dx * dx + dz * dz;
             if dist_sq <= 9 {
-                // Euclidean distance <= 3
                 set_block_safe(
                     chunk,
                     x + dx,
@@ -1748,12 +1952,11 @@ fn generate_willow(
         }
     }
 
-    // Middle layer - medium (radius 2.5)
+    // Middle layer
     for dx in -2i32..=2 {
         for dz in -2i32..=2 {
             let dist_sq = dx * dx + dz * dz;
             if dist_sq <= 6 {
-                // Euclidean distance <= ~2.5
                 set_block_safe(
                     chunk,
                     x + dx,
@@ -1769,16 +1972,264 @@ fn generate_willow(
         }
     }
 
-    // Top layer - smallest (radius 1.5)
+    // Top layer
     for dx in -1i32..=1 {
         for dz in -1i32..=1 {
             let dist_sq = dx * dx + dz * dz;
             if dist_sq <= 2 {
-                // Euclidean distance <= ~1.5
                 set_block_safe(
                     chunk,
                     x + dx,
                     canopy_y + 2,
+                    z + dz,
+                    BlockType::WillowLeaves,
+                    chunk_world_x,
+                    chunk_world_y,
+                    chunk_world_z,
+                    overflow_blocks,
+                );
+            }
+        }
+    }
+}
+
+/// Medium willow tree with larger hollow canopy
+fn generate_willow_medium(
+    chunk: &mut Chunk,
+    x: i32,
+    y: i32,
+    z: i32,
+    hash: i32,
+    chunk_world_x: i32,
+    chunk_world_y: i32,
+    chunk_world_z: i32,
+    overflow_blocks: &mut Vec<OverflowBlock>,
+) {
+    let height = 7 + (hash % 3); // 7-9 blocks tall
+
+    // Trunk
+    for dy in 1..=height {
+        set_block_safe(
+            chunk,
+            x,
+            y + dy,
+            z,
+            BlockType::WillowLog,
+            chunk_world_x,
+            chunk_world_y,
+            chunk_world_z,
+            overflow_blocks,
+        );
+    }
+
+    let canopy_y = y + height;
+
+    // Hollow shell - only outer ring of leaves
+    // Bottom layer - radius 4-5 shell
+    for dx in -5i32..=5 {
+        for dz in -5i32..=5 {
+            let dist_sq = dx * dx + dz * dz;
+            let dist = (dist_sq as f32).sqrt();
+            // Hollow: only place if distance is between 3.5 and 5
+            if (3.5..=5.0).contains(&dist) {
+                set_block_safe(
+                    chunk,
+                    x + dx,
+                    canopy_y,
+                    z + dz,
+                    BlockType::WillowLeaves,
+                    chunk_world_x,
+                    chunk_world_y,
+                    chunk_world_z,
+                    overflow_blocks,
+                );
+
+                // Draping vines that hang all the way to the ground
+                if hash.wrapping_add(dx * 30 + dz) % 2 == 0 {
+                    // Calculate distance from canopy to ground
+                    let vine_len = height;
+                    for v in 1..=vine_len {
+                        set_block_safe(
+                            chunk,
+                            x + dx,
+                            canopy_y - v,
+                            z + dz,
+                            BlockType::WillowLeaves,
+                            chunk_world_x,
+                            chunk_world_y,
+                            chunk_world_z,
+                            overflow_blocks,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    // Upper layers - gradually smaller hollow shells
+    for dx in -3i32..=3 {
+        for dz in -3i32..=3 {
+            let dist_sq = dx * dx + dz * dz;
+            let dist = (dist_sq as f32).sqrt();
+            if (2.0..=3.5).contains(&dist) {
+                set_block_safe(
+                    chunk,
+                    x + dx,
+                    canopy_y + 1,
+                    z + dz,
+                    BlockType::WillowLeaves,
+                    chunk_world_x,
+                    chunk_world_y,
+                    chunk_world_z,
+                    overflow_blocks,
+                );
+            }
+        }
+    }
+
+    // Top cap
+    for dx in -2i32..=2 {
+        for dz in -2i32..=2 {
+            if dx * dx + dz * dz <= 4 {
+                set_block_safe(
+                    chunk,
+                    x + dx,
+                    canopy_y + 2,
+                    z + dz,
+                    BlockType::WillowLeaves,
+                    chunk_world_x,
+                    chunk_world_y,
+                    chunk_world_z,
+                    overflow_blocks,
+                );
+            }
+        }
+    }
+}
+
+/// Large willow tree with dramatic hollow draping canopy
+fn generate_willow_large(
+    chunk: &mut Chunk,
+    x: i32,
+    y: i32,
+    z: i32,
+    hash: i32,
+    chunk_world_x: i32,
+    chunk_world_y: i32,
+    chunk_world_z: i32,
+    overflow_blocks: &mut Vec<OverflowBlock>,
+) {
+    let height = 10 + (hash % 4); // 10-13 blocks tall
+
+    // Trunk
+    for dy in 1..=height {
+        set_block_safe(
+            chunk,
+            x,
+            y + dy,
+            z,
+            BlockType::WillowLog,
+            chunk_world_x,
+            chunk_world_y,
+            chunk_world_z,
+            overflow_blocks,
+        );
+    }
+
+    let canopy_y = y + height;
+
+    // Large hollow shell - dramatic weeping effect
+    // Bottom layer - large radius 6-7 shell
+    for dx in -7i32..=7 {
+        for dz in -7i32..=7 {
+            let dist_sq = dx * dx + dz * dz;
+            let dist = (dist_sq as f32).sqrt();
+            // Hollow: only outer ring (distance 5 to 7)
+            if (5.0..=7.0).contains(&dist) {
+                set_block_safe(
+                    chunk,
+                    x + dx,
+                    canopy_y,
+                    z + dz,
+                    BlockType::WillowLeaves,
+                    chunk_world_x,
+                    chunk_world_y,
+                    chunk_world_z,
+                    overflow_blocks,
+                );
+
+                // Draping vines that hang all the way to the ground
+                if hash.wrapping_add(dx * 30 + dz) % 2 == 0 {
+                    // Hang all the way down from canopy to ground
+                    let vine_len = height;
+                    for v in 1..=vine_len {
+                        set_block_safe(
+                            chunk,
+                            x + dx,
+                            canopy_y - v,
+                            z + dz,
+                            BlockType::WillowLeaves,
+                            chunk_world_x,
+                            chunk_world_y,
+                            chunk_world_z,
+                            overflow_blocks,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    // Middle layer - hollow shell
+    for dx in -5i32..=5 {
+        for dz in -5i32..=5 {
+            let dist_sq = dx * dx + dz * dz;
+            let dist = (dist_sq as f32).sqrt();
+            if (3.5..=5.0).contains(&dist) {
+                set_block_safe(
+                    chunk,
+                    x + dx,
+                    canopy_y + 1,
+                    z + dz,
+                    BlockType::WillowLeaves,
+                    chunk_world_x,
+                    chunk_world_y,
+                    chunk_world_z,
+                    overflow_blocks,
+                );
+            }
+        }
+    }
+
+    // Upper layer
+    for dx in -3i32..=3 {
+        for dz in -3i32..=3 {
+            let dist_sq = dx * dx + dz * dz;
+            let dist = (dist_sq as f32).sqrt();
+            if (2.0..=3.5).contains(&dist) {
+                set_block_safe(
+                    chunk,
+                    x + dx,
+                    canopy_y + 2,
+                    z + dz,
+                    BlockType::WillowLeaves,
+                    chunk_world_x,
+                    chunk_world_y,
+                    chunk_world_z,
+                    overflow_blocks,
+                );
+            }
+        }
+    }
+
+    // Top cap
+    for dx in -2i32..=2 {
+        for dz in -2i32..=2 {
+            if dx * dx + dz * dz <= 4 {
+                set_block_safe(
+                    chunk,
+                    x + dx,
+                    canopy_y + 3,
                     z + dz,
                     BlockType::WillowLeaves,
                     chunk_world_x,
