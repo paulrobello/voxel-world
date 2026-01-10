@@ -211,6 +211,30 @@ make sprite-gen
 ```
 11. Test in-game and verify texture renders correctly
 
+## ⚠️ Painted Block - User-Only
+
+**CRITICAL**: The `Painted` block type (BlockType::Painted = 18) is **ONLY** for player customization.
+
+**DO NOT use painted blocks in world/terrain generation code.**
+
+If you need a block for world generation:
+1. Create a dedicated BlockType variant
+2. Add it to the enum with proper properties
+3. Generate or assign a texture
+4. Follow the "Adding New Block Types" workflow above
+
+**Why this matters:**
+- Painted blocks store texture and tint in per-block metadata
+- This is memory-intensive and intended for player creativity
+- World generation should use efficient, dedicated block types
+- Painted blocks discovered in terrain_gen.rs should be replaced
+
+**Examples of correct approach:**
+- ✅ `BlockType::Mud` for swamp surfaces (dedicated block)
+- ✅ `BlockType::Sandstone` for desert subsurface (dedicated block)
+- ✅ `BlockType::Cactus` for desert plants (dedicated block)
+- ❌ `set_painted_block(TEX_MUD, TINT_WHITE)` in terrain generation
+
 ## Block Type Sync
 
 BlockType enum in `chunk.rs` must match constants in `common.glsl`:
@@ -218,7 +242,8 @@ BlockType enum in `chunk.rs` must match constants in `common.glsl`:
 0=Air, 1=Stone, 2=Dirt, 3=Grass, 4=Planks, 5=Leaves, 6=Sand, 7=Gravel,
 8=Water, 9=Glass, 10=Log, 11=Model, 12=Brick, 13=Snow, 14=Cobblestone, 15=Iron, 16=Bedrock,
 17=TintedGlass, 18=Painted, 19=Lava, 20=GlowStone, 21=GlowMushroom, 22=Crystal,
-23=PineLog, 24=WillowLog, 25=PineLeaves, 26=WillowLeaves, 27=Ice
+23=PineLog, 24=WillowLog, 25=PineLeaves, 26=WillowLeaves, 27=Ice,
+28=Mud, 29=Sandstone, 30=Cactus
 ```
 
 **Texture Atlas Mapping:**

@@ -35,14 +35,6 @@ const MODEL_LILY_PAD: u8 = 103;
 const MODEL_MUSHROOM_BROWN: u8 = 104;
 const MODEL_MUSHROOM_RED: u8 = 105;
 
-// Texture indices (from common.glsl/materials.glsl)
-const TEX_CACTUS: u8 = 23;
-const TEX_MUD: u8 = 24;
-const TEX_SANDSTONE: u8 = 25;
-
-// Tint indices (from chunk.rs TINT_PALETTE)
-const TINT_WHITE: u8 = 12;
-
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BiomeInfo {
     pub elevation: f64,
@@ -469,7 +461,7 @@ fn generate_normal_chunk(
                         BiomeType::Mountains => BlockType::Stone,
                         BiomeType::Swamp => {
                             // Swamps always have muddy surface
-                            chunk.set_painted_block(lx, ly, lz, TEX_MUD, TINT_WHITE);
+                            chunk.set_block(lx, ly, lz, BlockType::Mud);
                             continue; // Skip default set_block
                         }
                         BiomeType::Grassland => {
@@ -484,8 +476,8 @@ fn generate_normal_chunk(
                     // Subsurface layer
                     match biome {
                         BiomeType::Desert => {
-                            // Sandstone (Painted block)
-                            chunk.set_painted_block(lx, ly, lz, TEX_SANDSTONE, TINT_WHITE);
+                            // Sandstone subsurface layer
+                            chunk.set_block(lx, ly, lz, BlockType::Sandstone);
                             continue; // Skip default set_block
                         }
                         BiomeType::Mountains => BlockType::Stone,
@@ -1716,7 +1708,19 @@ fn generate_cactus(
 
     // Main column (trunk)
     for dy in 1..=height {
-        set_painted_block_safe(chunk, x, y + dy, z, TEX_CACTUS, TINT_WHITE);
+        let block_y = y + dy;
+        if x >= 0
+            && x < CHUNK_SIZE as i32
+            && block_y >= 0
+            && block_y < CHUNK_SIZE as i32
+            && z >= 0
+            && z < CHUNK_SIZE as i32
+            && chunk
+                .get_block(x as usize, block_y as usize, z as usize)
+                .is_transparent()
+        {
+            chunk.set_block(x as usize, block_y as usize, z as usize, BlockType::Cactus);
+        }
     }
 
     // Add branches for taller cacti (height >= 4)
@@ -1736,26 +1740,49 @@ fn generate_cactus(
         // Place branch (1-2 blocks long)
         let branch_len = 1 + ((hash / 7) % 2);
         for i in 1..=branch_len {
-            set_painted_block_safe(
-                chunk,
-                x + dx * i,
-                branch_height,
-                z + dz * i,
-                TEX_CACTUS,
-                TINT_WHITE,
-            );
+            let branch_x = x + dx * i;
+            let branch_z = z + dz * i;
+            if branch_x >= 0
+                && branch_x < CHUNK_SIZE as i32
+                && branch_height >= 0
+                && branch_height < CHUNK_SIZE as i32
+                && branch_z >= 0
+                && branch_z < CHUNK_SIZE as i32
+                && chunk
+                    .get_block(branch_x as usize, branch_height as usize, branch_z as usize)
+                    .is_transparent()
+            {
+                chunk.set_block(
+                    branch_x as usize,
+                    branch_height as usize,
+                    branch_z as usize,
+                    BlockType::Cactus,
+                );
+            }
         }
 
         // Add vertical growth on branch tip (0-1 blocks)
         if (hash / 13) % 2 == 0 {
-            set_painted_block_safe(
-                chunk,
-                x + dx * branch_len,
-                branch_height + 1,
-                z + dz * branch_len,
-                TEX_CACTUS,
-                TINT_WHITE,
-            );
+            let tip_x = x + dx * branch_len;
+            let tip_y = branch_height + 1;
+            let tip_z = z + dz * branch_len;
+            if tip_x >= 0
+                && tip_x < CHUNK_SIZE as i32
+                && tip_y >= 0
+                && tip_y < CHUNK_SIZE as i32
+                && tip_z >= 0
+                && tip_z < CHUNK_SIZE as i32
+                && chunk
+                    .get_block(tip_x as usize, tip_y as usize, tip_z as usize)
+                    .is_transparent()
+            {
+                chunk.set_block(
+                    tip_x as usize,
+                    tip_y as usize,
+                    tip_z as usize,
+                    BlockType::Cactus,
+                );
+            }
         }
 
         // Optionally add a second branch on the opposite side for very tall cacti
@@ -1768,14 +1795,29 @@ fn generate_cactus(
                 _ => (-1, 0), // West
             };
 
-            set_painted_block_safe(
-                chunk,
-                x + dx2,
-                branch2_height,
-                z + dz2,
-                TEX_CACTUS,
-                TINT_WHITE,
-            );
+            let branch2_x = x + dx2;
+            let branch2_z = z + dz2;
+            if branch2_x >= 0
+                && branch2_x < CHUNK_SIZE as i32
+                && branch2_height >= 0
+                && branch2_height < CHUNK_SIZE as i32
+                && branch2_z >= 0
+                && branch2_z < CHUNK_SIZE as i32
+                && chunk
+                    .get_block(
+                        branch2_x as usize,
+                        branch2_height as usize,
+                        branch2_z as usize,
+                    )
+                    .is_transparent()
+            {
+                chunk.set_block(
+                    branch2_x as usize,
+                    branch2_height as usize,
+                    branch2_z as usize,
+                    BlockType::Cactus,
+                );
+            }
         }
     }
 }
@@ -1829,24 +1871,6 @@ fn set_block_safe(
             block_type: block,
         });
     }
-}
-
-// Helper for painted blocks (overflow not supported for painted blocks yet)
-fn set_painted_block_safe(chunk: &mut Chunk, x: i32, y: i32, z: i32, tex: u8, tint: u8) {
-    if x >= 0
-        && x < CHUNK_SIZE as i32
-        && y >= 0
-        && y < CHUNK_SIZE as i32
-        && z >= 0
-        && z < CHUNK_SIZE as i32
-        && (chunk.get_block(x as usize, y as usize, z as usize) == BlockType::Air
-            || chunk
-                .get_block(x as usize, y as usize, z as usize)
-                .is_transparent())
-    {
-        chunk.set_painted_block(x as usize, y as usize, z as usize, tex, tint);
-    }
-    // Note: Blocks outside chunk bounds are silently skipped for painted blocks
 }
 
 /// Generates cave decorations (stalactites/stalagmites) in underground caves.

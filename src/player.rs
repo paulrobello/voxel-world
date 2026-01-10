@@ -30,6 +30,14 @@ pub const SWIM_UP_SPEED: f64 = 4.0;
 pub const SWIM_DOWN_SPEED: f64 = 3.0;
 pub const WATER_DRAG: f64 = 0.85;
 
+// Mud physics constants - slower than water, sticky/viscous
+pub const MUD_GRAVITY: f64 = 2.0; // Slower sinking
+pub const MUD_BUOYANCY: f64 = 1.0; // Less buoyancy
+pub const MUD_SPEED: f64 = 1.5; // Half swim speed
+pub const MUD_UP_SPEED: f64 = 2.0; // Slow upward movement
+pub const MUD_DOWN_SPEED: f64 = 1.5; // Slow sinking
+pub const MUD_DRAG: f64 = 0.7; // More drag than water
+
 // Ladder/climbing constants
 pub const CLIMB_UP_SPEED: f64 = 4.0;
 pub const CLIMB_DOWN_SPEED: f64 = 3.0;
@@ -47,6 +55,7 @@ pub struct Player {
     pub head_bob_timer: f64,
     pub head_bob_intensity: f64,
     pub in_water: bool,
+    pub in_mud: bool,
     pub fly_mode: bool,
     pub sprint_mode: bool,
     pub auto_jump: bool,
@@ -85,6 +94,7 @@ impl Player {
             head_bob_timer: 0.0,
             head_bob_intensity: 0.0,
             in_water: false,
+            in_mud: false,
             fly_mode,
             sprint_mode: false,
             auto_jump: true,
@@ -180,8 +190,11 @@ impl Player {
 
         let head_in_water = self.check_in_water(feet, world);
         let touching_water = self.check_touching_water(feet, world);
+        let head_in_mud = self.check_in_mud(feet, world);
+        let touching_mud = self.check_touching_mud(feet, world);
         let touching_ladder = self.check_touching_ladder(feet, world, model_registry, verbose);
         self.in_water = head_in_water;
+        self.in_mud = head_in_mud;
 
         // Get movement input
         let t = |k: KeyCode| input.key_held(k) as u8 as f64;
@@ -195,9 +208,11 @@ impl Player {
             -forward * yaw.cos() - right * yaw.sin(),
         );
 
-        // Fly mode should ignore medium (water/ladder) speed modifiers
+        // Fly mode should ignore medium (water/mud/ladder) speed modifiers
         let base_speed = if self.fly_mode {
             MOVE_SPEED * 4.0
+        } else if touching_mud {
+            MUD_SPEED // Slowest movement
         } else if touching_water {
             SWIM_SPEED
         } else if touching_ladder {
@@ -272,6 +287,56 @@ impl Player {
                 feet.z += self.velocity.z * delta_time;
             }
             feet.y = feet.y.clamp(0.5, TEXTURE_SIZE_Y as f64 - 0.5);
+        } else if touching_mud {
+            // Mud physics - slower and more viscous than water
+            self.velocity.y -= MUD_GRAVITY * delta_time;
+            self.velocity.y += MUD_BUOYANCY * delta_time;
+            let drag = MUD_DRAG.powf(delta_time);
+            self.velocity.y *= drag;
+
+            if input.key_held(KeyCode::Space) {
+                self.velocity.y = MUD_UP_SPEED;
+            } else if input.key_held(KeyCode::ShiftLeft) || input.key_held(KeyCode::ShiftRight) {
+                self.velocity.y = -MUD_DOWN_SPEED;
+            }
+
+            let horiz_check_y = feet.y + 0.01;
+            let new_x = feet.x + self.velocity.x * delta_time;
+            if !self.check_collision(
+                Vector3::new(new_x, horiz_check_y, feet.z),
+                world,
+                model_registry,
+                collision_enabled,
+            ) {
+                feet.x = new_x;
+            } else {
+                self.velocity.x = 0.0;
+            }
+
+            let new_z = feet.z + self.velocity.z * delta_time;
+            if !self.check_collision(
+                Vector3::new(feet.x, horiz_check_y, new_z),
+                world,
+                model_registry,
+                collision_enabled,
+            ) {
+                feet.z = new_z;
+            } else {
+                self.velocity.z = 0.0;
+            }
+
+            let new_y = feet.y + self.velocity.y * delta_time;
+            if !self.check_collision(
+                Vector3::new(feet.x, new_y, feet.z),
+                world,
+                model_registry,
+                collision_enabled,
+            ) {
+                feet.y = new_y;
+            } else {
+                self.velocity.y = 0.0;
+            }
+            self.on_ground = false;
         } else if touching_water {
             self.velocity.y -= WATER_GRAVITY * delta_time;
             self.velocity.y += WATER_BUOYANCY * delta_time;
@@ -690,6 +755,34 @@ impl Player {
             for by in min_y..=max_y {
                 for bz in min_z..=max_z {
                     if world.get_block(Vector3::new(bx, by, bz)) == Some(BlockType::Water) {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    fn check_in_mud(&self, feet_pos: Vector3<f64>, world: &World) -> bool {
+        let head_y = feet_pos.y + PLAYER_EYE_HEIGHT;
+        let head_x = feet_pos.x.floor() as i32;
+        let head_y_block = head_y.floor() as i32;
+        let head_z = feet_pos.z.floor() as i32;
+        world.get_block(Vector3::new(head_x, head_y_block, head_z)) == Some(BlockType::Mud)
+    }
+
+    fn check_touching_mud(&self, feet_pos: Vector3<f64>, world: &World) -> bool {
+        let min_x = (feet_pos.x - PLAYER_HALF_WIDTH).floor() as i32;
+        let max_x = (feet_pos.x + PLAYER_HALF_WIDTH).floor() as i32;
+        let min_y = (feet_pos.y - 0.1).floor() as i32;
+        let max_y = (feet_pos.y + PLAYER_HEIGHT).floor() as i32;
+        let min_z = (feet_pos.z - PLAYER_HALF_WIDTH).floor() as i32;
+        let max_z = (feet_pos.z + PLAYER_HALF_WIDTH).floor() as i32;
+
+        for bx in min_x..=max_x {
+            for by in min_y..=max_y {
+                for bz in min_z..=max_z {
+                    if world.get_block(Vector3::new(bx, by, bz)) == Some(BlockType::Mud) {
                         return true;
                     }
                 }

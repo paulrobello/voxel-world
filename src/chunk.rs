@@ -93,6 +93,8 @@ pub enum BlockType {
     /// Tinted glass block. Use tint_data to get color index (0-31).
     TintedGlass = 17,
     /// Paintable block. Texture and tint are stored per-block in metadata.
+    /// **USER-ONLY**: This block is for player customization only.
+    /// NEVER use this block in world/terrain generation - create dedicated block types instead.
     Painted = 18,
     /// Lava block - glowing orange/red, decorative (no damage).
     Lava = 19,
@@ -112,6 +114,12 @@ pub enum BlockType {
     WillowLeaves = 26,
     /// Ice block - transparent frozen water.
     Ice = 27,
+    /// Mud block - thick liquid that slows movement.
+    Mud = 28,
+    /// Sandstone block - desert subsurface.
+    Sandstone = 29,
+    /// Cactus block - desert plant.
+    Cactus = 30,
 }
 
 /// Water types for enhanced water system.
@@ -231,6 +239,7 @@ impl BlockType {
                 | BlockType::Model
                 | BlockType::Lava
                 | BlockType::Ice
+                | BlockType::Mud
         )
     }
 
@@ -355,6 +364,9 @@ impl BlockType {
             BlockType::PineLeaves => [0.15, 0.5, 0.1], // Dark green
             BlockType::WillowLeaves => [0.4, 0.5, 0.2], // Olive green
             BlockType::Ice => [0.7, 0.85, 0.95],   // Light blue-white, transparent ice
+            BlockType::Mud => [0.4, 0.3, 0.2],     // Dark brown, muddy
+            BlockType::Sandstone => [0.9, 0.8, 0.6], // Light tan
+            BlockType::Cactus => [0.3, 0.6, 0.3],  // Green
         }
     }
 
@@ -368,9 +380,14 @@ impl BlockType {
             BlockType::Leaves
             | BlockType::PineLeaves
             | BlockType::WillowLeaves
-            | BlockType::Model => 0.15,
+            | BlockType::Model
+            | BlockType::Cactus => 0.15,
             // Fast
-            BlockType::Dirt | BlockType::Sand | BlockType::Gravel | BlockType::Snow => 0.3,
+            BlockType::Dirt
+            | BlockType::Sand
+            | BlockType::Gravel
+            | BlockType::Snow
+            | BlockType::Mud => 0.3,
             // Normal
             BlockType::Grass
             | BlockType::Planks
@@ -382,7 +399,9 @@ impl BlockType {
             | BlockType::Painted
             | BlockType::Ice => 0.5,
             // Slow
-            BlockType::Stone | BlockType::Cobblestone | BlockType::Brick => 0.8,
+            BlockType::Stone | BlockType::Cobblestone | BlockType::Brick | BlockType::Sandstone => {
+                0.8
+            }
             // Very slow
             BlockType::Iron => 1.2,
             // Emissive blocks (medium difficulty)
@@ -433,6 +452,9 @@ impl BlockType {
             "willowlog" | "willow_log" => Some(BlockType::WillowLog),
             "pineleaves" | "pine_leaves" => Some(BlockType::PineLeaves),
             "willowleaves" | "willow_leaves" => Some(BlockType::WillowLeaves),
+            "mud" => Some(BlockType::Mud),
+            "sandstone" => Some(BlockType::Sandstone),
+            "cactus" => Some(BlockType::Cactus),
             _ => None,
         }
     }
@@ -468,6 +490,9 @@ impl BlockType {
             "willowlog",
             "pineleaves",
             "willowleaves",
+            "mud",
+            "sandstone",
+            "cactus",
         ]
     }
 }
@@ -503,6 +528,9 @@ impl From<u8> for BlockType {
             25 => BlockType::PineLeaves,
             26 => BlockType::WillowLeaves,
             27 => BlockType::Ice,
+            28 => BlockType::Mud,
+            29 => BlockType::Sandstone,
+            30 => BlockType::Cactus,
             _ => BlockType::Air,
         }
     }

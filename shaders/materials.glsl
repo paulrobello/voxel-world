@@ -50,6 +50,12 @@ uint blockTypeToAtlasIndex(uint blockType) {
             return BLOCK_LEAVES;  // Willow leaves use regular leaves texture
         case BLOCK_ICE:
             return TEX_ICE;
+        case BLOCK_MUD:
+            return TEX_MUD;
+        case BLOCK_SANDSTONE:
+            return TEX_SANDSTONE;
+        case BLOCK_CACTUS:
+            return TEX_CACTUS;
         default:
             return BLOCK_AIR;  // Fallback for unknown blocks
     }
