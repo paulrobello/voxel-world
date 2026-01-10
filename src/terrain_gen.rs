@@ -133,30 +133,73 @@ fn generate_normal_chunk(
                         CaveFillType::Lava => BlockType::Lava,
                     }
                 } else if world_y == height {
+                    // Surface block selection based on biome
+                    #[allow(deprecated)]
                     match biome {
-                        BiomeType::Snow => BlockType::Snow,
+                        // Snowy biomes - snow on top
+                        BiomeType::SnowyPlains | BiomeType::SnowyTaiga | BiomeType::Snow => {
+                            BlockType::Snow
+                        }
+                        // Desert - sand surface
                         BiomeType::Desert => BlockType::Sand,
+                        // Mountains - exposed stone
                         BiomeType::Mountains => BlockType::Stone,
+                        // Swamp - mud surface
                         BiomeType::Swamp => {
                             chunk.set_block(lx, ly, lz, BlockType::Mud);
                             continue;
                         }
-                        BiomeType::Grassland => {
+                        // Beach - always sand
+                        BiomeType::Beach => BlockType::Sand,
+                        // Ocean floor - sand or gravel
+                        BiomeType::Ocean => {
+                            if terrain.hash(world_x, world_z) % 3 == 0 {
+                                BlockType::Gravel
+                            } else {
+                                BlockType::Sand
+                            }
+                        }
+                        // Savanna - dry grass (regular grass block)
+                        BiomeType::Savanna => BlockType::Grass,
+                        // Taiga - grass (cold but not frozen)
+                        BiomeType::Taiga => BlockType::Grass,
+                        // All other biomes - grass or sand near water
+                        BiomeType::Plains
+                        | BiomeType::Grassland
+                        | BiomeType::Forest
+                        | BiomeType::DarkForest
+                        | BiomeType::BirchForest
+                        | BiomeType::Meadow
+                        | BiomeType::Jungle => {
                             if world_y <= SEA_LEVEL + 2 {
                                 BlockType::Sand
                             } else {
                                 BlockType::Grass
                             }
                         }
+                        // Underground biomes - stone at surface (shouldn't normally be visible)
+                        BiomeType::LushCaves | BiomeType::DripstoneCaves | BiomeType::DeepDark => {
+                            BlockType::Stone
+                        }
                     }
                 } else if world_y > height - 4 {
+                    // Subsurface layer (1-4 blocks below surface)
+                    #[allow(deprecated)]
                     match biome {
+                        // Desert - sandstone subsurface
                         BiomeType::Desert => {
                             chunk.set_block(lx, ly, lz, BlockType::Sandstone);
                             continue;
                         }
+                        // Mountains - stone all the way
                         BiomeType::Mountains => BlockType::Stone,
-                        BiomeType::Snow => BlockType::Ice,
+                        // Snowy biomes - ice subsurface
+                        BiomeType::SnowyPlains | BiomeType::SnowyTaiga | BiomeType::Snow => {
+                            BlockType::Ice
+                        }
+                        // Ocean/Beach - sand under surface
+                        BiomeType::Ocean | BiomeType::Beach => BlockType::Sand,
+                        // All other biomes - dirt or sand near water
                         _ => {
                             if height <= SEA_LEVEL + 2 {
                                 BlockType::Sand
@@ -166,8 +209,14 @@ fn generate_normal_chunk(
                         }
                     }
                 } else {
+                    // Deep underground
+                    #[allow(deprecated)]
                     match biome {
-                        BiomeType::Snow => BlockType::Ice,
+                        // Snowy biomes have ice below surface
+                        BiomeType::SnowyPlains | BiomeType::SnowyTaiga | BiomeType::Snow => {
+                            BlockType::Ice
+                        }
+                        // Everything else is stone
                         _ => BlockType::Stone,
                     }
                 };

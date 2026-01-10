@@ -89,39 +89,99 @@ impl TerrainGenerator {
         adjusted_temp: f64,
         base_height: f64,
     ) -> BiomeType {
+        // Continentalness thresholds (-1.0 = ocean, 1.0 = inland)
+        let is_ocean = climate.continentalness < -0.4;
+        let is_coastal = climate.continentalness >= -0.4 && climate.continentalness < -0.1;
+
         // Temperature thresholds (using adjusted_temp which is 0.0-1.0)
-        let is_cold = adjusted_temp < 0.3;
+        let is_freezing = adjusted_temp < 0.2;
+        let is_cold = adjusted_temp < 0.35;
         let is_hot = adjusted_temp > 0.65;
+        let is_warm = adjusted_temp > 0.55;
 
         // Humidity thresholds (climate.humidity is -1.0 to 1.0)
-        let is_dry = climate.humidity < -0.3;
-        let is_wet = climate.humidity > 0.3;
+        let is_very_dry = climate.humidity < -0.5;
+        let is_dry = climate.humidity < -0.1;
+        let is_wet = climate.humidity > 0.2;
+        let is_very_wet = climate.humidity > 0.5;
 
         // Erosion thresholds (-1.0 = peaks, 1.0 = flat)
-        let is_mountainous = climate.erosion < -0.2;
+        let is_mountainous = climate.erosion < -0.3;
+        let is_hilly = climate.erosion < 0.1;
+        let is_flat = climate.erosion > 0.3;
 
-        // Cold biomes
-        if is_cold {
-            return BiomeType::Snow;
+        // Weirdness for variant selection
+        let is_weird = climate.weirdness.abs() > 0.5;
+
+        // Ocean biome
+        if is_ocean {
+            return BiomeType::Ocean;
         }
 
-        // Hot dry = Desert
-        if is_hot && is_dry {
-            return BiomeType::Desert;
+        // Beach (coastal + flat + not too cold)
+        if is_coastal && is_flat && !is_cold {
+            return BiomeType::Beach;
         }
 
-        // Warm wet = Swamp
-        if adjusted_temp > 0.55 && is_wet {
-            return BiomeType::Swamp;
-        }
-
-        // Mountainous terrain
-        if is_mountainous && base_height > 0.2 {
+        // Mountains (low erosion = peaks)
+        if is_mountainous && base_height > 0.15 {
             return BiomeType::Mountains;
         }
 
-        // Default to Grassland
-        BiomeType::Grassland
+        // Cold biomes
+        if is_freezing {
+            if is_wet {
+                return BiomeType::SnowyTaiga;
+            }
+            return BiomeType::SnowyPlains;
+        }
+
+        if is_cold {
+            if is_wet {
+                return BiomeType::Taiga;
+            }
+            // Meadow as a cold-temperate variant
+            if is_weird && is_hilly {
+                return BiomeType::Meadow;
+            }
+            return BiomeType::SnowyPlains;
+        }
+
+        // Hot biomes
+        if is_hot {
+            if is_very_dry {
+                return BiomeType::Desert;
+            }
+            if is_very_wet {
+                return BiomeType::Jungle;
+            }
+            return BiomeType::Savanna;
+        }
+
+        // Warm wet = Swamp (flat terrain required)
+        if is_warm && is_very_wet && is_flat {
+            return BiomeType::Swamp;
+        }
+
+        // Temperate biomes (mid temperature)
+        if is_wet {
+            // Forest variants based on weirdness
+            if is_very_wet {
+                return BiomeType::DarkForest;
+            }
+            if is_weird {
+                return BiomeType::BirchForest;
+            }
+            return BiomeType::Forest;
+        }
+
+        // Meadow variant for hilly, moderate areas
+        if is_hilly && !is_dry && is_weird {
+            return BiomeType::Meadow;
+        }
+
+        // Default to Plains
+        BiomeType::Plains
     }
 
     /// Get climate point at 2D coordinates.
@@ -148,18 +208,42 @@ impl TerrainGenerator {
     }
 
     /// Calculate height for a specific biome
+    #[allow(deprecated)]
     fn calculate_biome_height(&self, biome: BiomeType, base: f64, ridges: f64, detail: f64) -> f64 {
         match biome {
-            BiomeType::Grassland => 128.0 + detail * 2.0 + base * 4.0,
-            BiomeType::Mountains => 128.0 + base * 10.0 + ridges * 55.0,
+            // Ocean and Beach - below sea level
+            BiomeType::Ocean => 60.0 + detail * 3.0 + base * 5.0,
+            BiomeType::Beach => 73.0 + detail * 1.0,
+
+            // Flat biomes
+            BiomeType::Plains | BiomeType::Grassland => 128.0 + detail * 2.0 + base * 4.0,
+            BiomeType::Meadow => 130.0 + detail * 3.0 + base * 5.0,
+            BiomeType::Swamp => 72.0 + detail * 2.0, // Just above sea level
             BiomeType::Desert => 128.0 + detail * 1.0 + base * 2.0,
-            BiomeType::Swamp => 128.0 + detail * 2.0,
-            BiomeType::Snow => {
+            BiomeType::Savanna => 126.0 + detail * 2.0 + base * 3.0,
+
+            // Forested biomes - slightly varied terrain
+            BiomeType::Forest | BiomeType::BirchForest => 128.0 + detail * 3.0 + base * 5.0,
+            BiomeType::DarkForest => 125.0 + detail * 2.0 + base * 4.0,
+            BiomeType::Jungle => 128.0 + detail * 4.0 + base * 6.0,
+
+            // Cold biomes
+            BiomeType::Taiga => 128.0 + detail * 3.0 + base * 5.0,
+            BiomeType::SnowyPlains | BiomeType::Snow => {
                 if base > 0.5 {
-                    128.0 + base * 8.0 + ridges * 40.0
+                    128.0 + base * 8.0 + ridges * 30.0
                 } else {
                     128.0 + detail * 2.0
                 }
+            }
+            BiomeType::SnowyTaiga => 130.0 + detail * 3.0 + base * 6.0 + ridges * 10.0,
+
+            // Mountains - dramatic elevation
+            BiomeType::Mountains => 128.0 + base * 10.0 + ridges * 55.0,
+
+            // Underground biomes inherit surface height
+            BiomeType::LushCaves | BiomeType::DripstoneCaves | BiomeType::DeepDark => {
+                128.0 + detail * 2.0 + base * 4.0
             }
         }
     }

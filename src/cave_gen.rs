@@ -70,12 +70,31 @@ impl CaveGenerator {
         let cave_density = self.cave_mask_noise.get([x * 0.01, z * 0.01]) * 0.5 + 0.5;
 
         // Biome-specific cave density multipliers
+        #[allow(deprecated)]
         let biome_density_multiplier = match biome {
-            BiomeType::Mountains => 2.0, // Much more caves in mountains (increased from 1.5 for lava)
-            BiomeType::Desert => 0.6,    // Fewer caves in desert
-            BiomeType::Swamp => 0.8,     // Slightly fewer caves
-            BiomeType::Snow => 0.9,      // Slightly fewer caves
-            BiomeType::Grassland => 1.0, // Normal cave density
+            // Mountains have extensive cave systems
+            BiomeType::Mountains => 2.0,
+            // Desert has fewer caves (dry, less erosion)
+            BiomeType::Desert => 0.6,
+            // Swamp has slightly fewer caves
+            BiomeType::Swamp => 0.8,
+            // Snowy biomes have slightly fewer caves (ice caves)
+            BiomeType::SnowyPlains | BiomeType::SnowyTaiga | BiomeType::Snow => 0.9,
+            // Underground biomes have many more caves
+            BiomeType::LushCaves | BiomeType::DripstoneCaves => 2.5,
+            BiomeType::DeepDark => 3.0, // Very cavernous
+            // Forest biomes - normal density
+            BiomeType::Forest | BiomeType::DarkForest | BiomeType::BirchForest => 1.0,
+            // Taiga - slightly more caves
+            BiomeType::Taiga => 1.2,
+            // Jungle - wet caves
+            BiomeType::Jungle => 1.1,
+            // Ocean/Beach - fewer caves
+            BiomeType::Ocean | BiomeType::Beach => 0.5,
+            // All other biomes - normal cave density
+            BiomeType::Plains | BiomeType::Grassland | BiomeType::Meadow | BiomeType::Savanna => {
+                1.0
+            }
         };
 
         // 3D cave noise - "spaghetti" style caves
@@ -115,29 +134,28 @@ impl CaveGenerator {
             }
         }
 
+        #[allow(deprecated)]
         match biome {
-            BiomeType::Desert => {
-                // Desert caves are always dry (no water)
-                CaveFillType::Air
-            }
+            // Desert caves are always dry (no water)
+            BiomeType::Desert | BiomeType::Savanna => CaveFillType::Air,
+
+            // Swamp caves are heavily flooded
             BiomeType::Swamp => {
-                // Swamp caves are heavily flooded
                 if world_y <= sea_level + 5 {
                     CaveFillType::Water(biome.water_type())
                 } else {
                     CaveFillType::Air
                 }
             }
-            BiomeType::Snow => {
-                // Ice caves: Empty caves with ice walls (underground is ice in snow biome)
-                CaveFillType::Air
-            }
+
+            // Ice caves: Empty caves with ice walls (underground is ice in snow biome)
+            BiomeType::SnowyPlains | BiomeType::SnowyTaiga | BiomeType::Snow => CaveFillType::Air,
+
+            // Mountain caves: lava lakes all the way to sea level
             BiomeType::Mountains => {
-                // Mountain caves: lava lakes all the way to sea level
-                // Use noise to create pockets rather than filling entire floor
                 if world_y <= sea_level {
                     let depth_factor = (sea_level - world_y) as f64 / sea_level as f64;
-                    let lava_threshold = 0.7 - (depth_factor * 0.4); // More lava deeper down
+                    let lava_threshold = 0.7 - (depth_factor * 0.4);
 
                     let noise_value = self.decoration_noise.get([
                         (world_y as f64) * 0.05,
@@ -147,19 +165,52 @@ impl CaveGenerator {
 
                     if noise_value.abs() > lava_threshold {
                         CaveFillType::Lava
-                    } else if world_y <= sea_level {
-                        CaveFillType::Water(biome.water_type())
                     } else {
-                        CaveFillType::Air
+                        CaveFillType::Water(biome.water_type())
                     }
                 } else {
                     CaveFillType::Air
                 }
             }
-            BiomeType::Grassland => {
-                // Grassland: no water filling in caves
-                CaveFillType::Air
+
+            // Jungle caves - partially flooded
+            BiomeType::Jungle => {
+                if world_y <= sea_level - 10 {
+                    CaveFillType::Water(biome.water_type())
+                } else {
+                    CaveFillType::Air
+                }
             }
+
+            // Underground biomes
+            BiomeType::LushCaves => {
+                // Lush caves have some water pools
+                if world_y <= sea_level - 20 {
+                    CaveFillType::Water(biome.water_type())
+                } else {
+                    CaveFillType::Air
+                }
+            }
+            BiomeType::DripstoneCaves => CaveFillType::Air,
+            BiomeType::DeepDark => CaveFillType::Air, // Deep dark is dry
+
+            // Ocean/Beach caves flood to sea level
+            BiomeType::Ocean | BiomeType::Beach => {
+                if world_y <= sea_level {
+                    CaveFillType::Water(biome.water_type())
+                } else {
+                    CaveFillType::Air
+                }
+            }
+
+            // All other biomes - no water filling in caves
+            BiomeType::Plains
+            | BiomeType::Grassland
+            | BiomeType::Forest
+            | BiomeType::DarkForest
+            | BiomeType::BirchForest
+            | BiomeType::Taiga
+            | BiomeType::Meadow => CaveFillType::Air,
         }
     }
 
@@ -210,11 +261,12 @@ impl CaveGenerator {
     ///
     /// Model IDs:
     /// - 106: Stone stalactite
-    /// - 108: Ice stalactite (for snow biome)
+    /// - 108: Ice stalactite (for snow biomes)
     pub fn get_stalactite_model(&self, biome: BiomeType) -> u8 {
+        #[allow(deprecated)]
         match biome {
-            BiomeType::Snow => 108, // Ice stalactite
-            _ => 106,               // Stone stalactite
+            BiomeType::SnowyPlains | BiomeType::SnowyTaiga | BiomeType::Snow => 108, // Ice stalactite
+            _ => 106, // Stone stalactite
         }
     }
 
@@ -222,11 +274,12 @@ impl CaveGenerator {
     ///
     /// Model IDs:
     /// - 107: Stone stalagmite
-    /// - 109: Ice stalagmite (for snow biome)
+    /// - 109: Ice stalagmite (for snow biomes)
     pub fn get_stalagmite_model(&self, biome: BiomeType) -> u8 {
+        #[allow(deprecated)]
         match biome {
-            BiomeType::Snow => 109, // Ice stalagmite
-            _ => 107,               // Stone stalagmite
+            BiomeType::SnowyPlains | BiomeType::SnowyTaiga | BiomeType::Snow => 109, // Ice stalagmite
+            _ => 107, // Stone stalagmite
         }
     }
 

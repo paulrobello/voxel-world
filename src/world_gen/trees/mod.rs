@@ -73,9 +73,10 @@ pub fn generate_trees(
             // Randomness
             let hash = terrain.hash(world_x, world_z);
 
+            #[allow(deprecated)]
             match biome {
-                BiomeType::Grassland => {
-                    // Oak trees (Standard) - Moderate density
+                // Plains and grassland - sparse oak trees
+                BiomeType::Plains | BiomeType::Grassland => {
                     if hash % 100 < 5 {
                         generate_oak(
                             chunk,
@@ -90,8 +91,175 @@ pub fn generate_trees(
                         );
                     }
                 }
+
+                // Meadow - very sparse trees
+                BiomeType::Meadow => {
+                    if hash % 100 < 3 {
+                        generate_oak(
+                            chunk,
+                            lx as i32,
+                            local_base_y,
+                            lz as i32,
+                            hash,
+                            chunk_world_x,
+                            chunk_world_y,
+                            chunk_world_z,
+                            overflow_blocks,
+                        );
+                    }
+                }
+
+                // Forest - dense oak trees
+                BiomeType::Forest => {
+                    if hash % 100 < 25 {
+                        generate_oak(
+                            chunk,
+                            lx as i32,
+                            local_base_y,
+                            lz as i32,
+                            hash,
+                            chunk_world_x,
+                            chunk_world_y,
+                            chunk_world_z,
+                            overflow_blocks,
+                        );
+                    }
+                }
+
+                // Birch forest - oak trees (would need birch tree type for proper implementation)
+                BiomeType::BirchForest => {
+                    if hash % 100 < 20 {
+                        generate_oak(
+                            chunk,
+                            lx as i32,
+                            local_base_y,
+                            lz as i32,
+                            hash,
+                            chunk_world_x,
+                            chunk_world_y,
+                            chunk_world_z,
+                            overflow_blocks,
+                        );
+                    }
+                }
+
+                // Dark forest - very dense
+                BiomeType::DarkForest => {
+                    if hash % 100 < 35 {
+                        generate_oak(
+                            chunk,
+                            lx as i32,
+                            local_base_y,
+                            lz as i32,
+                            hash,
+                            chunk_world_x,
+                            chunk_world_y,
+                            chunk_world_z,
+                            overflow_blocks,
+                        );
+                    }
+                }
+
+                // Taiga - pine trees
+                BiomeType::Taiga => {
+                    if hash % 100 < 18 {
+                        generate_pine(
+                            chunk,
+                            lx as i32,
+                            local_base_y,
+                            lz as i32,
+                            hash,
+                            chunk_world_x,
+                            chunk_world_y,
+                            chunk_world_z,
+                            overflow_blocks,
+                        );
+                    }
+                }
+
+                // Snowy taiga - dense snow-covered pines
+                BiomeType::SnowyTaiga => {
+                    if hash % 100 < 20 {
+                        generate_snow_pine(
+                            chunk,
+                            lx as i32,
+                            local_base_y,
+                            lz as i32,
+                            hash,
+                            chunk_world_x,
+                            chunk_world_y,
+                            chunk_world_z,
+                            overflow_blocks,
+                        );
+                    }
+                }
+
+                // Snowy plains - sparse trees
+                BiomeType::SnowyPlains | BiomeType::Snow => {
+                    let tree_roll = hash % 100;
+                    if tree_roll < 6 {
+                        generate_snow_pine(
+                            chunk,
+                            lx as i32,
+                            local_base_y,
+                            lz as i32,
+                            hash,
+                            chunk_world_x,
+                            chunk_world_y,
+                            chunk_world_z,
+                            overflow_blocks,
+                        );
+                    } else if tree_roll < 14 {
+                        generate_dead_tree(
+                            chunk,
+                            lx as i32,
+                            local_base_y,
+                            lz as i32,
+                            hash,
+                            chunk_world_x,
+                            chunk_world_y,
+                            chunk_world_z,
+                            overflow_blocks,
+                        );
+                    }
+                }
+
+                // Jungle - very dense trees (use oak for now)
+                BiomeType::Jungle => {
+                    if hash % 100 < 40 {
+                        generate_oak(
+                            chunk,
+                            lx as i32,
+                            local_base_y,
+                            lz as i32,
+                            hash,
+                            chunk_world_x,
+                            chunk_world_y,
+                            chunk_world_z,
+                            overflow_blocks,
+                        );
+                    }
+                }
+
+                // Savanna - sparse trees
+                BiomeType::Savanna => {
+                    if hash % 100 < 6 {
+                        generate_oak(
+                            chunk,
+                            lx as i32,
+                            local_base_y,
+                            lz as i32,
+                            hash,
+                            chunk_world_x,
+                            chunk_world_y,
+                            chunk_world_z,
+                            overflow_blocks,
+                        );
+                    }
+                }
+
+                // Mountains - low density pines below snow line
                 BiomeType::Mountains => {
-                    // Pine trees - Low density, only below snow line
                     if height < 80 && hash % 100 < 3 {
                         generate_pine(
                             chunk,
@@ -106,38 +274,9 @@ pub fn generate_trees(
                         );
                     }
                 }
-                BiomeType::Snow => {
-                    let tree_roll = hash % 100;
-                    if tree_roll < 6 {
-                        // Snow-covered pine trees - 6% density
-                        generate_snow_pine(
-                            chunk,
-                            lx as i32,
-                            local_base_y,
-                            lz as i32,
-                            hash,
-                            chunk_world_x,
-                            chunk_world_y,
-                            chunk_world_z,
-                            overflow_blocks,
-                        );
-                    } else if tree_roll < 14 {
-                        // Dead trees with branches and snow - 8% density
-                        generate_dead_tree(
-                            chunk,
-                            lx as i32,
-                            local_base_y,
-                            lz as i32,
-                            hash,
-                            chunk_world_x,
-                            chunk_world_y,
-                            chunk_world_z,
-                            overflow_blocks,
-                        );
-                    }
-                }
+
+                // Swamp - willow trees
                 BiomeType::Swamp => {
-                    // Willow/Swamp trees - Moderate density
                     if hash % 100 < 12 {
                         generate_willow(
                             chunk,
@@ -152,8 +291,9 @@ pub fn generate_trees(
                         );
                     }
                 }
+
+                // Desert - sparse cacti
                 BiomeType::Desert => {
-                    // Cactus - Sparse
                     if hash % 100 < 2 {
                         generate_cactus(
                             chunk,
@@ -168,6 +308,12 @@ pub fn generate_trees(
                         );
                     }
                 }
+
+                // Ocean, Beach - no trees
+                BiomeType::Ocean | BiomeType::Beach => {}
+
+                // Underground biomes - no surface trees
+                BiomeType::LushCaves | BiomeType::DripstoneCaves | BiomeType::DeepDark => {}
             }
         }
     }

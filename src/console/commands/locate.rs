@@ -24,7 +24,9 @@ pub fn locate(
     if args.is_empty() {
         return CommandResult::Error(
             "Usage: locate <biome|block|cave> [range] [tp]\n\
-             Biomes: grassland, mountains, desert, swamp, snow\n\
+             Biomes: plains, forest, darkforest, birchforest, taiga, snowyplains,\n\
+                     snowytaiga, desert, savanna, swamp, mountains, meadow, jungle,\n\
+                     ocean, beach\n\
              Blocks: stone, dirt, water, lava, etc.\n\
              Cave: locate cave [min_size] [range] [tp]\n\
              tp flag: teleport to location when found"
@@ -87,7 +89,9 @@ pub fn locate(
         }
         None => CommandResult::Error(format!(
             "Unknown biome or block type: '{}'\n\
-             Valid biomes: grassland, mountains, desert, swamp, snow\n\
+             Valid biomes: plains, forest, darkforest, birchforest, taiga,\n\
+                           snowyplains, snowytaiga, desert, savanna, swamp,\n\
+                           mountains, meadow, jungle, ocean, beach\n\
              Valid blocks: {}\n\
              Or use: locate cave [min_size] [range]",
             search_term,
@@ -97,13 +101,33 @@ pub fn locate(
 }
 
 /// Parse a biome name
+#[allow(deprecated)]
 fn parse_biome(name: &str) -> Option<BiomeType> {
     match name {
-        "grassland" | "grass" => Some(BiomeType::Grassland),
-        "mountains" | "mountain" | "mount" => Some(BiomeType::Mountains),
-        "desert" => Some(BiomeType::Desert),
-        "swamp" => Some(BiomeType::Swamp),
-        "snow" | "tundra" | "ice" => Some(BiomeType::Snow),
+        // Surface biomes
+        "ocean" | "sea" => Some(BiomeType::Ocean),
+        "beach" | "shore" => Some(BiomeType::Beach),
+        "plains" | "grassland" | "grass" => Some(BiomeType::Plains),
+        "forest" | "woods" => Some(BiomeType::Forest),
+        "darkforest" | "dark_forest" | "dark-forest" => Some(BiomeType::DarkForest),
+        "birchforest" | "birch_forest" | "birch-forest" | "birch" => Some(BiomeType::BirchForest),
+        "taiga" | "boreal" => Some(BiomeType::Taiga),
+        "snowyplains" | "snowy_plains" | "snowy-plains" | "tundra" => Some(BiomeType::SnowyPlains),
+        "snowytaiga" | "snowy_taiga" | "snowy-taiga" => Some(BiomeType::SnowyTaiga),
+        "desert" | "sand" => Some(BiomeType::Desert),
+        "savanna" | "savannah" => Some(BiomeType::Savanna),
+        "swamp" | "marsh" | "bog" => Some(BiomeType::Swamp),
+        "mountains" | "mountain" | "mount" | "peaks" => Some(BiomeType::Mountains),
+        "meadow" | "flower" => Some(BiomeType::Meadow),
+        "jungle" | "rainforest" => Some(BiomeType::Jungle),
+        // Legacy aliases (deprecated but still supported)
+        "snow" | "ice" => Some(BiomeType::Snow),
+        // Underground biomes
+        "lushcaves" | "lush_caves" | "lush-caves" | "lush" => Some(BiomeType::LushCaves),
+        "dripstonecaves" | "dripstone_caves" | "dripstone-caves" | "dripstone" => {
+            Some(BiomeType::DripstoneCaves)
+        }
+        "deepdark" | "deep_dark" | "deep-dark" | "sculk" => Some(BiomeType::DeepDark),
         _ => None,
     }
 }
