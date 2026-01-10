@@ -44,6 +44,18 @@ const uint BLOCK_SANDSTONE = 29;
 const uint BLOCK_CACTUS = 30;
 const uint BLOCK_DECORATIVESTONE = 31;
 const uint BLOCK_CONCRETE = 32;
+const uint BLOCK_DEEPSLATE = 33;
+const uint BLOCK_MOSS = 34;
+const uint BLOCK_MOSSY_COBBLESTONE = 35;
+const uint BLOCK_CLAY = 36;
+const uint BLOCK_DRIPSTONE = 37;
+const uint BLOCK_CALCITE = 38;
+const uint BLOCK_TERRACOTTA = 39;
+const uint BLOCK_PACKED_ICE = 40;
+const uint BLOCK_PODZOL = 41;
+const uint BLOCK_MYCELIUM = 42;
+const uint BLOCK_COARSE_DIRT = 43;
+const uint BLOCK_ROOTED_DIRT = 44;
 
 // Sub-voxel model IDs (must match Rust ModelRegistry IDs)
 const uint CRYSTAL_MODEL_ID = 99u;

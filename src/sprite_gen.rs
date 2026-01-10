@@ -165,7 +165,7 @@ pub fn run(_args: &Args, event_loop: &EventLoop<()>) -> Result<(), Box<dyn Error
     )
     .unwrap();
 
-    let blocks: [BlockType; 20] = [
+    let blocks: [BlockType; 32] = [
         BlockType::Stone,
         BlockType::Dirt,
         BlockType::Grass,
@@ -189,6 +189,19 @@ pub fn run(_args: &Args, event_loop: &EventLoop<()>) -> Result<(), Box<dyn Error
         BlockType::GlowMushroom,
         BlockType::PineLeaves,
         // Crystal is handled separately per tint color (like TintedGlass)
+        // Cave/biome blocks
+        BlockType::Deepslate,
+        BlockType::Moss,
+        BlockType::MossyCobblestone,
+        BlockType::Clay,
+        BlockType::Dripstone,
+        BlockType::Calcite,
+        BlockType::Terracotta,
+        BlockType::PackedIce,
+        BlockType::Podzol,
+        BlockType::Mycelium,
+        BlockType::CoarseDirt,
+        BlockType::RootedDirt,
     ];
 
     // Tint indices used in the palette (from hud_render.rs TINTED_GLASS_COLORS)

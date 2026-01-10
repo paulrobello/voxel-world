@@ -4,8 +4,9 @@
 // Slots 0-16: standard blocks (Air through Bedrock)
 // Slot 17: grass_side, Slot 18: log_top
 // Slots 19-22: emissive blocks (Lava, GlowStone, GlowMushroom, Crystal)
-// Slots 23-30: new textures (Cactus, Mud, Sandstone, Ice, PineLeaves, DecorativeStone, WillowLeaves, Concrete)
-const float ATLAS_TILE_COUNT = 31.0;
+// Slots 23-30: biome textures (Cactus, Mud, Sandstone, Ice, PineLeaves, DecorativeStone, WillowLeaves, Concrete)
+// Slots 31-42: cave/biome blocks (Deepslate, Moss, MossyCobble, Clay, Dripstone, Calcite, Terracotta, PackedIce, Podzol, Mycelium, CoarseDirt, RootedDirt)
+const float ATLAS_TILE_COUNT = 43.0;
 const float ATLAS_TILE_SIZE = 1.0 / ATLAS_TILE_COUNT;
 const uint TEX_GRASS_SIDE = 17;
 const uint TEX_LOG_TOP = 18;
@@ -21,6 +22,18 @@ const uint TEX_PINE_LEAVES = 27;
 const uint TEX_DECORATIVESTONE = 28;
 const uint TEX_WILLOW_LEAVES = 29;
 const uint TEX_CONCRETE = 30;
+const uint TEX_DEEPSLATE = 31;
+const uint TEX_MOSS = 32;
+const uint TEX_MOSSY_COBBLESTONE = 33;
+const uint TEX_CLAY = 34;
+const uint TEX_DRIPSTONE = 35;
+const uint TEX_CALCITE = 36;
+const uint TEX_TERRACOTTA = 37;
+const uint TEX_PACKED_ICE = 38;
+const uint TEX_PODZOL = 39;
+const uint TEX_MYCELIUM = 40;
+const uint TEX_COARSE_DIRT = 41;
+const uint TEX_ROOTED_DIRT = 42;
 
 // Map BlockType enum values to texture atlas positions
 // This is needed because enum values don't directly correspond to atlas positions
@@ -63,6 +76,30 @@ uint blockTypeToAtlasIndex(uint blockType) {
             return TEX_DECORATIVESTONE;
         case BLOCK_CONCRETE:
             return TEX_CONCRETE;
+        case BLOCK_DEEPSLATE:
+            return TEX_DEEPSLATE;
+        case BLOCK_MOSS:
+            return TEX_MOSS;
+        case BLOCK_MOSSY_COBBLESTONE:
+            return TEX_MOSSY_COBBLESTONE;
+        case BLOCK_CLAY:
+            return TEX_CLAY;
+        case BLOCK_DRIPSTONE:
+            return TEX_DRIPSTONE;
+        case BLOCK_CALCITE:
+            return TEX_CALCITE;
+        case BLOCK_TERRACOTTA:
+            return TEX_TERRACOTTA;
+        case BLOCK_PACKED_ICE:
+            return TEX_PACKED_ICE;
+        case BLOCK_PODZOL:
+            return TEX_PODZOL;
+        case BLOCK_MYCELIUM:
+            return TEX_MYCELIUM;
+        case BLOCK_COARSE_DIRT:
+            return TEX_COARSE_DIRT;
+        case BLOCK_ROOTED_DIRT:
+            return TEX_ROOTED_DIRT;
         default:
             return BLOCK_AIR;  // Fallback for unknown blocks
     }

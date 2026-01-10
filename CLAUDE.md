@@ -247,7 +247,9 @@ BlockType enum in `chunk.rs` must match constants in `common.glsl`:
 8=Water, 9=Glass, 10=Log, 11=Model, 12=Brick, 13=Snow, 14=Cobblestone, 15=Iron, 16=Bedrock,
 17=TintedGlass, 18=Painted, 19=Lava, 20=GlowStone, 21=GlowMushroom, 22=Crystal,
 23=PineLog, 24=WillowLog, 25=PineLeaves, 26=WillowLeaves, 27=Ice,
-28=Mud, 29=Sandstone, 30=Cactus, 31=DecorativeStone, 32=Concrete
+28=Mud, 29=Sandstone, 30=Cactus, 31=DecorativeStone, 32=Concrete,
+33=Deepslate, 34=Moss, 35=MossyCobblestone, 36=Clay, 37=Dripstone, 38=Calcite,
+39=Terracotta, 40=PackedIce, 41=Podzol, 42=Mycelium, 43=CoarseDirt, 44=RootedDirt
 ```
 
 **Texture Atlas Mapping:**
@@ -255,9 +257,9 @@ BlockType enum in `chunk.rs` must match constants in `common.glsl`:
 - Position 17: grass_side (special texture)
 - Position 18: log_top (special texture)
 - Positions 19-22: Emissive blocks (Lava, GlowStone, GlowMushroom, Crystal)
-- Positions 23-28: Extra textures (Cactus, Mud, Sandstone, Ice, PineLeaves, DecorativeStone)
-- Position 29: WillowLeaves (olive green drooping leaves)
-- Total: 30 textures in atlas (1920x64 pixels)
+- Positions 23-30: Biome textures (Cactus, Mud, Sandstone, Ice, PineLeaves, DecorativeStone, WillowLeaves, Concrete)
+- Positions 31-42: Cave/biome blocks (Deepslate, Moss, MossyCobble, Clay, Dripstone, Calcite, Terracotta, PackedIce, Podzol, Mycelium, CoarseDirt, RootedDirt)
+- Total: 43 textures in atlas (2752x64 pixels)
 
 **Important:** BlockType enum values DO NOT directly map to atlas positions for all blocks. The shader uses `blockTypeToAtlasIndex()` function in `materials.glsl` to perform the mapping.
 

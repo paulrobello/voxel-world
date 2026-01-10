@@ -124,6 +124,30 @@ pub enum BlockType {
     DecorativeStone = 31,
     /// Concrete block - smooth manufactured gray material.
     Concrete = 32,
+    /// Deepslate - dark stone found deep underground.
+    Deepslate = 33,
+    /// Moss block - soft green plant material.
+    Moss = 34,
+    /// Mossy cobblestone - cobblestone with moss growth.
+    MossyCobblestone = 35,
+    /// Clay block - soft gray-blue sedimentary material.
+    Clay = 36,
+    /// Dripstone block - cave formation material.
+    Dripstone = 37,
+    /// Calcite - white crystalline mineral.
+    Calcite = 38,
+    /// Terracotta - fired clay in natural orange-brown.
+    Terracotta = 39,
+    /// Packed ice - dense, opaque ice.
+    PackedIce = 40,
+    /// Podzol - forest floor soil with decomposing matter.
+    Podzol = 41,
+    /// Mycelium - purple-gray fungal surface.
+    Mycelium = 42,
+    /// Coarse dirt - rough dirt that doesn't grow grass.
+    CoarseDirt = 43,
+    /// Rooted dirt - dirt with visible roots.
+    RootedDirt = 44,
 }
 
 /// Water types for enhanced water system.
@@ -373,6 +397,18 @@ impl BlockType {
             BlockType::Cactus => [0.3, 0.6, 0.3],  // Green
             BlockType::DecorativeStone => [0.6, 0.6, 0.6], // Medium gray with patterns
             BlockType::Concrete => [0.55, 0.55, 0.55], // Smooth gray
+            BlockType::Deepslate => [0.25, 0.25, 0.3], // Dark gray-blue
+            BlockType::Moss => [0.3, 0.55, 0.2],   // Forest green
+            BlockType::MossyCobblestone => [0.4, 0.5, 0.35], // Gray-green
+            BlockType::Clay => [0.6, 0.6, 0.7],    // Blue-gray
+            BlockType::Dripstone => [0.55, 0.5, 0.45], // Tan-brown
+            BlockType::Calcite => [0.9, 0.9, 0.85], // Off-white
+            BlockType::Terracotta => [0.7, 0.45, 0.35], // Orange-brown
+            BlockType::PackedIce => [0.6, 0.75, 0.9], // Blue-white
+            BlockType::Podzol => [0.45, 0.35, 0.25], // Brown-orange
+            BlockType::Mycelium => [0.5, 0.45, 0.55], // Purple-gray
+            BlockType::CoarseDirt => [0.5, 0.35, 0.2], // Brown
+            BlockType::RootedDirt => [0.55, 0.4, 0.25], // Brown with roots
         }
     }
 
@@ -387,13 +423,19 @@ impl BlockType {
             | BlockType::PineLeaves
             | BlockType::WillowLeaves
             | BlockType::Model
-            | BlockType::Cactus => 0.15,
+            | BlockType::Cactus
+            | BlockType::Moss => 0.15,
             // Fast
             BlockType::Dirt
             | BlockType::Sand
             | BlockType::Gravel
             | BlockType::Snow
-            | BlockType::Mud => 0.3,
+            | BlockType::Mud
+            | BlockType::Clay
+            | BlockType::CoarseDirt
+            | BlockType::RootedDirt
+            | BlockType::Podzol
+            | BlockType::Mycelium => 0.3,
             // Normal
             BlockType::Grass
             | BlockType::Planks
@@ -403,16 +445,21 @@ impl BlockType {
             | BlockType::Glass
             | BlockType::TintedGlass
             | BlockType::Painted
-            | BlockType::Ice => 0.5,
+            | BlockType::Ice
+            | BlockType::PackedIce
+            | BlockType::Terracotta => 0.5,
             // Slow
             BlockType::Stone
             | BlockType::Cobblestone
+            | BlockType::MossyCobblestone
             | BlockType::Brick
             | BlockType::Sandstone
             | BlockType::DecorativeStone
-            | BlockType::Concrete => 0.8,
+            | BlockType::Concrete
+            | BlockType::Dripstone
+            | BlockType::Calcite => 0.8,
             // Very slow
-            BlockType::Iron => 1.2,
+            BlockType::Iron | BlockType::Deepslate => 1.2,
             // Emissive blocks (medium difficulty)
             BlockType::GlowStone | BlockType::Crystal => 0.6,
             BlockType::GlowMushroom => 0.2, // Soft mushroom breaks easily
@@ -546,6 +593,18 @@ impl From<u8> for BlockType {
             30 => BlockType::Cactus,
             31 => BlockType::DecorativeStone,
             32 => BlockType::Concrete,
+            33 => BlockType::Deepslate,
+            34 => BlockType::Moss,
+            35 => BlockType::MossyCobblestone,
+            36 => BlockType::Clay,
+            37 => BlockType::Dripstone,
+            38 => BlockType::Calcite,
+            39 => BlockType::Terracotta,
+            40 => BlockType::PackedIce,
+            41 => BlockType::Podzol,
+            42 => BlockType::Mycelium,
+            43 => BlockType::CoarseDirt,
+            44 => BlockType::RootedDirt,
             _ => BlockType::Air,
         }
     }

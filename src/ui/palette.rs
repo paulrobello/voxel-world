@@ -15,7 +15,7 @@ impl PaletteUI {
         registry: &ModelRegistry,
     ) -> Vec<(PaletteItem, String)> {
         // Regular blocks (excluding TintedGlass and Crystal which have separate color entries)
-        const BLOCK_PALETTE: [BlockType; 28] = [
+        const BLOCK_PALETTE: [BlockType; 40] = [
             BlockType::Stone,
             BlockType::Dirt,
             BlockType::Grass,
@@ -47,6 +47,19 @@ impl PaletteUI {
             BlockType::Cactus,
             BlockType::DecorativeStone,
             BlockType::Concrete,
+            // Cave/biome blocks
+            BlockType::Deepslate,
+            BlockType::Moss,
+            BlockType::MossyCobblestone,
+            BlockType::Clay,
+            BlockType::Dripstone,
+            BlockType::Calcite,
+            BlockType::Terracotta,
+            BlockType::PackedIce,
+            BlockType::Podzol,
+            BlockType::Mycelium,
+            BlockType::CoarseDirt,
+            BlockType::RootedDirt,
         ];
 
         // Tinted glass colors: (tint_index, name)
@@ -220,7 +233,7 @@ impl PaletteUI {
         hotbar_index: &mut usize,
         dragging_item: &mut Option<PaletteItem>,
     ) {
-        const ATLAS_TILE_COUNT: f32 = 31.0;
+        const ATLAS_TILE_COUNT: f32 = 43.0;
         let block_idx =
             HudHelpers::atlas_tile_for(item.block, item.model_id, item.paint_texture_idx);
         let uv_left = block_idx / ATLAS_TILE_COUNT;
