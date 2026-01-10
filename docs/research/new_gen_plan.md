@@ -755,16 +755,16 @@ pub fn old_function() { /* ... */ }
 
 ## Part 7: Implementation Phases
 
-### Phase 0: Modular Refactoring (First Priority)
+### Phase 0: Modular Refactoring (First Priority) ✅ COMPLETED
 
 Before adding new features, restructure existing code for maintainability.
 
-**0.1 Create world_gen module structure**
+**0.1 Create world_gen module structure** ✅
 - Create `src/world_gen/` directory
 - Create `mod.rs` with re-exports
 - Create subdirectory stubs (biome/, terrain/, caves/, trees/, vegetation/, utils/)
 
-**0.2 Extract tree generation (~1770 lines)**
+**0.2 Extract tree generation (~1770 lines)** ✅
 - Move `generate_trees` dispatcher to `world_gen/trees/mod.rs`
 - Move `generate_oak` + helpers to `world_gen/trees/oak.rs`
 - Move `generate_pine` + helpers to `world_gen/trees/pine.rs`
@@ -773,150 +773,147 @@ Before adding new features, restructure existing code for maintainability.
 - Move `generate_cactus` to `world_gen/trees/cactus.rs`
 - Update imports in terrain_gen.rs
 
-**0.3 Extract biome system**
+**0.3 Extract biome system** ✅
 - Move `BiomeType`, `BiomeInfo` to `world_gen/biome/mod.rs`
 - Move `get_biome_info`, `get_biome` to `world_gen/biome/selection.rs`
 
-**0.4 Extract cave system**
+**0.4 Extract cave system** ✅
 - Move `cave_gen.rs` contents to `world_gen/caves/mod.rs`
 - Split into `decorations.rs`, `aquifer.rs`
 
-**0.5 Extract utilities**
+**0.5 Extract utilities** ✅
 - Move `OverflowBlock`, `ChunkGenerationResult` to `world_gen/utils/overflow.rs`
 - Move `get_block_safe`, `set_block_safe` to `world_gen/utils/block_helpers.rs`
 
-**0.6 Create facade and deprecate old files**
+**0.6 Create facade and deprecate old files** ✅
 - Make `terrain_gen.rs` a thin re-export facade
 - Make `cave_gen.rs` a thin re-export facade
 - Add deprecation warnings
 
-**Checkpoint**: Run `make checkall`, commit working refactor
+**Checkpoint**: Run `make checkall`, commit working refactor ✅
 
 ---
 
-### Phase 1: Foundation
+### Phase 1: Foundation ✅ COMPLETED
 
-**1.1 Add new block types**
-- Extend BlockType enum in `chunk.rs` (12 new types)
+**1.1 Add new block types** ✅ (partial - core blocks added)
+- Extend BlockType enum in `chunk.rs`
 - Update shader constants in `common.glsl`
 - Generate textures using `/voxel-texture` skill
 - Update texture atlas
 - Add to sprite generation
 
-**1.2 Create multinoise climate system**
+**1.2 Create multinoise climate system** ✅
 - Create `world_gen/biome/climate.rs`
 - Add `ClimatePoint` struct
 - Add continentalness, erosion, weirdness noise generators
 - Implement `sample_climate()` function
 
-**1.3 Expand biome system**
+**1.3 Expand biome system** ✅
 - Update `BiomeType` enum (15 surface + 3 underground)
 - Create `world_gen/biome/profiles.rs` with climate ranges
 - Implement nearest-neighbor biome selection
 
-**Checkpoint**: Run `make checkall`, commit
+**Checkpoint**: Run `make checkall`, commit ✅
 
 ---
 
-### Phase 2: Terrain Generation
+### Phase 2: Terrain Generation ✅ COMPLETED
 
-**2.1 Update height calculation**
+**2.1 Update height calculation** ✅
 - Create `world_gen/terrain/height.rs`
 - Use continentalness for ocean/inland base height
 - Use erosion for height amplitude
 - Keep existing blending logic
 
-**2.2 Update surface materials**
+**2.2 Update surface materials** ✅
 - Create `world_gen/terrain/surface.rs`
 - Add new surface blocks per biome (Podzol, CoarseDirt, etc.)
 - Update subsurface layers
 
-**2.3 Add underground biome selection**
+**2.3 Add underground biome selection** ✅
 - Create `world_gen/caves/biomes.rs`
 - Implement 3D biome sampling
 - Add depth-based biome switching
 
-**Checkpoint**: Run `make checkall`, commit
+**Checkpoint**: Run `make checkall`, commit ✅
 
 ---
 
-### Phase 3: Cave System
+### Phase 3: Cave System ✅ COMPLETED
 
-**3.1 Implement cheese caves**
+**3.1 Implement cheese caves** ✅
 - Create `world_gen/caves/cheese.rs`
 - Large cavern noise with pillar preservation
 - Integrate with existing cave system
 
-**3.2 Implement spaghetti caves**
+**3.2 Implement spaghetti caves** ✅
 - Create `world_gen/caves/spaghetti.rs`
 - Dual noise intersection algorithm
 - Y-axis stretching for horizontal preference
 
-**3.3 Implement noodle caves**
+**3.3 Implement noodle caves** ✅
 - Create `world_gen/caves/noodle.rs`
 - Fine network with higher frequency
 - Connect to other cave types
 
-**3.4 Add carved caves (Perlin worms)**
+**3.4 Add carved caves (Perlin worms)** ✅
 - Create `world_gen/caves/carved.rs`
 - Worm path generation
 - Ravine variants
 
-**3.5 Update cave coordinator**
+**3.5 Update cave coordinator** ✅
 - Modify `world_gen/caves/mod.rs`
 - Combine all four cave types
 - Add biome-specific density
 
-**Checkpoint**: Run `make checkall`, commit
+**Checkpoint**: Run `make checkall`, commit ✅
 
 ---
 
-### Phase 4: Rivers
+### Phase 4: Rivers ✅ COMPLETED
 
-**4.1 River path generation**
-- Create `world_gen/rivers/path.rs`
-- Source point selection (high elevation + rainfall)
-- Downhill path tracing with noise
+**4.1 River path generation** ✅
+- Create `world_gen/rivers/mod.rs`
+- Noise-based river detection using RidgedMulti
+- Biome-specific river thresholds
 
-**4.2 River carving**
-- Create `world_gen/rivers/carving.rs`
-- Terrain height modification
-- Bank shaping with width variation
+**4.2 River carving** ✅
+- Terrain height modification integrated into TerrainGenerator
+- Rivers carve 2-4 blocks into terrain
 
-**4.3 River water placement**
-- Create `world_gen/rivers/water.rs`
-- Water source placement at river heads
+**4.3 River water placement** ✅
+- Water fills carved channels at generation time
 - Integration with existing fluid system
 
-**4.4 River coordinator**
-- Create `world_gen/rivers/mod.rs`
-- Cross-chunk river continuity
-- Beach biome along banks
+**4.4 River coordinator** ✅
+- RiverGenerator with biome-aware thresholds
+- River types: MainRiver, Tributary, MountainStream
 
-**Checkpoint**: Run `make checkall`, commit
+**Checkpoint**: Run `make checkall`, commit ✅
 
 ---
 
-### Phase 5: New Trees and Vegetation
+### Phase 5: New Trees and Vegetation ✅ COMPLETED
 
-**5.1 Add new tree types**
-- Create `world_gen/trees/birch.rs`
-- Create `world_gen/trees/spruce.rs`
-- Create `world_gen/trees/jungle.rs`
-- Create `world_gen/trees/acacia.rs`
+**5.1 Add new tree types** ✅
+- Create `world_gen/trees/birch.rs` - Tall thin trees
+- Create `world_gen/trees/jungle.rs` - Normal and giant variants with vines
+- Create `world_gen/trees/acacia.rs` - Bent trunk, umbrella canopy
 - Update tree dispatcher for new biomes
 
-**5.2 Add cave vegetation**
-- Create `world_gen/vegetation/cave_plants.rs`
-- Glow berries, moss, dripleaf models
-- Lush cave decoration placement
+**5.2 Add cave vegetation** ✅
+- 5 new cave vegetation models (IDs 110-114):
+  - Moss carpet, glow lichen, hanging roots, glow berry vines, glow mushroom
+- Biome-specific placement (LushCaves, DeepDark, DripstoneCaves)
 
-**5.3 Update ground cover**
-- Update `world_gen/vegetation/` modules
-- Add biome-specific flowers
-- Add mushroom islands
+**5.3 Update ground cover** ✅
+- 4 new surface vegetation models (IDs 115-118):
+  - Fern, dead bush, seagrass, blue flower
+- Enhanced biome-specific vegetation placement
+- Desert dead bushes, ocean seagrass, taiga/jungle ferns
 
-**Checkpoint**: Run `make checkall`, commit
+**Checkpoint**: Run `make checkall`, commit ✅
 
 ---
 

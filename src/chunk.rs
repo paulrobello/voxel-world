@@ -513,6 +513,20 @@ impl BlockType {
             "cactus" => Some(BlockType::Cactus),
             "decorativestone" | "decorative_stone" | "decstone" => Some(BlockType::DecorativeStone),
             "concrete" => Some(BlockType::Concrete),
+            "deepslate" | "deep_slate" => Some(BlockType::Deepslate),
+            "moss" => Some(BlockType::Moss),
+            "mossycobblestone" | "mossy_cobblestone" | "mossycobble" => {
+                Some(BlockType::MossyCobblestone)
+            }
+            "clay" => Some(BlockType::Clay),
+            "dripstone" | "drip_stone" => Some(BlockType::Dripstone),
+            "calcite" => Some(BlockType::Calcite),
+            "terracotta" => Some(BlockType::Terracotta),
+            "packedice" | "packed_ice" => Some(BlockType::PackedIce),
+            "podzol" => Some(BlockType::Podzol),
+            "mycelium" => Some(BlockType::Mycelium),
+            "coarsedirt" | "coarse_dirt" => Some(BlockType::CoarseDirt),
+            "rooteddirt" | "rooted_dirt" => Some(BlockType::RootedDirt),
             _ => None,
         }
     }
@@ -553,6 +567,18 @@ impl BlockType {
             "cactus",
             "decorativestone",
             "concrete",
+            "deepslate",
+            "moss",
+            "mossycobblestone",
+            "clay",
+            "dripstone",
+            "calcite",
+            "terracotta",
+            "packedice",
+            "podzol",
+            "mycelium",
+            "coarsedirt",
+            "rooteddirt",
         ]
     }
 }

@@ -240,7 +240,16 @@ fn generate_normal_chunk(
 
                         // Underground biomes - shouldn't normally be visible at surface
                         BiomeType::LushCaves => BlockType::Moss,
-                        BiomeType::DripstoneCaves => BlockType::Stone,
+                        BiomeType::DripstoneCaves => {
+                            let hash = terrain.hash(world_x, world_z) % 5;
+                            if hash < 2 {
+                                BlockType::Dripstone
+                            } else if hash < 3 {
+                                BlockType::Calcite
+                            } else {
+                                BlockType::Stone
+                            }
+                        }
                         BiomeType::DeepDark => BlockType::Deepslate,
                     }
                 } else if world_y > height - 4 {
@@ -320,7 +329,16 @@ fn generate_normal_chunk(
                                 BlockType::Moss
                             }
                         }
-                        BiomeType::DripstoneCaves => BlockType::Stone,
+                        BiomeType::DripstoneCaves => {
+                            let hash = terrain.hash(world_x, world_z) % 4;
+                            if hash < 2 {
+                                BlockType::Dripstone
+                            } else if hash < 3 {
+                                BlockType::Calcite
+                            } else {
+                                BlockType::Stone
+                            }
+                        }
                         BiomeType::DeepDark => BlockType::Deepslate,
 
                         // All other biomes - dirt or sand near water
@@ -352,7 +370,16 @@ fn generate_normal_chunk(
                                 BlockType::Stone
                             }
                         }
-                        BiomeType::DripstoneCaves => BlockType::Stone,
+                        BiomeType::DripstoneCaves => {
+                            let hash = terrain.hash(world_x + world_y, world_z) % 6;
+                            if hash < 2 {
+                                BlockType::Dripstone
+                            } else if hash < 3 {
+                                BlockType::Calcite
+                            } else {
+                                BlockType::Stone
+                            }
+                        }
                         BiomeType::DeepDark => BlockType::Deepslate,
                         // Everything else is stone
                         _ => BlockType::Stone,

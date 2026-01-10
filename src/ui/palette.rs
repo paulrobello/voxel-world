@@ -200,6 +200,22 @@ impl PaletteUI {
             push_if(103, "Lily Pad");
             push_if(104, "Brown Mushroom");
             push_if(105, "Red Mushroom");
+            // Cave decorations
+            push_if(106, "Stalactite");
+            push_if(107, "Stalagmite");
+            push_if(108, "Ice Stalactite");
+            push_if(109, "Ice Stalagmite");
+            // Cave vegetation
+            push_if(110, "Moss Carpet");
+            push_if(111, "Glow Lichen");
+            push_if(112, "Hanging Roots");
+            push_if(113, "Glow Berry Vines");
+            push_if(114, "Glow Mushroom");
+            // Surface vegetation
+            push_if(115, "Fern");
+            push_if(116, "Dead Bush");
+            push_if(117, "Seagrass");
+            push_if(118, "Blue Flower");
 
             // Add custom/user models from the registry
             for model in registry.iter_custom_models() {
