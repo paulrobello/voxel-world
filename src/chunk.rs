@@ -420,6 +420,7 @@ impl BlockType {
             "log" => Some(BlockType::Log),
             "brick" | "bricks" => Some(BlockType::Brick),
             "snow" => Some(BlockType::Snow),
+            "ice" => Some(BlockType::Ice),
             "cobblestone" | "cobble" => Some(BlockType::Cobblestone),
             "iron" => Some(BlockType::Iron),
             "bedrock" => Some(BlockType::Bedrock),
@@ -428,6 +429,10 @@ impl BlockType {
             "glowstone" | "glow_stone" => Some(BlockType::GlowStone),
             "glowmushroom" | "glow_mushroom" | "mushroom" => Some(BlockType::GlowMushroom),
             "crystal" => Some(BlockType::Crystal),
+            "pinelog" | "pine_log" => Some(BlockType::PineLog),
+            "willowlog" | "willow_log" => Some(BlockType::WillowLog),
+            "pineleaves" | "pine_leaves" => Some(BlockType::PineLeaves),
+            "willowleaves" | "willow_leaves" => Some(BlockType::WillowLeaves),
             _ => None,
         }
     }
@@ -450,6 +455,7 @@ impl BlockType {
             "log",
             "brick",
             "snow",
+            "ice",
             "cobblestone",
             "iron",
             "bedrock",
@@ -458,6 +464,10 @@ impl BlockType {
             "glowstone",
             "glowmushroom",
             "crystal",
+            "pinelog",
+            "willowlog",
+            "pineleaves",
+            "willowleaves",
         ]
     }
 }
