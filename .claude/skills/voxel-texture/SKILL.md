@@ -136,9 +136,9 @@ magick {block_type}_64x64.png \( +clone \) +append \( +clone \) -append {block_t
 
 ### Step 5: Visual Verification
 
-Display both:
-1. **Single tile**: `{block_type}_64x64.png` - Check if pattern is flat and clear
-2. **Tiled 2x2**: `{block_type}_tiled_preview.png` - Verify NO visible seams at edges
+Verify the generated textures:
+1. **Single tile**: Check `{block_type}_64x64.png` - Pattern should be flat and clear
+2. **Tiled 2x2**: Check `{block_type}_tiled_preview.png` - Verify NO visible seams at edges
 
 **Red flags requiring regeneration**:
 - Visible seams where tiles meet
@@ -363,8 +363,8 @@ magick ice_64x64.png -filter point -resize 64x64! ice_64x64.png
 # Step 5: Create tiled preview
 magick ice_64x64.png \( +clone \) +append \( +clone \) -append ice_tiled_preview.png
 
-# Step 6: Display for verification
-# (Show both ice_64x64.png and ice_tiled_preview.png to user)
+# Step 6: Verify textures visually
+# Check both ice_64x64.png and ice_tiled_preview.png for quality
 
 # Step 7: If approved, integrate into atlas
 magick air_64x64.png stone_64x64.png dirt_64x64.png grass_64x64.png planks_64x64.png \

@@ -171,6 +171,7 @@ pub fn load_sprite_icons(gui: &mut Gui) -> SpriteIcons {
         (BlockType::Log, "block_log.png"),
         (BlockType::Brick, "block_brick.png"),
         (BlockType::Snow, "block_snow.png"),
+        (BlockType::Ice, "block_ice.png"),
         (BlockType::Cobblestone, "block_cobblestone.png"),
         (BlockType::Iron, "block_iron.png"),
         (BlockType::Bedrock, "block_bedrock.png"),
