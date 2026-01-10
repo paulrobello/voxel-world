@@ -44,9 +44,10 @@ use self::stairs::{
     create_stairs_outer_right, create_stairs_outer_right_inverted,
 };
 use self::vegetation::{
-    create_flower_red, create_flower_yellow, create_glow_berry_vines, create_glow_lichen,
-    create_glow_mushroom_model, create_hanging_roots, create_lily_pad, create_moss_carpet,
-    create_mushroom_brown, create_mushroom_red, create_tall_grass,
+    create_dead_bush, create_fern, create_flower_blue, create_flower_red, create_flower_yellow,
+    create_glow_berry_vines, create_glow_lichen, create_glow_mushroom_model, create_hanging_roots,
+    create_lily_pad, create_moss_carpet, create_mushroom_brown, create_mushroom_red,
+    create_seagrass, create_tall_grass,
 };
 
 /// Registers built-in models.
@@ -198,4 +199,14 @@ pub fn register_builtins(registry: &mut ModelRegistry) {
     registry.register(create_glow_berry_vines());
     // ID 114: Glow Mushroom Model (floor with emission)
     registry.register(create_glow_mushroom_model());
+
+    // === Additional Surface Vegetation (IDs 115-118) ===
+    // ID 115: Fern (taiga/jungle)
+    registry.register(create_fern());
+    // ID 116: Dead Bush (desert/savanna)
+    registry.register(create_dead_bush());
+    // ID 117: Seagrass (underwater)
+    registry.register(create_seagrass());
+    // ID 118: Blue Flower (cornflower)
+    registry.register(create_flower_blue());
 }

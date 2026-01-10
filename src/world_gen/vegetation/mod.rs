@@ -14,7 +14,7 @@ const MODEL_FLOWER_RED: u8 = 101;
 const MODEL_FLOWER_YELLOW: u8 = 102;
 const MODEL_LILY_PAD: u8 = 103;
 const MODEL_MUSHROOM_BROWN: u8 = 104;
-// const MODEL_MUSHROOM_RED: u8 = 105;
+const MODEL_MUSHROOM_RED: u8 = 105;
 
 // Cave vegetation model IDs
 const MODEL_MOSS_CARPET: u8 = 110;
@@ -22,6 +22,12 @@ const MODEL_GLOW_LICHEN: u8 = 111;
 const MODEL_HANGING_ROOTS: u8 = 112;
 const MODEL_GLOW_BERRY_VINES: u8 = 113;
 const MODEL_GLOW_MUSHROOM: u8 = 114;
+
+// Additional surface vegetation model IDs
+const MODEL_FERN: u8 = 115;
+const MODEL_DEAD_BUSH: u8 = 116;
+const MODEL_SEAGRASS: u8 = 117;
+const MODEL_FLOWER_BLUE: u8 = 118;
 
 /// Generates ground cover (grass, flowers, etc.) based on biome.
 pub fn generate_ground_cover(
@@ -57,13 +63,14 @@ pub fn generate_ground_cover(
                     // Plains and temperate grasslands
                     BiomeType::Plains | BiomeType::Grassland => {
                         if surface_block == BlockType::Grass {
-                            if hash % 100 < 10 {
+                            let roll = hash % 100;
+                            if roll < 10 {
                                 chunk.set_model_block(lx, y, lz, MODEL_TALL_GRASS, 0, false);
-                            } else if hash % 100 < 12 {
-                                let flower = if hash % 2 == 0 {
-                                    MODEL_FLOWER_RED
-                                } else {
-                                    MODEL_FLOWER_YELLOW
+                            } else if roll < 13 {
+                                let flower = match hash % 3 {
+                                    0 => MODEL_FLOWER_RED,
+                                    1 => MODEL_FLOWER_YELLOW,
+                                    _ => MODEL_FLOWER_BLUE,
                                 };
                                 chunk.set_model_block(lx, y, lz, flower, 0, false);
                             }
@@ -72,35 +79,48 @@ pub fn generate_ground_cover(
 
                     // Meadow - lots of flowers
                     BiomeType::Meadow => {
-                        if surface_block == BlockType::Grass && hash % 100 < 15 {
-                            let flower = if hash % 3 == 0 {
-                                MODEL_FLOWER_RED
-                            } else if hash % 3 == 1 {
-                                MODEL_FLOWER_YELLOW
-                            } else {
-                                MODEL_TALL_GRASS
-                            };
-                            chunk.set_model_block(lx, y, lz, flower, 0, false);
-                        }
-                    }
-
-                    // Forest biomes - moderate grass, some flowers
-                    BiomeType::Forest | BiomeType::BirchForest => {
                         if surface_block == BlockType::Grass {
-                            if hash % 100 < 8 {
-                                chunk.set_model_block(lx, y, lz, MODEL_TALL_GRASS, 0, false);
-                            } else if hash % 100 < 10 {
-                                chunk.set_model_block(lx, y, lz, MODEL_FLOWER_RED, 0, false);
+                            let roll = hash % 100;
+                            if roll < 20 {
+                                let flower = match hash % 4 {
+                                    0 => MODEL_FLOWER_RED,
+                                    1 => MODEL_FLOWER_YELLOW,
+                                    2 => MODEL_FLOWER_BLUE,
+                                    _ => MODEL_TALL_GRASS,
+                                };
+                                chunk.set_model_block(lx, y, lz, flower, 0, false);
                             }
                         }
                     }
 
-                    // Dark forest - mushrooms and less grass
+                    // Forest biomes - moderate grass, flowers, ferns
+                    BiomeType::Forest | BiomeType::BirchForest => {
+                        if surface_block == BlockType::Grass {
+                            let roll = hash % 100;
+                            if roll < 6 {
+                                chunk.set_model_block(lx, y, lz, MODEL_TALL_GRASS, 0, false);
+                            } else if roll < 10 {
+                                chunk.set_model_block(lx, y, lz, MODEL_FERN, 0, false);
+                            } else if roll < 12 {
+                                chunk.set_model_block(lx, y, lz, MODEL_FLOWER_BLUE, 0, false);
+                            }
+                        }
+                    }
+
+                    // Dark forest - mushrooms, ferns, less grass
                     BiomeType::DarkForest => {
                         if surface_block == BlockType::Grass || surface_block == BlockType::Dirt {
-                            if hash % 100 < 12 {
-                                chunk.set_model_block(lx, y, lz, MODEL_MUSHROOM_BROWN, 0, false);
-                            } else if hash % 100 < 16 {
+                            let roll = hash % 100;
+                            if roll < 8 {
+                                let mushroom = if hash % 3 == 0 {
+                                    MODEL_MUSHROOM_RED
+                                } else {
+                                    MODEL_MUSHROOM_BROWN
+                                };
+                                chunk.set_model_block(lx, y, lz, mushroom, 0, false);
+                            } else if roll < 14 {
+                                chunk.set_model_block(lx, y, lz, MODEL_FERN, 0, false);
+                            } else if roll < 18 {
                                 chunk.set_model_block(lx, y, lz, MODEL_TALL_GRASS, 0, false);
                             }
                         }
@@ -112,10 +132,13 @@ pub fn generate_ground_cover(
                             || surface_block == BlockType::Dirt
                             || surface_block == BlockType::Mud
                         {
-                            if hash % 100 < 15 {
+                            let roll = hash % 100;
+                            if roll < 15 {
                                 chunk.set_model_block(lx, y, lz, MODEL_TALL_GRASS, 0, false);
-                            } else if hash % 100 < 20 {
+                            } else if roll < 20 {
                                 chunk.set_model_block(lx, y, lz, MODEL_MUSHROOM_BROWN, 0, false);
+                            } else if roll < 22 {
+                                chunk.set_model_block(lx, y, lz, MODEL_FERN, 0, false);
                             }
                         }
                         // Lily pads on water
@@ -127,35 +150,58 @@ pub fn generate_ground_cover(
                         }
                     }
 
-                    // Jungle - dense vegetation
+                    // Jungle - dense vegetation with ferns
                     BiomeType::Jungle => {
                         if surface_block == BlockType::Grass {
-                            if hash % 100 < 20 {
+                            let roll = hash % 100;
+                            if roll < 12 {
                                 chunk.set_model_block(lx, y, lz, MODEL_TALL_GRASS, 0, false);
-                            } else if hash % 100 < 25 {
-                                let flower = if hash % 2 == 0 {
-                                    MODEL_FLOWER_RED
-                                } else {
-                                    MODEL_FLOWER_YELLOW
+                            } else if roll < 22 {
+                                chunk.set_model_block(lx, y, lz, MODEL_FERN, 0, false);
+                            } else if roll < 28 {
+                                let flower = match hash % 3 {
+                                    0 => MODEL_FLOWER_RED,
+                                    1 => MODEL_FLOWER_YELLOW,
+                                    _ => MODEL_FLOWER_BLUE,
                                 };
                                 chunk.set_model_block(lx, y, lz, flower, 0, false);
                             }
                         }
                     }
 
-                    // Savanna - sparse grass
+                    // Savanna - sparse grass and dead bushes
                     BiomeType::Savanna => {
-                        if surface_block == BlockType::Grass && hash % 100 < 8 {
-                            chunk.set_model_block(lx, y, lz, MODEL_TALL_GRASS, 0, false);
+                        if surface_block == BlockType::Grass {
+                            let roll = hash % 100;
+                            if roll < 6 {
+                                chunk.set_model_block(lx, y, lz, MODEL_TALL_GRASS, 0, false);
+                            } else if roll < 10 {
+                                chunk.set_model_block(lx, y, lz, MODEL_DEAD_BUSH, 0, false);
+                            }
                         }
                     }
 
-                    // Taiga and cold forests
-                    BiomeType::Taiga | BiomeType::SnowyTaiga => {
-                        if (surface_block == BlockType::Grass || surface_block == BlockType::Snow)
-                            && hash % 100 < 6
-                        {
-                            chunk.set_model_block(lx, y, lz, MODEL_TALL_GRASS, 0, false);
+                    // Taiga - ferns and grass
+                    BiomeType::Taiga => {
+                        if surface_block == BlockType::Grass {
+                            let roll = hash % 100;
+                            if roll < 8 {
+                                chunk.set_model_block(lx, y, lz, MODEL_FERN, 0, false);
+                            } else if roll < 12 {
+                                chunk.set_model_block(lx, y, lz, MODEL_TALL_GRASS, 0, false);
+                            }
+                        }
+                    }
+
+                    // Snowy taiga - sparse vegetation
+                    BiomeType::SnowyTaiga => {
+                        if surface_block == BlockType::Grass || surface_block == BlockType::Snow {
+                            let roll = hash % 100;
+                            if roll < 4 {
+                                chunk.set_model_block(lx, y, lz, MODEL_FERN, 0, false);
+                            } else if roll < 6 {
+                                chunk.set_model_block(lx, y, lz, MODEL_TALL_GRASS, 0, false);
+                            }
                         }
                     }
 
@@ -166,15 +212,37 @@ pub fn generate_ground_cover(
                         }
                     }
 
-                    // Mountains - sparse grass
+                    // Mountains - sparse grass and flowers
                     BiomeType::Mountains => {
-                        if surface_block == BlockType::Grass && hash % 100 < 5 {
-                            chunk.set_model_block(lx, y, lz, MODEL_TALL_GRASS, 0, false);
+                        if surface_block == BlockType::Grass {
+                            let roll = hash % 100;
+                            if roll < 4 {
+                                chunk.set_model_block(lx, y, lz, MODEL_TALL_GRASS, 0, false);
+                            } else if roll < 6 {
+                                chunk.set_model_block(lx, y, lz, MODEL_FLOWER_BLUE, 0, false);
+                            }
                         }
                     }
 
-                    // Desert, Ocean, Beach - no ground cover
-                    BiomeType::Desert | BiomeType::Ocean | BiomeType::Beach => {}
+                    // Desert - dead bushes
+                    BiomeType::Desert => {
+                        if surface_block == BlockType::Sand && hash % 100 < 3 {
+                            chunk.set_model_block(lx, y, lz, MODEL_DEAD_BUSH, 0, false);
+                        }
+                    }
+
+                    // Ocean - seagrass underwater
+                    BiomeType::Ocean => {
+                        if surface_block == BlockType::Sand
+                            && height < SEA_LEVEL - 1
+                            && hash % 100 < 12
+                        {
+                            chunk.set_model_block(lx, y, lz, MODEL_SEAGRASS, 0, false);
+                        }
+                    }
+
+                    // Beach - no vegetation
+                    BiomeType::Beach => {}
 
                     // Underground biomes - no surface vegetation
                     BiomeType::LushCaves | BiomeType::DripstoneCaves | BiomeType::DeepDark => {}
