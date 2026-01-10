@@ -6,7 +6,8 @@
 // Slots 19-22: emissive blocks (Lava, GlowStone, GlowMushroom, Crystal)
 // Slots 23-30: biome textures (Cactus, Mud, Sandstone, Ice, PineLeaves, DecorativeStone, WillowLeaves, Concrete)
 // Slots 31-42: cave/biome blocks (Deepslate, Moss, MossyCobble, Clay, Dripstone, Calcite, Terracotta, PackedIce, Podzol, Mycelium, CoarseDirt, RootedDirt)
-const float ATLAS_TILE_COUNT = 43.0;
+// Slots 43-44: birch tree blocks (BirchLog, BirchLeaves)
+const float ATLAS_TILE_COUNT = 45.0;
 const float ATLAS_TILE_SIZE = 1.0 / ATLAS_TILE_COUNT;
 const uint TEX_GRASS_SIDE = 17;
 const uint TEX_LOG_TOP = 18;
@@ -34,6 +35,8 @@ const uint TEX_PODZOL = 39;
 const uint TEX_MYCELIUM = 40;
 const uint TEX_COARSE_DIRT = 41;
 const uint TEX_ROOTED_DIRT = 42;
+const uint TEX_BIRCH_LOG = 43;
+const uint TEX_BIRCH_LEAVES = 44;
 
 // Map BlockType enum values to texture atlas positions
 // This is needed because enum values don't directly correspond to atlas positions
@@ -100,6 +103,10 @@ uint blockTypeToAtlasIndex(uint blockType) {
             return TEX_COARSE_DIRT;
         case BLOCK_ROOTED_DIRT:
             return TEX_ROOTED_DIRT;
+        case BLOCK_BIRCH_LOG:
+            return TEX_BIRCH_LOG;
+        case BLOCK_BIRCH_LEAVES:
+            return TEX_BIRCH_LEAVES;
         default:
             return BLOCK_AIR;  // Fallback for unknown blocks
     }
@@ -257,6 +264,9 @@ vec3 getBlockColor(uint blockType, vec3 local_hit, vec3 normal, uint stepped_axi
     } else if (blockType == BLOCK_LOG || blockType == BLOCK_PINE_LOG || blockType == BLOCK_WILLOW_LOG) {
         // Always use bark texture on all sides for natural branch appearance
         textureIndex = BLOCK_LOG;
+    } else if (blockType == BLOCK_BIRCH_LOG) {
+        // Birch has distinctive white bark texture
+        textureIndex = TEX_BIRCH_LOG;
     } else if (blockType == BLOCK_WATER) {
         vec2 animatedUV = getWaterUVAnimation(uv, worldPos, pc.animation_time);
         vec3 waterColor = sampleTexture(BLOCK_WATER, animatedUV);

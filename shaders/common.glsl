@@ -56,6 +56,8 @@ const uint BLOCK_PODZOL = 41;
 const uint BLOCK_MYCELIUM = 42;
 const uint BLOCK_COARSE_DIRT = 43;
 const uint BLOCK_ROOTED_DIRT = 44;
+const uint BLOCK_BIRCH_LOG = 45;
+const uint BLOCK_BIRCH_LEAVES = 46;
 
 // Sub-voxel model IDs (must match Rust ModelRegistry IDs)
 const uint CRYSTAL_MODEL_ID = 99u;

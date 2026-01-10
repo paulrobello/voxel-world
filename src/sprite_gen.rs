@@ -165,7 +165,7 @@ pub fn run(_args: &Args, event_loop: &EventLoop<()>) -> Result<(), Box<dyn Error
     )
     .unwrap();
 
-    let blocks: [BlockType; 40] = [
+    let blocks: [BlockType; 42] = [
         BlockType::Stone,
         BlockType::Dirt,
         BlockType::Grass,
@@ -190,8 +190,10 @@ pub fn run(_args: &Args, event_loop: &EventLoop<()>) -> Result<(), Box<dyn Error
         // Tree variants
         BlockType::PineLog,
         BlockType::WillowLog,
+        BlockType::BirchLog,
         BlockType::PineLeaves,
         BlockType::WillowLeaves,
+        BlockType::BirchLeaves,
         // Terrain blocks
         BlockType::Mud,
         BlockType::Sandstone,

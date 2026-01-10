@@ -148,6 +148,10 @@ pub enum BlockType {
     CoarseDirt = 43,
     /// Rooted dirt - dirt with visible roots.
     RootedDirt = 44,
+    /// Birch tree log (white bark).
+    BirchLog = 45,
+    /// Birch tree leaves (light green).
+    BirchLeaves = 46,
 }
 
 /// Water types for enhanced water system.
@@ -234,7 +238,7 @@ impl BlockType {
     pub fn is_log(self) -> bool {
         matches!(
             self,
-            BlockType::Log | BlockType::PineLog | BlockType::WillowLog
+            BlockType::Log | BlockType::PineLog | BlockType::WillowLog | BlockType::BirchLog
         )
     }
 
@@ -247,8 +251,10 @@ impl BlockType {
                 | BlockType::Leaves
                 | BlockType::PineLog
                 | BlockType::WillowLog
+                | BlockType::BirchLog
                 | BlockType::PineLeaves
                 | BlockType::WillowLeaves
+                | BlockType::BirchLeaves
         )
     }
 
@@ -264,6 +270,7 @@ impl BlockType {
                 | BlockType::Leaves
                 | BlockType::PineLeaves
                 | BlockType::WillowLeaves
+                | BlockType::BirchLeaves
                 | BlockType::Model
                 | BlockType::Lava
                 | BlockType::Ice
@@ -324,6 +331,8 @@ impl BlockType {
                 | BlockType::PineLeaves
                 | BlockType::WillowLog
                 | BlockType::WillowLeaves
+                | BlockType::BirchLog
+                | BlockType::BirchLeaves
         )
     }
 
@@ -409,6 +418,8 @@ impl BlockType {
             BlockType::Mycelium => [0.5, 0.45, 0.55], // Purple-gray
             BlockType::CoarseDirt => [0.5, 0.35, 0.2], // Brown
             BlockType::RootedDirt => [0.55, 0.4, 0.25], // Brown with roots
+            BlockType::BirchLog => [0.85, 0.82, 0.75], // White-gray bark
+            BlockType::BirchLeaves => [0.45, 0.7, 0.3], // Light green
         }
     }
 
@@ -422,6 +433,7 @@ impl BlockType {
             BlockType::Leaves
             | BlockType::PineLeaves
             | BlockType::WillowLeaves
+            | BlockType::BirchLeaves
             | BlockType::Model
             | BlockType::Cactus
             | BlockType::Moss => 0.15,
@@ -442,6 +454,7 @@ impl BlockType {
             | BlockType::Log
             | BlockType::PineLog
             | BlockType::WillowLog
+            | BlockType::BirchLog
             | BlockType::Glass
             | BlockType::TintedGlass
             | BlockType::Painted
@@ -508,6 +521,8 @@ impl BlockType {
             "willowlog" | "willow_log" => Some(BlockType::WillowLog),
             "pineleaves" | "pine_leaves" => Some(BlockType::PineLeaves),
             "willowleaves" | "willow_leaves" => Some(BlockType::WillowLeaves),
+            "birchlog" | "birch_log" => Some(BlockType::BirchLog),
+            "birchleaves" | "birch_leaves" => Some(BlockType::BirchLeaves),
             "mud" => Some(BlockType::Mud),
             "sandstone" => Some(BlockType::Sandstone),
             "cactus" => Some(BlockType::Cactus),
@@ -579,6 +594,8 @@ impl BlockType {
             "mycelium",
             "coarsedirt",
             "rooteddirt",
+            "birchlog",
+            "birchleaves",
         ]
     }
 }
@@ -631,6 +648,8 @@ impl From<u8> for BlockType {
             42 => BlockType::Mycelium,
             43 => BlockType::CoarseDirt,
             44 => BlockType::RootedDirt,
+            45 => BlockType::BirchLog,
+            46 => BlockType::BirchLeaves,
             _ => BlockType::Air,
         }
     }

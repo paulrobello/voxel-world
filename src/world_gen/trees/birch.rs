@@ -3,7 +3,8 @@
 //! Birch trees are characterized by:
 //! - Tall, thin trunks
 //! - Small, rounded canopy
-//! - White bark (uses Log block)
+//! - White bark (uses BirchLog block)
+//! - Light green leaves (uses BirchLeaves block)
 
 use crate::chunk::{BlockType, Chunk};
 use crate::world_gen::utils::{OverflowBlock, get_block_safe, set_block_safe};
@@ -43,7 +44,7 @@ pub fn generate_birch(
             x,
             y + dy,
             z,
-            BlockType::Log,
+            BlockType::BirchLog,
             chunk_world_x,
             chunk_world_y,
             chunk_world_z,
@@ -106,7 +107,7 @@ fn generate_birch_canopy(
                     x + dx,
                     base_y + dy,
                     z + dz,
-                    BlockType::Leaves,
+                    BlockType::BirchLeaves,
                     chunk_world_x,
                     chunk_world_y,
                     chunk_world_z,
@@ -122,7 +123,7 @@ fn generate_birch_canopy(
         x,
         base_y + canopy_height,
         z,
-        BlockType::Leaves,
+        BlockType::BirchLeaves,
         chunk_world_x,
         chunk_world_y,
         chunk_world_z,
