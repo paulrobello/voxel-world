@@ -14,7 +14,14 @@ Generates a single interactive HTML file with tabs for all biomes.
 
 Creates `layer_viz.html` with interactive visualization showing:
 
-**Layer Structure:**
+**Overview Tab (NEW):**
+- 🌍 **Biome Distribution**: All biomes at-a-glance comparison
+- **Elevation Bar Chart**: Visual comparison of biome surface heights
+- **Cave Water Filling**: Complete reference for all biomes
+- **Lava Distribution**: Y: 3-7 pockets in all biomes, Y<100 lakes in mountains
+- **Key Depth Markers**: Important Y-levels (bedrock, lava zone, sea level)
+
+**Layer Structure (Per-Biome):**
 - World height and layer structure (Y: 0-511)
 - Sea level and surface height for each biome
 - Explorable dry cave zones (above sea level)
@@ -29,18 +36,18 @@ Creates `layer_viz.html` with interactive visualization showing:
 - 🏔️ **Cave Decorations**: Stalactites, stalagmites, icicles distribution
 
 **Interactive Features:**
-- Tab-based biome switching with emoji icons (🌱 ⛰️ 🏜️ 🌿 ❄️)
+- Tab-based switching with emoji icons (🌍 🌱 ⛰️ 🏜️ 🌿 ❄️)
 - Smooth fade-in animations
-- Hover effects on all layers
+- Hover effects on all layers and elevation bars
 - Biome-specific color coding
 
-## Biome Details
+## Biome Details (Updated)
 
-**Grassland** 🌱: Oak trees (8-12 tall), rare glowstone/crystals, 4 blocks dry caves
-**Mountains** ⛰️: Pine trees (12-18 tall), lava below Y=100, abundant crystals, 30 blocks dry caves
-**Desert** 🏜️: Sparse cacti, exposed crystals, 125 blocks ALL dry caves
-**Swamp** 🌿: Willow trees (10-14 tall), glowmushrooms, underwater crystals, 0 blocks dry caves
-**Snow** ❄️: Sparse pine trees, ice crystals + icicles, 15 blocks dry caves
+**Grassland** 🌱: Y: ~132, oak trees (8-12 tall), always dry caves, 125 blocks explorable
+**Mountains** ⛰️: Y: ~165, pine trees (12-18 tall), lava Y<100, water below Y: 124, 41 blocks dry caves
+**Desert** 🏜️: Y: ~130, sparse cacti, always dry - ALL caves explorable, 123 blocks
+**Swamp** 🌿: Y: ~129, willow trees (10-14 tall), heavily flooded below Y: 129, 0 blocks dry caves
+**Snow** ❄️: Y: ~148, sparse pines, ice caves (~60% ice-filled), 141 blocks explorable
 
 ---
 

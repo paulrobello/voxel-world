@@ -8,15 +8,15 @@ WORLD_HEIGHT = 512  # 16 chunks * 32 blocks
 SEA_LEVEL = 124
 CHUNK_SIZE = 32
 
-# Biome data
+# Biome data (Updated from src/terrain_gen.rs and src/cave_gen.rs)
 BIOME_DATA = {
     "grassland": {
         "name": "Grassland",
-        "surface": 128,
+        "surface": 132,  # 128 + detail*2 + base*4 (avg ~132)
         "water_fill": None,
-        "water_fill_desc": "No water in caves, lava Y: 3-7",
-        "dry_cave_range": "Y: 8-128",
-        "explorable_blocks": 121,
+        "water_fill_desc": "Always dry caves, lava pockets Y: 3-7",
+        "dry_cave_range": "Y: 8-132",
+        "explorable_blocks": 125,  # 132 - 7
         "special": "Possible lava pockets near bedrock (Y: 3-7)",
         "color": "#3cb371",
         "icon": "🌱",
@@ -36,11 +36,11 @@ BIOME_DATA = {
     },
     "mountains": {
         "name": "Mountains",
-        "surface": 155,
+        "surface": 165,  # 128 + base*10 + ridges*55 (avg ~165)
         "water_fill": SEA_LEVEL,
-        "water_fill_desc": "Water below Y: 124, Lava Y: 3-7 & below Y: 100",
-        "dry_cave_range": "Y: 125-155",
-        "explorable_blocks": 30,
+        "water_fill_desc": "Water below Y: 124, lava lakes Y < 100, lava pockets Y: 3-7",
+        "dry_cave_range": "Y: 125-165",
+        "explorable_blocks": 41,  # 165 - 124
         "special": "Lava lakes at Y < 100, plus lava pockets at Y: 3-7",
         "color": "#8b7355",
         "icon": "⛰️",
@@ -60,12 +60,12 @@ BIOME_DATA = {
     },
     "desert": {
         "name": "Desert",
-        "surface": 128,
+        "surface": 130,  # 128 + detail + base*2 (avg ~130)
         "water_fill": None,
-        "water_fill_desc": "No water - all caves dry, lava Y: 3-7",
-        "dry_cave_range": "Y: 8-128",
-        "explorable_blocks": 121,
-        "special": "ALL caves explorable, possible lava pockets at Y: 3-7",
+        "water_fill_desc": "Always dry - all caves explorable, lava pockets Y: 3-7",
+        "dry_cave_range": "Y: 8-130",
+        "explorable_blocks": 123,  # 130 - 7
+        "special": "ALL caves dry and explorable, possible lava pockets at Y: 3-7",
         "color": "#daa520",
         "icon": "🏜️",
         "vegetation": {
@@ -84,12 +84,12 @@ BIOME_DATA = {
     },
     "swamp": {
         "name": "Swamp",
-        "surface": 124,
-        "water_fill": 129,
-        "water_fill_desc": "Water below Y: 129, lava Y: 3-7",
+        "surface": 129,  # 128 + detail*2 (avg ~129, raised from 124)
+        "water_fill": 129,  # SEA_LEVEL + 5
+        "water_fill_desc": "Water below Y: 129 (SEA_LEVEL+5), lava pockets Y: 3-7",
         "dry_cave_range": "None",
         "explorable_blocks": 0,
-        "special": "Almost no dry caves - heavily flooded, lava pockets at Y: 3-7",
+        "special": "Heavily flooded caves - almost no dry space, lava pockets at Y: 3-7",
         "color": "#556b2f",
         "icon": "🌿",
         "vegetation": {
@@ -109,12 +109,12 @@ BIOME_DATA = {
     },
     "snow": {
         "name": "Snow",
-        "surface": 140,
+        "surface": 148,  # 128 + base*8 + ridges*40 for peaks, 128 + detail*2 for tundra (avg ~148)
         "water_fill": None,
-        "water_fill_desc": "Ice caves possible anywhere, lava Y: 3-7",
-        "dry_cave_range": "Y: 8-140",
-        "explorable_blocks": 133,
-        "special": "Ice caves throughout, lava pockets near bedrock (Y: 3-7)",
+        "water_fill_desc": "Ice caves (~60% filled with ice blocks), lava pockets Y: 3-7",
+        "dry_cave_range": "Y: 8-148",
+        "explorable_blocks": 141,  # 148 - 7
+        "special": "Ice caves throughout (~60% ice, 40% air), lava pockets near bedrock (Y: 3-7)",
         "color": "#e0f2f7",
         "icon": "❄️",
         "vegetation": {
@@ -133,6 +133,127 @@ BIOME_DATA = {
         }
     }
 }
+
+
+def generate_biome_distribution():
+    """Generate HTML content showing all biomes and their spawn depths."""
+    content = '''
+        <div class="biome-content" id="content-overview">
+            <div class="overview-header">
+                <h2>🌍 Biome Distribution Overview</h2>
+                <p>Elevation ranges and characteristics for all biomes</p>
+            </div>
+
+            <div class="biome-comparison">
+                <div class="comparison-column">
+                    <h3>🌱 Grassland</h3>
+                    <div class="biome-card grassland-card">
+                        <div class="card-stat"><strong>Surface:</strong> Y: ~132</div>
+                        <div class="card-stat"><strong>Elevation:</strong> Sea level to +8</div>
+                        <div class="card-stat"><strong>Caves:</strong> Always dry</div>
+                        <div class="card-stat"><strong>Features:</strong> Oak trees, flowers</div>
+                    </div>
+                </div>
+
+                <div class="comparison-column">
+                    <h3>⛰️ Mountains</h3>
+                    <div class="biome-card mountains-card">
+                        <div class="card-stat"><strong>Surface:</strong> Y: ~165</div>
+                        <div class="card-stat"><strong>Elevation:</strong> +10 to +65</div>
+                        <div class="card-stat"><strong>Caves:</strong> Lava Y<100, water below sea</div>
+                        <div class="card-stat"><strong>Features:</strong> Tall pines, crystals</div>
+                    </div>
+                </div>
+
+                <div class="comparison-column">
+                    <h3>🏜️ Desert</h3>
+                    <div class="biome-card desert-card">
+                        <div class="card-stat"><strong>Surface:</strong> Y: ~130</div>
+                        <div class="card-stat"><strong>Elevation:</strong> Sea level to +6</div>
+                        <div class="card-stat"><strong>Caves:</strong> Always dry</div>
+                        <div class="card-stat"><strong>Features:</strong> Cacti, sandstone</div>
+                    </div>
+                </div>
+
+                <div class="comparison-column">
+                    <h3>🌿 Swamp</h3>
+                    <div class="biome-card swamp-card">
+                        <div class="card-stat"><strong>Surface:</strong> Y: ~129</div>
+                        <div class="card-stat"><strong>Elevation:</strong> Sea level to +5</div>
+                        <div class="card-stat"><strong>Caves:</strong> Flooded below Y: 129</div>
+                        <div class="card-stat"><strong>Features:</strong> Willows, mud, mushrooms</div>
+                    </div>
+                </div>
+
+                <div class="comparison-column">
+                    <h3>❄️ Snow</h3>
+                    <div class="biome-card snow-card">
+                        <div class="card-stat"><strong>Surface:</strong> Y: ~148</div>
+                        <div class="card-stat"><strong>Elevation:</strong> +4 to +40</div>
+                        <div class="card-stat"><strong>Caves:</strong> Ice-filled (~60%)</div>
+                        <div class="card-stat"><strong>Features:</strong> Pines, ice, icicles</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="elevation-diagram">
+                <h3>📊 Elevation Comparison</h3>
+                <div class="elevation-bars">
+                    <div class="elevation-bar">
+                        <div class="bar-label">Swamp</div>
+                        <div class="bar grassland-bar" style="height: 40px;" title="Y: ~129">129</div>
+                    </div>
+                    <div class="elevation-bar">
+                        <div class="bar-label">Desert</div>
+                        <div class="bar desert-bar" style="height: 50px;" title="Y: ~130">130</div>
+                    </div>
+                    <div class="elevation-bar">
+                        <div class="bar-label">Grassland</div>
+                        <div class="bar grassland-bar" style="height: 60px;" title="Y: ~132">132</div>
+                    </div>
+                    <div class="elevation-bar">
+                        <div class="bar-label">Snow</div>
+                        <div class="bar snow-bar" style="height: 110px;" title="Y: ~148">148</div>
+                    </div>
+                    <div class="elevation-bar">
+                        <div class="bar-label">Mountains</div>
+                        <div class="bar mountains-bar" style="height: 150px;" title="Y: ~165">165</div>
+                    </div>
+                </div>
+                <div class="sea-level-line">
+                    <span>← Sea Level (Y: 124) →</span>
+                </div>
+            </div>
+
+            <div class="features-grid">
+                <div class="feature-box">
+                    <h3>🌊 Cave Water Filling</h3>
+                    <p><strong>🌱 Grassland:</strong> Always dry</p>
+                    <p><strong>⛰️ Mountains:</strong> Water below Y: 124</p>
+                    <p><strong>🏜️ Desert:</strong> Always dry</p>
+                    <p><strong>🌿 Swamp:</strong> Water below Y: 129</p>
+                    <p><strong>❄️ Snow:</strong> Ice caves (~60%)</p>
+                </div>
+
+                <div class="feature-box">
+                    <h3>🔥 Lava Distribution</h3>
+                    <p><strong>All Biomes:</strong> Lava pockets Y: 3-7</p>
+                    <p><strong>⛰️ Mountains Only:</strong> Lava lakes at Y &lt; 100</p>
+                    <p><em>~60% chance at Y=3, decreasing to ~40% at Y=7</em></p>
+                </div>
+
+                <div class="feature-box">
+                    <h3>🎯 Key Depth Markers</h3>
+                    <p><strong>Y: 0-2:</strong> Bedrock (indestructible)</p>
+                    <p><strong>Y: 3-7:</strong> Lava pocket zone</p>
+                    <p><strong>Y: 8-99:</strong> Deep caves</p>
+                    <p><strong>Y: 100+:</strong> Mid/upper caves</p>
+                    <p><strong>Y: 124:</strong> Sea level</p>
+                </div>
+            </div>
+        </div>
+'''
+    return content
 
 
 def generate_biome_content(biome_key):
@@ -328,22 +449,25 @@ def generate_biome_content(biome_key):
 def generate_html():
     """Generate complete HTML with all biomes."""
 
-    # Generate tabs
-    tabs_html = ''
-    for i, (key, biome) in enumerate(BIOME_DATA.items()):
-        active = 'active' if i == 0 else ''
+    # Generate tabs - Overview tab first
+    tabs_html = '''
+                <button class="tab active" data-biome="overview">
+                    <span class="tab-icon">🌍</span>
+                    <span class="tab-name">Overview</span>
+                </button>
+'''
+    for key, biome in BIOME_DATA.items():
         tabs_html += f'''
-                <button class="tab {active}" data-biome="{key}">
+                <button class="tab" data-biome="{key}">
                     <span class="tab-icon">{biome["icon"]}</span>
                     <span class="tab-name">{biome["name"]}</span>
                 </button>
 '''
 
-    # Generate content for all biomes
-    contents_html = ''
-    for i, key in enumerate(BIOME_DATA.keys()):
-        active = 'active' if i == 0 else ''
-        contents_html += generate_biome_content(key).replace('class="biome-content"', f'class="biome-content {active}"')
+    # Generate content for all biomes - Overview first
+    contents_html = generate_biome_distribution().replace('class="biome-content"', 'class="biome-content active"')
+    for key in BIOME_DATA.keys():
+        contents_html += generate_biome_content(key)
 
     html = f'''<!DOCTYPE html>
 <html lang="en">
@@ -685,6 +809,182 @@ def generate_html():
 
         .feature-box strong {{
             color: #93c5fd;
+        }}
+
+        /* Overview page styles */
+        .overview-header {{
+            text-align: center;
+            margin-bottom: 30px;
+            padding: 20px;
+            background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
+            border-radius: 10px;
+            border: 2px solid #60a5fa;
+        }}
+
+        .overview-header h2 {{
+            color: #00d9ff;
+            margin-bottom: 10px;
+            font-size: 2em;
+        }}
+
+        .overview-header p {{
+            color: #93c5fd;
+            font-size: 1.1em;
+        }}
+
+        .biome-comparison {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }}
+
+        .comparison-column {{
+            text-align: center;
+        }}
+
+        .comparison-column h3 {{
+            color: #fbbf24;
+            margin-bottom: 10px;
+            font-size: 1.2em;
+        }}
+
+        .biome-card {{
+            background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+            padding: 15px;
+            border-radius: 10px;
+            border: 2px solid #475569;
+            min-height: 150px;
+        }}
+
+        .grassland-card {{
+            border-color: #3cb371;
+        }}
+
+        .mountains-card {{
+            border-color: #8b7355;
+        }}
+
+        .desert-card {{
+            border-color: #daa520;
+        }}
+
+        .swamp-card {{
+            border-color: #556b2f;
+        }}
+
+        .snow-card {{
+            border-color: #e0f2f7;
+        }}
+
+        .card-stat {{
+            color: white;
+            margin-bottom: 8px;
+            font-size: 0.9em;
+            text-align: left;
+        }}
+
+        .card-stat strong {{
+            color: #60a5fa;
+        }}
+
+        .elevation-diagram {{
+            background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+            padding: 30px;
+            border-radius: 10px;
+            border: 2px solid #475569;
+            margin-bottom: 30px;
+        }}
+
+        .elevation-diagram h3 {{
+            color: #fbbf24;
+            text-align: center;
+            margin-bottom: 20px;
+        }}
+
+        .elevation-bars {{
+            display: flex;
+            justify-content: space-around;
+            align-items: flex-end;
+            height: 200px;
+            margin-bottom: 10px;
+            position: relative;
+        }}
+
+        .elevation-bars::before {{
+            content: '';
+            position: absolute;
+            bottom: 40px;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: #3b82f6;
+            z-index: 0;
+        }}
+
+        .elevation-bar {{
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 5px;
+            z-index: 1;
+        }}
+
+        .bar-label {{
+            color: #93c5fd;
+            font-size: 0.85em;
+            font-weight: bold;
+            writing-mode: horizontal-tb;
+            margin-bottom: 5px;
+        }}
+
+        .bar {{
+            width: 50px;
+            background: linear-gradient(180deg, #3cb371 0%, #2d8b57 100%);
+            border-radius: 5px 5px 0 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            font-size: 0.8em;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+        }}
+
+        .bar:hover {{
+            filter: brightness(1.3);
+            transform: translateY(-5px);
+        }}
+
+        .grassland-bar {{
+            background: linear-gradient(180deg, #3cb371 0%, #2d8b57 100%);
+        }}
+
+        .mountains-bar {{
+            background: linear-gradient(180deg, #8b7355 0%, #6b5344 100%);
+        }}
+
+        .desert-bar {{
+            background: linear-gradient(180deg, #daa520 0%, #b8860b 100%);
+        }}
+
+        .swamp-bar {{
+            background: linear-gradient(180deg, #556b2f 0%, #3d4f21 100%);
+        }}
+
+        .snow-bar {{
+            background: linear-gradient(180deg, #e0f2f7 0%, #b3d9e6 100%);
+            color: #1a1a1a;
+        }}
+
+        .sea-level-line {{
+            text-align: center;
+            color: #3b82f6;
+            font-weight: bold;
+            font-size: 0.9em;
+            margin-top: 10px;
         }}
     </style>
 </head>
