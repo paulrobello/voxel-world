@@ -68,7 +68,8 @@ impl TerrainGenerator {
         let base_height = self.height_noise.get([x, z]);
 
         // Adjust temperature by elevation (higher = colder)
-        let elevation_cooling = base_height.max(0.0) * 0.4;
+        // Reduced from 0.4 to 0.25 to prevent excessive snow at moderate elevations
+        let elevation_cooling = base_height.max(0.0) * 0.25;
         let adjusted_temp = (temp - elevation_cooling).clamp(0.0, 1.0);
 
         // Use climate parameters to select biome
@@ -144,11 +145,12 @@ impl TerrainGenerator {
             if is_wet {
                 return BiomeType::Taiga;
             }
-            // Meadow as a cold-temperate variant
+            // Cold but not freezing - transitional biomes, NOT snowy
             if is_weird && is_hilly {
                 return BiomeType::Meadow;
             }
-            return BiomeType::SnowyPlains;
+            // Cold dry areas become plains (not snowy) - snow requires freezing temps
+            return BiomeType::Plains;
         }
 
         // Hot biomes
