@@ -80,6 +80,9 @@ impl App {
                                         self.ui.minimap_cached_image = None; // Clear cache
                                         self.sim.world.clear_minimap_cache();
                                     }
+                                    AutoProfileFeature::HideGroundCover => {
+                                        self.ui.settings.hide_ground_cover = true
+                                    }
                                     _ => {}
                                 }
                                 println!(
@@ -106,6 +109,9 @@ impl App {
                                         self.ui.minimap.skip_decorative = false;
                                         self.ui.minimap_cached_image = None; // Clear cache
                                         self.sim.world.clear_minimap_cache();
+                                    }
+                                    AutoProfileFeature::HideGroundCover => {
+                                        self.ui.settings.hide_ground_cover = false
                                     }
                                     AutoProfileFeature::Done => {
                                         println!(

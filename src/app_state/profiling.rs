@@ -13,6 +13,7 @@ pub enum AutoProfileFeature {
     PointLights,           // Testing enable_point_lights
     Minimap,               // Testing show_minimap
     MinimapSkipDecorative, // Testing minimap.skip_decorative (ground clutter only, not leaves)
+    HideGroundCover,       // Testing hide_ground_cover (skip vegetation in main view)
     Done,                  // All tests complete
 }
 
@@ -25,7 +26,8 @@ impl AutoProfileFeature {
             Self::ModelShadows => Self::PointLights,
             Self::PointLights => Self::Minimap,
             Self::Minimap => Self::MinimapSkipDecorative,
-            Self::MinimapSkipDecorative => Self::Done,
+            Self::MinimapSkipDecorative => Self::HideGroundCover,
+            Self::HideGroundCover => Self::Done,
             Self::Done => Self::Done,
         }
     }
@@ -39,6 +41,7 @@ impl AutoProfileFeature {
             Self::PointLights => "PointLights",
             Self::Minimap => "Minimap",
             Self::MinimapSkipDecorative => "MinimapSkipDecorative",
+            Self::HideGroundCover => "HideGroundCover",
             Self::Done => "Done",
         }
     }
