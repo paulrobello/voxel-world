@@ -19,7 +19,10 @@ impl World {
 
         // Verify starting block is leaves
         if let Some(block) = self.get_block(start) {
-            if block != BlockType::Leaves {
+            if !matches!(
+                block,
+                BlockType::Leaves | BlockType::PineLeaves | BlockType::WillowLeaves
+            ) {
                 return (leaves, true); // Not leaves, assume connected
             }
         } else {

@@ -66,10 +66,13 @@ Vulkan compute shader voxel engine with GPU ray marching. See README.md for deta
 - `main.rs` - Vulkan setup, render loop, input handling
 - `chunk.rs` - BlockType enum, chunk storage (32³ blocks)
 - `world.rs` - Multi-chunk management, terrain generation, block metadata
+- `world/tree_logic.rs` - Tree detection, orphaned leaf detection, ground support checks
 - `sub_voxel.rs` - Multi-resolution sub-voxel model system (8³/16³/32³), model registry, 32-color palettes
 - `sub_voxel_builtins.rs` - Built-in model definitions (doors, fences, torches, etc.) - all use 8³ resolution
 - `block_interaction.rs` - Block placement/breaking, hotbar, palette UI
 - `water.rs` / `lava.rs` - Fluid simulation (cellular automata)
+- `falling_block.rs` - Gravity physics for sand, gravel, snow, and orphaned leaves
+- `block_update.rs` - Frame-distributed physics checks (gravity, tree support, orphaned leaves)
 - `editor/` - In-game sub-voxel model editor (N key)
 
 **Shader files:**

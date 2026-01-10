@@ -199,10 +199,10 @@ impl BlockType {
         !matches!(self, BlockType::Air | BlockType::Water)
     }
 
-    /// Returns true if this block type is affected by gravity (sand, gravel).
+    /// Returns true if this block type is affected by gravity (sand, gravel, snow).
     #[inline]
     pub fn is_affected_by_gravity(self) -> bool {
-        matches!(self, BlockType::Sand | BlockType::Gravel)
+        matches!(self, BlockType::Sand | BlockType::Gravel | BlockType::Snow)
     }
 
     /// Returns true if this block is a log (tree trunk).
