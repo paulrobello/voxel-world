@@ -69,6 +69,7 @@ mod utils;
 mod vulkan_context;
 mod water;
 mod world;
+mod world_gen;
 mod world_init;
 mod world_streaming;
 
