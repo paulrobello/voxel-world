@@ -111,10 +111,10 @@ BIOME_DATA = {
         "name": "Snow",
         "surface": 148,  # 128 + base*8 + ridges*40 for peaks, 128 + detail*2 for tundra (avg ~148)
         "water_fill": None,
-        "water_fill_desc": "ALL caves filled with ice blocks, lava lakes Y: 2-10",
-        "dry_cave_range": "Y: 11-148 (ice-filled caves)",
+        "water_fill_desc": "Fully icy underground (4-block subsurface + all deep stone = ice), ice cave walls at all depths, lava lakes Y: 2-10",
+        "dry_cave_range": "Y: 11-148 (ice caves with ice walls)",
         "explorable_blocks": 138,  # 148 - 10 (ice caves are explorable, just need to break ice)
-        "special": "100% ice caves throughout, lava lakes near bedrock (Y: 2-10)",
+        "special": "Fully icy underground: subsurface (4 blocks) and all deep stone replaced with ice, creating ice cave walls at all depths, lava lakes near bedrock (Y: 2-10)",
         "color": "#e0f2f7",
         "icon": "❄️",
         "vegetation": {

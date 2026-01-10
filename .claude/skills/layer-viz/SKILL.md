@@ -56,7 +56,7 @@ Creates `layer_viz.html` with interactive visualization showing:
 **Mountains** ⛰️: Y: ~165, pine trees (12-18 tall), **snow caps above Y: 155 (stone→snow)**, lava/water Y: 11-75, dry Y: 76-165, 90 blocks dry caves
 **Desert** 🏜️: Y: ~130, sparse cacti, always dry - ALL caves explorable, 120 blocks (Y: 11-130)
 **Swamp** 🌿: Y: ~129, willow trees (10-14 tall with hollow draping canopies), heavily flooded below Y: 80, 49 blocks dry caves
-**Snow** ❄️: Y: ~148, **snow-covered pines (6%, 8-14 tall) + dead trees (2%, 4-8 tall)**, 100% ice caves throughout, 138 blocks ice-filled caves (Y: 11-148)
+**Snow** ❄️: Y: ~148, **snow-covered pines (6%, 8-14 tall) + dead trees (2%, 4-8 tall)**, **fully icy underground (4-block subsurface + all deep stone = ice)**, ice cave walls at all depths, 138 blocks ice caves (Y: 11-148)
 
 **Universal:** Bedrock at Y: 0 (single unbreakable layer), lava lakes Y: 2-10 (all biomes, noise-based pockets)
 
