@@ -89,10 +89,11 @@ fn generate_normal_oak(
         y + height - 2 - trunk_offset
     };
 
-    let trunk_top = canopy_base;
+    // Calculate relative trunk height (canopy_base is absolute, convert to relative)
+    let trunk_height = canopy_base - y;
 
     // Trunk
-    for dy in 1..trunk_top {
+    for dy in 1..trunk_height {
         set_block_safe(
             chunk,
             x,
@@ -108,7 +109,7 @@ fn generate_normal_oak(
 
     // Add branches for taller trees with large canopies
     if height >= 7 && canopy_size == 2 && (hash % 3) == 0 {
-        let branch_y = trunk_top - 3;
+        let branch_y = canopy_base - 3;
         let num_branches = 1 + ((hash / 43) % 2);
 
         for branch_idx in 0..num_branches {
@@ -163,7 +164,7 @@ fn generate_normal_oak(
         z,
         canopy_size,
         layers,
-        trunk_top - 1,
+        canopy_base - 1,
         canopy_shape,
         chunk_world_x,
         chunk_world_y,
@@ -229,10 +230,11 @@ fn generate_giant_oak(
         .max()
         .unwrap_or(y);
 
-    let trunk_top = highest_canopy_base;
+    // Calculate relative trunk height
+    let trunk_height = highest_canopy_base - y;
 
     // Build continuous trunk
-    for dy in 1..trunk_top {
+    for dy in 1..trunk_height {
         set_block_safe(
             chunk,
             x,
@@ -256,7 +258,7 @@ fn generate_giant_oak(
             z,
             canopy_size,
             layers,
-            trunk_top - 1,
+            highest_canopy_base - 1,
             deck_shape,
             chunk_world_x,
             chunk_world_y,
