@@ -716,7 +716,10 @@ fn generate_trees(
             let world_x = chunk_world_x + lx as i32;
             let world_z = chunk_world_z + lz as i32;
             let height = terrain.get_height(world_x, world_z);
-            let biome = terrain.get_blended_biome(world_x, world_z);
+            // Use primary biome for tree type selection to avoid blending issues
+            // Swamps blend heavily with grasslands, causing inconsistent tree spawning
+            let biome_info = terrain.get_biome_info(world_x, world_z);
+            let biome = biome_info.biome; // Primary biome, not blended
             let local_base_y = height - chunk_world_y;
 
             // Check if tree base is in this chunk
@@ -801,7 +804,7 @@ fn generate_trees(
                 }
                 BiomeType::Swamp => {
                     // Willow/Swamp trees - Moderate density
-                    if hash % 100 < 8 {
+                    if hash % 100 < 12 {
                         generate_willow(
                             chunk,
                             lx as i32,
