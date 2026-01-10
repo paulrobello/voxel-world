@@ -165,7 +165,7 @@ pub fn run(_args: &Args, event_loop: &EventLoop<()>) -> Result<(), Box<dyn Error
     )
     .unwrap();
 
-    let blocks: [BlockType; 32] = [
+    let blocks: [BlockType; 40] = [
         BlockType::Stone,
         BlockType::Dirt,
         BlockType::Grass,
@@ -187,7 +187,17 @@ pub fn run(_args: &Args, event_loop: &EventLoop<()>) -> Result<(), Box<dyn Error
         BlockType::Lava,
         BlockType::GlowStone,
         BlockType::GlowMushroom,
+        // Tree variants
+        BlockType::PineLog,
+        BlockType::WillowLog,
         BlockType::PineLeaves,
+        BlockType::WillowLeaves,
+        // Terrain blocks
+        BlockType::Mud,
+        BlockType::Sandstone,
+        BlockType::Cactus,
+        BlockType::DecorativeStone,
+        BlockType::Concrete,
         // Crystal is handled separately per tint color (like TintedGlass)
         // Cave/biome blocks
         BlockType::Deepslate,
