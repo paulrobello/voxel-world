@@ -5,6 +5,7 @@
 
 pub mod biome;
 pub mod caves;
+pub mod climate;
 pub mod terrain;
 pub mod trees;
 pub mod utils;

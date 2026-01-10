@@ -4,6 +4,7 @@
 
 use crate::cave_gen::CaveGenerator;
 use crate::world_gen::biome::{BiomeInfo, BiomeType};
+use crate::world_gen::climate::{ClimateGenerator, ClimatePoint};
 use noise::{Fbm, MultiFractal, NoiseFn, Perlin, RidgedMulti};
 use std::collections::HashMap;
 
@@ -13,9 +14,7 @@ pub struct TerrainGenerator {
     height_noise: Fbm<Perlin>,
     detail_noise: Perlin,
     mountain_noise: RidgedMulti<Perlin>,
-    temperature_noise: Perlin,
-    rainfall_noise: Perlin,
-    mountain_region_noise: Perlin,
+    climate_generator: ClimateGenerator,
     cave_generator: CaveGenerator,
 }
 
@@ -37,19 +36,14 @@ impl TerrainGenerator {
             .set_lacunarity(2.2)
             .set_persistence(0.5);
 
-        let temperature_noise = Perlin::new(seed.wrapping_add(6));
-        let rainfall_noise = Perlin::new(seed.wrapping_add(7));
-        let mountain_region_noise = Perlin::new(seed.wrapping_add(8));
-
+        let climate_generator = ClimateGenerator::new(seed);
         let cave_generator = CaveGenerator::new(seed);
 
         Self {
             height_noise,
             detail_noise,
             mountain_noise,
-            temperature_noise,
-            rainfall_noise,
-            mountain_region_noise,
+            climate_generator,
             cave_generator,
         }
     }
@@ -59,47 +53,88 @@ impl TerrainGenerator {
         let x = world_x as f64;
         let z = world_z as f64;
 
-        // Base noise values (-1.0 to 1.0)
-        let temp_raw = self.temperature_noise.get([x * 0.002, z * 0.002]);
-        let rain_raw = self.rainfall_noise.get([x * 0.002, z * 0.002]);
+        // Get full climate point from multinoise system
+        let climate = self.climate_generator.get_climate_2d(world_x, world_z);
 
-        // Normalize to 0.0 to 1.0
-        let temp = temp_raw * 0.5 + 0.5;
-        let rain = rain_raw * 0.5 + 0.5;
+        // Normalize temperature and humidity to 0.0-1.0 for backward compatibility
+        let temp = climate.temperature * 0.5 + 0.5;
+        let humidity = climate.humidity * 0.5 + 0.5;
 
-        // Get approximate height for temperature lapse rate
+        // Get base height for elevation-based adjustments
         let base_height = self.height_noise.get([x, z]);
 
         // Adjust temperature by elevation (higher = colder)
         let elevation_cooling = base_height.max(0.0) * 0.4;
         let adjusted_temp = (temp - elevation_cooling).clamp(0.0, 1.0);
 
-        // Check mountain region early for snow biome logic
-        let mountain_region = self.mountain_region_noise.get([x * 0.0005, z * 0.0005]);
-        let in_mountain_region = mountain_region > -0.3;
-
-        // Determine biome based on temperature and rainfall
-        let biome = if adjusted_temp < 0.3 {
-            BiomeType::Snow
-        } else if adjusted_temp > 0.7 && rain < 0.3 {
-            BiomeType::Desert
-        } else if adjusted_temp > 0.6 && rain > 0.7 {
-            BiomeType::Swamp
-        } else {
-            let is_mountains = in_mountain_region && base_height > 0.25;
-            if is_mountains {
-                BiomeType::Mountains
-            } else {
-                BiomeType::Grassland
-            }
-        };
+        // Use climate parameters to select biome
+        // Continentalness: -1.0 = ocean, 1.0 = inland
+        // Erosion: -1.0 = peaks, 1.0 = flat
+        let biome = self.select_biome_from_climate(&climate, adjusted_temp, base_height);
 
         BiomeInfo {
             elevation: base_height,
             temperature: adjusted_temp,
-            rainfall: rain,
+            rainfall: humidity,
             biome,
+            climate,
         }
+    }
+
+    /// Select biome based on climate parameters.
+    /// Uses multinoise system for more varied biome distribution.
+    fn select_biome_from_climate(
+        &self,
+        climate: &ClimatePoint,
+        adjusted_temp: f64,
+        base_height: f64,
+    ) -> BiomeType {
+        // Temperature thresholds (using adjusted_temp which is 0.0-1.0)
+        let is_cold = adjusted_temp < 0.3;
+        let is_hot = adjusted_temp > 0.65;
+
+        // Humidity thresholds (climate.humidity is -1.0 to 1.0)
+        let is_dry = climate.humidity < -0.3;
+        let is_wet = climate.humidity > 0.3;
+
+        // Erosion thresholds (-1.0 = peaks, 1.0 = flat)
+        let is_mountainous = climate.erosion < -0.2;
+
+        // Cold biomes
+        if is_cold {
+            return BiomeType::Snow;
+        }
+
+        // Hot dry = Desert
+        if is_hot && is_dry {
+            return BiomeType::Desert;
+        }
+
+        // Warm wet = Swamp
+        if adjusted_temp > 0.55 && is_wet {
+            return BiomeType::Swamp;
+        }
+
+        // Mountainous terrain
+        if is_mountainous && base_height > 0.2 {
+            return BiomeType::Mountains;
+        }
+
+        // Default to Grassland
+        BiomeType::Grassland
+    }
+
+    /// Get climate point at 2D coordinates.
+    #[allow(dead_code)]
+    pub fn get_climate(&self, world_x: i32, world_z: i32) -> ClimatePoint {
+        self.climate_generator.get_climate_2d(world_x, world_z)
+    }
+
+    /// Get climate point at 3D coordinates (for underground biomes).
+    #[allow(dead_code)]
+    pub fn get_climate_3d(&self, world_x: i32, world_y: i32, world_z: i32) -> ClimatePoint {
+        self.climate_generator
+            .get_climate_3d(world_x, world_y, world_z)
     }
 
     /// Get biome type at world coordinates
