@@ -1,3 +1,11 @@
+---
+name: layer-viz
+description: >
+  Generate professional HTML infographics showing depth-dependent features across all voxel world biomes.
+  Creates interactive visualization with layer structure, vegetation, light sources, and cave decorations.
+  Triggers: "layer visualization", "biome layers", "/layer-viz"
+---
+
 # Layer Visualization Generator
 
 Generate professional HTML infographics showing depth-dependent features across all voxel world biomes.
