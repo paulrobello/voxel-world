@@ -266,6 +266,11 @@ impl App {
             .metadata_state
             .reset_for_origin(self.sim.texture_origin);
 
+        // Cancel all in-flight chunk generation requests - they were requested for the old
+        // texture origin and may complete at positions outside the new texture bounds.
+        // They'll be re-requested with the correct origin in the next frame.
+        self.sim.chunk_loader.clear_pending();
+
         // Adjust camera position to maintain the same world position
         let origin_delta = old_origin - new_origin;
         let scale = Vector3::new(
@@ -372,6 +377,15 @@ impl App {
         let mut loaded = 0;
 
         for result in completed {
+            // Skip chunks that are outside the current texture bounds.
+            // This can happen if texture origin shifted while chunks were in-flight.
+            // These chunks will be re-requested next frame at their new positions.
+            if world_pos_to_chunk_index(self.sim.texture_origin, result.position).is_none() {
+                // Still process overflow blocks - they may target in-bounds chunks
+                self.sim.world.apply_overflow_blocks(result.overflow_blocks);
+                continue;
+            }
+
             // Apply overflow blocks (immediate if chunk exists, pending if not)
             self.sim.world.apply_overflow_blocks(result.overflow_blocks);
 
