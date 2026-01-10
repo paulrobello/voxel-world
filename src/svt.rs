@@ -425,12 +425,12 @@ mod tests {
         // Brick (0,0,0) should have distance 0
         assert_eq!(svt.brick_distances[0], 0);
 
-        // Brick (1,0,0) should have distance 1
-        let idx_100 = 1 + 0 * BRICKS_PER_AXIS + 0 * BRICKS_PER_AXIS * BRICKS_PER_AXIS;
+        // Brick (1,0,0) should have distance 1 (index = x + y*4 + z*16)
+        let idx_100 = 1; // x=1, y=0, z=0
         assert_eq!(svt.brick_distances[idx_100], 1);
 
         // Brick (2,0,0) should have distance 2
-        let idx_200 = 2 + 0 * BRICKS_PER_AXIS + 0 * BRICKS_PER_AXIS * BRICKS_PER_AXIS;
+        let idx_200 = 2; // x=2, y=0, z=0
         assert_eq!(svt.brick_distances[idx_200], 2);
     }
 

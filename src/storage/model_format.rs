@@ -403,7 +403,7 @@ mod tests {
         assert_eq!(restored.name, "test_chair");
         assert_eq!(restored.get_voxel(0, 0, 0), 1);
         assert_eq!(restored.palette[1].r, 255);
-        assert_eq!(restored.rotatable, true);
+        assert!(restored.rotatable);
         assert_eq!(restored.emission.unwrap().g, 255);
         assert_eq!(restored.collision_mask, model.collision_mask);
     }

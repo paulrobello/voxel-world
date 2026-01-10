@@ -1454,14 +1454,14 @@ mod tests {
         assert_eq!(history.redo_count(), 1);
 
         // Undo again
-        let restored = history.undo(&vec![3u8; 64]);
+        let restored = history.undo(&[3u8; 64]);
         assert!(restored.is_some());
         assert_eq!(restored.unwrap(), state1);
         assert!(!history.can_undo());
         assert!(history.can_redo());
 
         // Redo
-        let restored = history.redo(&vec![1u8; 64]);
+        let restored = history.redo(&[1u8; 64]);
         assert!(restored.is_some());
         assert!(history.can_undo());
     }
@@ -1483,11 +1483,11 @@ mod tests {
 
         // Undo twice
         history.undo(&current);
-        history.undo(&vec![3u8; 64]);
+        history.undo(&[3u8; 64]);
         assert_eq!(history.redo_count(), 2);
 
         // Save a new state - should clear redo stack
-        history.save(&vec![5u8; 64]);
+        history.save(&[5u8; 64]);
         assert!(!history.can_redo());
         assert_eq!(history.redo_count(), 0);
     }
