@@ -1610,8 +1610,8 @@ fn generate_dead_tree(
         }
     }
 
-    // Dead trees are medium height (5-9 blocks)
-    let height = 5 + (hash % 5);
+    // Dead trees are medium to tall height (6-12 blocks)
+    let height = 6 + (hash % 7);
 
     // Build the trunk
     for dy in 1..height {
@@ -1637,9 +1637,9 @@ fn generate_dead_tree(
             break; // Don't place branches above tree top
         }
 
-        // Each branch extends 1-3 blocks in a cardinal direction
+        // Each branch extends 1-4 blocks in a cardinal direction
         let direction = (hash.wrapping_add(branch_idx * 13)) % 4;
-        let length = 1 + ((hash.wrapping_add(branch_idx * 17)) % 3);
+        let length = 1 + ((hash.wrapping_add(branch_idx * 17)) % 4);
 
         let (dx, dz) = match direction {
             0 => (1, 0),  // East

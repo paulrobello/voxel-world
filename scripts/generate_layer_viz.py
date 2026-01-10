@@ -38,16 +38,16 @@ BIOME_DATA = {
         "name": "Mountains",
         "surface": 165,  # 128 + base*10 + ridges*55 (avg ~165)
         "water_fill": SEA_LEVEL,
-        "water_fill_desc": "Lava/water mix below Y: 75, lava lakes Y: 2-10 in all areas",
+        "water_fill_desc": "Lava/water mix below Y: 75, lava lakes Y: 2-10 in all areas. Snow caps above Y: 155 (stone→snow)",
         "dry_cave_range": "Y: 76-165",
         "explorable_blocks": 90,  # 165 - 75
-        "special": "Extensive lava lakes up to sea level (Y: 75), plus Y: 2-10 everywhere",
+        "special": "Extensive lava lakes up to sea level (Y: 75), plus Y: 2-10 everywhere. Snow caps above Y: 155",
         "color": "#8b7355",
         "icon": "⛰️",
         "vegetation": {
             "tree_type": "Pine trees",
             "tree_height": "12-18 blocks (tall)",
-            "undergrowth": "Sparse grass (Y: 155-156)"
+            "undergrowth": "Sparse grass (Y: 155-156). Snow caps above Y: 155"
         },
         "light_sources": {
             "glowstone": "Common near lava (Y: 3-100)",
@@ -118,8 +118,8 @@ BIOME_DATA = {
         "color": "#e0f2f7",
         "icon": "❄️",
         "vegetation": {
-            "tree_type": "Pine trees (sparse)",
-            "tree_height": "10-15 blocks",
+            "tree_type": "Snow-covered pines (6%) + Dead trees with branches (8%)",
+            "tree_height": "Living pines: 8-14 blocks, Dead trees: 6-12 blocks with 2-4 branches (1-4 blocks long)",
             "undergrowth": "Snow-covered grass (Y: 140-141)"
         },
         "light_sources": {
@@ -161,7 +161,7 @@ def generate_biome_distribution():
                         <div class="card-stat"><strong>Surface:</strong> Y: ~165</div>
                         <div class="card-stat"><strong>Elevation:</strong> +10 to +65</div>
                         <div class="card-stat"><strong>Caves:</strong> Lava Y<100, water below sea</div>
-                        <div class="card-stat"><strong>Features:</strong> Tall pines, crystals</div>
+                        <div class="card-stat"><strong>Features:</strong> Tall pines, snow caps Y>155</div>
                     </div>
                 </div>
 
@@ -247,8 +247,9 @@ def generate_biome_distribution():
                     <p><strong>Y: 0:</strong> Bedrock (indestructible, single layer)</p>
                     <p><strong>Y: 2-10:</strong> Lava lake zone (all biomes)</p>
                     <p><strong>Y: 11-74:</strong> Deep caves</p>
-                    <p><strong>Y: 75+:</strong> Mid/upper caves</p>
                     <p><strong>Y: 75:</strong> Sea level</p>
+                    <p><strong>Y: 75+:</strong> Mid/upper caves</p>
+                    <p><strong>Y: 155+:</strong> Snow line (mountains only, stone→snow)</p>
                 </div>
             </div>
         </div>
