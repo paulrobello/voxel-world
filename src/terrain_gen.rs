@@ -308,7 +308,7 @@ impl TerrainGenerator {
             BiomeType::Grassland => 128.0 + detail * 2.0 + base * 4.0,
             BiomeType::Mountains => 128.0 + base * 10.0 + ridges * 55.0,
             BiomeType::Desert => 128.0 + detail * 1.0 + base * 2.0,
-            BiomeType::Swamp => 124.0 + detail * 1.0,
+            BiomeType::Swamp => 132.0 + detail * 2.0, // Raised to allow tree spawning (buffer requires local_y < 27)
             BiomeType::Snow => {
                 if base > 0.5 {
                     128.0 + base * 8.0 + ridges * 40.0 // Snowy peaks
@@ -723,9 +723,9 @@ fn generate_trees(
             let local_base_y = height - chunk_world_y;
 
             // Check if tree base is in this chunk
-            // 1-block buffer prevents trees at exact chunk boundary (overflow handles most of tree)
-            // This allows swamps at elevation 124-130 while preventing chunk boundary issues
-            if local_base_y < 0 || local_base_y >= (CHUNK_SIZE as i32 - 1) {
+            // Buffer at top ensures enough of tree is in this chunk for proper generation
+            // (overflow handles canopy extending into next chunk)
+            if local_base_y < 0 || local_base_y >= (CHUNK_SIZE as i32 - 5) {
                 continue;
             }
 
