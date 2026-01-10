@@ -723,8 +723,9 @@ fn generate_trees(
             let local_base_y = height - chunk_world_y;
 
             // Check if tree base is in this chunk
-            // Small buffer ensures at least tree base is in chunk (overflow handles the rest)
-            if local_base_y < 0 || local_base_y >= (CHUNK_SIZE as i32) {
+            // 1-block buffer prevents trees at exact chunk boundary (overflow handles most of tree)
+            // This allows swamps at elevation 124-130 while preventing chunk boundary issues
+            if local_base_y < 0 || local_base_y >= (CHUNK_SIZE as i32 - 1) {
                 continue;
             }
 
