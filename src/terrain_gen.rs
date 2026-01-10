@@ -722,8 +722,9 @@ fn generate_trees(
             let biome = biome_info.biome; // Primary biome, not blended
             let local_base_y = height - chunk_world_y;
 
-            // Check if tree base is in this chunk (overflow handles the rest)
-            if local_base_y < 0 || local_base_y >= (CHUNK_SIZE as i32) {
+            // Check if tree base is in this chunk with small buffer
+            // 2-block buffer prevents broken generation at chunk boundary while allowing most elevations
+            if local_base_y < 0 || local_base_y >= (CHUNK_SIZE as i32 - 2) {
                 continue;
             }
 
