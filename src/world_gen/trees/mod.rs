@@ -1,8 +1,19 @@
 //! Tree generation system.
 //!
-//! Generates various tree types based on biome.
+//! Generates various tree types based on biome:
+//! - **Oak**: Standard deciduous tree for temperate forests
+//! - **Birch**: Tall, thin trees with white bark
+//! - **Pine**: Conical evergreen for taiga biomes
+//! - **Snow Pine**: Snow-covered pines for snowy biomes
+//! - **Willow**: Drooping trees for swamps
+//! - **Jungle**: Very tall trees with large canopy
+//! - **Acacia**: Bent trunk with flat umbrella canopy
+//! - **Cactus**: Desert plants
 
+mod acacia;
+mod birch;
 mod cactus;
+mod jungle;
 mod oak;
 mod pine;
 mod snow;
@@ -14,7 +25,10 @@ use crate::world_gen::biome::BiomeType;
 use crate::world_gen::terrain::TerrainGenerator;
 use crate::world_gen::utils::OverflowBlock;
 
+pub use acacia::generate_acacia;
+pub use birch::generate_birch;
 pub use cactus::generate_cactus;
+pub use jungle::generate_jungle;
 pub use oak::generate_oak;
 pub use pine::generate_pine;
 pub use snow::{generate_dead_tree, generate_snow_pine};
@@ -126,10 +140,10 @@ pub fn generate_trees(
                     }
                 }
 
-                // Birch forest - oak trees (would need birch tree type for proper implementation)
+                // Birch forest - tall thin birch trees
                 BiomeType::BirchForest => {
                     if hash % 100 < 20 {
-                        generate_oak(
+                        generate_birch(
                             chunk,
                             lx as i32,
                             local_base_y,
@@ -224,10 +238,10 @@ pub fn generate_trees(
                     }
                 }
 
-                // Jungle - very dense trees (use oak for now)
+                // Jungle - very dense tall jungle trees
                 BiomeType::Jungle => {
                     if hash % 100 < 40 {
-                        generate_oak(
+                        generate_jungle(
                             chunk,
                             lx as i32,
                             local_base_y,
@@ -241,10 +255,10 @@ pub fn generate_trees(
                     }
                 }
 
-                // Savanna - sparse trees
+                // Savanna - sparse acacia trees with umbrella canopy
                 BiomeType::Savanna => {
                     if hash % 100 < 6 {
-                        generate_oak(
+                        generate_acacia(
                             chunk,
                             lx as i32,
                             local_base_y,
