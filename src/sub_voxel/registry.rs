@@ -438,7 +438,7 @@ impl ModelRegistry {
             }
 
             // flags (4 bytes)
-            // Bits: 0=rotatable, 1-2=light_blocking, 3=is_light_source, 4-7=light_mode
+            // Bits: 0=rotatable, 1-2=light_blocking, 3=is_light_source, 4-7=light_mode, 8=is_ground_cover
             let mut flags = 0u32;
             if model.rotatable {
                 flags |= 1; // bit 0
@@ -452,6 +452,9 @@ impl ModelRegistry {
                 flags |= 8; // bit 3
             }
             flags |= (model.light_mode as u32) << 4; // bits 4-7
+            if model.is_ground_cover {
+                flags |= 256; // bit 8
+            }
             data.extend_from_slice(&flags.to_le_bytes());
 
             // resolution (4 bytes)

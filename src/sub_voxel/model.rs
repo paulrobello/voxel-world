@@ -68,6 +68,10 @@ pub struct SubVoxelModel {
     /// Whether this model has collision enabled.
     /// If true (default), physics will ignore this model (walk through).
     pub no_collision: bool,
+
+    /// Whether this model is ground cover (grass, flowers, mushrooms, etc.).
+    /// Ground cover can be hidden with a setting to see terrain more clearly.
+    pub is_ground_cover: bool,
 }
 
 impl Default for SubVoxelModel {
@@ -104,6 +108,7 @@ impl SubVoxelModel {
             light_intensity: 1.0,
             requires_ground_support: false,
             no_collision: false,
+            is_ground_cover: false,
         }
     }
 
@@ -555,6 +560,7 @@ impl SubVoxelModel {
             light_intensity: self.light_intensity,
             requires_ground_support: self.requires_ground_support,
             no_collision: self.no_collision,
+            is_ground_cover: self.is_ground_cover,
         };
         new_model.compute_collision_mask();
 
@@ -624,6 +630,7 @@ impl SubVoxelModel {
             light_intensity: self.light_intensity,
             requires_ground_support: self.requires_ground_support,
             no_collision: self.no_collision,
+            is_ground_cover: self.is_ground_cover,
         };
         new_model.compute_collision_mask();
 

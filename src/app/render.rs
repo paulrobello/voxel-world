@@ -567,6 +567,11 @@ impl App {
                 .pos2
                 .map(|p| world_to_tex(p).2)
                 .unwrap_or(-1),
+            hide_ground_cover: if self.ui.settings.hide_ground_cover {
+                1
+            } else {
+                0
+            },
         };
 
         let mut builder = AutoCommandBufferBuilder::primary(

@@ -107,6 +107,7 @@ pub struct Settings {
     pub enable_model_shadows: bool,
     pub enable_point_lights: bool,
     pub enable_tinted_shadows: bool,
+    pub hide_ground_cover: bool,
 
     pub lod_ao_distance: f32,
     pub lod_shadow_distance: f32,
@@ -141,6 +142,7 @@ impl Default for Settings {
             enable_model_shadows: true,
             enable_point_lights: true,
             enable_tinted_shadows: true,
+            hide_ground_cover: false,
 
             lod_ao_distance: 64.0,
             lod_shadow_distance: 48.0,

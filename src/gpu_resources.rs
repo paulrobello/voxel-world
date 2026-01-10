@@ -352,6 +352,7 @@ pub struct PushConstants {
     pub selection_pos2_x: i32,
     pub selection_pos2_y: i32,
     pub selection_pos2_z: i32,
+    pub hide_ground_cover: u32,
 }
 
 pub fn get_swapchain_images(

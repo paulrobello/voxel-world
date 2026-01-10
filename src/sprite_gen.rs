@@ -654,6 +654,7 @@ fn render_icon(
         selection_pos2_x: -1,
         selection_pos2_y: -1,
         selection_pos2_z: -1,
+        hide_ground_cover: 0,
     };
 
     // Render

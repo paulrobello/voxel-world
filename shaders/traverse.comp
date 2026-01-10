@@ -285,6 +285,14 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
             uint rotation = metadata.g & 3u;
             bool waterlogged = isModelWaterlogged(metadata.g);
 
+            // Skip ground cover models (grass, flowers, etc.) when hide_ground_cover is enabled
+            if (pc.hide_ground_cover != 0u && model_id > 0u) {
+                ModelProperties props = model_properties[model_id];
+                if ((props.flags & MODEL_FLAG_IS_GROUND_COVER) != 0u) {
+                    blockType = BLOCK_AIR; // Treat as air, continue marching
+                }
+            }
+
             if (waterlogged && !inWater) {
                 inWater = true;
                 waterEntryT = prevT;

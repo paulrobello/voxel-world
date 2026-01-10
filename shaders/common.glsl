@@ -198,6 +198,7 @@ layout(push_constant) uniform PushConstants {
     int selection_pos2_x;
     int selection_pos2_y;
     int selection_pos2_z;
+    uint hide_ground_cover;
 } pc;
 
 // Particles (set 3)
@@ -290,6 +291,7 @@ const uint MODEL_FLAG_LIGHT_BLOCK_PARTIAL = 1u << 1;
 const uint MODEL_FLAG_LIGHT_BLOCK_FULL = 1u << 2;
 const uint MODEL_FLAG_IS_LIGHT_SOURCE = 1u << 3;
 // Light mode is in bits 4-7: (flags >> 4) & 0xF
+const uint MODEL_FLAG_IS_GROUND_COVER = 1u << 8;
 
 // Light modes (must match Rust LightMode enum)
 const uint LIGHT_MODE_STEADY = 0u;

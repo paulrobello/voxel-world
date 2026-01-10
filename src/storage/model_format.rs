@@ -166,6 +166,7 @@ impl VxmFile {
             light_radius: self.properties.light_radius,
             light_intensity: self.properties.light_intensity,
             no_collision: false,
+            is_ground_cover: false,
         }
     }
 }

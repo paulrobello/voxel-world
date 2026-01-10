@@ -307,6 +307,20 @@ impl SettingsUI {
                             );
                         }
                         if ui
+                            .checkbox(&mut settings.hide_ground_cover, "Hide Ground Cover")
+                            .on_hover_text("Hide grass, flowers, mushrooms, and other small vegetation in the main view")
+                            .changed()
+                        {
+                            println!(
+                                "[TOGGLE] Hide Ground Cover: {}",
+                                if settings.hide_ground_cover {
+                                    "ON"
+                                } else {
+                                    "OFF"
+                                }
+                            );
+                        }
+                        if ui
                             .checkbox(
                                 &mut settings.water_simulation_enabled,
                                 "Water Flow Simulation",
@@ -331,7 +345,7 @@ impl SettingsUI {
                                 ui.label("AO:");
                                 if ui
                                     .add(
-                                        egui::Slider::new(&mut settings.lod_ao_distance, 8.0..=64.0)
+                                        egui::Slider::new(&mut settings.lod_ao_distance, 8.0..=128.0)
                                             .suffix(" blocks"),
                                     )
                                     .changed()
