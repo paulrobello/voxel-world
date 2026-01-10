@@ -185,7 +185,24 @@ impl TerrainGenerator {
         &self.cave_generator
     }
 
-    /// Get terrain height at world coordinates
+    /// Calculate height for a specific biome (helper for blending)
+    fn calculate_biome_height(&self, biome: BiomeType, base: f64, ridges: f64, detail: f64) -> f64 {
+        match biome {
+            BiomeType::Grassland => 128.0 + detail * 2.0 + base * 4.0,
+            BiomeType::Mountains => 128.0 + base * 10.0 + ridges * 55.0,
+            BiomeType::Desert => 128.0 + detail * 1.0 + base * 2.0,
+            BiomeType::Swamp => 128.0 + detail * 2.0,
+            BiomeType::Snow => {
+                if base > 0.5 {
+                    128.0 + base * 8.0 + ridges * 40.0
+                } else {
+                    128.0 + detail * 2.0
+                }
+            }
+        }
+    }
+
+    /// Get terrain height at world coordinates with smooth transitions at biome boundaries
     pub fn get_height(&self, world_x: i32, world_z: i32) -> i32 {
         let x = world_x as f64;
         let z = world_z as f64;
@@ -199,24 +216,69 @@ impl TerrainGenerator {
         // Detail noise for subtle variation
         let detail = self.detail_noise.get([x * 0.02, z * 0.02]);
 
-        // Get dominant biome for height calculation
-        let biome = self.get_biome(world_x, world_z);
+        // Get biome at this location
+        let center_biome = self.get_biome(world_x, world_z);
 
-        let height = match biome {
-            BiomeType::Grassland => 128.0 + detail * 2.0 + base * 4.0,
-            BiomeType::Mountains => 128.0 + base * 10.0 + ridges * 55.0,
-            BiomeType::Desert => 128.0 + detail * 1.0 + base * 2.0,
-            BiomeType::Swamp => 128.0 + detail * 2.0, // Flat terrain, same base as grassland
-            BiomeType::Snow => {
-                if base > 0.5 {
-                    128.0 + base * 8.0 + ridges * 40.0 // Snowy peaks
-                } else {
-                    128.0 + detail * 2.0 // Tundra
+        // Sample biomes in a small radius to detect boundaries
+        const BLEND_RADIUS: i32 = 8;
+        let check_positions = [
+            (world_x + BLEND_RADIUS, world_z),
+            (world_x - BLEND_RADIUS, world_z),
+            (world_x, world_z + BLEND_RADIUS),
+            (world_x, world_z - BLEND_RADIUS),
+        ];
+
+        // Check if we're near a biome boundary
+        let mut neighbor_biomes: Vec<BiomeType> = check_positions
+            .iter()
+            .map(|(wx, wz)| self.get_biome(*wx, *wz))
+            .filter(|b| *b != center_biome)
+            .collect();
+
+        neighbor_biomes.dedup();
+
+        // If no different neighbors, use single biome height
+        if neighbor_biomes.is_empty() {
+            let height = self.calculate_biome_height(center_biome, base, ridges, detail);
+            return height.round() as i32;
+        }
+
+        // Near a boundary - blend heights
+        // Calculate distance to nearest biome boundary
+        let mut min_distance = f64::MAX;
+        let mut nearest_biome = center_biome;
+
+        // Sample in a 3x3 grid around the point
+        for dx in -BLEND_RADIUS..=BLEND_RADIUS {
+            for dz in -BLEND_RADIUS..=BLEND_RADIUS {
+                if dx == 0 && dz == 0 {
+                    continue;
+                }
+                let sample_biome = self.get_biome(world_x + dx, world_z + dz);
+                if sample_biome != center_biome {
+                    let dist = ((dx * dx + dz * dz) as f64).sqrt();
+                    if dist < min_distance {
+                        min_distance = dist;
+                        nearest_biome = sample_biome;
+                    }
                 }
             }
-        };
+        }
 
-        height.round() as i32
+        // Blend factor based on distance (0.0 = fully center biome, 1.0 = fully neighbor biome)
+        let blend_factor = (1.0 - (min_distance / BLEND_RADIUS as f64)).clamp(0.0, 1.0);
+
+        // Smooth the blend with smoothstep
+        let smooth_blend = blend_factor * blend_factor * (3.0 - 2.0 * blend_factor);
+
+        // Calculate heights for both biomes
+        let center_height = self.calculate_biome_height(center_biome, base, ridges, detail);
+        let neighbor_height = self.calculate_biome_height(nearest_biome, base, ridges, detail);
+
+        // Interpolate between the two heights
+        let blended_height = center_height * (1.0 - smooth_blend) + neighbor_height * smooth_blend;
+
+        blended_height.round() as i32
     }
 
     /// Simple hash for tree placement randomness
