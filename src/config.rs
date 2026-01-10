@@ -153,7 +153,7 @@ impl Default for Settings {
             water_simulation_enabled: true,
             instant_break: true,
             instant_place: true,
-            break_cooldown_duration: 0.5,
+            break_cooldown_duration: 0.05,
             place_cooldown_duration: 0.5,
             collision_enabled_fly: false,
         }

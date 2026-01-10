@@ -112,7 +112,9 @@ bool renderFallingBlocks(vec3 origin, vec3 dir, inout vec3 color, inout float hi
                 stepped_axis = 2;
             }
 
-            vec3 texColor = sampleTexture(blockType, uv);
+            // Convert BlockType enum to texture atlas index
+            uint textureIndex = blockTypeToAtlasIndex(blockType);
+            vec3 texColor = sampleTexture(textureIndex, uv);
 
             vec3 sunDir = getCurrentSunDir();
             float daylight = getDaylightFactor(pc.time_of_day);
