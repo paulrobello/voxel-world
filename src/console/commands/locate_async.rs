@@ -424,18 +424,38 @@ fn update_cave_search(
                     *positions_this_frame += 1;
 
                     if block == BlockType::Air {
-                        // Found air, measure the cave size
-                        let cave_size = measure_cave_size(world, pos, min_size * 2);
+                        // Verify this is actually an underground cave, not open sky
+                        // Check if there's solid terrain above (within 64 blocks)
+                        let mut has_ceiling = false;
+                        for check_y in (pos.y + 1)..=(pos.y + 64).min(500) {
+                            if let Some(above_block) =
+                                world.get_block(Vector3::new(pos.x, check_y, pos.z))
+                            {
+                                if above_block != BlockType::Air
+                                    && above_block != BlockType::Water
+                                    && above_block != BlockType::Lava
+                                {
+                                    has_ceiling = true;
+                                    break;
+                                }
+                            }
+                        }
 
-                        if cave_size >= min_size {
-                            let dx = pos.x - start_x;
-                            let dy = pos.y - start_y;
-                            let dz = pos.z - start_z;
-                            let distance = dx * dx + dy * dy + dz * dz;
+                        // Only consider this a cave if there's solid terrain above
+                        if has_ceiling {
+                            // Found air, measure the cave size
+                            let cave_size = measure_cave_size(world, pos, min_size * 2);
 
-                            if distance < search.min_distance {
-                                search.min_distance = distance;
-                                search.best_match = Some((pos, cave_size));
+                            if cave_size >= min_size {
+                                let dx = pos.x - start_x;
+                                let dy = pos.y - start_y;
+                                let dz = pos.z - start_z;
+                                let distance = dx * dx + dy * dy + dz * dz;
+
+                                if distance < search.min_distance {
+                                    search.min_distance = distance;
+                                    search.best_match = Some((pos, cave_size));
+                                }
                             }
                         }
                     }
@@ -464,7 +484,8 @@ fn update_cave_search(
                     let mut y = pos.y;
 
                     // First, go up until we hit solid ground (exit the cave)
-                    while y < 500 {
+                    // Limit to reasonable height to avoid going out of bounds
+                    while y < 480 {
                         if let Some(block) = world.get_block(Vector3::new(pos.x, y, pos.z)) {
                             if block != crate::chunk::BlockType::Air
                                 && block != crate::chunk::BlockType::Water
@@ -473,21 +494,28 @@ fn update_cave_search(
                                 // Hit solid terrain, now find air above it
                                 break;
                             }
+                        } else {
+                            // Block not loaded, stop here
+                            break;
                         }
                         y += 1;
                     }
 
                     // Now find the first air block above the solid terrain (the surface)
-                    while y < 500 {
+                    while y < 480 {
                         if let Some(block) = world.get_block(Vector3::new(pos.x, y, pos.z)) {
                             if block == crate::chunk::BlockType::Air {
                                 break;
                             }
+                        } else {
+                            // Block not loaded, stop here
+                            break;
                         }
                         y += 1;
                     }
 
-                    y
+                    // Ensure we're within valid world bounds (Y: 0-511)
+                    y.clamp(10, 480)
                 } else {
                     pos.y
                 };
