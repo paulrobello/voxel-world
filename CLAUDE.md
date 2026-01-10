@@ -227,7 +227,8 @@ BlockType enum in `chunk.rs` must match constants in `common.glsl`:
 - Position 18: log_top (special texture)
 - Positions 19-22: Emissive blocks (Lava, GlowStone, GlowMushroom, Crystal)
 - Positions 23-26: Extra textures (Cactus, Mud, Sandstone, Ice)
-- Total: 27 textures in atlas (1728x64 pixels)
+- Position 27: Pine leaves (dark green needle texture)
+- Total: 28 textures in atlas (1792x64 pixels)
 
 **Important:** BlockType enum values DO NOT directly map to atlas positions for all blocks. The shader uses `blockTypeToAtlasIndex()` function in `materials.glsl` to perform the mapping.
 
