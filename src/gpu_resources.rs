@@ -179,8 +179,31 @@ pub fn load_sprite_icons(gui: &mut Gui) -> SpriteIcons {
         (BlockType::Lava, "block_lava.png"),
         (BlockType::GlowStone, "block_glowstone.png"),
         (BlockType::GlowMushroom, "block_glowmushroom.png"),
+        // Tree variants
+        (BlockType::PineLog, "block_pinelog.png"),
+        (BlockType::WillowLog, "block_willowlog.png"),
         (BlockType::PineLeaves, "block_pineleaves.png"),
+        (BlockType::WillowLeaves, "block_willowleaves.png"),
+        // Terrain blocks
+        (BlockType::Mud, "block_mud.png"),
+        (BlockType::Sandstone, "block_sandstone.png"),
+        (BlockType::Cactus, "block_cactus.png"),
+        (BlockType::DecorativeStone, "block_decorativestone.png"),
+        (BlockType::Concrete, "block_concrete.png"),
         // Crystal is loaded separately per tint color (like TintedGlass)
+        // Cave/biome blocks
+        (BlockType::Deepslate, "block_deepslate.png"),
+        (BlockType::Moss, "block_moss.png"),
+        (BlockType::MossyCobblestone, "block_mossycobblestone.png"),
+        (BlockType::Clay, "block_clay.png"),
+        (BlockType::Dripstone, "block_dripstone.png"),
+        (BlockType::Calcite, "block_calcite.png"),
+        (BlockType::Terracotta, "block_terracotta.png"),
+        (BlockType::PackedIce, "block_packedice.png"),
+        (BlockType::Podzol, "block_podzol.png"),
+        (BlockType::Mycelium, "block_mycelium.png"),
+        (BlockType::CoarseDirt, "block_coarsedirt.png"),
+        (BlockType::RootedDirt, "block_rooteddirt.png"),
     ];
 
     // Tint indices used in the palette (from hud_render.rs TINTED_GLASS_COLORS)
