@@ -1050,6 +1050,8 @@ impl App {
                         .player
                         .feet_pos(self.sim.world_extent, self.sim.texture_origin)
                         .cast::<f32>();
+
+                    // Queue gravity check for block above (in case there's more falling blocks)
                     self.sim.block_updates.enqueue(
                         final_pos + Vector3::new(0, 1, 0),
                         BlockUpdateType::Gravity,

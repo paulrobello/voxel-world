@@ -242,13 +242,21 @@ impl BlockUpdateQueue {
                 world.invalidate_minimap_cache(pos.x, pos.z);
                 falling_blocks.spawn(pos, block_type);
 
+                let above_pos = pos + Vector3::new(0, 1, 0);
+
                 // Queue the next block up for cascade
                 // Using a dummy player_pos since priority doesn't matter much for cascades
-                self.enqueue(
-                    pos + Vector3::new(0, 1, 0),
-                    BlockUpdateType::Gravity,
-                    Vector3::zeros(),
-                );
+                self.enqueue(above_pos, BlockUpdateType::Gravity, Vector3::zeros());
+
+                // If block above is a leaf, check if it's still supported
+                if let Some(above_block) = world.get_block(above_pos) {
+                    if matches!(
+                        above_block,
+                        BlockType::Leaves | BlockType::PineLeaves | BlockType::WillowLeaves
+                    ) {
+                        self.enqueue(above_pos, BlockUpdateType::OrphanedLeaves, Vector3::zeros());
+                    }
+                }
             }
         }
     }
