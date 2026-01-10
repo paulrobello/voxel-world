@@ -15,7 +15,7 @@ impl PaletteUI {
         registry: &ModelRegistry,
     ) -> Vec<(PaletteItem, String)> {
         // Regular blocks (excluding TintedGlass and Crystal which have separate color entries)
-        const BLOCK_PALETTE: [BlockType; 19] = [
+        const BLOCK_PALETTE: [BlockType; 28] = [
             BlockType::Stone,
             BlockType::Dirt,
             BlockType::Grass,
@@ -36,6 +36,17 @@ impl PaletteUI {
             BlockType::Lava,
             BlockType::GlowStone,
             BlockType::GlowMushroom,
+            // Tree variants
+            BlockType::PineLog,
+            BlockType::WillowLog,
+            BlockType::PineLeaves,
+            BlockType::WillowLeaves,
+            // Terrain blocks
+            BlockType::Mud,
+            BlockType::Sandstone,
+            BlockType::Cactus,
+            BlockType::DecorativeStone,
+            BlockType::Concrete,
         ];
 
         // Tinted glass colors: (tint_index, name)
@@ -137,44 +148,6 @@ impl PaletteUI {
                 },
                 "Painted Block".to_string(),
             ));
-
-            // Add new textured blocks (Painted)
-            const TEX_CACTUS: u8 = 23;
-            const TEX_MUD: u8 = 24;
-            const TEX_SANDSTONE: u8 = 25;
-            const TINT_WHITE: u8 = 12;
-
-            items.push((
-                PaletteItem {
-                    block: BlockType::Painted,
-                    model_id: 0,
-                    tint_index: TINT_WHITE,
-                    paint_texture_idx: TEX_CACTUS,
-                    water_type: WaterType::Ocean,
-                },
-                "Cactus".to_string(),
-            ));
-            items.push((
-                PaletteItem {
-                    block: BlockType::Painted,
-                    model_id: 0,
-                    tint_index: TINT_WHITE,
-                    paint_texture_idx: TEX_MUD,
-                    water_type: WaterType::Ocean,
-                },
-                "Mud".to_string(),
-            ));
-            items.push((
-                PaletteItem {
-                    block: BlockType::Painted,
-                    model_id: 0,
-                    tint_index: TINT_WHITE,
-                    paint_texture_idx: TEX_SANDSTONE,
-                    water_type: WaterType::Ocean,
-                },
-                "Sandstone".to_string(),
-            ));
-            // Ice removed - now a proper BlockType::Ice instead of painted block
         }
 
         if matches!(tab, PaletteTab::Models | PaletteTab::All) {
@@ -247,7 +220,7 @@ impl PaletteUI {
         hotbar_index: &mut usize,
         dragging_item: &mut Option<PaletteItem>,
     ) {
-        const ATLAS_TILE_COUNT: f32 = 27.0;
+        const ATLAS_TILE_COUNT: f32 = 31.0;
         let block_idx =
             HudHelpers::atlas_tile_for(item.block, item.model_id, item.paint_texture_idx);
         let uv_left = block_idx / ATLAS_TILE_COUNT;
