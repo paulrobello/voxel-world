@@ -206,6 +206,9 @@ magick air_64x64.png stone_64x64.png dirt_64x64.png grass_64x64.png planks_64x64
   lava_64x64.png glowstone_64x64.png glowmushroom_64x64.png crystal_64x64.png \
   cactus_64x64.png mud_64x64.png sandstone_64x64.png ice_64x64.png pine_leaves_64x64.png \
   decorative_stone_64x64.png willow_leaves_64x64.png concrete_64x64.png \
+  deepslate_64x64.png moss_64x64.png mossy_cobblestone_64x64.png clay_64x64.png \
+  dripstone_64x64.png calcite_64x64.png terracotta_64x64.png packed_ice_64x64.png \
+  podzol_64x64.png mycelium_64x64.png coarse_dirt_64x64.png rooted_dirt_64x64.png \
   +append texture_atlas.png
 ```
 9. Update `blockTypeToAtlasIndex()` function in `shaders/materials.glsl` if needed
