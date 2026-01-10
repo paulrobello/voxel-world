@@ -545,10 +545,13 @@ def generate_css() -> str:
         .layer {
             display: flex;
             align-items: center;
-            justify-content: space-between;
+            justify-content: flex-start;
+            gap: 10px;
             padding: 0 15px;
+            min-height: 30px;
             transition: all 0.3s ease;
             position: relative;
+            overflow: hidden;
         }
 
         .layer:hover {
@@ -560,23 +563,28 @@ def generate_css() -> str:
             font-weight: bold;
             color: white;
             text-shadow: 1px 1px 3px rgba(0,0,0,0.8);
+            white-space: nowrap;
+            flex-shrink: 0;
         }
 
         .layer-range {
             font-size: 0.85em;
-            color: rgba(255,255,255,0.8);
-            background: rgba(0,0,0,0.3);
+            color: rgba(255,255,255,0.9);
+            background: rgba(0,0,0,0.4);
             padding: 2px 8px;
             border-radius: 4px;
+            white-space: nowrap;
+            flex-shrink: 0;
         }
 
         .layer-badge {
-            position: absolute;
-            right: 15px;
+            margin-left: auto;
             padding: 4px 12px;
             border-radius: 20px;
-            font-size: 0.8em;
+            font-size: 0.75em;
             font-weight: bold;
+            white-space: nowrap;
+            flex-shrink: 0;
         }
 
         .badge-dry { background: #22c55e; color: white; }
@@ -1009,9 +1017,9 @@ def _render_layers(layers: list, ref_height: int) -> str:
         </div>
     """
 
-    # Layers (reverse order for visual stacking)
+    # Layers in correct visual order (Sky at top, Bedrock at bottom)
     layers_html = '<div class="layers-container">'
-    for _, name, y_range, height, bg, badge in reversed(layers):
+    for _, name, y_range, height, bg, badge in layers:
         badge_html = f'<span class="layer-badge {badge}">{badge.replace("badge-", "").upper()}</span>' if badge else ''
         layers_html += f'''
             <div class="layer" style="height: {height}px; background: {bg};">
