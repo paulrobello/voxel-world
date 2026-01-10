@@ -280,6 +280,25 @@ impl BlockUpdateQueue {
                         world.set_block(p, BlockType::Air);
                         world.invalidate_minimap_cache(p.x, p.z);
                         falling_blocks.spawn(p, bt);
+
+                        let above_pos = p + Vector3::new(0, 1, 0);
+
+                        // Queue gravity check for block above (snow, sand, gravel, etc.)
+                        self.enqueue(above_pos, BlockUpdateType::Gravity, Vector3::zeros());
+
+                        // Also check for orphaned leaves above
+                        if let Some(above_block) = world.get_block(above_pos) {
+                            if matches!(
+                                above_block,
+                                BlockType::Leaves | BlockType::PineLeaves | BlockType::WillowLeaves
+                            ) {
+                                self.enqueue(
+                                    above_pos,
+                                    BlockUpdateType::OrphanedLeaves,
+                                    Vector3::zeros(),
+                                );
+                            }
+                        }
                     }
                 }
             }
@@ -308,6 +327,25 @@ impl BlockUpdateQueue {
                         world.set_block(p, BlockType::Air);
                         world.invalidate_minimap_cache(p.x, p.z);
                         falling_blocks.spawn(p, bt);
+
+                        let above_pos = p + Vector3::new(0, 1, 0);
+
+                        // Queue gravity check for block above (snow, sand, gravel, etc.)
+                        self.enqueue(above_pos, BlockUpdateType::Gravity, Vector3::zeros());
+
+                        // Also check for more orphaned leaves above
+                        if let Some(above_block) = world.get_block(above_pos) {
+                            if matches!(
+                                above_block,
+                                BlockType::Leaves | BlockType::PineLeaves | BlockType::WillowLeaves
+                            ) {
+                                self.enqueue(
+                                    above_pos,
+                                    BlockUpdateType::OrphanedLeaves,
+                                    Vector3::zeros(),
+                                );
+                            }
+                        }
                     }
                 }
             }
