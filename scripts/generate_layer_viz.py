@@ -329,11 +329,11 @@ def generate_biome_content(biome_key):
 '''
     elif biome_key == "snow":
         layers_html += f'''
-                <div class="layer dry-caves" style="height: 130px;">
+                <div class="layer ice-caves" style="height: 130px;">
                     <div class="layer-label">Deep Ice Caves&nbsp;&nbsp;<span class="layer-details">(Y: 11-74)</span></div>
                     <div class="badge badge-blue">❄️ 100% ICE</div>
                 </div>
-                <div class="layer dry-caves" style="height: 150px;">
+                <div class="layer ice-caves" style="height: 150px;">
                     <div class="layer-label">Upper Ice Caves&nbsp;&nbsp;<span class="layer-details">(Y: 75-{biome["surface"]})</span></div>
                     <div class="badge badge-blue">❄️ 100% ICE</div>
                 </div>
@@ -705,6 +705,16 @@ def generate_html():
                 #dc2626 10px,
                 #ef4444 10px,
                 #ef4444 20px
+            );
+        }}
+
+        .ice-caves {{
+            background: repeating-linear-gradient(
+                45deg,
+                #b3e5fc,
+                #b3e5fc 10px,
+                #81d4fa 10px,
+                #81d4fa 20px
             );
         }}
 
