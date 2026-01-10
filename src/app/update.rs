@@ -219,6 +219,7 @@ impl App {
         {
             self.input.focused = true;
             self.input.pending_grab = Some(true);
+            self.input.skip_input_frame = true;
             self.ui.palette_previously_focused = false;
         }
         if !self.ui.palette_open {

@@ -516,6 +516,7 @@ impl App {
             helper: input,
             focused: false,
             pending_grab: None,
+            skip_input_frame: false,
         };
 
         App {

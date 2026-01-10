@@ -19,6 +19,7 @@ impl App {
             if !other_panel_open && self.ui.palette_previously_focused {
                 self.input.focused = true;
                 self.input.pending_grab = Some(true);
+                self.input.skip_input_frame = true;
                 self.ui.palette_previously_focused = false;
             }
             return true;
@@ -32,6 +33,7 @@ impl App {
             if !other_panel_open && self.ui.editor_previously_focused {
                 self.input.focused = true;
                 self.input.pending_grab = Some(true);
+                self.input.skip_input_frame = true;
                 self.ui.editor_previously_focused = false;
             }
             println!("Model editor: OFF");
@@ -46,6 +48,7 @@ impl App {
             if !other_panel_open && self.ui.console_previously_focused {
                 self.input.focused = true;
                 self.input.pending_grab = Some(true);
+                self.input.skip_input_frame = true;
                 self.ui.console_previously_focused = false;
             }
             return true;
@@ -80,6 +83,8 @@ impl App {
             self.input.pending_grab = Some(true);
             // Skip block breaking until mouse is released to avoid breaking on focus click
             self.ui.skip_break_until_release = true;
+            // Skip input processing on next frame to prevent stale key presses
+            self.input.skip_input_frame = true;
             println!("Focus complete - cursor will be grabbed");
             return true; // skip rest of update for this frame
         }
@@ -89,6 +94,23 @@ impl App {
     /// Handles movement, toggles, and block placing when focused.
     pub fn handle_focused_controls(&mut self, delta_time: f64) {
         if !self.input.focused {
+            return;
+        }
+
+        // Skip input processing on first frame after focus regain to prevent stale key presses
+        if self.input.skip_input_frame {
+            self.input.skip_input_frame = false;
+            // Still update physics with no input changes to maintain smooth movement
+            self.sim.player.update_physics(
+                delta_time,
+                &self.sim.world,
+                self.sim.world_extent,
+                self.sim.texture_origin,
+                &self.input,
+                &self.sim.model_registry,
+                self.args.verbose,
+                self.ui.settings.collision_enabled_fly,
+            );
             return;
         }
 
@@ -488,6 +510,7 @@ impl App {
             self.ui.request_cursor_grab = false;
             self.input.focused = true;
             self.input.pending_grab = Some(true);
+            self.input.skip_input_frame = true;
         }
 
         // Rotate template placement (R key)
@@ -625,6 +648,7 @@ impl App {
             if !other_panel_open && self.ui.editor_previously_focused {
                 self.input.focused = true;
                 self.input.pending_grab = Some(true);
+                self.input.skip_input_frame = true;
                 self.ui.editor_previously_focused = false;
             }
             println!("Model editor: OFF");
@@ -645,6 +669,7 @@ impl App {
             if !other_panel_open && self.ui.console_previously_focused {
                 self.input.focused = true;
                 self.input.pending_grab = Some(true);
+                self.input.skip_input_frame = true;
                 self.ui.console_previously_focused = false;
             }
         }
@@ -666,6 +691,7 @@ impl App {
             if !other_panel_open && self.ui.template_previously_focused {
                 self.input.focused = true;
                 self.input.pending_grab = Some(true);
+                self.input.skip_input_frame = true;
                 self.ui.template_previously_focused = false;
             }
             println!("Template browser: OFF");
