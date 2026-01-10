@@ -120,6 +120,8 @@ pub enum BlockType {
     Sandstone = 29,
     /// Cactus block - desert plant.
     Cactus = 30,
+    /// Decorative stone - polished stone with patterns for building.
+    DecorativeStone = 31,
 }
 
 /// Water types for enhanced water system.
@@ -367,6 +369,7 @@ impl BlockType {
             BlockType::Mud => [0.4, 0.3, 0.2],     // Dark brown, muddy
             BlockType::Sandstone => [0.9, 0.8, 0.6], // Light tan
             BlockType::Cactus => [0.3, 0.6, 0.3],  // Green
+            BlockType::DecorativeStone => [0.6, 0.6, 0.6], // Medium gray with patterns
         }
     }
 
@@ -399,9 +402,11 @@ impl BlockType {
             | BlockType::Painted
             | BlockType::Ice => 0.5,
             // Slow
-            BlockType::Stone | BlockType::Cobblestone | BlockType::Brick | BlockType::Sandstone => {
-                0.8
-            }
+            BlockType::Stone
+            | BlockType::Cobblestone
+            | BlockType::Brick
+            | BlockType::Sandstone
+            | BlockType::DecorativeStone => 0.8,
             // Very slow
             BlockType::Iron => 1.2,
             // Emissive blocks (medium difficulty)
@@ -455,6 +460,7 @@ impl BlockType {
             "mud" => Some(BlockType::Mud),
             "sandstone" => Some(BlockType::Sandstone),
             "cactus" => Some(BlockType::Cactus),
+            "decorativestone" | "decorative_stone" | "decstone" => Some(BlockType::DecorativeStone),
             _ => None,
         }
     }
@@ -493,6 +499,7 @@ impl BlockType {
             "mud",
             "sandstone",
             "cactus",
+            "decorativestone",
         ]
     }
 }
@@ -531,6 +538,7 @@ impl From<u8> for BlockType {
             28 => BlockType::Mud,
             29 => BlockType::Sandstone,
             30 => BlockType::Cactus,
+            31 => BlockType::DecorativeStone,
             _ => BlockType::Air,
         }
     }

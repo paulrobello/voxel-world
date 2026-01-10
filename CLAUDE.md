@@ -201,7 +201,8 @@ magick air_64x64.png stone_64x64.png dirt_64x64.png grass_64x64.png planks_64x64
   log_64x64.png torch_64x64.png brick_64x64.png snow_64x64.png cobblestone_64x64.png \
   iron_64x64.png bedrock_64x64.png grass_side_64x64.png log_top_64x64.png \
   lava_64x64.png glowstone_64x64.png glowmushroom_64x64.png crystal_64x64.png \
-  cactus_64x64.png mud_64x64.png sandstone_64x64.png ice_64x64.png \
+  cactus_64x64.png mud_64x64.png sandstone_64x64.png ice_64x64.png pine_leaves_64x64.png \
+  decorative_stone_64x64.png \
   +append texture_atlas.png
 ```
 9. Update `blockTypeToAtlasIndex()` function in `shaders/materials.glsl` if needed
@@ -243,7 +244,7 @@ BlockType enum in `chunk.rs` must match constants in `common.glsl`:
 8=Water, 9=Glass, 10=Log, 11=Model, 12=Brick, 13=Snow, 14=Cobblestone, 15=Iron, 16=Bedrock,
 17=TintedGlass, 18=Painted, 19=Lava, 20=GlowStone, 21=GlowMushroom, 22=Crystal,
 23=PineLog, 24=WillowLog, 25=PineLeaves, 26=WillowLeaves, 27=Ice,
-28=Mud, 29=Sandstone, 30=Cactus
+28=Mud, 29=Sandstone, 30=Cactus, 31=DecorativeStone
 ```
 
 **Texture Atlas Mapping:**
@@ -251,9 +252,9 @@ BlockType enum in `chunk.rs` must match constants in `common.glsl`:
 - Position 17: grass_side (special texture)
 - Position 18: log_top (special texture)
 - Positions 19-22: Emissive blocks (Lava, GlowStone, GlowMushroom, Crystal)
-- Positions 23-26: Extra textures (Cactus, Mud, Sandstone, Ice)
-- Position 27: Pine leaves (dark green needle texture)
-- Total: 28 textures in atlas (1792x64 pixels)
+- Positions 23-27: Extra textures (Cactus, Mud, Sandstone, Ice, PineLeaves)
+- Position 28: DecorativeStone (polished stone with patterns for building)
+- Total: 29 textures in atlas (1856x64 pixels)
 
 **Important:** BlockType enum values DO NOT directly map to atlas positions for all blocks. The shader uses `blockTypeToAtlasIndex()` function in `materials.glsl` to perform the mapping.
 
