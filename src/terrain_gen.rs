@@ -426,8 +426,8 @@ fn generate_normal_chunk(
                             }
                         }
                     }
-                } else if world_y > height - 3 {
-                    // Subsurface layer
+                } else if world_y > height - 4 {
+                    // Subsurface layer (4 blocks deep for snow biome)
                     match biome {
                         BiomeType::Desert => {
                             // Sandstone subsurface layer
@@ -435,7 +435,7 @@ fn generate_normal_chunk(
                             continue; // Skip default set_block
                         }
                         BiomeType::Mountains => BlockType::Stone,
-                        BiomeType::Snow => BlockType::Stone,
+                        BiomeType::Snow => BlockType::Ice,
                         _ => {
                             if height <= SEA_LEVEL + 2 {
                                 BlockType::Sand // Beach substrate
@@ -445,7 +445,11 @@ fn generate_normal_chunk(
                         }
                     }
                 } else {
-                    BlockType::Stone // Deep underground
+                    // Deep underground
+                    match biome {
+                        BiomeType::Snow => BlockType::Ice, // Fully icy underground
+                        _ => BlockType::Stone,             // Other biomes stay stone
+                    }
                 };
 
                 if block_type == BlockType::Water {
