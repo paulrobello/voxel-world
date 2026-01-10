@@ -468,13 +468,9 @@ fn generate_normal_chunk(
                         BiomeType::Desert => BlockType::Sand,
                         BiomeType::Mountains => BlockType::Stone,
                         BiomeType::Swamp => {
-                            if world_y <= SEA_LEVEL + 1 {
-                                // Muddy look (Painted block with Mud texture)
-                                chunk.set_painted_block(lx, ly, lz, TEX_MUD, TINT_WHITE);
-                                continue; // Skip default set_block
-                            } else {
-                                BlockType::Grass
-                            }
+                            // Swamps always have muddy surface
+                            chunk.set_painted_block(lx, ly, lz, TEX_MUD, TINT_WHITE);
+                            continue; // Skip default set_block
                         }
                         BiomeType::Grassland => {
                             if world_y <= SEA_LEVEL + 2 {
