@@ -448,8 +448,8 @@ fn locate_cave(
 
             for pos in positions {
                 if let Some(block) = world.get_block(pos) {
-                    if block == BlockType::Air {
-                        // Found air, measure the cave size
+                    if block == BlockType::Air || block == BlockType::Ice {
+                        // Found air or ice (ice caves in snow biome), measure the cave size
                         let cave_size = measure_cave_size(world, pos, min_size * 2);
 
                         if cave_size >= min_size {
@@ -524,9 +524,9 @@ fn measure_cave_size(world: &World, start: Vector3<i32>, max_check: usize) -> us
             continue;
         }
 
-        // Check if this position is air
+        // Check if this position is air or ice (ice caves in snow biome)
         match world.get_block(pos) {
-            Some(BlockType::Air) => {
+            Some(BlockType::Air | BlockType::Ice) => {
                 visited.insert(pos);
 
                 // Check 6 neighbors
