@@ -4,8 +4,8 @@
 // Slots 0-16: standard blocks (Air through Bedrock)
 // Slot 17: grass_side, Slot 18: log_top
 // Slots 19-22: emissive blocks (Lava, GlowStone, GlowMushroom, Crystal)
-// Slots 23-28: new textures (Cactus, Mud, Sandstone, Ice, PineLeaves, DecorativeStone)
-const float ATLAS_TILE_COUNT = 29.0;
+// Slots 23-29: new textures (Cactus, Mud, Sandstone, Ice, PineLeaves, DecorativeStone, WillowLeaves)
+const float ATLAS_TILE_COUNT = 30.0;
 const float ATLAS_TILE_SIZE = 1.0 / ATLAS_TILE_COUNT;
 const uint TEX_GRASS_SIDE = 17;
 const uint TEX_LOG_TOP = 18;
@@ -19,6 +19,7 @@ const uint TEX_SANDSTONE = 25;
 const uint TEX_ICE = 26;
 const uint TEX_PINE_LEAVES = 27;
 const uint TEX_DECORATIVESTONE = 28;
+const uint TEX_WILLOW_LEAVES = 29;
 
 // Map BlockType enum values to texture atlas positions
 // This is needed because enum values don't directly correspond to atlas positions
@@ -48,7 +49,7 @@ uint blockTypeToAtlasIndex(uint blockType) {
         case BLOCK_PINE_LEAVES:
             return TEX_PINE_LEAVES;  // Pine leaves have dark green needle texture
         case BLOCK_WILLOW_LEAVES:
-            return BLOCK_LEAVES;  // Willow leaves use regular leaves texture
+            return TEX_WILLOW_LEAVES;  // Willow leaves have olive green drooping texture
         case BLOCK_ICE:
             return TEX_ICE;
         case BLOCK_MUD:

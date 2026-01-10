@@ -1641,12 +1641,15 @@ fn generate_willow(
         );
     }
 
-    // Wide canopy
+    // Rounded canopy - dome shape with multiple layers
     let canopy_y = y + height;
+
+    // Bottom layer - widest (radius 3)
     for dx in -3i32..=3 {
         for dz in -3i32..=3 {
-            let dist = dx.abs() + dz.abs();
-            if dist <= 3 {
+            let dist_sq = dx * dx + dz * dz;
+            if dist_sq <= 9 {
+                // Euclidean distance <= 3
                 set_block_safe(
                     chunk,
                     x + dx,
@@ -1658,20 +1661,10 @@ fn generate_willow(
                     chunk_world_z,
                     overflow_blocks,
                 );
-                set_block_safe(
-                    chunk,
-                    x + dx,
-                    canopy_y + 1,
-                    z + dz,
-                    BlockType::WillowLeaves,
-                    chunk_world_x,
-                    chunk_world_y,
-                    chunk_world_z,
-                    overflow_blocks,
-                );
 
-                // Hanging vines
-                if dist > 1 && (hash.wrapping_add(dx * 30 + dz) % 3 == 0) {
+                // Hanging vines from outer edge
+                let dist = (dist_sq as f32).sqrt();
+                if dist > 1.5 && (hash.wrapping_add(dx * 30 + dz) % 3 == 0) {
                     let vine_len = 1 + (hash % 3);
                     for v in 1..=vine_len {
                         set_block_safe(
@@ -1687,6 +1680,48 @@ fn generate_willow(
                         );
                     }
                 }
+            }
+        }
+    }
+
+    // Middle layer - medium (radius 2.5)
+    for dx in -2i32..=2 {
+        for dz in -2i32..=2 {
+            let dist_sq = dx * dx + dz * dz;
+            if dist_sq <= 6 {
+                // Euclidean distance <= ~2.5
+                set_block_safe(
+                    chunk,
+                    x + dx,
+                    canopy_y + 1,
+                    z + dz,
+                    BlockType::WillowLeaves,
+                    chunk_world_x,
+                    chunk_world_y,
+                    chunk_world_z,
+                    overflow_blocks,
+                );
+            }
+        }
+    }
+
+    // Top layer - smallest (radius 1.5)
+    for dx in -1i32..=1 {
+        for dz in -1i32..=1 {
+            let dist_sq = dx * dx + dz * dz;
+            if dist_sq <= 2 {
+                // Euclidean distance <= ~1.5
+                set_block_safe(
+                    chunk,
+                    x + dx,
+                    canopy_y + 2,
+                    z + dz,
+                    BlockType::WillowLeaves,
+                    chunk_world_x,
+                    chunk_world_y,
+                    chunk_world_z,
+                    overflow_blocks,
+                );
             }
         }
     }
