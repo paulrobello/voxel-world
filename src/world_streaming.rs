@@ -482,10 +482,55 @@ impl App {
 
         // Update chunk metadata if any chunks were loaded or unloaded
         if !chunks_to_upload.is_empty() {
-            let positions = chunks_to_upload.iter().map(|(pos, _, _)| *pos);
+            let positions: Vec<_> = chunks_to_upload.iter().map(|(pos, _, _)| *pos).collect();
+
+            // IMMEDIATE metadata update for newly loaded chunks to prevent invisible chunks
+            for pos in &positions {
+                if let Some(idx) = world_pos_to_chunk_index(self.sim.texture_origin, *pos) {
+                    if let Some(chunk) = self.sim.world.get_chunk_mut(*pos) {
+                        chunk.update_metadata();
+                        let svt = ChunkSVT::from_block_data(&chunk.clone_blocks());
+
+                        // Write metadata directly to GPU buffers
+                        let mut chunk_meta_write =
+                            self.graphics.chunk_metadata_buffer.write().unwrap();
+                        let mut brick_mask_write = self.graphics.brick_mask_buffer.write().unwrap();
+                        let mut brick_dist_write = self.graphics.brick_dist_buffer.write().unwrap();
+
+                        // Update chunk empty bit
+                        let word_idx = idx / 32;
+                        let bit_idx = idx % 32;
+                        if svt.brick_mask == 0 {
+                            self.sim.metadata_state.chunk_bits[word_idx] |= 1u32 << bit_idx;
+                        } else {
+                            self.sim.metadata_state.chunk_bits[word_idx] &= !(1u32 << bit_idx);
+                        }
+                        chunk_meta_write[word_idx] = self.sim.metadata_state.chunk_bits[word_idx];
+
+                        // Update brick mask
+                        let mask_offset = idx * 2;
+                        let mask_low = svt.brick_mask as u32;
+                        let mask_high = (svt.brick_mask >> 32) as u32;
+                        self.sim.metadata_state.brick_masks[mask_offset] = mask_low;
+                        self.sim.metadata_state.brick_masks[mask_offset + 1] = mask_high;
+                        brick_mask_write[mask_offset] = mask_low;
+                        brick_mask_write[mask_offset + 1] = mask_high;
+
+                        // Update brick distances
+                        let dist_offset = idx * 16;
+                        let packed_dist = pack_distances(&svt.brick_distances);
+                        for (i, word) in packed_dist.iter().enumerate() {
+                            self.sim.metadata_state.brick_distances[dist_offset + i] = *word;
+                            brick_dist_write[dist_offset + i] = *word;
+                        }
+                    }
+                }
+            }
+
+            // Also queue for the regular update path (in case immediate update failed)
             self.sim
                 .metadata_state
-                .queue_many(self.sim.texture_origin, positions);
+                .queue_many(self.sim.texture_origin, positions.iter().copied());
         }
         if !positions_to_clear.is_empty() {
             self.sim
