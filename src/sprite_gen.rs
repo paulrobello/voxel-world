@@ -165,7 +165,7 @@ pub fn run(_args: &Args, event_loop: &EventLoop<()>) -> Result<(), Box<dyn Error
     )
     .unwrap();
 
-    let blocks: [BlockType; 19] = [
+    let blocks: [BlockType; 20] = [
         BlockType::Stone,
         BlockType::Dirt,
         BlockType::Grass,
@@ -187,6 +187,7 @@ pub fn run(_args: &Args, event_loop: &EventLoop<()>) -> Result<(), Box<dyn Error
         BlockType::Lava,
         BlockType::GlowStone,
         BlockType::GlowMushroom,
+        BlockType::PineLeaves,
         // Crystal is handled separately per tint color (like TintedGlass)
     ];
 

@@ -179,6 +179,7 @@ pub fn load_sprite_icons(gui: &mut Gui) -> SpriteIcons {
         (BlockType::Lava, "block_lava.png"),
         (BlockType::GlowStone, "block_glowstone.png"),
         (BlockType::GlowMushroom, "block_glowmushroom.png"),
+        (BlockType::PineLeaves, "block_pineleaves.png"),
         // Crystal is loaded separately per tint color (like TintedGlass)
     ];
 
