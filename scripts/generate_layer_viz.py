@@ -906,23 +906,13 @@ def generate_biome_content(biome_key: str, biome: BiomeData) -> str:
     """
 
 
-def generate_surface_layers(biome_key: str, biome: BiomeData) -> str:
+def generate_surface_layers(_biome_key: str, biome: BiomeData) -> str:
     """Generate layer diagram for surface biomes."""
     surface_y = biome.surface_height
 
-    # Calculate explorable cave space
+    # Constants for layer boundaries
     lava_top = 10
     water_level = biome.caves.water_level or 0
-
-    if biome.caves.fill_type == "water":
-        dry_start = water_level + 1
-        explorable = surface_y - water_level
-    elif biome.caves.fill_type == "lava":
-        dry_start = max(lava_top + 1, water_level + 1) if water_level else lava_top + 1
-        explorable = surface_y - dry_start + 1
-    else:
-        dry_start = lava_top + 1
-        explorable = surface_y - lava_top
 
     layers = []
 
@@ -974,7 +964,7 @@ def generate_surface_layers(biome_key: str, biome: BiomeData) -> str:
     return _render_layers(layers, surface_y)
 
 
-def generate_underground_layers(biome_key: str, biome: BiomeData) -> str:
+def generate_underground_layers(biome_key: str, _biome: BiomeData) -> str:
     """Generate layer diagram for underground biomes."""
 
     layers = []
@@ -1021,7 +1011,7 @@ def _render_layers(layers: list, ref_height: int) -> str:
 
     # Layers (reverse order for visual stacking)
     layers_html = '<div class="layers-container">'
-    for layer_id, name, y_range, height, bg, badge in reversed(layers):
+    for _, name, y_range, height, bg, badge in reversed(layers):
         badge_html = f'<span class="layer-badge {badge}">{badge.replace("badge-", "").upper()}</span>' if badge else ''
         layers_html += f'''
             <div class="layer" style="height: {height}px; background: {bg};">
@@ -1040,7 +1030,7 @@ def generate_overview() -> str:
 
     # Biome mini cards by category
     biome_cards_html = ""
-    for cat_key, cat_data in CATEGORIES.items():
+    for _, cat_data in CATEGORIES.items():
         cards = ""
         for biome_key in cat_data["biomes"]:
             biome = BIOMES[biome_key]
@@ -1183,7 +1173,7 @@ def generate_navigation() -> str:
     '''
 
     # Category groups
-    for cat_key, cat_data in CATEGORIES.items():
+    for _, cat_data in CATEGORIES.items():
         nav_html += f'<div class="nav-group"><span class="nav-label">{cat_data["icon"]}</span>'
         for biome_key in cat_data["biomes"]:
             biome = BIOMES[biome_key]
