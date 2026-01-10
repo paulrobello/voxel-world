@@ -215,6 +215,12 @@ impl HUDRenderer {
                 Self::draw_minimap_settings(&ctx, show_minimap, minimap, minimap_cached_image);
             }
 
+            // Get current biome name at player position
+            let biome_name = terrain_generator
+                .get_biome_info(player_world_pos.x as i32, player_world_pos.z as i32)
+                .biome
+                .display_name();
+
             MinimapUI::draw_minimap_and_compass(
                 &ctx,
                 show_minimap,
@@ -223,6 +229,7 @@ impl HUDRenderer {
                 minimap_cached_image,
                 camera_yaw,
                 settings.show_compass,
+                biome_name,
             );
 
             HotbarUI::draw_hotbar(

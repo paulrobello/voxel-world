@@ -6,6 +6,7 @@ use egui_winit_vulkano::egui;
 pub struct MinimapUI;
 
 impl MinimapUI {
+    #[allow(clippy::too_many_arguments)]
     pub fn draw_minimap_and_compass(
         ctx: &egui::Context,
         show_minimap: &bool,
@@ -14,6 +15,7 @@ impl MinimapUI {
         _minimap_cached_image: &Option<egui::ColorImage>,
         camera_yaw: f32,
         show_compass: bool,
+        biome_name: &str,
     ) {
         // Draw minimap
         if *show_minimap {
@@ -70,6 +72,14 @@ impl MinimapUI {
                                     egui::Color32::RED,
                                     egui::Stroke::new(1.0, egui::Color32::WHITE),
                                 ));
+
+                                // Biome name label below the minimap
+                                ui.add_space(2.0);
+                                ui.label(
+                                    egui::RichText::new(biome_name)
+                                        .color(egui::Color32::from_gray(220))
+                                        .size(11.0),
+                                );
                             });
                     });
             }

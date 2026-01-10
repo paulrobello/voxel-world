@@ -149,6 +149,33 @@ impl BiomeType {
         )
     }
 
+    /// Get a human-readable display name for this biome.
+    pub fn display_name(&self) -> &'static str {
+        #[allow(deprecated)]
+        match self {
+            BiomeType::Ocean => "Ocean",
+            BiomeType::Beach => "Beach",
+            BiomeType::Plains => "Plains",
+            BiomeType::Forest => "Forest",
+            BiomeType::DarkForest => "Dark Forest",
+            BiomeType::BirchForest => "Birch Forest",
+            BiomeType::Taiga => "Taiga",
+            BiomeType::SnowyPlains => "Snowy Plains",
+            BiomeType::SnowyTaiga => "Snowy Taiga",
+            BiomeType::Desert => "Desert",
+            BiomeType::Savanna => "Savanna",
+            BiomeType::Swamp => "Swamp",
+            BiomeType::Mountains => "Mountains",
+            BiomeType::Meadow => "Meadow",
+            BiomeType::Jungle => "Jungle",
+            BiomeType::LushCaves => "Lush Caves",
+            BiomeType::DripstoneCaves => "Dripstone Caves",
+            BiomeType::DeepDark => "Deep Dark",
+            BiomeType::Grassland => "Plains",
+            BiomeType::Snow => "Snowy Plains",
+        }
+    }
+
     /// Get tree density for this biome (0.0 = none, 1.0 = dense)
     #[allow(dead_code)]
     pub fn tree_density(&self) -> f64 {
