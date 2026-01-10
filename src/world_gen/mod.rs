@@ -1,4 +1,4 @@
-//! World generation module - handles terrain, caves, trees, and vegetation.
+//! World generation module - handles terrain, caves, rivers, trees, and vegetation.
 //!
 //! This module provides a modular approach to world generation, splitting
 //! functionality into focused submodules for maintainability.
@@ -6,6 +6,7 @@
 pub mod biome;
 pub mod caves;
 pub mod climate;
+pub mod rivers;
 pub mod terrain;
 pub mod trees;
 pub mod utils;

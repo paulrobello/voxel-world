@@ -5,6 +5,7 @@
 use crate::cave_gen::CaveGenerator;
 use crate::world_gen::biome::{BiomeInfo, BiomeType};
 use crate::world_gen::climate::{ClimateGenerator, ClimatePoint};
+use crate::world_gen::rivers::{RiverGenerator, RiverInfo};
 use noise::{Fbm, MultiFractal, NoiseFn, Perlin, RidgedMulti};
 use std::collections::HashMap;
 
@@ -16,6 +17,7 @@ pub struct TerrainGenerator {
     mountain_noise: RidgedMulti<Perlin>,
     climate_generator: ClimateGenerator,
     cave_generator: CaveGenerator,
+    river_generator: RiverGenerator,
 }
 
 impl TerrainGenerator {
@@ -38,6 +40,7 @@ impl TerrainGenerator {
 
         let climate_generator = ClimateGenerator::new(seed);
         let cave_generator = CaveGenerator::new(seed);
+        let river_generator = RiverGenerator::new(seed);
 
         Self {
             height_noise,
@@ -45,6 +48,7 @@ impl TerrainGenerator {
             mountain_noise,
             climate_generator,
             cave_generator,
+            river_generator,
         }
     }
 
@@ -271,6 +275,53 @@ impl TerrainGenerator {
         &self.cave_generator
     }
 
+    /// Get reference to the river generator
+    #[allow(dead_code)]
+    pub fn river_generator(&self) -> &RiverGenerator {
+        &self.river_generator
+    }
+
+    /// Get river information at a position if a river exists there.
+    ///
+    /// This must be called with the *unmodified* terrain height (before river carving)
+    /// to correctly determine if a river should exist at this position.
+    #[allow(dead_code)]
+    pub fn get_river_at(&self, world_x: i32, world_z: i32) -> Option<RiverInfo> {
+        // Get base terrain height (without river modification)
+        let base_height = self.get_base_height(world_x, world_z);
+        let biome = self.get_biome(world_x, world_z);
+
+        self.river_generator
+            .get_river_at(world_x, world_z, base_height, biome)
+    }
+
+    /// Check if a position is along a river bank.
+    #[allow(dead_code)]
+    pub fn is_river_bank(&self, world_x: i32, world_z: i32) -> bool {
+        let base_height = self.get_base_height(world_x, world_z);
+        self.river_generator
+            .is_river_bank(world_x, world_z, base_height)
+    }
+
+    /// Get base terrain height without river modifications.
+    ///
+    /// Used internally for river detection (rivers need to know base height
+    /// before deciding whether to carve).
+    fn get_base_height(&self, world_x: i32, world_z: i32) -> i32 {
+        let x = world_x as f64;
+        let z = world_z as f64;
+
+        let base = self.height_noise.get([x, z]);
+        let ridges = self.mountain_noise.get([x, z]);
+        let detail = self.detail_noise.get([x * 0.02, z * 0.02]);
+        let climate = self.climate_generator.get_climate_2d(world_x, world_z);
+        let center_biome = self.get_biome(world_x, world_z);
+
+        // Simplified height calculation without blending for performance
+        let height = self.calculate_biome_height(center_biome, &climate, base, ridges, detail);
+        height.round() as i32
+    }
+
     /// Calculate height for a specific biome using climate parameters.
     ///
     /// Height is influenced by:
@@ -393,46 +444,59 @@ impl TerrainGenerator {
 
         let at_boundary = neighbors.iter().any(|&b| b != center_biome);
 
-        if !at_boundary {
+        let base_terrain_height = if !at_boundary {
             let height = self.calculate_biome_height(center_biome, &climate, base, ridges, detail);
-            return height.round() as i32;
-        }
+            height.round() as i32
+        } else {
+            // At a boundary - calculate weighted blend
+            // Use the center climate for consistency (climate changes more gradually than biomes)
+            const BLEND_SAMPLES: i32 = 3;
+            let mut biome_heights: HashMap<BiomeType, (f64, f64)> = HashMap::new();
 
-        // At a boundary - calculate weighted blend
-        // Use the center climate for consistency (climate changes more gradually than biomes)
-        const BLEND_SAMPLES: i32 = 3;
-        let mut biome_heights: HashMap<BiomeType, (f64, f64)> = HashMap::new();
+            for dx in -BLEND_SAMPLES..=BLEND_SAMPLES {
+                for dz in -BLEND_SAMPLES..=BLEND_SAMPLES {
+                    let sample_biome = self.get_biome(world_x + dx, world_z + dz);
+                    let dist = ((dx * dx + dz * dz) as f64).sqrt();
+                    let weight = if dist > 0.0 { 1.0 / dist } else { 4.0 };
 
-        for dx in -BLEND_SAMPLES..=BLEND_SAMPLES {
-            for dz in -BLEND_SAMPLES..=BLEND_SAMPLES {
-                let sample_biome = self.get_biome(world_x + dx, world_z + dz);
-                let dist = ((dx * dx + dz * dz) as f64).sqrt();
-                let weight = if dist > 0.0 { 1.0 / dist } else { 4.0 };
-
-                let entry = biome_heights.entry(sample_biome).or_insert((0.0, 0.0));
-                entry.0 += weight;
-                // Use the climate at the sample point for more accurate blending
-                let sample_climate = self
-                    .climate_generator
-                    .get_climate_2d(world_x + dx, world_z + dz);
-                entry.1 = self.calculate_biome_height(
-                    sample_biome,
-                    &sample_climate,
-                    base,
-                    ridges,
-                    detail,
-                );
+                    let entry = biome_heights.entry(sample_biome).or_insert((0.0, 0.0));
+                    entry.0 += weight;
+                    // Use the climate at the sample point for more accurate blending
+                    let sample_climate = self
+                        .climate_generator
+                        .get_climate_2d(world_x + dx, world_z + dz);
+                    entry.1 = self.calculate_biome_height(
+                        sample_biome,
+                        &sample_climate,
+                        base,
+                        ridges,
+                        detail,
+                    );
+                }
             }
+
+            let total_weight: f64 = biome_heights.values().map(|(w, _)| w).sum();
+            let blended_height: f64 = biome_heights
+                .values()
+                .map(|(weight, height)| weight * height)
+                .sum::<f64>()
+                / total_weight;
+
+            blended_height.round() as i32
+        };
+
+        // Apply river carving if a river exists at this position
+        if let Some(river_info) =
+            self.river_generator
+                .get_river_at(world_x, world_z, base_terrain_height, center_biome)
+        {
+            let carve_depth =
+                self.river_generator
+                    .get_height_modification(world_x, world_z, &river_info);
+            return base_terrain_height - carve_depth;
         }
 
-        let total_weight: f64 = biome_heights.values().map(|(w, _)| w).sum();
-        let blended_height: f64 = biome_heights
-            .values()
-            .map(|(weight, height)| weight * height)
-            .sum::<f64>()
-            / total_weight;
-
-        blended_height.round() as i32
+        base_terrain_height
     }
 
     /// Simple hash for placement randomness
