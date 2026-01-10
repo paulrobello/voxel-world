@@ -581,7 +581,12 @@ fn generate_ground_cover(
                         }
                     }
                     BiomeType::Mountains => {
-                        if surface_block == BlockType::Grass && hash % 100 < 5 {
+                        // Snow coverage at high altitudes (above Y=155)
+                        let world_y = chunk_world_y + local_y;
+                        if world_y > 155 && surface_block == BlockType::Stone {
+                            // Replace stone surface with snow at high altitude
+                            chunk.set_block(lx, local_y as usize, lz, BlockType::Snow);
+                        } else if surface_block == BlockType::Grass && hash % 100 < 5 {
                             chunk.set_model_block(lx, y, lz, MODEL_TALL_GRASS, 0, false);
                         }
                     }
@@ -729,9 +734,9 @@ fn generate_trees(
                     }
                 }
                 BiomeType::Snow => {
-                    // Pine trees - Very low density
+                    // Dead trees (logs only, no leaves) - Very low density
                     if hash % 100 < 2 {
-                        generate_pine(
+                        generate_dead_tree(
                             chunk,
                             lx as i32,
                             local_base_y,
@@ -1566,6 +1571,110 @@ fn generate_pine_cone(
         chunk_world_z,
         overflow_blocks,
     );
+}
+
+/// Generates a dead tree (logs only, no leaves) with snow coverage for snow biome
+fn generate_dead_tree(
+    chunk: &mut Chunk,
+    x: i32,
+    y: i32,
+    z: i32,
+    hash: i32,
+    chunk_world_x: i32,
+    chunk_world_y: i32,
+    chunk_world_z: i32,
+    overflow_blocks: &mut Vec<OverflowBlock>,
+) {
+    // Check if there's solid ground below
+    for check_y in (y.saturating_sub(2))..=y {
+        if let Some(block) = get_block_safe(chunk, x, check_y, z) {
+            if !block.is_solid() {
+                return; // Don't place tree on air/water or above cave
+            }
+        } else {
+            return;
+        }
+    }
+
+    // Dead trees are shorter (4-8 blocks)
+    let height = 4 + (hash % 5);
+
+    // Just the trunk, no branches or leaves
+    for dy in 1..height {
+        set_block_safe(
+            chunk,
+            x,
+            y + dy,
+            z,
+            BlockType::PineLog,
+            chunk_world_x,
+            chunk_world_y,
+            chunk_world_z,
+            overflow_blocks,
+        );
+    }
+
+    // Add snow on top and around the trunk
+    // Snow cap on top
+    set_block_safe(
+        chunk,
+        x,
+        y + height,
+        z,
+        BlockType::Snow,
+        chunk_world_x,
+        chunk_world_y,
+        chunk_world_z,
+        overflow_blocks,
+    );
+
+    // Optional: Add snow around base for drifts (50% chance)
+    if hash % 2 == 0 {
+        for dx in -1..=1 {
+            for dz in -1..=1 {
+                if dx == 0 && dz == 0 {
+                    continue; // Skip center (trunk is there)
+                }
+                // Place snow around base
+                set_block_safe(
+                    chunk,
+                    x + dx,
+                    y + 1,
+                    z + dz,
+                    BlockType::Snow,
+                    chunk_world_x,
+                    chunk_world_y,
+                    chunk_world_z,
+                    overflow_blocks,
+                );
+            }
+        }
+    }
+
+    // Add some snow partway up the trunk (30% chance per level)
+    for dy in 2..height {
+        if (hash.wrapping_add(dy) % 10) < 3 {
+            // Random side for snow accumulation
+            let side = (hash.wrapping_add(dy * 7)) % 4;
+            let (dx, dz) = match side {
+                0 => (1, 0),
+                1 => (-1, 0),
+                2 => (0, 1),
+                _ => (0, -1),
+            };
+            set_block_safe(
+                chunk,
+                x + dx,
+                y + dy,
+                z + dz,
+                BlockType::Snow,
+                chunk_world_x,
+                chunk_world_y,
+                chunk_world_z,
+                overflow_blocks,
+            );
+        }
+    }
 }
 
 fn generate_willow(
