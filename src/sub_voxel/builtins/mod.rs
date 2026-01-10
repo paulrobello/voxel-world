@@ -44,8 +44,9 @@ use self::stairs::{
     create_stairs_outer_right, create_stairs_outer_right_inverted,
 };
 use self::vegetation::{
-    create_flower_red, create_flower_yellow, create_lily_pad, create_mushroom_brown,
-    create_mushroom_red, create_tall_grass,
+    create_flower_red, create_flower_yellow, create_glow_berry_vines, create_glow_lichen,
+    create_glow_mushroom_model, create_hanging_roots, create_lily_pad, create_moss_carpet,
+    create_mushroom_brown, create_mushroom_red, create_tall_grass,
 };
 
 /// Registers built-in models.
@@ -185,4 +186,16 @@ pub fn register_builtins(registry: &mut ModelRegistry) {
     registry.register(create_ice_stalactite());
     // ID 109: Ice Stalagmite
     registry.register(create_ice_stalagmite());
+
+    // === Cave Vegetation (IDs 110-114) ===
+    // ID 110: Moss Carpet (lush caves floor)
+    registry.register(create_moss_carpet());
+    // ID 111: Glow Lichen (ceiling/wall with emission)
+    registry.register(create_glow_lichen());
+    // ID 112: Hanging Roots (lush caves ceiling)
+    registry.register(create_hanging_roots());
+    // ID 113: Glow Berry Vines (lush caves ceiling with emission)
+    registry.register(create_glow_berry_vines());
+    // ID 114: Glow Mushroom Model (floor with emission)
+    registry.register(create_glow_mushroom_model());
 }

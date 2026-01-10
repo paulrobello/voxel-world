@@ -150,9 +150,9 @@ pub const PALETTE_SIZE: usize = 32;
 pub const NUM_RESOLUTION_TIERS: usize = 3;
 
 /// First model ID available for custom/user models.
-/// Built-in models occupy IDs 0-109, so custom models start at 110.
+/// Built-in models occupy IDs 0-114, so custom models start at 115.
 pub const CRYSTAL_MODEL_ID: u8 = 99;
-pub const FIRST_CUSTOM_MODEL_ID: u8 = 110;
+pub const FIRST_CUSTOM_MODEL_ID: u8 = 115;
 
 /// RGBA color for sub-voxel palette.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]

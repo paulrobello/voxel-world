@@ -16,6 +16,13 @@ const MODEL_LILY_PAD: u8 = 103;
 const MODEL_MUSHROOM_BROWN: u8 = 104;
 // const MODEL_MUSHROOM_RED: u8 = 105;
 
+// Cave vegetation model IDs
+const MODEL_MOSS_CARPET: u8 = 110;
+const MODEL_GLOW_LICHEN: u8 = 111;
+const MODEL_HANGING_ROOTS: u8 = 112;
+const MODEL_GLOW_BERRY_VINES: u8 = 113;
+const MODEL_GLOW_MUSHROOM: u8 = 114;
+
 /// Generates ground cover (grass, flowers, etc.) based on biome.
 pub fn generate_ground_cover(
     chunk: &mut Chunk,
@@ -177,14 +184,14 @@ pub fn generate_ground_cover(
     }
 }
 
-/// Generates cave decorations (stalactites/stalagmites) in underground caves.
+/// Generates cave decorations (stalactites/stalagmites, vegetation) in underground caves.
 ///
 /// Uses 3D biome selection to place appropriate decorations based on underground biome type:
 /// - Standard caves: Stone stalactites/stalagmites
 /// - Snow biome caves: Ice stalactites/stalagmites
-/// - Lush caves: Would have moss and glow berries (future)
-/// - Dripstone caves: Denser stalactite/stalagmite formations (future)
-/// - Deep dark: Sculk decorations (future)
+/// - Lush caves: Moss carpet, hanging roots, glow berries, glow lichen
+/// - Dripstone caves: Denser stalactite/stalagmite formations
+/// - Deep dark: Sparse decorations, glow mushrooms
 pub fn generate_cave_decorations(
     chunk: &mut Chunk,
     terrain: &TerrainGenerator,
@@ -209,17 +216,16 @@ pub fn generate_cave_decorations(
 
                 // Use 3D biome for underground biome-aware decoration
                 let biome = terrain.get_biome_3d(world_x, world_y, world_z);
+                let hash = terrain.hash(world_x + world_y * 17, world_z);
 
                 // Check for cave ceiling (solid block with air below)
                 if (block == BlockType::Stone || block == BlockType::Deepslate) && ly > 0 {
                     let below = chunk.get_block(lx, ly - 1, lz);
                     if below == BlockType::Air {
-                        // This is a cave ceiling
-                        if let Some(model_id) = terrain
-                            .cave_generator()
-                            .should_place_stalactite(world_x, world_y, world_z, biome)
+                        // This is a cave ceiling - try biome-specific decorations first
+                        if let Some(model_id) =
+                            get_ceiling_decoration(biome, hash, terrain, world_x, world_y, world_z)
                         {
-                            // Place stalactite in the air block below the ceiling
                             chunk.set_model_block(lx, ly - 1, lz, model_id, 0, false);
                         }
                     }
@@ -231,17 +237,117 @@ pub fn generate_cave_decorations(
                 {
                     let above = chunk.get_block(lx, ly + 1, lz);
                     if above == BlockType::Air {
-                        // This is a cave floor
-                        if let Some(model_id) = terrain
-                            .cave_generator()
-                            .should_place_stalagmite(world_x, world_y, world_z, biome)
+                        // This is a cave floor - try biome-specific decorations first
+                        if let Some(model_id) =
+                            get_floor_decoration(biome, hash, terrain, world_x, world_y, world_z)
                         {
-                            // Place stalagmite in the air block above the floor
                             chunk.set_model_block(lx, ly + 1, lz, model_id, 0, false);
                         }
                     }
                 }
             }
         }
+    }
+}
+
+/// Get ceiling decoration model based on biome.
+fn get_ceiling_decoration(
+    biome: BiomeType,
+    hash: i32,
+    terrain: &TerrainGenerator,
+    world_x: i32,
+    world_y: i32,
+    world_z: i32,
+) -> Option<u8> {
+    #[allow(deprecated)]
+    match biome {
+        // Lush caves - hanging roots, glow berries, glow lichen
+        BiomeType::LushCaves => {
+            let roll = hash % 100;
+            if roll < 8 {
+                Some(MODEL_HANGING_ROOTS)
+            } else if roll < 14 {
+                Some(MODEL_GLOW_BERRY_VINES)
+            } else if roll < 22 {
+                Some(MODEL_GLOW_LICHEN)
+            } else {
+                // Still place some stalactites
+                terrain
+                    .cave_generator()
+                    .should_place_stalactite(world_x, world_y, world_z, biome)
+            }
+        }
+
+        // Dripstone caves - extra stalactites
+        BiomeType::DripstoneCaves => terrain
+            .cave_generator()
+            .should_place_stalactite(world_x, world_y, world_z, biome),
+
+        // Deep dark - sparse glow lichen
+        BiomeType::DeepDark => {
+            if hash % 100 < 3 {
+                Some(MODEL_GLOW_LICHEN)
+            } else {
+                terrain
+                    .cave_generator()
+                    .should_place_stalactite(world_x, world_y, world_z, biome)
+            }
+        }
+
+        // Standard caves - stalactites
+        _ => terrain
+            .cave_generator()
+            .should_place_stalactite(world_x, world_y, world_z, biome),
+    }
+}
+
+/// Get floor decoration model based on biome.
+fn get_floor_decoration(
+    biome: BiomeType,
+    hash: i32,
+    terrain: &TerrainGenerator,
+    world_x: i32,
+    world_y: i32,
+    world_z: i32,
+) -> Option<u8> {
+    #[allow(deprecated)]
+    match biome {
+        // Lush caves - moss carpet, glow mushrooms
+        BiomeType::LushCaves => {
+            let roll = hash % 100;
+            if roll < 15 {
+                Some(MODEL_MOSS_CARPET)
+            } else if roll < 20 {
+                Some(MODEL_GLOW_MUSHROOM)
+            } else if roll < 25 {
+                Some(MODEL_MUSHROOM_BROWN)
+            } else {
+                // Still place some stalagmites
+                terrain
+                    .cave_generator()
+                    .should_place_stalagmite(world_x, world_y, world_z, biome)
+            }
+        }
+
+        // Dripstone caves - extra stalagmites
+        BiomeType::DripstoneCaves => terrain
+            .cave_generator()
+            .should_place_stalagmite(world_x, world_y, world_z, biome),
+
+        // Deep dark - sparse glow mushrooms
+        BiomeType::DeepDark => {
+            if hash % 100 < 5 {
+                Some(MODEL_GLOW_MUSHROOM)
+            } else {
+                terrain
+                    .cave_generator()
+                    .should_place_stalagmite(world_x, world_y, world_z, biome)
+            }
+        }
+
+        // Standard caves - stalagmites
+        _ => terrain
+            .cave_generator()
+            .should_place_stalagmite(world_x, world_y, world_z, biome),
     }
 }
