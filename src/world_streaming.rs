@@ -114,20 +114,25 @@ impl MetadataState {
         self.full_refresh && self.cursor == 0
     }
 
-    /// Returns up to `budget` chunk indices to refresh, preferring explicit dirty chunks.
+    /// Returns chunk indices to refresh, prioritizing explicit dirty chunks.
+    ///
+    /// IMPORTANT: All pending chunks (from newly loaded/modified chunks) are ALWAYS processed
+    /// to avoid invisible chunks. The budget only limits the background full refresh sweep.
     pub fn take_work(&mut self, budget: usize) -> Vec<usize> {
         let mut work = Vec::with_capacity(budget);
 
-        while work.len() < budget {
-            if let Some(idx) = self.pending.pop_front() {
-                self.pending_set.remove(&idx);
-                work.push(idx);
-            } else {
-                break;
-            }
+        // First, drain ALL pending chunks - these are newly loaded/modified chunks
+        // that must be visible immediately. No budget limit here!
+        while let Some(idx) = self.pending.pop_front() {
+            self.pending_set.remove(&idx);
+            work.push(idx);
         }
 
-        while work.len() < budget && self.full_refresh && self.cursor < TOTAL_CHUNKS {
+        // Then, apply budget limit only to the background full refresh sweep
+        let pending_count = work.len();
+        let remaining_budget = budget.saturating_sub(pending_count);
+        let target_len = pending_count + remaining_budget;
+        while work.len() < target_len && self.full_refresh && self.cursor < TOTAL_CHUNKS {
             work.push(self.cursor);
             self.cursor += 1;
         }
