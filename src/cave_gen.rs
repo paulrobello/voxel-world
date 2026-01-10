@@ -12,8 +12,6 @@ pub struct CaveGenerator {
     entrance_noise: Perlin,
     /// 3D noise for cave decoration placement (stalactites/stalagmites)
     decoration_noise: Perlin,
-    /// 3D noise for ice cave determination in snow biomes
-    ice_cave_noise: Perlin,
 }
 
 impl CaveGenerator {
@@ -24,7 +22,6 @@ impl CaveGenerator {
             cave_mask_noise: Perlin::new(seed + 4),
             entrance_noise: Perlin::new(seed + 5),
             decoration_noise: Perlin::new(seed + 8),
-            ice_cave_noise: Perlin::new(seed + 9),
         }
     }
 
@@ -56,12 +53,12 @@ impl CaveGenerator {
     ) -> bool {
         // Determine surface buffer based on whether this is an entrance location
         // Entrances reduce the buffer to allow caves to breach the surface
-        // Increased buffer from 5 to 12 to account for raised terrain (SEA_LEVEL=124)
+        // Buffer of 12 prevents caves from breaching near-surface layers (SEA_LEVEL=75)
         let is_entrance = self.is_entrance(world_x, world_z);
         let surface_buffer = if is_entrance { 0 } else { 12 };
 
-        // Don't carve near surface unless at entrance, and never below y=2
-        if world_y > surface_height - surface_buffer || world_y < 2 {
+        // Don't carve near surface unless at entrance, and never below y=1 (protect bedrock at y=0)
+        if world_y > surface_height - surface_buffer || world_y < 1 {
             return false;
         }
 
@@ -100,11 +97,20 @@ impl CaveGenerator {
     /// * `CaveFillType::Water(WaterType)` - Water-filled cave
     /// * `CaveFillType::Lava` - Lava-filled cave (mountain caves at low depths)
     pub fn get_cave_fill(&self, biome: BiomeType, world_y: i32, sea_level: i32) -> CaveFillType {
-        // All biomes: possible lava in 5 layers above bedrock (Y: 3-7)
-        if (3..=7).contains(&world_y) {
-            let depth_factor = (7 - world_y) as f64 / 5.0;
-            if depth_factor > 0.4 {
-                // ~60% chance at Y=3, decreasing to ~40% at Y=7
+        // All biomes: lava lakes at Y: 2-10
+        // Use noise to create pockets rather than filling entire floor
+        if (2..=10).contains(&world_y) {
+            let depth_factor = (10 - world_y) as f64 / 8.0; // 0.0 at Y=10, 1.0 at Y=2
+            let lava_threshold = 0.7 - (depth_factor * 0.4); // 0.7 at top, 0.3 at bottom
+
+            // Use noise to determine if this specific position should have lava
+            let noise_value = self.decoration_noise.get([
+                (world_y as f64) * 0.3,
+                (world_y as f64) * 0.2,
+                (world_y as f64) * 0.25,
+            ]);
+
+            if noise_value.abs() > lava_threshold {
                 return CaveFillType::Lava;
             }
         }
@@ -123,32 +129,29 @@ impl CaveGenerator {
                 }
             }
             BiomeType::Snow => {
-                // Ice caves: ice blocks fill some caves for frozen cave effect
-                // Use 3D noise to create pockets of ice vs air caves
-                let ice_chance =
-                    self.ice_cave_noise
-                        .get([(world_y as f64) * 0.15, world_y as f64 * 0.08, 0.0]);
-
-                // ~60% of caves have ice, 40% are air caves
-                if ice_chance > 0.2 {
-                    CaveFillType::Ice
-                } else {
-                    CaveFillType::Air
-                }
+                // Ice caves: ALL caves filled with ice in snow biome
+                CaveFillType::Ice
             }
             BiomeType::Mountains => {
-                // Mountain caves: lava lakes at mid-to-deep depths (Y < 100)
-                let lava_depth_chance = if world_y < 100 {
-                    let depth_factor = (100 - world_y) as f64 / 98.0;
-                    depth_factor > 0.2
-                } else {
-                    false
-                };
+                // Mountain caves: lava lakes all the way to sea level
+                // Use noise to create pockets rather than filling entire floor
+                if world_y <= sea_level {
+                    let depth_factor = (sea_level - world_y) as f64 / sea_level as f64;
+                    let lava_threshold = 0.7 - (depth_factor * 0.4); // More lava deeper down
 
-                if lava_depth_chance {
-                    CaveFillType::Lava
-                } else if world_y <= sea_level {
-                    CaveFillType::Water(biome.water_type())
+                    let noise_value = self.decoration_noise.get([
+                        (world_y as f64) * 0.05,
+                        (world_y as f64) * 0.05,
+                        (world_y as f64) * 0.05,
+                    ]);
+
+                    if noise_value.abs() > lava_threshold {
+                        CaveFillType::Lava
+                    } else if world_y <= sea_level {
+                        CaveFillType::Water(biome.water_type())
+                    } else {
+                        CaveFillType::Air
+                    }
                 } else {
                     CaveFillType::Air
                 }
@@ -162,7 +165,8 @@ impl CaveGenerator {
 
     /// Check if lava lakes should spawn at this cave position.
     ///
-    /// Mountain caves have lava lakes at mid-to-deep depths (Y < 100).
+    /// All biomes have lava lakes at Y: 2-10.
+    /// Mountains have additional lava lakes up to sea level (Y: 75).
     /// Uses 3D noise to create pockets of lava rather than filling all caves.
     pub fn should_spawn_lava(
         &self,
@@ -171,25 +175,35 @@ impl CaveGenerator {
         world_y: i32,
         world_z: i32,
     ) -> bool {
-        if !matches!(biome, BiomeType::Mountains) || world_y >= 100 {
-            return false;
-        }
-
-        // Lava becomes more common the deeper you go
-        // At y=99: ~20% chance, at y=50: ~50% chance, at y=2: ~80% chance
-        let depth_factor = (100 - world_y) as f64 / 98.0; // 0.0 at y=99, 1.0 at y=2
-        let lava_threshold = 0.7 - (depth_factor * 0.5); // 0.7 at top, 0.2 at bottom
-
-        // Use proper 3D coordinates for noise to create varied lava pockets
-        // Offset coordinates to get different noise pattern than cave decorations
         let x = world_x as f64;
         let y = world_y as f64;
         let z = world_z as f64;
-        let noise_value =
-            self.decoration_noise
-                .get([x * 0.05 + 1000.0, y * 0.05, z * 0.05 + 1000.0]);
 
-        noise_value.abs() > lava_threshold
+        // All biomes: lava lakes at Y: 2-10
+        if (2..=10).contains(&world_y) {
+            let depth_factor = (10 - world_y) as f64 / 8.0;
+            let lava_threshold = 0.7 - (depth_factor * 0.4);
+
+            let noise_value =
+                self.decoration_noise
+                    .get([x * 0.05 + 1000.0, y * 0.3, z * 0.05 + 1000.0]);
+
+            return noise_value.abs() > lava_threshold;
+        }
+
+        // Mountains only: lava lakes up to sea level
+        if matches!(biome, BiomeType::Mountains) && world_y <= 75 {
+            let depth_factor = (75 - world_y) as f64 / 75.0;
+            let lava_threshold = 0.7 - (depth_factor * 0.4);
+
+            let noise_value =
+                self.decoration_noise
+                    .get([x * 0.05 + 1000.0, y * 0.05, z * 0.05 + 1000.0]);
+
+            return noise_value.abs() > lava_threshold;
+        }
+
+        false
     }
 
     /// Get the model ID for a stalactite (hanging from ceiling) based on biome.

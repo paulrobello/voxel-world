@@ -5,7 +5,7 @@ from pathlib import Path
 
 # World constants (from src/constants.rs and src/terrain_gen.rs)
 WORLD_HEIGHT = 512  # 16 chunks * 32 blocks
-SEA_LEVEL = 124
+SEA_LEVEL = 75  # Lowered from 124
 CHUNK_SIZE = 32
 
 # Biome data (Updated from src/terrain_gen.rs and src/cave_gen.rs)
@@ -14,10 +14,10 @@ BIOME_DATA = {
         "name": "Grassland",
         "surface": 132,  # 128 + detail*2 + base*4 (avg ~132)
         "water_fill": None,
-        "water_fill_desc": "Always dry caves, lava pockets Y: 3-7",
-        "dry_cave_range": "Y: 8-132",
-        "explorable_blocks": 125,  # 132 - 7
-        "special": "Possible lava pockets near bedrock (Y: 3-7)",
+        "water_fill_desc": "Always dry caves, lava lakes Y: 2-10",
+        "dry_cave_range": "Y: 11-132",
+        "explorable_blocks": 122,  # 132 - 10
+        "special": "Lava lakes near bedrock (Y: 2-10)",
         "color": "#3cb371",
         "icon": "🌱",
         "vegetation": {
@@ -38,10 +38,10 @@ BIOME_DATA = {
         "name": "Mountains",
         "surface": 165,  # 128 + base*10 + ridges*55 (avg ~165)
         "water_fill": SEA_LEVEL,
-        "water_fill_desc": "Water below Y: 124, lava lakes Y < 100, lava pockets Y: 3-7",
-        "dry_cave_range": "Y: 125-165",
-        "explorable_blocks": 41,  # 165 - 124
-        "special": "Lava lakes at Y < 100, plus lava pockets at Y: 3-7",
+        "water_fill_desc": "Lava/water mix below Y: 75, lava lakes Y: 2-10 in all areas",
+        "dry_cave_range": "Y: 76-165",
+        "explorable_blocks": 90,  # 165 - 75
+        "special": "Extensive lava lakes up to sea level (Y: 75), plus Y: 2-10 everywhere",
         "color": "#8b7355",
         "icon": "⛰️",
         "vegetation": {
@@ -62,10 +62,10 @@ BIOME_DATA = {
         "name": "Desert",
         "surface": 130,  # 128 + detail + base*2 (avg ~130)
         "water_fill": None,
-        "water_fill_desc": "Always dry - all caves explorable, lava pockets Y: 3-7",
-        "dry_cave_range": "Y: 8-130",
-        "explorable_blocks": 123,  # 130 - 7
-        "special": "ALL caves dry and explorable, possible lava pockets at Y: 3-7",
+        "water_fill_desc": "Always dry - all caves explorable, lava lakes Y: 2-10",
+        "dry_cave_range": "Y: 11-130",
+        "explorable_blocks": 120,  # 130 - 10
+        "special": "ALL caves dry and explorable, lava lakes near bedrock (Y: 2-10)",
         "color": "#daa520",
         "icon": "🏜️",
         "vegetation": {
@@ -85,11 +85,11 @@ BIOME_DATA = {
     "swamp": {
         "name": "Swamp",
         "surface": 129,  # 128 + detail*2 (avg ~129, raised from 124)
-        "water_fill": 129,  # SEA_LEVEL + 5
-        "water_fill_desc": "Water below Y: 129 (SEA_LEVEL+5), lava pockets Y: 3-7",
-        "dry_cave_range": "None",
-        "explorable_blocks": 0,
-        "special": "Heavily flooded caves - almost no dry space, lava pockets at Y: 3-7",
+        "water_fill": 80,  # SEA_LEVEL + 5 (75 + 5)
+        "water_fill_desc": "Water below Y: 80 (SEA_LEVEL+5), lava lakes Y: 2-10",
+        "dry_cave_range": "Y: 81-129",
+        "explorable_blocks": 49,  # 129 - 80
+        "special": "Heavily flooded caves below Y: 80, lava lakes at Y: 2-10",
         "color": "#556b2f",
         "icon": "🌿",
         "vegetation": {
@@ -111,10 +111,10 @@ BIOME_DATA = {
         "name": "Snow",
         "surface": 148,  # 128 + base*8 + ridges*40 for peaks, 128 + detail*2 for tundra (avg ~148)
         "water_fill": None,
-        "water_fill_desc": "Ice caves (~60% filled with ice blocks), lava pockets Y: 3-7",
-        "dry_cave_range": "Y: 8-148",
-        "explorable_blocks": 141,  # 148 - 7
-        "special": "Ice caves throughout (~60% ice, 40% air), lava pockets near bedrock (Y: 3-7)",
+        "water_fill_desc": "ALL caves filled with ice blocks, lava lakes Y: 2-10",
+        "dry_cave_range": "Y: 11-148 (ice-filled caves)",
+        "explorable_blocks": 138,  # 148 - 10 (ice caves are explorable, just need to break ice)
+        "special": "100% ice caves throughout, lava lakes near bedrock (Y: 2-10)",
         "color": "#e0f2f7",
         "icon": "❄️",
         "vegetation": {
@@ -124,12 +124,12 @@ BIOME_DATA = {
         },
         "light_sources": {
             "glowstone": "Rare in ice caves (Y: 20-100)",
-            "crystal": "Ice crystals abundant (Y: 8-140)"
+            "crystal": "Ice crystals abundant (Y: 11-140)"
         },
         "decorations": {
-            "stalactites": "Ice stalactites common (Y: 8-140)",
-            "stalagmites": "Ice stalagmites common (Y: 8-140)",
-            "icicles": "Hanging from ceilings (Y: 8-140)"
+            "stalactites": "Ice stalactites common (Y: 11-140)",
+            "stalagmites": "Ice stalagmites common (Y: 11-140)",
+            "icicles": "Hanging from ceilings (Y: 11-140)"
         }
     }
 }
@@ -221,7 +221,7 @@ def generate_biome_distribution():
                     </div>
                 </div>
                 <div class="sea-level-line">
-                    <span>← Sea Level (Y: 124) →</span>
+                    <span>← Sea Level (Y: 75) →</span>
                 </div>
             </div>
 
@@ -229,26 +229,26 @@ def generate_biome_distribution():
                 <div class="feature-box">
                     <h3>🌊 Cave Water Filling</h3>
                     <p><strong>🌱 Grassland:</strong> Always dry</p>
-                    <p><strong>⛰️ Mountains:</strong> Water below Y: 124</p>
+                    <p><strong>⛰️ Mountains:</strong> Water below Y: 75</p>
                     <p><strong>🏜️ Desert:</strong> Always dry</p>
-                    <p><strong>🌿 Swamp:</strong> Water below Y: 129</p>
-                    <p><strong>❄️ Snow:</strong> Ice caves (~60%)</p>
+                    <p><strong>🌿 Swamp:</strong> Water below Y: 80</p>
+                    <p><strong>❄️ Snow:</strong> 100% ice caves</p>
                 </div>
 
                 <div class="feature-box">
                     <h3>🔥 Lava Distribution</h3>
-                    <p><strong>All Biomes:</strong> Lava pockets Y: 3-7</p>
-                    <p><strong>⛰️ Mountains Only:</strong> Lava lakes at Y &lt; 100</p>
-                    <p><em>~60% chance at Y=3, decreasing to ~40% at Y=7</em></p>
+                    <p><strong>All Biomes:</strong> Lava lakes Y: 2-10</p>
+                    <p><strong>⛰️ Mountains Only:</strong> Lava lakes up to Y: 75 (sea level)</p>
+                    <p><em>Noise-based pockets, more lava deeper down</em></p>
                 </div>
 
                 <div class="feature-box">
                     <h3>🎯 Key Depth Markers</h3>
-                    <p><strong>Y: 0-2:</strong> Bedrock (indestructible)</p>
-                    <p><strong>Y: 3-7:</strong> Lava pocket zone</p>
-                    <p><strong>Y: 8-99:</strong> Deep caves</p>
-                    <p><strong>Y: 100+:</strong> Mid/upper caves</p>
-                    <p><strong>Y: 124:</strong> Sea level</p>
+                    <p><strong>Y: 0:</strong> Bedrock (indestructible, single layer)</p>
+                    <p><strong>Y: 2-10:</strong> Lava lake zone (all biomes)</p>
+                    <p><strong>Y: 11-74:</strong> Deep caves</p>
+                    <p><strong>Y: 75+:</strong> Mid/upper caves</p>
+                    <p><strong>Y: 75:</strong> Sea level</p>
                 </div>
             </div>
         </div>
@@ -269,15 +269,15 @@ def generate_biome_content(biome_key):
     # Bedrock
     layers_html += '''
                 <div class="layer bedrock">
-                    <div class="layer-label">Bedrock Layer&nbsp;&nbsp;<span class="layer-details">(Y: 0-2)</span></div>
+                    <div class="layer-label">Bedrock Layer&nbsp;&nbsp;<span class="layer-details">(Y: 0)</span></div>
                 </div>
 '''
 
-    # Cave layers - All biomes have lava layer at Y: 3-7
-    # Lava pocket layer (Y: 3-7)
+    # Cave layers - All biomes have lava layer at Y: 2-10
+    # Lava lake layer (Y: 2-10)
     layers_html += '''
-                <div class="layer lava-caves" style="height: 40px;">
-                    <div class="layer-label">Lava Pockets&nbsp;&nbsp;<span class="layer-details">(Y: 3-7)</span></div>
+                <div class="layer lava-caves" style="height: 60px;">
+                    <div class="layer-label">Lava Lakes&nbsp;&nbsp;<span class="layer-details">(Y: 2-10)</span></div>
                     <div class="badge badge-orange">🔥 LAVA</div>
                 </div>
 '''
@@ -285,61 +285,57 @@ def generate_biome_content(biome_key):
     # Biome-specific cave layers
     if biome_key == "desert":
         layers_html += f'''
-                <div class="layer dry-caves" style="height: 200px;">
-                    <div class="layer-label">Deep Caves&nbsp;&nbsp;<span class="layer-details">(Y: 8-99)</span></div>
+                <div class="layer dry-caves" style="height: 130px;">
+                    <div class="layer-label">Deep Caves&nbsp;&nbsp;<span class="layer-details">(Y: 11-74)</span></div>
                     <div class="badge badge-green">{dry_badge}</div>
                 </div>
                 <div class="layer dry-caves" style="height: 120px;">
-                    <div class="layer-label">Mid Caves&nbsp;&nbsp;<span class="layer-details">(Y: 100-{biome["surface"]})</span></div>
+                    <div class="layer-label">Upper Caves&nbsp;&nbsp;<span class="layer-details">(Y: 75-{biome["surface"]})</span></div>
                     <div class="badge badge-green">{dry_badge}</div>
                 </div>
 '''
     elif biome_key == "mountains":
         layers_html += f'''
-                <div class="layer lava-caves" style="height: 100px;">
-                    <div class="layer-label">Deep Caves (Lava)&nbsp;&nbsp;<span class="layer-details">(Y: 8-99)</span></div>
-                    <div class="badge badge-orange">🔥 LAVA LAKES</div>
+                <div class="layer lava-caves" style="height: 130px;">
+                    <div class="layer-label">Deep Caves (Lava/Water)&nbsp;&nbsp;<span class="layer-details">(Y: 11-{SEA_LEVEL})</span></div>
+                    <div class="badge badge-orange">🔥 LAVA + 🌊 WATER</div>
                 </div>
-                <div class="layer water-caves" style="height: 100px;">
-                    <div class="layer-label">Mid Caves&nbsp;&nbsp;<span class="layer-details">(Y: 100-{SEA_LEVEL})</span></div>
-                    <div class="badge badge-red">{water_badge}</div>
-                </div>
-                <div class="layer dry-caves" style="height: 140px;">
-                    <div class="layer-label">Near-Surface Caves&nbsp;&nbsp;<span class="layer-details">(Y: {SEA_LEVEL+1}-{biome["surface"]})</span></div>
+                <div class="layer dry-caves" style="height: 180px;">
+                    <div class="layer-label">Upper Caves&nbsp;&nbsp;<span class="layer-details">(Y: {SEA_LEVEL+1}-{biome["surface"]})</span></div>
                     <div class="badge badge-green">{dry_badge}</div>
                 </div>
 '''
     elif biome_key == "swamp":
         layers_html += f'''
-                <div class="layer deep-caves" style="height: 200px;">
-                    <div class="layer-label">Deep Caves&nbsp;&nbsp;<span class="layer-details">(Y: 8-99)</span></div>
+                <div class="layer water-caves" style="height: 140px;">
+                    <div class="layer-label">Deep Flooded Caves&nbsp;&nbsp;<span class="layer-details">(Y: 11-{biome["water_fill"]})</span></div>
                     <div class="badge badge-red">{water_badge}</div>
                 </div>
-                <div class="layer water-caves" style="height: 120px;">
-                    <div class="layer-label">Mid Caves&nbsp;&nbsp;<span class="layer-details">(Y: 100-{biome["water_fill"]})</span></div>
-                    <div class="badge badge-red">{water_badge}</div>
+                <div class="layer dry-caves" style="height: 100px;">
+                    <div class="layer-label">Upper Caves&nbsp;&nbsp;<span class="layer-details">(Y: {biome["water_fill"]+1}-{biome["surface"]})</span></div>
+                    <div class="badge badge-green">{dry_badge}</div>
                 </div>
 '''
     elif biome_key == "grassland":
         layers_html += f'''
-                <div class="layer dry-caves" style="height: 200px;">
-                    <div class="layer-label">Deep Caves&nbsp;&nbsp;<span class="layer-details">(Y: 8-99)</span></div>
+                <div class="layer dry-caves" style="height: 130px;">
+                    <div class="layer-label">Deep Caves&nbsp;&nbsp;<span class="layer-details">(Y: 11-74)</span></div>
                     <div class="badge badge-green">{dry_badge}</div>
                 </div>
                 <div class="layer dry-caves" style="height: 120px;">
-                    <div class="layer-label">Mid Caves&nbsp;&nbsp;<span class="layer-details">(Y: 100-{biome["surface"]})</span></div>
+                    <div class="layer-label">Upper Caves&nbsp;&nbsp;<span class="layer-details">(Y: 75-{biome["surface"]})</span></div>
                     <div class="badge badge-green">{dry_badge}</div>
                 </div>
 '''
     elif biome_key == "snow":
         layers_html += f'''
-                <div class="layer dry-caves" style="height: 200px;">
-                    <div class="layer-label">Deep Ice Caves&nbsp;&nbsp;<span class="layer-details">(Y: 8-99)</span></div>
-                    <div class="badge badge-green">{dry_badge}</div>
+                <div class="layer dry-caves" style="height: 130px;">
+                    <div class="layer-label">Deep Ice Caves&nbsp;&nbsp;<span class="layer-details">(Y: 11-74)</span></div>
+                    <div class="badge badge-blue">❄️ 100% ICE</div>
                 </div>
-                <div class="layer dry-caves" style="height: 160px;">
-                    <div class="layer-label">Ice Caves&nbsp;&nbsp;<span class="layer-details">(Y: 100-{biome["surface"]})</span></div>
-                    <div class="badge badge-green">{dry_badge}</div>
+                <div class="layer dry-caves" style="height: 150px;">
+                    <div class="layer-label">Upper Ice Caves&nbsp;&nbsp;<span class="layer-details">(Y: 75-{biome["surface"]})</span></div>
+                    <div class="badge badge-blue">❄️ 100% ICE</div>
                 </div>
 '''
 

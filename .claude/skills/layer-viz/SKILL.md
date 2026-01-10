@@ -14,12 +14,12 @@ Generates a single interactive HTML file with tabs for all biomes.
 
 Creates `layer_viz.html` with interactive visualization showing:
 
-**Overview Tab (NEW):**
+**Overview Tab:**
 - 🌍 **Biome Distribution**: All biomes at-a-glance comparison
 - **Elevation Bar Chart**: Visual comparison of biome surface heights
-- **Cave Water Filling**: Complete reference for all biomes
-- **Lava Distribution**: Y: 3-7 pockets in all biomes, Y<100 lakes in mountains
-- **Key Depth Markers**: Important Y-levels (bedrock, lava zone, sea level)
+- **Cave Water Filling**: Complete reference for all biomes (water, ice, dry)
+- **Lava Distribution**: Y: 2-10 lakes in all biomes, Y: 2-75 in mountains
+- **Key Depth Markers**: Important Y-levels (bedrock Y:0, lava Y:2-10, sea level Y:75)
 
 **Layer Structure (Per-Biome):**
 - World height and layer structure (Y: 0-511)
@@ -41,13 +41,15 @@ Creates `layer_viz.html` with interactive visualization showing:
 - Hover effects on all layers and elevation bars
 - Biome-specific color coding
 
-## Biome Details (Updated)
+## Biome Details
 
-**Grassland** 🌱: Y: ~132, oak trees (8-12 tall), always dry caves, 125 blocks explorable
-**Mountains** ⛰️: Y: ~165, pine trees (12-18 tall), lava Y<100, water below Y: 124, 41 blocks dry caves
-**Desert** 🏜️: Y: ~130, sparse cacti, always dry - ALL caves explorable, 123 blocks
-**Swamp** 🌿: Y: ~129, willow trees (10-14 tall), heavily flooded below Y: 129, 0 blocks dry caves
-**Snow** ❄️: Y: ~148, sparse pines, ice caves (~60% ice-filled), 141 blocks explorable
+**Grassland** 🌱: Y: ~132, oak trees (8-12 tall), always dry caves, 122 blocks explorable (Y: 11-132)
+**Mountains** ⛰️: Y: ~165, pine trees (12-18 tall), lava/water Y: 11-75, dry Y: 76-165, 90 blocks dry caves
+**Desert** 🏜️: Y: ~130, sparse cacti, always dry - ALL caves explorable, 120 blocks (Y: 11-130)
+**Swamp** 🌿: Y: ~129, willow trees (10-14 tall), heavily flooded below Y: 80, 49 blocks dry caves
+**Snow** ❄️: Y: ~148, sparse pines, 100% ice caves throughout, 138 blocks ice-filled caves (Y: 11-148)
+
+**Universal:** Bedrock at Y: 0 (single unbreakable layer), lava lakes Y: 2-10 (all biomes, noise-based pockets)
 
 ---
 

@@ -24,8 +24,7 @@ pub struct ChunkGenerationResult {
 
 // Terrain generation constants
 /// Sea level for water filling (blocks below this in valleys become water)
-/// Raised to create more space for cave systems
-pub const SEA_LEVEL: i32 = 124;
+pub const SEA_LEVEL: i32 = 75;
 
 // Model IDs for ground cover
 const MODEL_TALL_GRASS: u8 = 100;
