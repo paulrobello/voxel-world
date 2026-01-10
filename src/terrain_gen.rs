@@ -726,8 +726,8 @@ fn generate_trees(
                 continue;
             }
 
-            // Don't spawn trees underwater (height at or below sea level means water surface)
-            if height <= SEA_LEVEL {
+            // Don't spawn trees underwater (only prevent if below sea level)
+            if height < SEA_LEVEL {
                 continue;
             }
 
