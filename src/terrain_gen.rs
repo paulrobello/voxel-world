@@ -1603,10 +1603,10 @@ fn generate_dead_tree(
     chunk_world_z: i32,
     overflow_blocks: &mut Vec<OverflowBlock>,
 ) {
-    // Check if there's solid ground below
+    // Check if there's solid ground below (ice counts as solid for snow biome trees)
     for check_y in (y.saturating_sub(2))..=y {
         if let Some(block) = get_block_safe(chunk, x, check_y, z) {
-            if !block.is_solid() {
+            if !block.is_solid() && block != BlockType::Ice {
                 return; // Don't place tree on air/water or above cave
             }
         } else {
@@ -1759,10 +1759,10 @@ fn generate_snow_pine(
     chunk_world_z: i32,
     overflow_blocks: &mut Vec<OverflowBlock>,
 ) {
-    // Check if there's solid ground below
+    // Check if there's solid ground below (ice counts as solid for snow biome trees)
     for check_y in (y.saturating_sub(2))..=y {
         if let Some(block) = get_block_safe(chunk, x, check_y, z) {
-            if !block.is_solid() {
+            if !block.is_solid() && block != BlockType::Ice {
                 return; // Don't place tree on air/water or above cave
             }
         } else {
