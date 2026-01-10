@@ -207,7 +207,8 @@ vec3 getBlockColor(uint blockType, vec3 local_hit, vec3 normal, uint stepped_axi
     } else if (blockType == BLOCK_LOG || blockType == BLOCK_PINE_LOG || blockType == BLOCK_WILLOW_LOG) {
         // Always use bark texture on all sides for natural branch appearance
         textureIndex = BLOCK_LOG;
-    } else if (blockType == BLOCK_PINE_LEAVES || blockType == BLOCK_WILLOW_LEAVES) {
+    } else if (blockType == BLOCK_WILLOW_LEAVES) {
+        // Willow leaves use regular leaves texture (pine leaves have their own texture)
         textureIndex = BLOCK_LEAVES;
     } else if (blockType == BLOCK_WATER) {
         vec2 animatedUV = getWaterUVAnimation(uv, worldPos, pc.animation_time);
