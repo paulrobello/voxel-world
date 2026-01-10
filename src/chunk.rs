@@ -122,6 +122,8 @@ pub enum BlockType {
     Cactus = 30,
     /// Decorative stone - polished stone with patterns for building.
     DecorativeStone = 31,
+    /// Concrete block - smooth manufactured gray material.
+    Concrete = 32,
 }
 
 /// Water types for enhanced water system.
@@ -370,6 +372,7 @@ impl BlockType {
             BlockType::Sandstone => [0.9, 0.8, 0.6], // Light tan
             BlockType::Cactus => [0.3, 0.6, 0.3],  // Green
             BlockType::DecorativeStone => [0.6, 0.6, 0.6], // Medium gray with patterns
+            BlockType::Concrete => [0.55, 0.55, 0.55], // Smooth gray
         }
     }
 
@@ -406,7 +409,8 @@ impl BlockType {
             | BlockType::Cobblestone
             | BlockType::Brick
             | BlockType::Sandstone
-            | BlockType::DecorativeStone => 0.8,
+            | BlockType::DecorativeStone
+            | BlockType::Concrete => 0.8,
             // Very slow
             BlockType::Iron => 1.2,
             // Emissive blocks (medium difficulty)
@@ -461,6 +465,7 @@ impl BlockType {
             "sandstone" => Some(BlockType::Sandstone),
             "cactus" => Some(BlockType::Cactus),
             "decorativestone" | "decorative_stone" | "decstone" => Some(BlockType::DecorativeStone),
+            "concrete" => Some(BlockType::Concrete),
             _ => None,
         }
     }
@@ -500,6 +505,7 @@ impl BlockType {
             "sandstone",
             "cactus",
             "decorativestone",
+            "concrete",
         ]
     }
 }
@@ -539,6 +545,7 @@ impl From<u8> for BlockType {
             29 => BlockType::Sandstone,
             30 => BlockType::Cactus,
             31 => BlockType::DecorativeStone,
+            32 => BlockType::Concrete,
             _ => BlockType::Air,
         }
     }

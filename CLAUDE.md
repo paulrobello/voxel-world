@@ -202,7 +202,7 @@ magick air_64x64.png stone_64x64.png dirt_64x64.png grass_64x64.png planks_64x64
   iron_64x64.png bedrock_64x64.png grass_side_64x64.png log_top_64x64.png \
   lava_64x64.png glowstone_64x64.png glowmushroom_64x64.png crystal_64x64.png \
   cactus_64x64.png mud_64x64.png sandstone_64x64.png ice_64x64.png pine_leaves_64x64.png \
-  decorative_stone_64x64.png willow_leaves_64x64.png \
+  decorative_stone_64x64.png willow_leaves_64x64.png concrete_64x64.png \
   +append texture_atlas.png
 ```
 9. Update `blockTypeToAtlasIndex()` function in `shaders/materials.glsl` if needed
@@ -244,7 +244,7 @@ BlockType enum in `chunk.rs` must match constants in `common.glsl`:
 8=Water, 9=Glass, 10=Log, 11=Model, 12=Brick, 13=Snow, 14=Cobblestone, 15=Iron, 16=Bedrock,
 17=TintedGlass, 18=Painted, 19=Lava, 20=GlowStone, 21=GlowMushroom, 22=Crystal,
 23=PineLog, 24=WillowLog, 25=PineLeaves, 26=WillowLeaves, 27=Ice,
-28=Mud, 29=Sandstone, 30=Cactus, 31=DecorativeStone
+28=Mud, 29=Sandstone, 30=Cactus, 31=DecorativeStone, 32=Concrete
 ```
 
 **Texture Atlas Mapping:**
@@ -294,6 +294,6 @@ Models support three resolutions (8³, 16³, 32³) with 32-color palettes and pe
 - `CHUNK_SIZE = 32` (chunk.rs)
 - `BRICK_SIZE = 8` (svt.rs)
 - `ModelResolution::Low/Medium/High` = 8/16/32 (sub_voxel.rs)
-- `ATLAS_TILE_COUNT = 23.0` (materials.glsl)
+- `ATLAS_TILE_COUNT = 31.0` (materials.glsl)
 - World: 16x16x16 chunks loaded = 512x512x512 blocks (Y bounded 0-511, X/Z infinite via streaming)
 - View distance: 6 chunks
