@@ -137,9 +137,9 @@ fn parse_biome(name: &str) -> Option<BiomeType> {
 fn parse_range(arg: Option<&&str>) -> Result<i32, CommandResult> {
     match arg {
         Some(s) => match s.parse::<i32>() {
-            Ok(r) if r > 0 && r <= 16384 => Ok(r),
+            Ok(r) if r > 0 && r <= 1_000_000 => Ok(r),
             Ok(_) => Err(CommandResult::Error(
-                "Range must be between 1 and 16384 blocks".to_string(),
+                "Range must be between 1 and 1,000,000 blocks".to_string(),
             )),
             Err(_) => Err(CommandResult::Error(format!("Invalid range: '{}'", s))),
         },

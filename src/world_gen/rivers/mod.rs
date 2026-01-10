@@ -91,27 +91,28 @@ impl RiverGenerator {
     }
 
     /// Get the river detection threshold for a biome.
+    /// Lower threshold = more rivers. Ridged noise peaks around 0.7-1.0.
     fn get_river_threshold(&self, biome: BiomeType) -> f64 {
         #[allow(deprecated)]
         match biome {
             // Desert has very few rivers (oases only)
-            BiomeType::Desert => 0.95,
+            BiomeType::Desert => 0.85,
             // Ocean doesn't have surface rivers
             BiomeType::Ocean => 2.0, // Never generate (ridged noise max is ~1.0)
             // Beach has minimal rivers
-            BiomeType::Beach => 0.92,
+            BiomeType::Beach => 0.80,
             // Mountains have mountain streams
-            BiomeType::Mountains => 0.80,
-            // Swamp is already wet, fewer distinct rivers
-            BiomeType::Swamp => 0.88,
+            BiomeType::Mountains => 0.65,
+            // Swamp has some rivers flowing through
+            BiomeType::Swamp => 0.72,
             // Jungle has many rivers
-            BiomeType::Jungle => 0.78,
+            BiomeType::Jungle => 0.60,
             // Snowy biomes have frozen rivers
-            BiomeType::SnowyPlains | BiomeType::SnowyTaiga | BiomeType::Snow => 0.85,
+            BiomeType::SnowyPlains | BiomeType::SnowyTaiga | BiomeType::Snow => 0.70,
             // Underground biomes don't have surface rivers
             BiomeType::LushCaves | BiomeType::DripstoneCaves | BiomeType::DeepDark => 2.0,
-            // Default threshold for most biomes
-            _ => 0.82,
+            // Default threshold for most biomes - lowered for more rivers
+            _ => 0.68,
         }
     }
 

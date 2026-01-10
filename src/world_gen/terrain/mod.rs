@@ -164,8 +164,13 @@ impl TerrainGenerator {
             return BiomeType::Savanna;
         }
 
-        // Warm wet = Swamp (flat terrain required)
-        if is_warm && is_very_wet && is_flat {
+        // Swamp - warm wet areas with flat terrain
+        // Relaxed criteria: warm + wet + flat, or warm + very wet
+        if is_warm && is_wet && is_flat {
+            return BiomeType::Swamp;
+        }
+        // Very wet areas at warm temps become swamps even if not perfectly flat
+        if is_warm && is_very_wet && !is_mountainous {
             return BiomeType::Swamp;
         }
 
