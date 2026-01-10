@@ -18,8 +18,39 @@ pub fn create_initial_world_with_seed(
     world_gen_type: WorldGenType,
     storage: Option<&storage::worker::StorageSystem>,
 ) -> World {
+    use std::io::{Write, stdout};
+    use std::time::Instant;
+
+    let start_time = Instant::now();
     let mut world = World::new();
+
+    println!(
+        "[World Gen] Initializing terrain generator (seed: {})...",
+        seed
+    );
     let terrain = TerrainGenerator::new(seed);
+
+    // Count total columns to generate (for progress)
+    let mut total_columns = 0;
+    for dx in -VIEW_DISTANCE..=VIEW_DISTANCE {
+        for dz in -VIEW_DISTANCE..=VIEW_DISTANCE {
+            let dist_sq = dx * dx + dz * dz;
+            if dist_sq <= VIEW_DISTANCE * VIEW_DISTANCE {
+                total_columns += 1;
+            }
+        }
+    }
+    let total_chunks = total_columns * WORLD_CHUNKS_Y;
+
+    println!(
+        "[World Gen] Generating {} chunks ({} columns × {} Y levels)...",
+        total_chunks, total_columns, WORLD_CHUNKS_Y
+    );
+
+    let mut chunks_generated = 0;
+    let mut chunks_loaded = 0;
+    let mut columns_processed = 0;
+    let progress_interval = (total_columns / 10).max(1); // Report every ~10%
 
     // Load chunks within horizontal view distance, all Y levels
     // Uses circular distance to match runtime loading behavior
@@ -48,6 +79,7 @@ pub fn create_initial_world_with_seed(
                         chunk.persistence_dirty = false;
                         world.insert_chunk(chunk_pos, chunk);
                         loaded = true;
+                        chunks_loaded += 1;
                     }
                 }
 
@@ -59,12 +91,35 @@ pub fn create_initial_world_with_seed(
 
                     // Insert chunk into world (will also apply any pending overflow for this chunk)
                     world.insert_chunk(chunk_pos, result.chunk);
+                    chunks_generated += 1;
                 }
+            }
+
+            columns_processed += 1;
+
+            // Show progress every ~10%
+            if columns_processed % progress_interval == 0 || columns_processed == total_columns {
+                let percent = (columns_processed * 100) / total_columns;
+                print!(
+                    "\r[World Gen] Progress: {}% ({}/{} columns)",
+                    percent, columns_processed, total_columns
+                );
+                let _ = stdout().flush();
             }
         }
     }
 
-    println!("Initial world created with {} chunks", world.chunk_count());
+    println!(); // New line after progress
+
+    let elapsed = start_time.elapsed();
+    println!(
+        "[World Gen] Complete! {} chunks in {:.2}s ({} generated, {} loaded from storage)",
+        world.chunk_count(),
+        elapsed.as_secs_f32(),
+        chunks_generated,
+        chunks_loaded
+    );
+
     world
 }
 
