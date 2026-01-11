@@ -144,10 +144,10 @@ impl Default for Settings {
             enable_tinted_shadows: true,
             hide_ground_cover: false,
 
-            lod_ao_distance: 64.0,
-            lod_shadow_distance: 48.0,
+            lod_ao_distance: 128.0,
+            lod_shadow_distance: 64.0,
             lod_point_light_distance: 20.0,
-            lod_model_distance: 32.0,
+            lod_model_distance: 64.0,
 
             max_ray_steps: 256,
             shadow_max_steps: 128,

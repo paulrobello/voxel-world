@@ -415,7 +415,7 @@ impl SettingsUI {
                                 ui.label("Models:");
                                 if ui
                                     .add(
-                                        egui::Slider::new(&mut settings.lod_model_distance, 8.0..=64.0)
+                                        egui::Slider::new(&mut settings.lod_model_distance, 8.0..=128.0)
                                             .suffix(" blocks"),
                                     )
                                     .changed()
