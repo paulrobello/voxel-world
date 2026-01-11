@@ -67,15 +67,16 @@ impl RiverGenerator {
         let z = world_z as f64;
 
         // Main rivers: detect edges in low-frequency region noise
-        // Scale creates large patches (~200 blocks across)
-        let main_scale = 0.005;
+        // Scale creates medium-sized patches (~100 blocks across)
+        // Higher scale = smaller patches = more river boundaries
+        let main_scale = 0.008;
         let main_gradient = self.calculate_gradient(x, z, main_scale, &self.region_noise);
 
         // Rivers form where gradient is HIGH (at region boundaries)
         // gradient_threshold controls how "sharp" the boundary needs to be
         if main_gradient > gradient_threshold {
             // Stronger gradient = more centered in river
-            let river_strength = ((main_gradient - gradient_threshold) / 0.02).clamp(0.0, 1.0);
+            let river_strength = ((main_gradient - gradient_threshold) / 0.3).clamp(0.0, 1.0);
             let base_width = self.calculate_river_width(world_x, world_z, terrain_height, true);
             let depth = (base_width * 0.6).clamp(3.0, 6.0) as i32;
 
@@ -88,14 +89,13 @@ impl RiverGenerator {
         }
 
         // Tributary rivers: higher frequency noise creates smaller stream networks
-        let tributary_scale = 0.012;
+        let tributary_scale = 0.015;
         let tributary_gradient =
             self.calculate_gradient(x, z, tributary_scale, &self.tributary_region_noise);
-        let tributary_threshold = gradient_threshold * 1.2; // Slightly higher threshold
+        let tributary_threshold = gradient_threshold * 1.2; // Slightly higher threshold than main
 
         if tributary_gradient > tributary_threshold {
-            let river_strength =
-                ((tributary_gradient - tributary_threshold) / 0.02).clamp(0.0, 1.0);
+            let river_strength = ((tributary_gradient - tributary_threshold) / 0.3).clamp(0.0, 1.0);
             let base_width = self.calculate_river_width(world_x, world_z, terrain_height, false);
             let depth = (base_width * 0.5).clamp(2.0, 4.0) as i32;
 
@@ -118,15 +118,17 @@ impl RiverGenerator {
     /// High gradient = boundary between noise regions = river location.
     fn calculate_gradient(&self, x: f64, z: f64, scale: f64, noise: &Perlin) -> f64 {
         // Sample noise at 4 neighbors to compute gradient
-        let sample_dist = 2.0; // Distance for gradient calculation
+        // Larger sample distance = detect larger-scale boundaries
+        let sample_dist = 8.0;
         let north = noise.get([x * scale, (z - sample_dist) * scale]);
         let south = noise.get([x * scale, (z + sample_dist) * scale]);
         let west = noise.get([(x - sample_dist) * scale, z * scale]);
         let east = noise.get([(x + sample_dist) * scale, z * scale]);
 
         // Calculate gradient components (rate of change in x and z)
-        let grad_x = (east - west) / (2.0 * sample_dist);
-        let grad_z = (south - north) / (2.0 * sample_dist);
+        // Don't divide by distance - we want raw difference for threshold comparison
+        let grad_x = east - west;
+        let grad_z = south - north;
 
         // Return gradient magnitude
         (grad_x * grad_x + grad_z * grad_z).sqrt()
@@ -135,27 +137,28 @@ impl RiverGenerator {
     /// Get river parameters for a biome.
     /// Returns (gradient_threshold, enabled).
     /// Lower threshold = more rivers (easier to trigger at boundaries).
+    /// Thresholds are compared against raw noise gradient (typically 0.0-1.5 range).
     fn get_river_params(&self, biome: BiomeType) -> (f64, bool) {
         #[allow(deprecated)]
         match biome {
             // Desert has very rare rivers (high threshold = hard to trigger)
-            BiomeType::Desert => (0.025, true),
+            BiomeType::Desert => (0.8, true),
             // Ocean doesn't have surface rivers
             BiomeType::Ocean => (0.0, false),
             // Beach has minimal rivers
-            BiomeType::Beach => (0.022, true),
+            BiomeType::Beach => (0.7, true),
             // Mountains have streams (moderate threshold)
-            BiomeType::Mountains => (0.015, true),
+            BiomeType::Mountains => (0.5, true),
             // Swamp has rivers
-            BiomeType::Swamp => (0.012, true),
+            BiomeType::Swamp => (0.4, true),
             // Jungle has many rivers (low threshold = easy to trigger)
-            BiomeType::Jungle => (0.008, true),
+            BiomeType::Jungle => (0.3, true),
             // Snowy biomes have rivers
-            BiomeType::SnowyPlains | BiomeType::SnowyTaiga | BiomeType::Snow => (0.015, true),
+            BiomeType::SnowyPlains | BiomeType::SnowyTaiga | BiomeType::Snow => (0.5, true),
             // Underground biomes don't have surface rivers
             BiomeType::LushCaves | BiomeType::DripstoneCaves | BiomeType::DeepDark => (0.0, false),
             // Default: moderate rivers
-            _ => (0.012, true),
+            _ => (0.4, true),
         }
     }
 

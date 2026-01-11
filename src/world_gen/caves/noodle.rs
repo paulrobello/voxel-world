@@ -66,10 +66,11 @@ impl NoodleCaves {
             .noise2
             .get([x * 0.1 + 500.0, y * 0.12, z * 0.1 + 500.0]);
 
-        // Tight threshold for narrow tunnels
-        let threshold = 0.018;
+        // Threshold for narrow tunnels - must be low enough to create fine network
+        // but high enough to actually generate some caves
+        let threshold = 0.045;
 
-        // Both noise values must be very close to zero
+        // Both noise values must be close to zero
         n1.abs() < threshold && n2.abs() < threshold
     }
 

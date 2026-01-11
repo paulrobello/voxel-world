@@ -68,9 +68,11 @@ impl SpaghettiCaves {
         let depth_bonus = depth_factor * 0.01;
 
         // Base threshold with density variation
-        let threshold = 0.035 - (density * 0.015) - depth_bonus;
+        // Higher threshold = more caves (easier to pass intersection test)
+        let threshold = 0.08 - (density * 0.02) - depth_bonus;
 
         // Intersection: both noise values must be close to zero
+        // Use looser threshold for more cave coverage
         n1.abs() < threshold && n2.abs() < threshold
     }
 
@@ -112,7 +114,7 @@ impl SpaghettiCaves {
 
         let density = self.density_noise.get([x * 0.01, z * 0.01]) * 0.5 + 0.5;
         let depth_factor = ((surface_height - world_y) as f64 / 50.0).clamp(0.0, 1.0);
-        let threshold = 0.035 - (density * 0.015) - (depth_factor * 0.01);
+        let threshold = 0.08 - (density * 0.02) - (depth_factor * 0.01);
 
         n1.abs() < threshold && n2.abs() < threshold
     }

@@ -54,9 +54,9 @@ impl CheeseCaves {
         // Stretched vertically for taller caverns
         let noise_value = self.primary_noise.get([x * 0.02, y * 0.015, z * 0.02]);
 
-        // High threshold means only strong peaks become caves
-        // This creates isolated large caverns
-        if noise_value > 0.62 {
+        // Moderate threshold for regular cavern occurrence
+        // Lower threshold = more caverns
+        if noise_value > 0.45 {
             // Check pillar preservation - prevent carving in pillar regions
             // This creates natural stone pillars inside large caverns
             let pillar_value = self.pillar_noise.get([x * 0.08, y * 0.04, z * 0.08]);

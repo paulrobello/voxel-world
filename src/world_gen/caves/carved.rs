@@ -86,7 +86,8 @@ impl CarvedCaves {
         let presence = self.carver_presence.get([x * 0.03, y * 0.05, z * 0.03]);
 
         // Only carve in regions where presence is high enough
-        if presence < 0.55 {
+        // Lower threshold = more carved tunnels
+        if presence < 0.40 {
             return false;
         }
 
