@@ -390,7 +390,21 @@ impl App {
         let max_chunk = vector![i32::MAX, WORLD_CHUNKS_Y - 1, i32::MAX];
 
         // === STEP 1: Receive completed chunks from background threads ===
-        let completed = self.sim.chunk_loader.receive_chunks();
+        let mut completed = self.sim.chunk_loader.receive_chunks();
+
+        // Sort completed chunks by distance to player (closer chunks processed first)
+        // This ensures nearby chunks become visible before distant chunks, even when
+        // workers complete chunks out of request order (due to varying terrain complexity)
+        completed.sort_by(|a, b| {
+            let dist_sq_a = (a.position.x - player_chunk.x).pow(2)
+                + (a.position.y - player_chunk.y).pow(2)
+                + (a.position.z - player_chunk.z).pow(2);
+            let dist_sq_b = (b.position.x - player_chunk.x).pow(2)
+                + (b.position.y - player_chunk.y).pow(2)
+                + (b.position.z - player_chunk.z).pow(2);
+            dist_sq_a.cmp(&dist_sq_b)
+        });
+
         let mut chunks_to_upload: Vec<(Vector3<i32>, Vec<u8>, Vec<u8>)> = Vec::new();
         let mut loaded = 0;
 
