@@ -277,10 +277,12 @@ impl World {
                 let dot = cx * vx + cz * vz;
 
                 // Convert to multiplier:
-                // - Looking at chunk (dot=1): multiply by 0.5 (higher priority)
+                // - Looking at chunk (dot=1): multiply by 0.9 (slightly higher priority)
                 // - Perpendicular (dot=0): multiply by 1.0 (normal priority)
-                // - Looking away (dot=-1): multiply by 2.0 (lower priority)
-                let dir_multiplier = 1.25 - dot * 0.75;
+                // - Looking away (dot=-1): multiply by 1.1 (slightly lower priority)
+                // Keep the adjustment small so distance remains the dominant factor.
+                // This ensures nearby chunks always load before distant ones.
+                let dir_multiplier = 1.0 - dot * 0.1;
                 score *= dir_multiplier;
             }
         }
