@@ -23,12 +23,13 @@ pub fn locate(
 ) -> CommandResult {
     if args.is_empty() {
         return CommandResult::Error(
-            "Usage: locate <biome|block|cave> [range] [tp]\n\
+            "Usage: locate <biome|block|cave|river> [range] [tp]\n\
              Biomes: plains, forest, darkforest, birchforest, taiga, snowyplains,\n\
                      snowytaiga, desert, savanna, swamp, mountains, meadow, jungle,\n\
                      ocean, beach\n\
              Blocks: stone, dirt, water, lava, etc.\n\
              Cave: locate cave [min_size] [range] [tp]\n\
+             River: locate river [range] [tp]\n\
              tp flag: teleport to location when found"
                 .to_string(),
         );
@@ -76,6 +77,15 @@ pub fn locate(
             Err(e) => return e,
         };
         return start_locate_cave(player_pos, min_size, range, teleport);
+    }
+
+    // Special handling for river search
+    if search_term == "river" || search_term == "rivers" {
+        let range = match parse_range(filtered_args.get(1)) {
+            Ok(r) => r,
+            Err(e) => return e,
+        };
+        return start_locate_river(player_pos, range, teleport);
     }
 
     // Try to parse as block type
@@ -222,6 +232,26 @@ fn start_locate_cave(
         min_distance: i32::MAX,
         positions_checked: 0,
         positions_per_frame: 50, // Check 50 positions per frame for cave searches
+        relevant_biomes_found: 0,
+        teleport_on_find: teleport,
+    })
+}
+
+/// Start an asynchronous river search
+fn start_locate_river(player_pos: Vector3<i32>, max_range: i32, teleport: bool) -> CommandResult {
+    let step = 8i32;
+    CommandResult::StartLocateSearch(PendingLocateSearch {
+        search_type: LocateSearchType::River,
+        player_pos,
+        max_range,
+        current_radius: step,
+        step,
+        y_offset: 0,
+        y_dir: -1,
+        best_match: None,
+        min_distance: i32::MAX,
+        positions_checked: 0,
+        positions_per_frame: 200, // Rivers are surface features, check faster
         relevant_biomes_found: 0,
         teleport_on_find: teleport,
     })

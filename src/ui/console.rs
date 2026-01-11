@@ -65,6 +65,12 @@ impl ConsoleUI {
                                     size, search.positions_checked
                                 )
                             }
+                            crate::console::LocateSearchType::River => {
+                                format!(
+                                    "Searching for river... ({} positions checked)",
+                                    search.positions_checked
+                                )
+                            }
                         };
                         console.info(search_msg);
                     }
@@ -112,6 +118,12 @@ impl ConsoleUI {
                             format!(
                                 "Searching for cave (min {} blocks)... ({} positions checked)",
                                 size, search.positions_checked
+                            )
+                        }
+                        crate::console::LocateSearchType::River => {
+                            format!(
+                                "Searching for river... ({} positions checked)",
+                                search.positions_checked
                             )
                         }
                     };

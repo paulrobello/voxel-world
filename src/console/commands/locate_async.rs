@@ -34,6 +34,7 @@ pub fn update_locate_search(
         LocateSearchType::Cave(min_size) => {
             update_cave_search(search, *min_size, world, &mut positions_this_frame)
         }
+        LocateSearchType::River => update_river_search(search, terrain, &mut positions_this_frame),
     }
 }
 
@@ -550,6 +551,133 @@ fn update_cave_search(
     Some(CommandResult::Error(format!(
         "Could not find cave (min {} blocks) within {} blocks (checked {} positions)",
         min_size, search.max_range, search.positions_checked
+    )))
+}
+
+/// Update river search for one frame.
+/// Uses terrain generator's river detection to find rivers without needing loaded chunks.
+fn update_river_search(
+    search: &mut PendingLocateSearch,
+    terrain: &TerrainGenerator,
+    positions_this_frame: &mut usize,
+) -> Option<CommandResult> {
+    let start_x = search.player_pos.x;
+    let start_z = search.player_pos.z;
+    let step = search.step;
+    let step_usize = step as usize;
+
+    // Search in spiral pattern (2D surface search)
+    while search.current_radius <= search.max_range {
+        let radius = search.current_radius;
+
+        // Safety check: if radius exceeds max_range, stop
+        if radius > search.max_range {
+            break;
+        }
+
+        // Generate positions for this radius
+        let positions = [
+            (-radius..=radius)
+                .step_by(step_usize)
+                .map(|x| (start_x + x, start_z - radius))
+                .collect::<Vec<_>>(),
+            (-radius..=radius)
+                .step_by(step_usize)
+                .map(|z| (start_x + radius, start_z + z))
+                .collect::<Vec<_>>(),
+            (-radius..=radius)
+                .step_by(step_usize)
+                .map(|x| (start_x - x, start_z + radius))
+                .collect::<Vec<_>>(),
+            (-radius..=radius)
+                .step_by(step_usize)
+                .map(|z| (start_x - radius, start_z - z))
+                .collect::<Vec<_>>(),
+        ]
+        .concat();
+
+        // Check positions for this frame
+        for (x, z) in positions {
+            if *positions_this_frame >= search.positions_per_frame {
+                // Move to next radius before yielding
+                search.current_radius += step;
+                return None; // Continue next frame
+            }
+
+            search.positions_checked += 1;
+            *positions_this_frame += 1;
+
+            // Get terrain info to check for river
+            let height = terrain.get_height(x, z);
+            let biome = terrain.get_biome(x, z);
+
+            // Use river generator to check if this is a river location
+            if let Some(river_info) = terrain.river_generator().get_river_at(x, z, height, biome) {
+                let dx = x - start_x;
+                let dz = z - start_z;
+                let distance = (dx * dx + dz * dz).abs();
+
+                if distance < search.min_distance {
+                    search.min_distance = distance;
+                    // Store river type in the second element (reusing cave size field)
+                    let river_type_id = match river_info.river_type {
+                        crate::world_gen::rivers::RiverType::MainRiver => 1,
+                        crate::world_gen::rivers::RiverType::Tributary => 2,
+                        crate::world_gen::rivers::RiverType::MountainStream => 3,
+                    };
+                    search.best_match = Some((Vector3::new(x, height, z), river_type_id));
+                }
+            }
+        }
+
+        // If we found something, return it
+        if search.best_match.is_some() {
+            let (pos, river_type_id) = search.best_match.unwrap();
+            let distance = ((search.min_distance as f64).sqrt()) as i32;
+            let dx = pos.x - start_x;
+            let dz = pos.z - start_z;
+
+            let direction = if dx.abs() > dz.abs() {
+                if dx > 0 { "east" } else { "west" }
+            } else if dz > 0 {
+                "south"
+            } else {
+                "north"
+            };
+
+            let river_type_name = match river_type_id {
+                1 => "Main River",
+                2 => "Tributary",
+                3 => "Mountain Stream",
+                _ => "River",
+            };
+
+            return Some(if search.teleport_on_find {
+                CommandResult::Teleport {
+                    x: pos.x as f64 + 0.5,
+                    y: pos.y as f64 + 1.0, // Teleport above water
+                    z: pos.z as f64 + 0.5,
+                }
+            } else {
+                CommandResult::LocateBiome {
+                    biome_name: river_type_name.to_string(),
+                    x: pos.x,
+                    y: pos.y,
+                    z: pos.z,
+                    distance,
+                    direction: direction.to_string(),
+                }
+            });
+        }
+
+        // Move to next radius
+        search.current_radius += step;
+    }
+
+    // Search complete, not found
+    Some(CommandResult::Error(format!(
+        "Could not find river within {} blocks (checked {} positions)",
+        search.max_range, search.positions_checked
     )))
 }
 

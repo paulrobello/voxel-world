@@ -117,6 +117,8 @@ pub enum LocateSearchType {
     Block(crate::chunk::BlockType),
     /// Searching for a cave of minimum size.
     Cave(usize),
+    /// Searching for a river.
+    River,
 }
 
 /// Pending locate search state for frame-distributed searching.
@@ -894,6 +896,7 @@ impl ConsoleState {
                     LocateSearchType::Biome(biome) => format!("{:?} biome", biome),
                     LocateSearchType::Block(block) => format!("{:?} block", block),
                     LocateSearchType::Cave(size) => format!("cave (min {} blocks)", size),
+                    LocateSearchType::River => "river".to_string(),
                 };
                 self.info(format!("Searching for {}...", search_name));
                 self.pending_locate_search = Some(search);
