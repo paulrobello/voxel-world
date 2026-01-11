@@ -452,42 +452,81 @@ impl TerrainGenerator {
         let at_boundary = neighbors.iter().any(|&b| b != center_biome);
 
         let base_terrain_height = if !at_boundary {
+            // Not at boundary - use center biome height directly
             let height = self.calculate_biome_height(center_biome, &climate, base, ridges, detail);
             height.round() as i32
         } else {
-            // At a boundary - calculate weighted blend
-            // Use the center climate for consistency (climate changes more gradually than biomes)
-            const BLEND_SAMPLES: i32 = 3;
+            // At a boundary - find nearest different biome and interpolate
+            // This simpler approach avoids issues with noise values from wrong biomes
+            const BLEND_RADIUS: i32 = 8;
 
-            // Accumulate weighted heights for smooth blending
-            let mut total_weight = 0.0f64;
-            let mut weighted_height_sum = 0.0f64;
+            // Find the nearest different biome and its position
+            let mut min_distance = f64::MAX;
+            let mut nearest_biome = center_biome;
+            let mut nearest_dx = 0i32;
+            let mut nearest_dz = 0i32;
 
-            for dx in -BLEND_SAMPLES..=BLEND_SAMPLES {
-                for dz in -BLEND_SAMPLES..=BLEND_SAMPLES {
+            for dx in -BLEND_RADIUS..=BLEND_RADIUS {
+                for dz in -BLEND_RADIUS..=BLEND_RADIUS {
+                    if dx == 0 && dz == 0 {
+                        continue;
+                    }
                     let sample_biome = self.get_biome(world_x + dx, world_z + dz);
-                    let dist = ((dx * dx + dz * dz) as f64).sqrt();
-                    let weight = if dist > 0.0 { 1.0 / dist } else { 4.0 };
-
-                    // Use the climate at the sample point for accurate blending
-                    let sample_climate = self
-                        .climate_generator
-                        .get_climate_2d(world_x + dx, world_z + dz);
-                    let height = self.calculate_biome_height(
-                        sample_biome,
-                        &sample_climate,
-                        base,
-                        ridges,
-                        detail,
-                    );
-
-                    // Properly accumulate weighted heights
-                    total_weight += weight;
-                    weighted_height_sum += weight * height;
+                    if sample_biome != center_biome {
+                        let dist = ((dx * dx + dz * dz) as f64).sqrt();
+                        if dist < min_distance {
+                            min_distance = dist;
+                            nearest_biome = sample_biome;
+                            nearest_dx = dx;
+                            nearest_dz = dz;
+                        }
+                    }
                 }
             }
 
-            let blended_height = weighted_height_sum / total_weight;
+            // Calculate heights for center biome and nearest different biome
+            let center_height =
+                self.calculate_biome_height(center_biome, &climate, base, ridges, detail);
+
+            // For neighbor biome, sample noise at the position where we found it
+            // This ensures mountains use mountain-appropriate noise values
+            let neighbor_height = if nearest_biome != center_biome {
+                let neighbor_x = world_x + nearest_dx;
+                let neighbor_z = world_z + nearest_dz;
+
+                let neighbor_climate = self
+                    .climate_generator
+                    .get_climate_2d(neighbor_x, neighbor_z);
+                let neighbor_base = self
+                    .height_noise
+                    .get([neighbor_x as f64, neighbor_z as f64]);
+                let neighbor_ridges = self
+                    .mountain_noise
+                    .get([neighbor_x as f64, neighbor_z as f64]);
+                let neighbor_detail = self
+                    .detail_noise
+                    .get([neighbor_x as f64 * 0.02, neighbor_z as f64 * 0.02]);
+
+                self.calculate_biome_height(
+                    nearest_biome,
+                    &neighbor_climate,
+                    neighbor_base,
+                    neighbor_ridges,
+                    neighbor_detail,
+                )
+            } else {
+                center_height
+            };
+
+            // Blend factor: 0.0 = fully center, 1.0 = fully neighbor
+            let blend_factor = (1.0 - (min_distance / BLEND_RADIUS as f64)).clamp(0.0, 1.0);
+
+            // Smoothstep for natural transition
+            let smooth_blend = blend_factor * blend_factor * (3.0 - 2.0 * blend_factor);
+
+            // Interpolate between the two heights
+            let blended_height =
+                center_height * (1.0 - smooth_blend) + neighbor_height * smooth_blend;
 
             blended_height.round() as i32
         };
