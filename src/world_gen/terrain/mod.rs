@@ -493,14 +493,20 @@ impl TerrainGenerator {
         };
 
         // Apply river carving if a river exists at this position
-        if let Some(river_info) =
-            self.river_generator
-                .get_river_at(world_x, world_z, base_terrain_height, center_biome)
-        {
-            let carve_depth =
-                self.river_generator
-                    .get_height_modification(world_x, world_z, &river_info);
-            return base_terrain_height - carve_depth;
+        // Only carve on relatively flat terrain to prevent rivers on slopes
+        let slope = self.calculate_slope(world_x, world_z);
+        if slope <= 0.5 {
+            if let Some(river_info) = self.river_generator.get_river_at(
+                world_x,
+                world_z,
+                base_terrain_height,
+                center_biome,
+            ) {
+                let carve_depth =
+                    self.river_generator
+                        .get_height_modification(world_x, world_z, &river_info);
+                return base_terrain_height - carve_depth;
+            }
         }
 
         base_terrain_height
@@ -513,6 +519,15 @@ impl TerrainGenerator {
     pub fn get_river_water_level(&self, world_x: i32, world_z: i32) -> Option<i32> {
         let base_height = self.get_base_height(world_x, world_z);
         let biome = self.get_biome(world_x, world_z);
+
+        // Check slope - rivers shouldn't form on steep terrain
+        // Use a low threshold to prevent water appearing on hillsides
+        let slope = self.calculate_slope(world_x, world_z);
+        if slope > 0.5 {
+            // Too steep for a river (more than 0.5 blocks height change per block)
+            // This ensures rivers only form in valleys and flat areas
+            return None;
+        }
 
         if let Some(river_info) =
             self.river_generator
@@ -528,6 +543,29 @@ impl TerrainGenerator {
         } else {
             None
         }
+    }
+
+    /// Calculate the local terrain slope at a position.
+    /// Returns the maximum height difference per block in any cardinal direction.
+    fn calculate_slope(&self, world_x: i32, world_z: i32) -> f64 {
+        let center_height = self.get_base_height(world_x, world_z) as f64;
+
+        // Sample heights in cardinal directions (2 blocks away for smoother detection)
+        let sample_dist = 2;
+        let heights = [
+            self.get_base_height(world_x + sample_dist, world_z) as f64,
+            self.get_base_height(world_x - sample_dist, world_z) as f64,
+            self.get_base_height(world_x, world_z + sample_dist) as f64,
+            self.get_base_height(world_x, world_z - sample_dist) as f64,
+        ];
+
+        // Calculate maximum slope (height change per block)
+        let max_diff = heights
+            .iter()
+            .map(|h| (h - center_height).abs())
+            .fold(0.0f64, |a, b| a.max(b));
+
+        max_diff / sample_dist as f64
     }
 
     /// Simple hash for placement randomness
