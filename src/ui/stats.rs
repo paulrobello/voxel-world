@@ -53,7 +53,7 @@ impl StatsUI {
                         egui::Color32::DARK_GRAY
                     };
                     ui.label(
-                        egui::RichText::new(format!("Generating: {}", chunk_stats.in_flight_count))
+                        egui::RichText::new(format!("Loading: {}", chunk_stats.in_flight_count))
                             .color(gen_color)
                             .small(),
                     );
