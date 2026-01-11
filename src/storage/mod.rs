@@ -7,6 +7,7 @@ pub mod worker;
 
 pub use crate::chunk::Chunk;
 pub use format::{BlockMeta, FORMAT_VERSION, PaintMeta, SerializedChunk, TintMeta};
+pub use worker::ParallelStorageReader;
 
 use crate::chunk::{BlockType, CHUNK_VOLUME};
 

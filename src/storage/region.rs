@@ -99,11 +99,6 @@ impl RegionFile {
             return Ok(None);
         }
 
-        println!(
-            "[Region] Reading chunk ({}, {}, {}) from sector {} (count {})",
-            x, y, z, offset_sectors, sector_count
-        );
-
         self.file
             .seek(SeekFrom::Start(offset_sectors * SECTOR_SIZE as u64))?;
 

@@ -6,11 +6,12 @@
 use crossbeam_channel::{Receiver, Sender, TryRecvError, bounded, unbounded};
 use nalgebra::Vector3;
 use std::collections::HashSet;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 
 use crate::chunk::Chunk;
-use crate::storage::worker::StorageSystem;
+use crate::storage::ParallelStorageReader;
 use crate::terrain_gen::{ChunkGenerationResult, OverflowBlock};
 
 /// Number of worker threads for chunk generation.
@@ -57,12 +58,14 @@ impl ChunkLoader {
     /// # Arguments
     /// * `generator` - A function that generates a ChunkGenerationResult from a chunk position.
     ///   This is typically a closure that captures a TerrainGenerator.
-    /// * `storage` - Optional storage system to load chunks from disk.
-    pub fn new<F>(generator: F, storage: Option<Arc<StorageSystem>>) -> Self
+    /// * `world_dir` - Optional world directory path for loading chunks from disk.
+    ///   Each worker creates its own `ParallelStorageReader` for true parallel I/O.
+    pub fn new<F>(generator: F, world_dir: Option<PathBuf>) -> Self
     where
         F: Fn(Vector3<i32>) -> ChunkGenerationResult + Send + Sync + 'static,
     {
         let generator = Arc::new(generator);
+        let world_dir = world_dir.map(Arc::new);
 
         // Crossbeam channels - true MPMC without mutex overhead.
         // Bounded request channel prevents unbounded memory growth.
@@ -76,11 +79,17 @@ impl ChunkLoader {
             let request_rx = request_rx.clone();
             let result_tx = result_tx.clone();
             let generator = Arc::clone(&generator);
-            let storage = storage.as_ref().map(Arc::clone);
+            let world_dir = world_dir.clone();
 
             let handle = thread::Builder::new()
                 .name(format!("chunk-worker-{}", i))
                 .spawn(move || {
+                    // Each worker creates its own storage reader for parallel disk I/O.
+                    // This avoids the single-threaded StorageSystem bottleneck.
+                    let mut storage_reader = world_dir
+                        .as_ref()
+                        .map(|dir| ParallelStorageReader::new(dir.as_ref().clone()));
+
                     // Use recv_timeout to allow periodic shutdown checks while
                     // still blocking efficiently when no work is available.
                     // crossbeam channels don't need a mutex - multiple workers
@@ -88,42 +97,43 @@ impl ChunkLoader {
                     loop {
                         match request_rx.recv_timeout(std::time::Duration::from_millis(50)) {
                             Ok(req) => {
-                                // Try to load from disk first
-                                let (chunk, overflow_blocks) = if let Some(ref storage) = storage {
-                                    match storage.load_chunk(req.position) {
-                                        Ok(Some(mut chunk)) => {
-                                            chunk.update_metadata();
-                                            // Mark dirty for GPU upload
-                                            chunk.mark_dirty();
-                                            // Loaded from disk, so it's clean for persistence
-                                            chunk.persistence_dirty = false;
-                                            // Loaded chunks have no overflow blocks
-                                            (chunk, Vec::new())
+                                // Try to load from disk first (parallel - each worker has own reader)
+                                let (chunk, overflow_blocks) =
+                                    if let Some(ref mut reader) = storage_reader {
+                                        match reader.load_chunk(req.position) {
+                                            Ok(Some(mut chunk)) => {
+                                                chunk.update_metadata();
+                                                // Mark dirty for GPU upload
+                                                chunk.mark_dirty();
+                                                // Loaded from disk, so it's clean for persistence
+                                                chunk.persistence_dirty = false;
+                                                // Loaded chunks have no overflow blocks
+                                                (chunk, Vec::new())
+                                            }
+                                            Ok(None) => {
+                                                let result = generator(req.position);
+                                                let mut chunk = result.chunk;
+                                                // New procedural chunk, clean for persistence until modified
+                                                chunk.persistence_dirty = false;
+                                                (chunk, result.overflow_blocks)
+                                            }
+                                            Err(e) => {
+                                                eprintln!(
+                                                    "[Storage] Load error for {:?}: {}",
+                                                    req.position, e
+                                                );
+                                                let result = generator(req.position);
+                                                let mut chunk = result.chunk;
+                                                chunk.persistence_dirty = false;
+                                                (chunk, result.overflow_blocks)
+                                            }
                                         }
-                                        Ok(None) => {
-                                            let result = generator(req.position);
-                                            let mut chunk = result.chunk;
-                                            // New procedural chunk, clean for persistence until modified
-                                            chunk.persistence_dirty = false;
-                                            (chunk, result.overflow_blocks)
-                                        }
-                                        Err(e) => {
-                                            eprintln!(
-                                                "[Storage] Load error for {:?}: {}",
-                                                req.position, e
-                                            );
-                                            let result = generator(req.position);
-                                            let mut chunk = result.chunk;
-                                            chunk.persistence_dirty = false;
-                                            (chunk, result.overflow_blocks)
-                                        }
-                                    }
-                                } else {
-                                    let result = generator(req.position);
-                                    let mut chunk = result.chunk;
-                                    chunk.persistence_dirty = false;
-                                    (chunk, result.overflow_blocks)
-                                };
+                                    } else {
+                                        let result = generator(req.position);
+                                        let mut chunk = result.chunk;
+                                        chunk.persistence_dirty = false;
+                                        (chunk, result.overflow_blocks)
+                                    };
 
                                 // Send result back (ignore error if receiver dropped)
                                 let _ = result_tx.send(ChunkResult {

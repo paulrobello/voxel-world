@@ -348,13 +348,12 @@ impl App {
             chunk_stats: ChunkStats::default(),
             chunk_loader: {
                 let terrain = terrain_generator.clone();
-                let storage_clone = Arc::clone(&storage);
                 ChunkLoader::new(
                     move |pos| {
                         // Generate chunk with overflow blocks for cross-chunk structures
                         generate_chunk_terrain(&terrain, pos, world_gen)
                     },
-                    Some(storage_clone),
+                    Some(world_dir.clone()),
                 )
             },
             storage,

@@ -140,3 +140,72 @@ impl Drop for StorageSystem {
         }
     }
 }
+
+/// A lightweight, non-blocking storage reader for parallel chunk loading.
+///
+/// Unlike `StorageSystem` which uses a single worker thread for all I/O,
+/// `ParallelStorageReader` allows each chunk loader worker to read directly
+/// from disk with its own region file cache. This enables true parallel I/O.
+///
+/// Use this for reads in chunk loader workers. Use `StorageSystem` for writes
+/// (which are async and don't block).
+pub struct ParallelStorageReader {
+    world_dir: PathBuf,
+    regions: HashMap<(i32, i32), RegionFile>,
+}
+
+impl ParallelStorageReader {
+    pub fn new(world_dir: PathBuf) -> Self {
+        Self {
+            world_dir,
+            regions: HashMap::new(),
+        }
+    }
+
+    fn get_region(&mut self, rx: i32, rz: i32) -> Result<&mut RegionFile, String> {
+        if !self.regions.contains_key(&(rx, rz)) {
+            let region_dir = self.world_dir.join("region");
+            if !region_dir.exists() {
+                // Don't create directories - this is read-only
+                // If the region directory doesn't exist, no chunks have been saved
+                return Err("Region directory does not exist".to_string());
+            }
+            let path = region_dir.join(format!("r.{}.{}.vxr", rx, rz));
+            if !path.exists() {
+                // Region file doesn't exist - no chunks saved in this region
+                return Err("Region file does not exist".to_string());
+            }
+            let region = RegionFile::open(path).map_err(|e: std::io::Error| e.to_string())?;
+            self.regions.insert((rx, rz), region);
+        }
+        Ok(self.regions.get_mut(&(rx, rz)).unwrap())
+    }
+
+    /// Loads a chunk from disk without blocking other workers.
+    ///
+    /// Returns `Ok(None)` if the chunk doesn't exist on disk.
+    /// Returns `Ok(Some(chunk))` if the chunk was loaded successfully.
+    /// Returns `Err` only for actual I/O errors (not "file doesn't exist").
+    pub fn load_chunk(&mut self, pos: ChunkPos) -> Result<Option<Chunk>, String> {
+        let rx = pos.x.div_euclid(CHUNKS_PER_REGION_SIDE);
+        let rz = pos.z.div_euclid(CHUNKS_PER_REGION_SIDE);
+
+        // Try to get region - if it doesn't exist, chunk isn't saved
+        let region = match self.get_region(rx, rz) {
+            Ok(r) => r,
+            Err(_) => return Ok(None), // Region doesn't exist = chunk not saved
+        };
+
+        match region
+            .read_chunk(pos.x, pos.y, pos.z)
+            .map_err(|e: std::io::Error| e.to_string())?
+        {
+            Some(data) => {
+                let serialized = decompress_chunk(&data)?;
+                let chunk = Chunk::try_from(serialized)?;
+                Ok(Some(chunk))
+            }
+            None => Ok(None),
+        }
+    }
+}
