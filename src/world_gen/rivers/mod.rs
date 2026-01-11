@@ -4,21 +4,29 @@
 //! Rivers are procedurally determined at each point using 2D noise, allowing
 //! them to be generated independently per chunk while maintaining continuity.
 //!
+//! ## Algorithm
+//! Rivers are created by looking for where noise values cross near zero.
+//! This creates LINEAR features (contour lines) rather than circular patches.
+//! Domain warping adds organic curves to the rivers.
+//!
 //! ## River Types
 //! - **Main rivers**: Wide rivers flowing from mountains to ocean
 //! - **Tributaries**: Smaller streams that feed into main rivers
 //! - **Mountain streams**: Narrow channels in mountainous terrain
 
 use crate::terrain_gen::BiomeType;
-use noise::{NoiseFn, Perlin, RidgedMulti};
+use noise::{NoiseFn, Perlin};
 
 /// River generator using noise-based detection.
 #[derive(Clone)]
 pub struct RiverGenerator {
-    /// Primary river noise (ridged for river-like patterns)
-    river_noise: RidgedMulti<Perlin>,
-    /// Secondary noise for river variation
-    variation_noise: Perlin,
+    /// Primary river noise - rivers form at zero-crossings
+    river_noise: Perlin,
+    /// Domain warping noise for organic curves
+    warp_noise_x: Perlin,
+    warp_noise_z: Perlin,
+    /// Secondary river layer for tributaries
+    tributary_noise: Perlin,
     /// Width variation noise
     width_noise: Perlin,
 }
@@ -26,19 +34,19 @@ pub struct RiverGenerator {
 impl RiverGenerator {
     /// Creates a new river generator with the given seed.
     pub fn new(seed: u32) -> Self {
-        // RidgedMulti creates ridge-like structures perfect for rivers
-        let mut river_noise = RidgedMulti::new(seed + 500);
-        river_noise.octaves = 4;
-        river_noise.frequency = 0.003; // Large-scale river patterns
-
         Self {
-            river_noise,
-            variation_noise: Perlin::new(seed + 501),
-            width_noise: Perlin::new(seed + 502),
+            river_noise: Perlin::new(seed + 500),
+            warp_noise_x: Perlin::new(seed + 501),
+            warp_noise_z: Perlin::new(seed + 502),
+            tributary_noise: Perlin::new(seed + 503),
+            width_noise: Perlin::new(seed + 504),
         }
     }
 
     /// Check if a position is within a river channel.
+    ///
+    /// Rivers form where noise crosses near zero, creating linear features.
+    /// Domain warping adds organic curves to prevent straight lines.
     ///
     /// # Arguments
     /// * `world_x`, `world_z` - World coordinates
@@ -54,94 +62,127 @@ impl RiverGenerator {
         terrain_height: i32,
         biome: BiomeType,
     ) -> Option<RiverInfo> {
-        let x = world_x as f64;
-        let z = world_z as f64;
-
-        // Get river presence from ridged noise
-        let river_value = self.river_noise.get([x, z]);
-
-        // Rivers form where ridged noise creates "valleys"
-        // The ridged noise naturally creates river-like branching patterns
-        let river_threshold = self.get_river_threshold(biome);
-
-        // Check if we're in a river (very high ridge values = river channel)
-        if river_value < river_threshold {
+        // Get river width threshold for this biome
+        let (river_half_width, enabled) = self.get_river_params(biome);
+        if !enabled {
             return None;
         }
 
-        // Calculate how "centered" we are in the river
-        let river_strength = (river_value - river_threshold) / (1.0 - river_threshold);
+        let x = world_x as f64;
+        let z = world_z as f64;
 
-        // Calculate river width based on terrain height and noise
-        // Rivers are wider at lower elevations (near ocean)
-        let base_width = self.calculate_river_width(world_x, world_z, terrain_height);
+        // Apply domain warping for organic river curves
+        // Warp amount increases at lower frequencies for smoother bends
+        let warp_scale = 0.002;
+        let warp_amount = 50.0; // How much to warp coordinates
+        let warp_x = self.warp_noise_x.get([x * warp_scale, z * warp_scale]) * warp_amount;
+        let warp_z = self.warp_noise_z.get([x * warp_scale, z * warp_scale]) * warp_amount;
 
-        // Calculate depth based on width
-        let depth = (base_width * 0.4).clamp(2.0, 4.0) as i32;
+        let warped_x = x + warp_x;
+        let warped_z = z + warp_z;
 
-        // Determine river type
-        let river_type = self.get_river_type(river_strength, terrain_height);
+        // Main river: low frequency noise, rivers at zero-crossing
+        let river_scale = 0.0015; // Large scale for main rivers
+        let main_river_value = self
+            .river_noise
+            .get([warped_x * river_scale, warped_z * river_scale]);
 
-        Some(RiverInfo {
-            width: base_width,
-            depth,
-            river_type,
-            strength: river_strength,
-        })
+        // Distance from zero-crossing (closer = more in river)
+        let main_distance = main_river_value.abs();
+
+        // Check if we're within the river channel
+        if main_distance < river_half_width {
+            let river_strength = 1.0 - (main_distance / river_half_width);
+            let base_width = self.calculate_river_width(world_x, world_z, terrain_height, true);
+            let depth = (base_width * 0.5).clamp(2.0, 5.0) as i32;
+
+            return Some(RiverInfo {
+                width: base_width,
+                depth,
+                river_type: RiverType::MainRiver,
+                strength: river_strength,
+            });
+        }
+
+        // Tributary rivers: higher frequency, narrower
+        let tributary_scale = 0.004;
+        let tributary_value = self
+            .tributary_noise
+            .get([warped_x * tributary_scale, warped_z * tributary_scale]);
+        let tributary_distance = tributary_value.abs();
+        let tributary_half_width = river_half_width * 0.5; // Narrower than main rivers
+
+        if tributary_distance < tributary_half_width {
+            let river_strength = 1.0 - (tributary_distance / tributary_half_width);
+            let base_width = self.calculate_river_width(world_x, world_z, terrain_height, false);
+            let depth = (base_width * 0.4).clamp(2.0, 3.0) as i32;
+
+            return Some(RiverInfo {
+                width: base_width,
+                depth,
+                river_type: if terrain_height > 120 {
+                    RiverType::MountainStream
+                } else {
+                    RiverType::Tributary
+                },
+                strength: river_strength,
+            });
+        }
+
+        None
     }
 
-    /// Get the river detection threshold for a biome.
-    /// Lower threshold = more rivers. Ridged noise peaks around 0.7-1.0.
-    fn get_river_threshold(&self, biome: BiomeType) -> f64 {
+    /// Get river parameters for a biome.
+    /// Returns (river_half_width, enabled).
+    /// Larger half_width = wider rivers, more likely to find rivers.
+    fn get_river_params(&self, biome: BiomeType) -> (f64, bool) {
         #[allow(deprecated)]
         match biome {
-            // Desert has very few rivers (oases only)
-            BiomeType::Desert => 0.85,
+            // Desert has very rare thin rivers (oases)
+            BiomeType::Desert => (0.02, true),
             // Ocean doesn't have surface rivers
-            BiomeType::Ocean => 2.0, // Never generate (ridged noise max is ~1.0)
+            BiomeType::Ocean => (0.0, false),
             // Beach has minimal rivers
-            BiomeType::Beach => 0.80,
-            // Mountains have mountain streams
-            BiomeType::Mountains => 0.65,
-            // Swamp has some rivers flowing through
-            BiomeType::Swamp => 0.72,
-            // Jungle has many rivers
-            BiomeType::Jungle => 0.60,
-            // Snowy biomes have frozen rivers
-            BiomeType::SnowyPlains | BiomeType::SnowyTaiga | BiomeType::Snow => 0.70,
+            BiomeType::Beach => (0.03, true),
+            // Mountains have streams
+            BiomeType::Mountains => (0.06, true),
+            // Swamp has rivers
+            BiomeType::Swamp => (0.07, true),
+            // Jungle has many wide rivers
+            BiomeType::Jungle => (0.10, true),
+            // Snowy biomes have rivers
+            BiomeType::SnowyPlains | BiomeType::SnowyTaiga | BiomeType::Snow => (0.06, true),
             // Underground biomes don't have surface rivers
-            BiomeType::LushCaves | BiomeType::DripstoneCaves | BiomeType::DeepDark => 2.0,
-            // Default threshold for most biomes - lowered for more rivers
-            _ => 0.68,
+            BiomeType::LushCaves | BiomeType::DripstoneCaves | BiomeType::DeepDark => (0.0, false),
+            // Default: moderate rivers
+            _ => (0.07, true),
         }
     }
 
     /// Calculate river width at a position.
-    fn calculate_river_width(&self, world_x: i32, world_z: i32, terrain_height: i32) -> f64 {
+    fn calculate_river_width(
+        &self,
+        world_x: i32,
+        world_z: i32,
+        terrain_height: i32,
+        is_main: bool,
+    ) -> f64 {
         let x = world_x as f64;
         let z = world_z as f64;
 
-        // Base width varies with terrain height
+        // Base width: main rivers are wider
+        let base = if is_main { 6.0 } else { 3.0 };
+
+        // Width varies with terrain height
         // Higher terrain = narrower rivers (mountain streams)
         // Lower terrain = wider rivers (approaching ocean)
-        let height_factor = 1.0 - ((terrain_height as f64 - 75.0) / 80.0).clamp(0.0, 0.7);
-        let base_width = 3.0 + height_factor * 5.0;
+        let height_factor = 1.0 - ((terrain_height as f64 - 75.0) / 100.0).clamp(0.0, 0.5);
+        let height_adjusted = base * (0.7 + height_factor * 0.6);
 
         // Add width variation
-        let variation = self.width_noise.get([x * 0.02, z * 0.02]) * 0.3 + 0.85;
+        let variation = self.width_noise.get([x * 0.01, z * 0.01]) * 0.3 + 0.85;
 
-        base_width * variation
-    }
-
-    /// Determine river type based on characteristics.
-    fn get_river_type(&self, strength: f64, terrain_height: i32) -> RiverType {
-        if terrain_height > 140 {
-            RiverType::MountainStream
-        } else if strength > 0.7 {
-            RiverType::MainRiver
-        } else {
-            RiverType::Tributary
-        }
+        height_adjusted * variation
     }
 
     /// Get the terrain height modification for a river.
@@ -157,8 +198,8 @@ impl RiverGenerator {
         let x = world_x as f64;
         let z = world_z as f64;
 
-        // Add some variation to the carving depth
-        let variation = self.variation_noise.get([x * 0.05, z * 0.05]) * 0.3 + 0.85;
+        // Add some variation to the carving depth using width_noise
+        let variation = self.width_noise.get([x * 0.05, z * 0.05]) * 0.3 + 0.85;
 
         // Depth varies based on position within river channel
         let depth_factor = river_info.strength.clamp(0.3, 1.0);
@@ -166,18 +207,32 @@ impl RiverGenerator {
         (river_info.depth as f64 * variation * depth_factor).round() as i32
     }
 
-    /// Check if a position should have river banks (Beach biome).
+    /// Check if a position should have river banks.
     ///
-    /// Returns true if within a few blocks of a river.
+    /// Returns true if near a river but not in the river itself.
+    /// Used for placing sand/gravel banks along river edges.
     pub fn is_river_bank(&self, world_x: i32, world_z: i32, terrain_height: i32) -> bool {
         let x = world_x as f64;
         let z = world_z as f64;
 
-        let river_value = self.river_noise.get([x, z]);
+        // Apply same domain warping as river detection
+        let warp_scale = 0.002;
+        let warp_amount = 50.0;
+        let warp_x = self.warp_noise_x.get([x * warp_scale, z * warp_scale]) * warp_amount;
+        let warp_z = self.warp_noise_z.get([x * warp_scale, z * warp_scale]) * warp_amount;
 
-        // Bank threshold is slightly lower than river threshold
-        // This creates a band around rivers
-        river_value > 0.75 && river_value < 0.82 && terrain_height < 100
+        let warped_x = x + warp_x;
+        let warped_z = z + warp_z;
+
+        let river_scale = 0.0015;
+        let river_value = self
+            .river_noise
+            .get([warped_x * river_scale, warped_z * river_scale]);
+        let distance = river_value.abs();
+
+        // Bank is slightly outside the river channel (0.07-0.12 range)
+        // but only at reasonable terrain heights
+        distance > 0.07 && distance < 0.12 && terrain_height < 120
     }
 
     /// Get the water type for rivers in a biome.
