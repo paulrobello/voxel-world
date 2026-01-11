@@ -14,8 +14,9 @@ use crate::storage::worker::StorageSystem;
 use crate::terrain_gen::{ChunkGenerationResult, OverflowBlock};
 
 /// Number of worker threads for chunk generation.
-/// Using 4 threads provides good parallelism without overwhelming the CPU.
-const WORKER_THREADS: usize = 4;
+/// Using more threads provides better parallelism for CPU-bound terrain generation.
+/// This should roughly match available CPU cores minus 1-2 for main thread/GPU.
+const WORKER_THREADS: usize = 8;
 
 /// Maximum chunks to queue for generation.
 /// Prevents memory buildup if generation is slower than requests.
@@ -95,14 +96,17 @@ impl ChunkLoader {
                             }
                         }
 
-                        // Try to get a request (with timeout to allow shutdown checks)
+                        // Try to get a request using try_recv to minimize lock hold time.
+                        // IMPORTANT: We must NOT hold the mutex while blocking, or all
+                        // workers serialize on the lock and only one can work at a time.
                         let request = {
                             let guard = match request_rx.lock() {
                                 Ok(g) => g,
                                 Err(_) => break, // Mutex poisoned, exit
                             };
-                            guard.recv_timeout(std::time::Duration::from_millis(100))
+                            guard.try_recv()
                         };
+                        // Lock is released here before any blocking/sleeping
 
                         match request {
                             Ok(req) => {
@@ -150,11 +154,13 @@ impl ChunkLoader {
                                     overflow_blocks,
                                 });
                             }
-                            Err(mpsc::RecvTimeoutError::Timeout) => {
-                                // No work available, loop and check shutdown
+                            Err(mpsc::TryRecvError::Empty) => {
+                                // No work available, sleep briefly then check again.
+                                // Short sleep (1ms) allows responsive shutdown while avoiding spin.
+                                thread::sleep(std::time::Duration::from_millis(1));
                                 continue;
                             }
-                            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                            Err(mpsc::TryRecvError::Disconnected) => {
                                 // Channel closed, exit
                                 break;
                             }

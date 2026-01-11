@@ -32,8 +32,9 @@ pub const LOAD_DISTANCE: i32 = 7;
 /// Unload distance in chunks (horizontal - chunks beyond this are unloaded)
 /// Should be > load_distance to prevent thrashing at boundaries
 pub const UNLOAD_DISTANCE: i32 = 10;
-/// Maximum chunks to load or unload per frame
-pub const CHUNKS_PER_FRAME: usize = 4;
+/// Maximum chunks to unload per frame (keep low to avoid stutters during unload)
+/// Note: Loading is not limited by this - all completed chunks are processed immediately.
+pub const CHUNKS_PER_FRAME: usize = 8;
 
 /// Cached empty chunk data for GPU clearing (avoids repeated allocations)
 pub static EMPTY_CHUNK_DATA: std::sync::LazyLock<Vec<u8>> =
