@@ -309,19 +309,9 @@ impl App {
             // Clear the texture first (set all to air)
             self.clear_voxel_texture();
 
-            // CRITICAL: Sync GPU metadata buffers IMMEDIATELY after clearing texture
-            // and BEFORE uploading chunks. This prevents the render pass from using
-            // stale metadata that references old chunk positions.
-            {
-                let mut chunk_meta_write = self.graphics.chunk_metadata_buffer.write().unwrap();
-                chunk_meta_write.copy_from_slice(&self.sim.metadata_state.chunk_bits);
-
-                let mut brick_mask_write = self.graphics.brick_mask_buffer.write().unwrap();
-                brick_mask_write.copy_from_slice(&self.sim.metadata_state.brick_masks);
-
-                let mut brick_dist_write = self.graphics.brick_dist_buffer.write().unwrap();
-                brick_dist_write.copy_from_slice(&self.sim.metadata_state.brick_distances);
-            }
+            // NOTE: We don't sync metadata to GPU here - that will be done in
+            // update_metadata_buffers() after processing the pending queue.
+            // This ensures metadata reflects actual chunk state, not "all empty".
 
             // Upload chunks at new positions - convert to slice references
             let upload_slices: Vec<_> =
@@ -334,6 +324,13 @@ impl App {
 
         if !uploaded_positions.is_empty() {
             self.sim.world.remove_dirty_positions(&uploaded_positions);
+
+            // CRITICAL: Queue metadata update for all re-uploaded chunks.
+            // After origin shift, metadata was reset (all chunks marked empty).
+            // We must queue updates so shader knows these chunks have data.
+            self.sim
+                .metadata_state
+                .queue_many(self.sim.texture_origin, uploaded_positions.iter().copied());
         }
 
         true
@@ -801,24 +798,8 @@ impl App {
 
         let t_meta = Instant::now();
 
-        if reset_buffers {
-            let mut chunk_meta_write = self.graphics.chunk_metadata_buffer.write().unwrap();
-            chunk_meta_write.copy_from_slice(&self.sim.metadata_state.chunk_bits);
-
-            let mut brick_mask_write = self.graphics.brick_mask_buffer.write().unwrap();
-            brick_mask_write.copy_from_slice(&self.sim.metadata_state.brick_masks);
-
-            let mut brick_dist_write = self.graphics.brick_dist_buffer.write().unwrap();
-            brick_dist_write.copy_from_slice(&self.sim.metadata_state.brick_distances);
-        }
-
-        if !self.sim.metadata_state.is_dirty() {
-            self.sim.profiler.metadata_update_us += t_meta.elapsed().as_micros() as u64;
-            return;
-        }
-
         // After a texture-origin shift we must rebuild all chunk/brick metadata in one frame
-        // to avoid a “world is empty” flash. Otherwise, keep the amortized per-frame budget.
+        // to avoid a "world is empty" flash. Otherwise, keep the amortized per-frame budget.
         let budget = if reset_buffers {
             TOTAL_CHUNKS
         } else {
@@ -827,55 +808,48 @@ impl App {
 
         let work_indices = self.sim.metadata_state.take_work(budget);
 
-        if work_indices.is_empty() {
-            self.sim.metadata_state.mark_results_applied();
-            self.sim.profiler.metadata_update_us += t_meta.elapsed().as_micros() as u64;
-            return;
-        }
+        // Process chunks first to update CPU metadata state
+        // This ensures metadata reflects actual chunk data before any GPU sync
+        if !work_indices.is_empty() {
+            let mut tasks = Vec::with_capacity(work_indices.len());
+            for idx in &work_indices {
+                let world_pos = chunk_index_to_world_pos(*idx, self.sim.texture_origin);
+                let work = if let Some(chunk) = self.sim.world.get_chunk_mut(world_pos) {
+                    chunk.update_metadata();
+                    // ALWAYS compute SVT from actual block data to avoid stale cache issues.
+                    // The cached_is_empty/cached_is_fully_solid optimizations can return
+                    // incorrect values if metadata wasn't properly updated, causing invisible chunks.
+                    ChunkWork::Blocks(chunk.clone_blocks())
+                } else {
+                    ChunkWork::Missing
+                };
+                tasks.push((*idx, work));
+            }
 
-        let mut tasks = Vec::with_capacity(work_indices.len());
-        for idx in work_indices {
-            let world_pos = chunk_index_to_world_pos(idx, self.sim.texture_origin);
-            let work = if let Some(chunk) = self.sim.world.get_chunk_mut(world_pos) {
-                chunk.update_metadata();
-                // ALWAYS compute SVT from actual block data to avoid stale cache issues.
-                // The cached_is_empty/cached_is_fully_solid optimizations can return
-                // incorrect values if metadata wasn't properly updated, causing invisible chunks.
-                ChunkWork::Blocks(chunk.clone_blocks())
-            } else {
-                ChunkWork::Missing
-            };
-            tasks.push((idx, work));
-        }
-
-        let results: Vec<ChunkMetaResult> = tasks
-            .into_par_iter()
-            .map(|(idx, work)| match work {
-                ChunkWork::Missing => ChunkMetaResult {
-                    idx,
-                    is_empty: true,
-                    mask_low: 0,
-                    mask_high: 0,
-                    dist: [0xFFFF_FFFF; 16],
-                },
-                ChunkWork::Blocks(blocks) => {
-                    let svt = ChunkSVT::from_block_data(&blocks);
-                    ChunkMetaResult {
+            let results: Vec<ChunkMetaResult> = tasks
+                .into_par_iter()
+                .map(|(idx, work)| match work {
+                    ChunkWork::Missing => ChunkMetaResult {
                         idx,
-                        is_empty: svt.brick_mask == 0,
-                        mask_low: svt.brick_mask as u32,
-                        mask_high: (svt.brick_mask >> 32) as u32,
-                        dist: pack_distances(&svt.brick_distances),
+                        is_empty: true,
+                        mask_low: 0,
+                        mask_high: 0,
+                        dist: [0xFFFF_FFFF; 16],
+                    },
+                    ChunkWork::Blocks(blocks) => {
+                        let svt = ChunkSVT::from_block_data(&blocks);
+                        ChunkMetaResult {
+                            idx,
+                            is_empty: svt.brick_mask == 0,
+                            mask_low: svt.brick_mask as u32,
+                            mask_high: (svt.brick_mask >> 32) as u32,
+                            dist: pack_distances(&svt.brick_distances),
+                        }
                     }
-                }
-            })
-            .collect();
+                })
+                .collect();
 
-        {
-            let mut chunk_meta_write = self.graphics.chunk_metadata_buffer.write().unwrap();
-            let mut brick_mask_write = self.graphics.brick_mask_buffer.write().unwrap();
-            let mut brick_dist_write = self.graphics.brick_dist_buffer.write().unwrap();
-
+            // Update CPU metadata state with computed values
             for res in &results {
                 let word_idx = res.idx / 32;
                 let bit_idx = res.idx % 32;
@@ -884,18 +858,51 @@ impl App {
                 } else {
                     self.sim.metadata_state.chunk_bits[word_idx] &= !(1u32 << bit_idx);
                 }
-                chunk_meta_write[word_idx] = self.sim.metadata_state.chunk_bits[word_idx];
 
                 let mask_offset = res.idx * 2;
                 self.sim.metadata_state.brick_masks[mask_offset] = res.mask_low;
                 self.sim.metadata_state.brick_masks[mask_offset + 1] = res.mask_high;
-                brick_mask_write[mask_offset] = res.mask_low;
-                brick_mask_write[mask_offset + 1] = res.mask_high;
 
                 let dist_offset = res.idx * 16;
                 for (i, word) in res.dist.iter().enumerate() {
                     self.sim.metadata_state.brick_distances[dist_offset + i] = *word;
-                    brick_dist_write[dist_offset + i] = *word;
+                }
+            }
+        }
+
+        // Now sync to GPU - after a reset, do a full buffer copy (CPU state now has
+        // correct values for all processed chunks). Otherwise, do per-chunk updates.
+        if reset_buffers {
+            // Full sync: copy entire metadata buffers to GPU
+            // At this point, CPU state has correct values for processed chunks,
+            // and "empty" for unprocessed positions (which is correct after origin shift)
+            let mut chunk_meta_write = self.graphics.chunk_metadata_buffer.write().unwrap();
+            chunk_meta_write.copy_from_slice(&self.sim.metadata_state.chunk_bits);
+
+            let mut brick_mask_write = self.graphics.brick_mask_buffer.write().unwrap();
+            brick_mask_write.copy_from_slice(&self.sim.metadata_state.brick_masks);
+
+            let mut brick_dist_write = self.graphics.brick_dist_buffer.write().unwrap();
+            brick_dist_write.copy_from_slice(&self.sim.metadata_state.brick_distances);
+        } else if !work_indices.is_empty() {
+            // Incremental sync: only update GPU for processed chunks
+            let mut chunk_meta_write = self.graphics.chunk_metadata_buffer.write().unwrap();
+            let mut brick_mask_write = self.graphics.brick_mask_buffer.write().unwrap();
+            let mut brick_dist_write = self.graphics.brick_dist_buffer.write().unwrap();
+
+            for idx in &work_indices {
+                let word_idx = idx / 32;
+                chunk_meta_write[word_idx] = self.sim.metadata_state.chunk_bits[word_idx];
+
+                let mask_offset = idx * 2;
+                brick_mask_write[mask_offset] = self.sim.metadata_state.brick_masks[mask_offset];
+                brick_mask_write[mask_offset + 1] =
+                    self.sim.metadata_state.brick_masks[mask_offset + 1];
+
+                let dist_offset = idx * 16;
+                for i in 0..16 {
+                    brick_dist_write[dist_offset + i] =
+                        self.sim.metadata_state.brick_distances[dist_offset + i];
                 }
             }
         }
