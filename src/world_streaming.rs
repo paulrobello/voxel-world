@@ -441,32 +441,47 @@ impl App {
         }
 
         // === STEP 2: Queue new chunks for generation ===
-        // Use load_distance (not view_distance) to preload chunks before they become visible
-        // Calculate view direction from camera yaw for prioritized loading
-        // Camera: yaw=0 looks at -Z, yaw increases counterclockwise from above
-        // Forward XZ direction = (sin(yaw), -cos(yaw))
+        // First load visible chunks (view_distance), then preload chunks if capacity allows
         let yaw = self.sim.player.camera.rotation.y as f32;
         let view_dir = Some((yaw.sin(), -yaw.cos())); // XZ direction player is looking
 
-        let to_load = self.sim.world.get_chunks_to_load(
+        // Get visible chunks first (highest priority)
+        let visible_chunks = self.sim.world.get_chunks_to_load(
             player_chunk,
-            self.sim.load_distance,
+            self.sim.view_distance,
             (min_chunk, max_chunk),
             view_dir,
         );
 
-        // Queue chunks for async generation with aggressive priority management
+        // Request visible chunks first
         let max_to_queue = CHUNKS_PER_FRAME * 4;
+        let visible_to_request: Vec<_> = visible_chunks.into_iter().take(max_to_queue).collect();
+        let queued_visible = self.sim.chunk_loader.request_chunks(&visible_to_request);
 
-        // Get priority-sorted chunks to load
-        let chunks_to_request: Vec<_> = to_load.into_iter().take(max_to_queue).collect();
+        // Only request preload chunks if we have spare capacity
+        let mut queued_preload = 0;
+        let remaining_capacity = max_to_queue.saturating_sub(queued_visible);
+        if remaining_capacity > 0 && self.sim.load_distance > self.sim.view_distance {
+            let preload_chunks = self.sim.world.get_chunks_to_load(
+                player_chunk,
+                self.sim.load_distance,
+                (min_chunk, max_chunk),
+                view_dir,
+            );
+            // Filter to only chunks beyond view distance
+            let preload_only: Vec<_> = preload_chunks
+                .into_iter()
+                .filter(|pos| {
+                    let dx = (pos.x - player_chunk.x).abs();
+                    let dz = (pos.z - player_chunk.z).abs();
+                    dx > self.sim.view_distance || dz > self.sim.view_distance
+                })
+                .take(remaining_capacity)
+                .collect();
+            queued_preload = self.sim.chunk_loader.request_chunks(&preload_only);
+        }
 
-        // Request new chunks (adds to in_flight)
-        let queued = self.sim.chunk_loader.request_chunks(&chunks_to_request);
-
-        // Update the work queue with current priorities
-        // This re-sorts the queue so workers always get the highest priority chunks first
-        self.sim.chunk_loader.update_priorities(&chunks_to_request);
+        let queued = queued_visible + queued_preload;
 
         if queued > 20 {
             println!(
