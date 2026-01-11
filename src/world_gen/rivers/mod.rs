@@ -189,6 +189,7 @@ impl RiverGenerator {
     ///
     /// This returns how much to lower the terrain at this position
     /// to create the river channel.
+    #[allow(dead_code)]
     pub fn get_height_modification(
         &self,
         world_x: i32,

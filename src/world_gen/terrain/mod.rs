@@ -428,6 +428,7 @@ impl TerrainGenerator {
     /// Get terrain height at world coordinates with smooth transitions at biome boundaries.
     ///
     /// Uses climate parameters (continentalness, erosion) to influence height calculation.
+    #[allow(clippy::let_and_return)] // River code disabled, will be re-enabled
     pub fn get_height(&self, world_x: i32, world_z: i32) -> i32 {
         let x = world_x as f64;
         let z = world_z as f64;
@@ -492,22 +493,24 @@ impl TerrainGenerator {
             blended_height.round() as i32
         };
 
+        // DISABLED: River carving causing chunk artifacts
+        // TODO: Debug why rivers cause chunk-sized stone cubes in some locations
         // Apply river carving if a river exists at this position
         // Only carve on very flat terrain to prevent rivers on slopes/cliffs
-        let slope = self.calculate_slope(world_x, world_z);
-        if slope <= 0.25 {
-            if let Some(river_info) = self.river_generator.get_river_at(
-                world_x,
-                world_z,
-                base_terrain_height,
-                center_biome,
-            ) {
-                let carve_depth =
-                    self.river_generator
-                        .get_height_modification(world_x, world_z, &river_info);
-                return base_terrain_height - carve_depth;
-            }
-        }
+        // let slope = self.calculate_slope(world_x, world_z);
+        // if slope <= 0.25 {
+        //     if let Some(river_info) = self.river_generator.get_river_at(
+        //         world_x,
+        //         world_z,
+        //         base_terrain_height,
+        //         center_biome,
+        //     ) {
+        //         let carve_depth =
+        //             self.river_generator
+        //                 .get_height_modification(world_x, world_z, &river_info);
+        //         return base_terrain_height - carve_depth;
+        //     }
+        // }
 
         base_terrain_height
     }
@@ -516,38 +519,43 @@ impl TerrainGenerator {
     ///
     /// Returns Some(water_level) if a river exists here (water fills from carved
     /// terrain up to water_level), or None if no river.
-    pub fn get_river_water_level(&self, world_x: i32, world_z: i32) -> Option<i32> {
-        let base_height = self.get_base_height(world_x, world_z);
-        let biome = self.get_biome(world_x, world_z);
+    pub fn get_river_water_level(&self, _world_x: i32, _world_z: i32) -> Option<i32> {
+        // DISABLED: Rivers causing chunk artifacts and water on cliffs
+        // TODO: Debug and re-enable river system
+        None
 
-        // Check slope - rivers shouldn't form on steep terrain
-        // Use a strict threshold to prevent water appearing on hillsides/cliffs
-        let slope = self.calculate_slope(world_x, world_z);
-        if slope > 0.25 {
-            // Too steep for a river (more than 0.25 blocks height change per block)
-            // With 8-block sampling, this means max 2 blocks height diff over 8 blocks
-            return None;
-        }
-
-        if let Some(river_info) =
-            self.river_generator
-                .get_river_at(world_x, world_z, base_height, biome)
-        {
-            let carve_depth =
-                self.river_generator
-                    .get_height_modification(world_x, world_z, &river_info);
-
-            // Water level is 1 block below the original surface
-            // (river carves out the channel, water fills it but not to the very top)
-            Some(base_height - 1.max(carve_depth.saturating_sub(1)))
-        } else {
-            None
-        }
+        // let base_height = self.get_base_height(world_x, world_z);
+        // let biome = self.get_biome(world_x, world_z);
+        //
+        // // Check slope - rivers shouldn't form on steep terrain
+        // // Use a strict threshold to prevent water appearing on hillsides/cliffs
+        // let slope = self.calculate_slope(world_x, world_z);
+        // if slope > 0.25 {
+        //     // Too steep for a river (more than 0.25 blocks height change per block)
+        //     // With 8-block sampling, this means max 2 blocks height diff over 8 blocks
+        //     return None;
+        // }
+        //
+        // if let Some(river_info) =
+        //     self.river_generator
+        //         .get_river_at(world_x, world_z, base_height, biome)
+        // {
+        //     let carve_depth =
+        //         self.river_generator
+        //             .get_height_modification(world_x, world_z, &river_info);
+        //
+        //     // Water level is 1 block below the original surface
+        //     // (river carves out the channel, water fills it but not to the very top)
+        //     Some(base_height - 1.max(carve_depth.saturating_sub(1)))
+        // } else {
+        //     None
+        // }
     }
 
     /// Calculate the local terrain slope at a position.
     /// Checks a wide area to detect if we're on or near a cliff/slope.
     /// Returns the maximum height difference per block found in the area.
+    #[allow(dead_code)]
     fn calculate_slope(&self, world_x: i32, world_z: i32) -> f64 {
         let center_height = self.get_base_height(world_x, world_z) as f64;
 
