@@ -289,7 +289,9 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
             if (pc.hide_ground_cover != 0u && model_id > 0u) {
                 ModelProperties props = model_properties[model_id];
                 if ((props.flags & MODEL_FLAG_IS_GROUND_COVER) != 0u) {
-                    blockType = BLOCK_AIR; // Treat as air, continue marching
+                    // Treat as air and skip remaining model processing
+                    blockType = BLOCK_AIR;
+                    model_id = 0u;
                 }
             }
 
