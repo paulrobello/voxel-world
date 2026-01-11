@@ -417,16 +417,22 @@ impl TerrainGenerator {
             // Ocean uses the climate-driven height (already below sea level)
             BiomeType::Ocean => 0.0,
 
-            // Beach - just above sea level with gentle slopes
+            // Beach - pull toward sea level but blend with surroundings
             BiomeType::Beach => {
-                // Beach is at continentalness -0.4 to -0.1, which gives base ~80
-                // Return a fixed height near sea level for smooth sandy beaches
-                return 76.0 + detail * 1.5 + base.abs() * 2.0;
+                // Instead of fixed height, blend climate height toward sea level
+                // This prevents harsh cliffs at beach boundaries
+                let target = 76.0 + detail * 1.5;
+                // Blend 70% toward target, 30% from climate
+                return target * 0.7 + climate_height * 0.3;
             }
 
-            // Swamp - near sea level (wetlands)
+            // Swamp - pull toward sea level (wetlands) but blend with surroundings
             BiomeType::Swamp => {
-                return 76.0 + detail * 2.0 + base.abs() * 2.0;
+                // Instead of fixed height, blend climate height toward sea level
+                // This prevents harsh cliffs at swamp boundaries
+                let target = 76.0 + detail * 2.0 + base.abs() * 2.0;
+                // Blend 60% toward target, 40% from climate for smoother transitions
+                return target * 0.6 + climate_height * 0.4;
             }
 
             // Mountains get a small boost (most height comes from erosion)
