@@ -160,8 +160,6 @@ impl MetadataState {
 #[derive(Clone)]
 enum ChunkWork {
     Missing,
-    Empty,
-    FullSolid,
     Blocks(Box<[BlockType; CHUNK_VOLUME]>),
 }
 
@@ -826,13 +824,10 @@ impl App {
             let world_pos = chunk_index_to_world_pos(idx, self.sim.texture_origin);
             let work = if let Some(chunk) = self.sim.world.get_chunk_mut(world_pos) {
                 chunk.update_metadata();
-                if chunk.cached_is_empty() {
-                    ChunkWork::Empty
-                } else if chunk.cached_is_fully_solid() {
-                    ChunkWork::FullSolid
-                } else {
-                    ChunkWork::Blocks(chunk.clone_blocks())
-                }
+                // ALWAYS compute SVT from actual block data to avoid stale cache issues.
+                // The cached_is_empty/cached_is_fully_solid optimizations can return
+                // incorrect values if metadata wasn't properly updated, causing invisible chunks.
+                ChunkWork::Blocks(chunk.clone_blocks())
             } else {
                 ChunkWork::Missing
             };
@@ -842,19 +837,12 @@ impl App {
         let results: Vec<ChunkMetaResult> = tasks
             .into_par_iter()
             .map(|(idx, work)| match work {
-                ChunkWork::Missing | ChunkWork::Empty => ChunkMetaResult {
+                ChunkWork::Missing => ChunkMetaResult {
                     idx,
                     is_empty: true,
                     mask_low: 0,
                     mask_high: 0,
                     dist: [0xFFFF_FFFF; 16],
-                },
-                ChunkWork::FullSolid => ChunkMetaResult {
-                    idx,
-                    is_empty: false,
-                    mask_low: u32::MAX,
-                    mask_high: u32::MAX,
-                    dist: [0; 16],
                 },
                 ChunkWork::Blocks(blocks) => {
                     let svt = ChunkSVT::from_block_data(&blocks);
