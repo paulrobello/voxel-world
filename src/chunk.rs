@@ -791,6 +791,30 @@ impl Chunk {
     /// Sets the block at the given local coordinates.
     #[inline]
     pub fn set_block(&mut self, x: usize, y: usize, z: usize, block: BlockType) {
+        self.set_block_internal(x, y, z, block, true);
+    }
+
+    /// Sets a block during procedural generation (e.g., overflow blocks from trees).
+    ///
+    /// Unlike `set_block`, this does NOT mark `persistence_dirty`, so the chunk
+    /// won't be auto-saved to disk unless the player makes actual modifications.
+    /// This prevents newly generated chunks with tree overflow from triggering saves.
+    #[inline]
+    pub fn set_block_generated(&mut self, x: usize, y: usize, z: usize, block: BlockType) {
+        self.set_block_internal(x, y, z, block, false);
+    }
+
+    /// Internal implementation for setting blocks.
+    /// `mark_persistence` controls whether to set `persistence_dirty`.
+    #[inline]
+    fn set_block_internal(
+        &mut self,
+        x: usize,
+        y: usize,
+        z: usize,
+        block: BlockType,
+        mark_persistence: bool,
+    ) {
         let idx = Self::index(x, y, z);
         let old = self.blocks[idx];
         if old != block {
@@ -804,7 +828,9 @@ impl Chunk {
 
             self.blocks[idx] = block;
             self.dirty = true;
-            self.persistence_dirty = true;
+            if mark_persistence {
+                self.persistence_dirty = true;
+            }
             self.metadata_dirty = true;
 
             // Clean up model data if block is no longer a Model

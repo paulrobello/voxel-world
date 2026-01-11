@@ -100,7 +100,10 @@ impl World {
                     || (overflow.block_type.is_tree_structure()
                         && existing_block.is_replaceable_terrain());
                 if can_replace {
-                    chunk.set_block(local.0, local.1, local.2, overflow.block_type);
+                    // Use set_block_generated to avoid marking persistence_dirty.
+                    // Overflow blocks are procedural generation, not user modifications,
+                    // so they shouldn't trigger auto-save.
+                    chunk.set_block_generated(local.0, local.1, local.2, overflow.block_type);
                 }
             }
             // CRITICAL: Update metadata after applying overflow blocks
