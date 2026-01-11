@@ -29,7 +29,7 @@ impl Minimap {
             size: 256,
             mode: MinimapMode::Combined,
             rotate: true,
-            zoom: 0.5,
+            zoom: 2.0,
             skip_decorative: true,
         }
     }
