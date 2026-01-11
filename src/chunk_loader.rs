@@ -3,10 +3,10 @@
 //! This module provides background chunk generation using a thread pool
 //! to avoid blocking the main thread during terrain generation.
 
+use crossbeam_channel::{Receiver, Sender, TryRecvError, bounded, unbounded};
 use nalgebra::Vector3;
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::thread::{self, JoinHandle};
 
 use crate::chunk::Chunk;
@@ -20,7 +20,7 @@ const WORKER_THREADS: usize = 8;
 
 /// Maximum chunks to queue for generation.
 /// Prevents memory buildup if generation is slower than requests.
-const MAX_QUEUE_SIZE: usize = 128;
+const MAX_QUEUE_SIZE: usize = 256;
 /// Soft cap for batches (defensive: avoids accidental huge fan-out).
 const MAX_BATCH_REQUEST: usize = 256;
 
@@ -40,16 +40,15 @@ pub struct ChunkResult {
 
 /// Async chunk loader that generates chunks in background threads.
 pub struct ChunkLoader {
-    /// Sender to queue chunk generation requests.
-    request_tx: Sender<ChunkRequest>,
-    /// Receiver for completed chunks.
+    /// Sender to queue chunk generation requests (crossbeam MPMC).
+    /// Wrapped in Option to allow explicit drop before joining workers.
+    request_tx: Option<Sender<ChunkRequest>>,
+    /// Receiver for completed chunks (crossbeam MPMC).
     result_rx: Receiver<ChunkResult>,
     /// Worker thread handles (for cleanup).
     workers: Vec<JoinHandle<()>>,
     /// Set of chunks currently being generated (to avoid duplicates).
     in_flight: HashSet<Vector3<i32>>,
-    /// Shutdown signal sender.
-    shutdown_tx: Sender<()>,
 }
 
 impl ChunkLoader {
@@ -65,50 +64,29 @@ impl ChunkLoader {
     {
         let generator = Arc::new(generator);
 
-        // Channel for sending requests to workers
-        let (request_tx, request_rx) = mpsc::channel::<ChunkRequest>();
-        let request_rx = Arc::new(std::sync::Mutex::new(request_rx));
-
-        // Channel for receiving results from workers
-        let (result_tx, result_rx) = mpsc::channel::<ChunkResult>();
-
-        // Channel for shutdown signal
-        let (shutdown_tx, shutdown_rx) = mpsc::channel::<()>();
-        let shutdown_rx = Arc::new(std::sync::Mutex::new(shutdown_rx));
+        // Crossbeam channels - true MPMC without mutex overhead.
+        // Bounded request channel prevents unbounded memory growth.
+        let (request_tx, request_rx) = bounded::<ChunkRequest>(MAX_QUEUE_SIZE);
+        // Unbounded result channel - workers should never block on sending results.
+        let (result_tx, result_rx) = unbounded::<ChunkResult>();
 
         // Spawn worker threads
         let mut workers = Vec::with_capacity(WORKER_THREADS);
         for i in 0..WORKER_THREADS {
-            let request_rx = Arc::clone(&request_rx);
+            let request_rx = request_rx.clone();
             let result_tx = result_tx.clone();
             let generator = Arc::clone(&generator);
-            let shutdown_rx = Arc::clone(&shutdown_rx);
             let storage = storage.as_ref().map(Arc::clone);
 
             let handle = thread::Builder::new()
                 .name(format!("chunk-worker-{}", i))
                 .spawn(move || {
+                    // Use recv_timeout to allow periodic shutdown checks while
+                    // still blocking efficiently when no work is available.
+                    // crossbeam channels don't need a mutex - multiple workers
+                    // can call recv concurrently without serialization.
                     loop {
-                        // Check for shutdown signal (non-blocking)
-                        if let Ok(guard) = shutdown_rx.try_lock() {
-                            if guard.try_recv().is_ok() {
-                                break;
-                            }
-                        }
-
-                        // Try to get a request using try_recv to minimize lock hold time.
-                        // IMPORTANT: We must NOT hold the mutex while blocking, or all
-                        // workers serialize on the lock and only one can work at a time.
-                        let request = {
-                            let guard = match request_rx.lock() {
-                                Ok(g) => g,
-                                Err(_) => break, // Mutex poisoned, exit
-                            };
-                            guard.try_recv()
-                        };
-                        // Lock is released here before any blocking/sleeping
-
-                        match request {
+                        match request_rx.recv_timeout(std::time::Duration::from_millis(50)) {
                             Ok(req) => {
                                 // Try to load from disk first
                                 let (chunk, overflow_blocks) = if let Some(ref storage) = storage {
@@ -147,21 +125,19 @@ impl ChunkLoader {
                                     (chunk, result.overflow_blocks)
                                 };
 
-                                // Send result back (block_data computed after pending overflow applied)
+                                // Send result back (ignore error if receiver dropped)
                                 let _ = result_tx.send(ChunkResult {
                                     position: req.position,
                                     chunk,
                                     overflow_blocks,
                                 });
                             }
-                            Err(mpsc::TryRecvError::Empty) => {
-                                // No work available, sleep briefly then check again.
-                                // Short sleep (1ms) allows responsive shutdown while avoiding spin.
-                                thread::sleep(std::time::Duration::from_millis(1));
+                            Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
+                                // No work available, loop and check again
                                 continue;
                             }
-                            Err(mpsc::TryRecvError::Disconnected) => {
-                                // Channel closed, exit
+                            Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
+                                // Channel closed, exit worker
                                 break;
                             }
                         }
@@ -173,11 +149,10 @@ impl ChunkLoader {
         }
 
         Self {
-            request_tx,
+            request_tx: Some(request_tx),
             result_rx,
             workers,
             in_flight: HashSet::new(),
-            shutdown_tx,
         }
     }
 
@@ -196,13 +171,18 @@ impl ChunkLoader {
             return false;
         }
 
-        // Send request to workers
-        match self.request_tx.send(ChunkRequest { position }) {
+        // Get sender (may be None if shutting down)
+        let Some(ref request_tx) = self.request_tx else {
+            return false;
+        };
+
+        // Send request to workers (non-blocking try_send to avoid stalling main thread)
+        match request_tx.try_send(ChunkRequest { position }) {
             Ok(()) => {
                 self.in_flight.insert(position);
                 true
             }
-            Err(_) => false,
+            Err(_) => false, // Channel full or disconnected
         }
     }
 
@@ -228,7 +208,7 @@ impl ChunkLoader {
     ///
     /// Returns a vector of all currently available completed chunks.
     pub fn receive_chunks(&mut self) -> Vec<ChunkResult> {
-        let mut results = Vec::with_capacity(self.in_flight.len().min(32));
+        let mut results = Vec::with_capacity(self.in_flight.len().min(64));
 
         loop {
             match self.result_rx.try_recv() {
@@ -274,12 +254,12 @@ impl ChunkLoader {
 
 impl Drop for ChunkLoader {
     fn drop(&mut self) {
-        // Send shutdown signals
-        for _ in 0..WORKER_THREADS {
-            let _ = self.shutdown_tx.send(());
-        }
+        // Explicitly drop the sender FIRST to close the channel.
+        // Workers will see Disconnected error on recv and exit.
+        // We must do this before joining, otherwise workers block forever.
+        self.request_tx.take();
 
-        // Wait for workers to finish (with timeout)
+        // Wait for workers to finish (they will exit after seeing Disconnected)
         for worker in self.workers.drain(..) {
             let _ = worker.join();
         }
