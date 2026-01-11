@@ -7,7 +7,6 @@ use crate::world_gen::biome::{BiomeInfo, BiomeType};
 use crate::world_gen::climate::{ClimateGenerator, ClimatePoint};
 use crate::world_gen::rivers::{RiverGenerator, RiverInfo};
 use noise::{Fbm, MultiFractal, NoiseFn, Perlin, RidgedMulti};
-use std::collections::HashMap;
 
 /// Terrain generator using multiple noise layers for varied landscapes
 #[derive(Clone)]
@@ -459,7 +458,10 @@ impl TerrainGenerator {
             // At a boundary - calculate weighted blend
             // Use the center climate for consistency (climate changes more gradually than biomes)
             const BLEND_SAMPLES: i32 = 3;
-            let mut biome_heights: HashMap<BiomeType, (f64, f64)> = HashMap::new();
+
+            // Accumulate weighted heights for smooth blending
+            let mut total_weight = 0.0f64;
+            let mut weighted_height_sum = 0.0f64;
 
             for dx in -BLEND_SAMPLES..=BLEND_SAMPLES {
                 for dz in -BLEND_SAMPLES..=BLEND_SAMPLES {
@@ -467,28 +469,25 @@ impl TerrainGenerator {
                     let dist = ((dx * dx + dz * dz) as f64).sqrt();
                     let weight = if dist > 0.0 { 1.0 / dist } else { 4.0 };
 
-                    let entry = biome_heights.entry(sample_biome).or_insert((0.0, 0.0));
-                    entry.0 += weight;
-                    // Use the climate at the sample point for more accurate blending
+                    // Use the climate at the sample point for accurate blending
                     let sample_climate = self
                         .climate_generator
                         .get_climate_2d(world_x + dx, world_z + dz);
-                    entry.1 = self.calculate_biome_height(
+                    let height = self.calculate_biome_height(
                         sample_biome,
                         &sample_climate,
                         base,
                         ridges,
                         detail,
                     );
+
+                    // Properly accumulate weighted heights
+                    total_weight += weight;
+                    weighted_height_sum += weight * height;
                 }
             }
 
-            let total_weight: f64 = biome_heights.values().map(|(w, _)| w).sum();
-            let blended_height: f64 = biome_heights
-                .values()
-                .map(|(weight, height)| weight * height)
-                .sum::<f64>()
-                / total_weight;
+            let blended_height = weighted_height_sum / total_weight;
 
             blended_height.round() as i32
         };
