@@ -351,9 +351,20 @@ impl TerrainGenerator {
         // This is the PRIMARY height determinant
         // ========================================
 
-        // Continental base: maps continentalness to height
-        // -1.0 (deep ocean) -> ~50, 0.0 (coast) -> ~75, 1.0 (inland) -> ~100
-        let continental_base = 75.0 + climate.continentalness * 25.0;
+        // Continental base with proper land/ocean separation
+        // Ocean (continentalness < -0.4): below sea level (40-70)
+        // Land (continentalness >= -0.4): above sea level (80-115)
+        // This creates a "continental shelf" step at the coast
+        let continental_base = if climate.continentalness < -0.4 {
+            // Ocean: deeper as continentalness decreases
+            // -0.4 -> 70, -1.0 -> 40
+            70.0 + (climate.continentalness + 0.4) * 50.0
+        } else {
+            // Land: maps -0.4 (coast) to 1.0 (deep inland) -> 80 to 115
+            // This ensures ALL land is above sea level (75)
+            let land_factor = (climate.continentalness + 0.4) / 1.4; // 0.0 at coast, 1.0 at inland
+            80.0 + land_factor * 35.0
+        };
 
         // Erosion controls how much terrain varies from the base
         // Low erosion (-1.0) = dramatic peaks/valleys
@@ -362,13 +373,14 @@ impl TerrainGenerator {
         let erosion_factor = (1.0 - climate.erosion) * 0.4 + 0.2;
 
         // Base terrain variation (applies to ALL biomes)
-        let terrain_variation = base * 15.0 * erosion_factor;
+        // Reduced from 15.0 to 12.0 to prevent dipping below sea level
+        let terrain_variation = base * 12.0 * erosion_factor;
 
         // Mountain/peak contribution (driven by erosion, not biome)
         // Only significant when erosion is very low (< -0.3)
         let peak_contribution = if climate.erosion < -0.3 {
             let peak_strength = (-climate.erosion - 0.3) / 0.7; // 0..1 as erosion goes -0.3..-1.0
-            ridges * 40.0 * peak_strength * erosion_factor
+            ridges * 45.0 * peak_strength * erosion_factor
         } else {
             0.0
         };
@@ -386,20 +398,19 @@ impl TerrainGenerator {
         // ========================================
 
         let biome_adjustment = match biome {
-            // Ocean - use different formula (below sea level)
-            BiomeType::Ocean => {
-                let depth = (-climate.continentalness - 0.4).max(0.0) * 25.0;
-                return 55.0 - depth + detail * 3.0 + base * 5.0;
-            }
+            // Ocean uses the climate-driven height (already below sea level)
+            BiomeType::Ocean => 0.0,
 
-            // Beach - fixed near sea level
+            // Beach - just above sea level with gentle slopes
             BiomeType::Beach => {
-                return 73.0 + detail * 1.5 + base.abs() * 2.0;
+                // Beach is at continentalness -0.4 to -0.1, which gives base ~80
+                // Return a fixed height near sea level for smooth sandy beaches
+                return 76.0 + detail * 1.5 + base.abs() * 2.0;
             }
 
-            // Swamp - fixed near sea level (wetlands)
+            // Swamp - near sea level (wetlands)
             BiomeType::Swamp => {
-                return 72.0 + detail * 2.0 + base.abs() * 3.0;
+                return 76.0 + detail * 2.0 + base.abs() * 2.0;
             }
 
             // Mountains get a small boost (most height comes from erosion)
