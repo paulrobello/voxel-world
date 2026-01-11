@@ -431,13 +431,19 @@ impl App {
             // Convert to slice references for upload
             self.upload_owned_chunks(&chunks_to_upload);
             self.mark_chunks_clean(&chunks_to_upload);
+
+            // Collect positions for metadata queue and dirty removal
+            let uploaded_positions: Vec<_> =
+                chunks_to_upload.iter().map(|(pos, _, _)| *pos).collect();
+
+            // CRITICAL: Queue metadata update for newly loaded chunks.
+            // Without this, chunk_bits stays as "empty" and shader skips the chunk.
+            self.sim
+                .metadata_state
+                .queue_many(self.sim.texture_origin, uploaded_positions.iter().copied());
+
             // Already uploaded this frame; avoid a second upload in upload_world_to_gpu
-            self.sim.world.remove_dirty_positions(
-                &chunks_to_upload
-                    .iter()
-                    .map(|(pos, _, _)| *pos)
-                    .collect::<Vec<_>>(),
-            );
+            self.sim.world.remove_dirty_positions(&uploaded_positions);
         }
 
         // === STEP 2: Queue new chunks for generation ===
