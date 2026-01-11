@@ -46,6 +46,7 @@ pub struct WorldSim {
 
     pub render_mode: RenderMode,
     pub view_distance: i32,
+    pub load_distance: i32,
     pub unload_distance: i32,
 
     pub profiler: Profiler,

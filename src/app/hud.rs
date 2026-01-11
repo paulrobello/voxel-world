@@ -55,6 +55,7 @@ pub fn render_hud(
             day_cycle_paused: &mut sim.day_cycle_paused,
             atmosphere: &mut sim.atmosphere,
             view_distance: &mut sim.view_distance,
+            load_distance: &mut sim.load_distance,
             unload_distance: &mut sim.unload_distance,
             block_updates: &mut sim.block_updates,
             show_minimap: &mut ui.show_minimap,

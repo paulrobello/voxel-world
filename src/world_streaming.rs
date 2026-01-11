@@ -426,9 +426,10 @@ impl App {
         }
 
         // === STEP 2: Queue new chunks for generation ===
+        // Use load_distance (not view_distance) to preload chunks before they become visible
         let to_load = self.sim.world.get_chunks_to_load(
             player_chunk,
-            self.sim.view_distance,
+            self.sim.load_distance,
             (min_chunk, max_chunk),
         );
 

@@ -24,10 +24,14 @@ pub const TEXTURE_SIZE_Y: usize = WORLD_CHUNKS_Y as usize * CHUNK_SIZE;
 pub const TEXTURE_SIZE_Z: usize = LOADED_CHUNKS_Z as usize * CHUNK_SIZE;
 
 // Chunk streaming constants
-/// View distance in chunks (horizontal - all Y levels loaded within this range)
+/// View distance in chunks (horizontal - chunks within this range are rendered)
 pub const VIEW_DISTANCE: i32 = 6;
+/// Load distance in chunks (horizontal - chunks within this range are loaded/generated)
+/// Should be >= view_distance + 2 to preload chunks before they become visible
+pub const LOAD_DISTANCE: i32 = 8;
 /// Unload distance in chunks (horizontal - chunks beyond this are unloaded)
-pub const UNLOAD_DISTANCE: i32 = 7;
+/// Should be > load_distance to prevent thrashing at boundaries
+pub const UNLOAD_DISTANCE: i32 = 10;
 /// Maximum chunks to load or unload per frame
 pub const CHUNKS_PER_FRAME: usize = 4;
 

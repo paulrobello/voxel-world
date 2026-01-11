@@ -26,6 +26,7 @@ impl SettingsUI {
         day_cycle_paused: &mut bool,
         atmosphere: &mut crate::atmosphere::AtmosphereSettings,
         view_distance: &mut i32,
+        load_distance: &mut i32,
         unload_distance: &mut i32,
         block_updates: &mut BlockUpdateQueue,
         _model_registry: &ModelRegistry,
@@ -228,22 +229,43 @@ impl SettingsUI {
                         }
                         if ui
                             .add(egui::Slider::new(view_distance, 2..=10).text("View Distance"))
+                            .on_hover_text("Distance at which chunks are rendered")
                             .changed()
                         {
                             println!("[SETTING] View Distance: {} chunks", *view_distance);
-                            // Ensure unload distance is at least view distance + 1
-                            if *unload_distance <= *view_distance {
-                                *unload_distance = *view_distance + 2;
+                            // Ensure load distance is at least view distance
+                            if *load_distance < *view_distance {
+                                *load_distance = *view_distance;
+                            }
+                            // Ensure unload distance is greater than load distance
+                            if *unload_distance <= *load_distance {
+                                *unload_distance = *load_distance + 2;
                             }
                         }
                         if ui
-                            .add(egui::Slider::new(unload_distance, 3..=12).text("Unload Distance"))
+                            .add(egui::Slider::new(load_distance, 2..=12).text("Load Distance"))
+                            .on_hover_text("Distance at which chunks are loaded (preload buffer)")
+                            .changed()
+                        {
+                            println!("[SETTING] Load Distance: {} chunks", *load_distance);
+                            // Ensure load distance is at least view distance
+                            if *load_distance < *view_distance {
+                                *load_distance = *view_distance;
+                            }
+                            // Ensure unload distance is greater than load distance
+                            if *unload_distance <= *load_distance {
+                                *unload_distance = *load_distance + 2;
+                            }
+                        }
+                        if ui
+                            .add(egui::Slider::new(unload_distance, 3..=14).text("Unload Distance"))
+                            .on_hover_text("Distance at which chunks are unloaded")
                             .changed()
                         {
                             println!("[SETTING] Unload Distance: {} chunks", *unload_distance);
-                            // Ensure unload distance is greater than view distance
-                            if *unload_distance <= *view_distance {
-                                *unload_distance = *view_distance + 2;
+                            // Ensure unload distance is greater than load distance
+                            if *unload_distance <= *load_distance {
+                                *unload_distance = *load_distance + 2;
                             }
                         }
 

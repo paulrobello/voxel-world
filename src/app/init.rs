@@ -9,8 +9,8 @@ use crate::chunk_loader::ChunkLoader;
 use crate::config::{Args, INITIAL_WINDOW_RESOLUTION};
 use crate::console::ConsoleState;
 use crate::constants::{
-    DEFAULT_TIME_OF_DAY, LOADED_CHUNKS_X, LOADED_CHUNKS_Z, TEXTURE_SIZE_X, TEXTURE_SIZE_Y,
-    TEXTURE_SIZE_Z, UNLOAD_DISTANCE, VIEW_DISTANCE,
+    DEFAULT_TIME_OF_DAY, LOAD_DISTANCE, LOADED_CHUNKS_X, LOADED_CHUNKS_Z, TEXTURE_SIZE_X,
+    TEXTURE_SIZE_Y, TEXTURE_SIZE_Z, UNLOAD_DISTANCE, VIEW_DISTANCE,
 };
 use crate::editor::EditorState;
 use crate::falling_block::FallingBlockSystem;
@@ -143,6 +143,7 @@ impl App {
         let initial_player_data = prefs.get_player_data(&world_name).cloned();
 
         let view_distance = args.view_distance.unwrap_or(VIEW_DISTANCE);
+        let load_distance = LOAD_DISTANCE;
         let unload_distance = UNLOAD_DISTANCE;
 
         let vk = VulkanContext::new(event_loop);
@@ -379,6 +380,7 @@ impl App {
                 _ => RenderMode::Textured,
             },
             view_distance,
+            load_distance,
             unload_distance,
             profiler: Profiler::default(),
             metadata_state: MetadataState::new(texture_origin),
