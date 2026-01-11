@@ -27,8 +27,8 @@ pub const TEXTURE_SIZE_Z: usize = LOADED_CHUNKS_Z as usize * CHUNK_SIZE;
 /// View distance in chunks (horizontal - chunks within this range are rendered)
 pub const VIEW_DISTANCE: i32 = 6;
 /// Load distance in chunks (horizontal - chunks within this range are loaded/generated)
-/// Should be >= view_distance + 2 to preload chunks before they become visible
-pub const LOAD_DISTANCE: i32 = 8;
+/// Should be >= view_distance + 1 to preload chunks before they become visible
+pub const LOAD_DISTANCE: i32 = 7;
 /// Unload distance in chunks (horizontal - chunks beyond this are unloaded)
 /// Should be > load_distance to prevent thrashing at boundaries
 pub const UNLOAD_DISTANCE: i32 = 10;
