@@ -60,13 +60,13 @@ pub fn generate_ground_cover(
 
                 #[allow(deprecated)]
                 match biome {
-                    // Plains and temperate grasslands
+                    // Plains and temperate grasslands - moderate coverage
                     BiomeType::Plains | BiomeType::Grassland => {
                         if surface_block == BlockType::Grass {
                             let roll = hash % 100;
-                            if roll < 10 {
+                            if roll < 4 {
                                 chunk.set_model_block(lx, y, lz, MODEL_TALL_GRASS, 0, false);
-                            } else if roll < 13 {
+                            } else if roll < 6 {
                                 let flower = match hash % 3 {
                                     0 => MODEL_FLOWER_RED,
                                     1 => MODEL_FLOWER_YELLOW,
@@ -77,11 +77,11 @@ pub fn generate_ground_cover(
                         }
                     }
 
-                    // Meadow - lots of flowers
+                    // Meadow - more flowers but still reasonable
                     BiomeType::Meadow => {
                         if surface_block == BlockType::Grass {
                             let roll = hash % 100;
-                            if roll < 20 {
+                            if roll < 10 {
                                 let flower = match hash % 4 {
                                     0 => MODEL_FLOWER_RED,
                                     1 => MODEL_FLOWER_YELLOW,
@@ -93,72 +93,72 @@ pub fn generate_ground_cover(
                         }
                     }
 
-                    // Forest biomes - moderate grass, flowers, ferns
+                    // Forest biomes - sparse understory
                     BiomeType::Forest | BiomeType::BirchForest => {
                         if surface_block == BlockType::Grass {
                             let roll = hash % 100;
-                            if roll < 6 {
+                            if roll < 3 {
                                 chunk.set_model_block(lx, y, lz, MODEL_TALL_GRASS, 0, false);
-                            } else if roll < 10 {
+                            } else if roll < 5 {
                                 chunk.set_model_block(lx, y, lz, MODEL_FERN, 0, false);
-                            } else if roll < 12 {
+                            } else if roll < 6 {
                                 chunk.set_model_block(lx, y, lz, MODEL_FLOWER_BLUE, 0, false);
                             }
                         }
                     }
 
-                    // Dark forest - mushrooms, ferns, less grass
+                    // Dark forest - mushrooms, ferns
                     BiomeType::DarkForest => {
                         if surface_block == BlockType::Grass || surface_block == BlockType::Dirt {
                             let roll = hash % 100;
-                            if roll < 8 {
+                            if roll < 4 {
                                 let mushroom = if hash % 3 == 0 {
                                     MODEL_MUSHROOM_RED
                                 } else {
                                     MODEL_MUSHROOM_BROWN
                                 };
                                 chunk.set_model_block(lx, y, lz, mushroom, 0, false);
-                            } else if roll < 14 {
+                            } else if roll < 7 {
                                 chunk.set_model_block(lx, y, lz, MODEL_FERN, 0, false);
-                            } else if roll < 18 {
+                            } else if roll < 9 {
                                 chunk.set_model_block(lx, y, lz, MODEL_TALL_GRASS, 0, false);
                             }
                         }
                     }
 
-                    // Swamp - tall grass, mushrooms, lily pads
+                    // Swamp - moderate coverage
                     BiomeType::Swamp => {
                         if surface_block == BlockType::Grass
                             || surface_block == BlockType::Dirt
                             || surface_block == BlockType::Mud
                         {
                             let roll = hash % 100;
-                            if roll < 15 {
+                            if roll < 6 {
                                 chunk.set_model_block(lx, y, lz, MODEL_TALL_GRASS, 0, false);
-                            } else if roll < 20 {
+                            } else if roll < 9 {
                                 chunk.set_model_block(lx, y, lz, MODEL_MUSHROOM_BROWN, 0, false);
-                            } else if roll < 22 {
+                            } else if roll < 10 {
                                 chunk.set_model_block(lx, y, lz, MODEL_FERN, 0, false);
                             }
                         }
                         // Lily pads on water
                         if surface_block == BlockType::Water
                             && height == SEA_LEVEL
-                            && hash % 100 < 8
+                            && hash % 100 < 5
                         {
                             chunk.set_model_block(lx, y, lz, MODEL_LILY_PAD, 0, false);
                         }
                     }
 
-                    // Jungle - dense vegetation with ferns
+                    // Jungle - denser vegetation
                     BiomeType::Jungle => {
                         if surface_block == BlockType::Grass {
                             let roll = hash % 100;
-                            if roll < 12 {
+                            if roll < 6 {
                                 chunk.set_model_block(lx, y, lz, MODEL_TALL_GRASS, 0, false);
-                            } else if roll < 22 {
+                            } else if roll < 12 {
                                 chunk.set_model_block(lx, y, lz, MODEL_FERN, 0, false);
-                            } else if roll < 28 {
+                            } else if roll < 15 {
                                 let flower = match hash % 3 {
                                     0 => MODEL_FLOWER_RED,
                                     1 => MODEL_FLOWER_YELLOW,
@@ -173,9 +173,9 @@ pub fn generate_ground_cover(
                     BiomeType::Savanna => {
                         if surface_block == BlockType::Grass {
                             let roll = hash % 100;
-                            if roll < 6 {
+                            if roll < 3 {
                                 chunk.set_model_block(lx, y, lz, MODEL_TALL_GRASS, 0, false);
-                            } else if roll < 10 {
+                            } else if roll < 5 {
                                 chunk.set_model_block(lx, y, lz, MODEL_DEAD_BUSH, 0, false);
                             }
                         }
@@ -185,9 +185,9 @@ pub fn generate_ground_cover(
                     BiomeType::Taiga => {
                         if surface_block == BlockType::Grass {
                             let roll = hash % 100;
-                            if roll < 8 {
+                            if roll < 4 {
                                 chunk.set_model_block(lx, y, lz, MODEL_FERN, 0, false);
-                            } else if roll < 12 {
+                            } else if roll < 6 {
                                 chunk.set_model_block(lx, y, lz, MODEL_TALL_GRASS, 0, false);
                             }
                         }
@@ -216,9 +216,9 @@ pub fn generate_ground_cover(
                     BiomeType::Mountains => {
                         if surface_block == BlockType::Grass {
                             let roll = hash % 100;
-                            if roll < 4 {
+                            if roll < 2 {
                                 chunk.set_model_block(lx, y, lz, MODEL_TALL_GRASS, 0, false);
-                            } else if roll < 6 {
+                            } else if roll < 3 {
                                 chunk.set_model_block(lx, y, lz, MODEL_FLOWER_BLUE, 0, false);
                             }
                         }
@@ -226,7 +226,7 @@ pub fn generate_ground_cover(
 
                     // Desert - dead bushes
                     BiomeType::Desert => {
-                        if surface_block == BlockType::Sand && hash % 100 < 3 {
+                        if surface_block == BlockType::Sand && hash % 100 < 2 {
                             chunk.set_model_block(lx, y, lz, MODEL_DEAD_BUSH, 0, false);
                         }
                     }
@@ -235,7 +235,7 @@ pub fn generate_ground_cover(
                     BiomeType::Ocean => {
                         if surface_block == BlockType::Sand
                             && height < SEA_LEVEL - 1
-                            && hash % 100 < 12
+                            && hash % 100 < 6
                         {
                             chunk.set_model_block(lx, y, lz, MODEL_SEAGRASS, 0, false);
                         }
