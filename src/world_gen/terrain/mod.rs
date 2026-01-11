@@ -328,14 +328,15 @@ impl TerrainGenerator {
         height.round() as i32
     }
 
-    /// Calculate height for a specific biome using climate parameters.
+    /// Calculate terrain height using climate-driven approach (Minecraft-style).
     ///
-    /// Height is influenced by:
-    /// - `continentalness`: Controls base height (-1.0 = ocean depth, 1.0 = inland plateau)
-    /// - `erosion`: Controls height amplitude (-1.0 = peaks, 1.0 = flat eroded)
-    /// - `base`: Base noise value for terrain features
-    /// - `ridges`: Mountain ridge noise for dramatic peaks
-    /// - `detail`: Fine detail noise for surface variation
+    /// Height is PRIMARILY driven by climate parameters, not biome type.
+    /// This ensures smooth transitions at biome boundaries since the same
+    /// climate values produce similar heights regardless of biome.
+    ///
+    /// - `continentalness`: Controls base height (-1.0 = ocean, 1.0 = inland)
+    /// - `erosion`: Controls height amplitude (-1.0 = peaks, 1.0 = flat)
+    /// - Biome type adds only SMALL adjustments (not dramatic differences)
     #[allow(deprecated)]
     fn calculate_biome_height(
         &self,
@@ -345,88 +346,101 @@ impl TerrainGenerator {
         ridges: f64,
         detail: f64,
     ) -> f64 {
-        // Use climate parameters for more realistic height variation
-        // Continentalness: -1.0 (deep ocean) to 1.0 (inland continental)
-        // Erosion: -1.0 (peaks/mountains) to 1.0 (flat/eroded)
+        // ========================================
+        // STEP 1: Climate-driven base height
+        // This is the PRIMARY height determinant
+        // ========================================
 
-        // Base continental height factor (ocean to inland gradient)
-        // Maps -1.0..1.0 to roughly 40..140 base height
-        let continental_base = 90.0 + climate.continentalness * 40.0;
+        // Continental base: maps continentalness to height
+        // -1.0 (deep ocean) -> ~50, 0.0 (coast) -> ~75, 1.0 (inland) -> ~100
+        let continental_base = 75.0 + climate.continentalness * 25.0;
 
-        // Erosion controls amplitude of terrain features
-        // Low erosion (-1.0) = dramatic peaks, high erosion (1.0) = flat
-        let erosion_amplitude = (1.0 - climate.erosion) * 0.5 + 0.5; // 0.5 to 1.0
+        // Erosion controls how much terrain varies from the base
+        // Low erosion (-1.0) = dramatic peaks/valleys
+        // High erosion (1.0) = flat, eroded terrain
+        // Map -1..1 to 1.0..0.2 (inverted - low erosion = high amplitude)
+        let erosion_factor = (1.0 - climate.erosion) * 0.4 + 0.2;
 
-        match biome {
-            // Ocean - depth varies with continentalness
+        // Base terrain variation (applies to ALL biomes)
+        let terrain_variation = base * 15.0 * erosion_factor;
+
+        // Mountain/peak contribution (driven by erosion, not biome)
+        // Only significant when erosion is very low (< -0.3)
+        let peak_contribution = if climate.erosion < -0.3 {
+            let peak_strength = (-climate.erosion - 0.3) / 0.7; // 0..1 as erosion goes -0.3..-1.0
+            ridges * 40.0 * peak_strength * erosion_factor
+        } else {
+            0.0
+        };
+
+        // Fine detail (small variations, same for all biomes)
+        let surface_detail = detail * 3.0;
+
+        // Climate-driven height (same formula for ALL biomes)
+        let climate_height =
+            continental_base + terrain_variation + peak_contribution + surface_detail;
+
+        // ========================================
+        // STEP 2: Small biome-specific adjustments
+        // These are MINOR tweaks, not dramatic changes
+        // ========================================
+
+        let biome_adjustment = match biome {
+            // Ocean - use different formula (below sea level)
             BiomeType::Ocean => {
-                let depth = (-climate.continentalness - 0.4).max(0.0) * 30.0;
-                55.0 - depth + detail * 3.0 + base * 5.0
+                let depth = (-climate.continentalness - 0.4).max(0.0) * 25.0;
+                return 55.0 - depth + detail * 3.0 + base * 5.0;
             }
 
-            // Beach - just above sea level
-            BiomeType::Beach => 73.0 + detail * 1.5 + base.abs() * 2.0,
-
-            // Flat biomes - use continental base with low variation
-            BiomeType::Plains | BiomeType::Grassland => {
-                continental_base + detail * 2.0 + base * 4.0 * erosion_amplitude
-            }
-            BiomeType::Meadow => {
-                continental_base + 5.0 + detail * 3.0 + base * 6.0 * erosion_amplitude
-            }
-            BiomeType::Swamp => 72.0 + detail * 2.0 + base.abs() * 3.0, // Near sea level
-            BiomeType::Desert => {
-                continental_base - 5.0 + detail * 1.5 + base * 3.0 * erosion_amplitude
-            }
-            BiomeType::Savanna => {
-                continental_base - 3.0 + detail * 2.5 + base * 4.0 * erosion_amplitude
+            // Beach - fixed near sea level
+            BiomeType::Beach => {
+                return 73.0 + detail * 1.5 + base.abs() * 2.0;
             }
 
-            // Forested biomes - moderate terrain variation
-            BiomeType::Forest | BiomeType::BirchForest => {
-                continental_base + detail * 3.0 + base * 6.0 * erosion_amplitude
-            }
-            BiomeType::DarkForest => {
-                continental_base - 3.0 + detail * 2.5 + base * 5.0 * erosion_amplitude
-            }
-            BiomeType::Jungle => continental_base + detail * 4.0 + base * 7.0 * erosion_amplitude,
-
-            // Cold biomes
-            BiomeType::Taiga => continental_base + detail * 3.0 + base * 6.0 * erosion_amplitude,
-            BiomeType::SnowyPlains | BiomeType::Snow => {
-                // Snow biomes can have glacier-like elevated areas
-                if base > 0.4 && erosion_amplitude > 0.7 {
-                    continental_base + base * 12.0 + ridges * 25.0 * erosion_amplitude
-                } else {
-                    continental_base + detail * 2.0 + base * 4.0
-                }
-            }
-            BiomeType::SnowyTaiga => {
-                continental_base
-                    + 5.0
-                    + detail * 3.0
-                    + base * 7.0 * erosion_amplitude
-                    + ridges * 12.0 * erosion_amplitude
+            // Swamp - fixed near sea level (wetlands)
+            BiomeType::Swamp => {
+                return 72.0 + detail * 2.0 + base.abs() * 3.0;
             }
 
-            // Mountains - dramatic elevation based on erosion
-            BiomeType::Mountains => {
-                // Low erosion = sharp peaks, high erosion = worn mountains
-                let peak_height = ridges * 60.0 * erosion_amplitude;
-                let base_elevation = base * 15.0 * erosion_amplitude;
-                continental_base + 10.0 + base_elevation + peak_height
-            }
+            // Mountains get a small boost (most height comes from erosion)
+            BiomeType::Mountains => 8.0,
 
-            // Underground biomes inherit surface height (continental base)
-            BiomeType::LushCaves | BiomeType::DripstoneCaves | BiomeType::DeepDark => {
-                continental_base + detail * 2.0 + base * 4.0
-            }
-        }
+            // Snow biomes slightly elevated
+            BiomeType::SnowyPlains | BiomeType::Snow | BiomeType::SnowyTaiga => 3.0,
+
+            // Taiga/forest biomes neutral
+            BiomeType::Taiga | BiomeType::Forest | BiomeType::BirchForest => 0.0,
+
+            // Meadow slightly elevated
+            BiomeType::Meadow => 4.0,
+
+            // Dark forest in valleys
+            BiomeType::DarkForest => -2.0,
+
+            // Jungle neutral
+            BiomeType::Jungle => 0.0,
+
+            // Plains/grassland neutral
+            BiomeType::Plains | BiomeType::Grassland => 0.0,
+
+            // Desert slightly lower
+            BiomeType::Desert => -3.0,
+
+            // Savanna neutral
+            BiomeType::Savanna => 0.0,
+
+            // Underground biomes use surface height
+            BiomeType::LushCaves | BiomeType::DripstoneCaves | BiomeType::DeepDark => 0.0,
+        };
+
+        climate_height + biome_adjustment
     }
 
     /// Get terrain height at world coordinates with smooth transitions at biome boundaries.
     ///
-    /// Uses climate parameters (continentalness, erosion) to influence height calculation.
+    /// Height is primarily driven by climate parameters (continentalness, erosion),
+    /// ensuring smooth transitions since adjacent areas have similar climate values.
+    /// Biome type only adds small adjustments that are blended at boundaries.
     pub fn get_height(&self, world_x: i32, world_z: i32) -> i32 {
         let x = world_x as f64;
         let z = world_z as f64;
@@ -435,12 +449,12 @@ impl TerrainGenerator {
         let ridges = self.mountain_noise.get([x, z]);
         let detail = self.detail_noise.get([x * 0.02, z * 0.02]);
 
-        // Get climate for this position (used in height calculation)
+        // Get climate for this position - this drives MOST of the height calculation
         let climate = self.climate_generator.get_climate_2d(world_x, world_z);
         let center_biome = self.get_biome(world_x, world_z);
 
         // Sample neighboring biomes to detect boundaries
-        const SAMPLE_OFFSET: i32 = 4;
+        const SAMPLE_OFFSET: i32 = 8;
         let neighbors = [
             self.get_biome(world_x + SAMPLE_OFFSET, world_z),
             self.get_biome(world_x - SAMPLE_OFFSET, world_z),
@@ -455,79 +469,52 @@ impl TerrainGenerator {
             let height = self.calculate_biome_height(center_biome, &climate, base, ridges, detail);
             height.round() as i32
         } else {
-            // At a boundary - find nearest different biome and interpolate
-            // This simpler approach avoids issues with noise values from wrong biomes
-            const BLEND_RADIUS: i32 = 8;
+            // At a boundary - use distance-weighted blend of surrounding biomes
+            // Since height is climate-driven, we only need to blend the small
+            // biome-specific adjustments (max ±8 blocks)
+            const BLEND_RADIUS: i32 = 16;
 
-            // Find the nearest different biome and its position
-            let mut min_distance = f64::MAX;
-            let mut nearest_biome = center_biome;
-            let mut nearest_dx = 0i32;
-            let mut nearest_dz = 0i32;
+            // Collect biome heights weighted by inverse distance
+            let mut total_weight = 0.0;
+            let mut weighted_height = 0.0;
 
-            for dx in -BLEND_RADIUS..=BLEND_RADIUS {
-                for dz in -BLEND_RADIUS..=BLEND_RADIUS {
-                    if dx == 0 && dz == 0 {
+            // Sample in a grid pattern for efficiency
+            for dx in (-BLEND_RADIUS..=BLEND_RADIUS).step_by(4) {
+                for dz in (-BLEND_RADIUS..=BLEND_RADIUS).step_by(4) {
+                    let dist_sq = (dx * dx + dz * dz) as f64;
+                    if dist_sq > (BLEND_RADIUS * BLEND_RADIUS) as f64 {
                         continue;
                     }
-                    let sample_biome = self.get_biome(world_x + dx, world_z + dz);
-                    if sample_biome != center_biome {
-                        let dist = ((dx * dx + dz * dz) as f64).sqrt();
-                        if dist < min_distance {
-                            min_distance = dist;
-                            nearest_biome = sample_biome;
-                            nearest_dx = dx;
-                            nearest_dz = dz;
-                        }
-                    }
+
+                    let sample_x = world_x + dx;
+                    let sample_z = world_z + dz;
+                    let sample_biome = self.get_biome(sample_x, sample_z);
+
+                    // Calculate height at sample position using LOCAL climate and noise
+                    let sample_climate = self.climate_generator.get_climate_2d(sample_x, sample_z);
+                    let sample_base = self.height_noise.get([sample_x as f64, sample_z as f64]);
+                    let sample_ridges = self.mountain_noise.get([sample_x as f64, sample_z as f64]);
+                    let sample_detail = self
+                        .detail_noise
+                        .get([sample_x as f64 * 0.02, sample_z as f64 * 0.02]);
+
+                    let height = self.calculate_biome_height(
+                        sample_biome,
+                        &sample_climate,
+                        sample_base,
+                        sample_ridges,
+                        sample_detail,
+                    );
+
+                    // Weight by inverse distance (closer = more influence)
+                    // Add 1.0 to avoid division by zero at center
+                    let weight = 1.0 / (dist_sq.sqrt() + 1.0);
+                    weighted_height += height * weight;
+                    total_weight += weight;
                 }
             }
 
-            // Calculate heights for center biome and nearest different biome
-            let center_height =
-                self.calculate_biome_height(center_biome, &climate, base, ridges, detail);
-
-            // For neighbor biome, sample noise at the position where we found it
-            // This ensures mountains use mountain-appropriate noise values
-            let neighbor_height = if nearest_biome != center_biome {
-                let neighbor_x = world_x + nearest_dx;
-                let neighbor_z = world_z + nearest_dz;
-
-                let neighbor_climate = self
-                    .climate_generator
-                    .get_climate_2d(neighbor_x, neighbor_z);
-                let neighbor_base = self
-                    .height_noise
-                    .get([neighbor_x as f64, neighbor_z as f64]);
-                let neighbor_ridges = self
-                    .mountain_noise
-                    .get([neighbor_x as f64, neighbor_z as f64]);
-                let neighbor_detail = self
-                    .detail_noise
-                    .get([neighbor_x as f64 * 0.02, neighbor_z as f64 * 0.02]);
-
-                self.calculate_biome_height(
-                    nearest_biome,
-                    &neighbor_climate,
-                    neighbor_base,
-                    neighbor_ridges,
-                    neighbor_detail,
-                )
-            } else {
-                center_height
-            };
-
-            // Blend factor: 0.0 = fully center, 1.0 = fully neighbor
-            let blend_factor = (1.0 - (min_distance / BLEND_RADIUS as f64)).clamp(0.0, 1.0);
-
-            // Smoothstep for natural transition
-            let smooth_blend = blend_factor * blend_factor * (3.0 - 2.0 * blend_factor);
-
-            // Interpolate between the two heights
-            let blended_height =
-                center_height * (1.0 - smooth_blend) + neighbor_height * smooth_blend;
-
-            blended_height.round() as i32
+            (weighted_height / total_weight).round() as i32
         };
 
         // Apply river carving if a river exists at this position
