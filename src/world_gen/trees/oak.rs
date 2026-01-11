@@ -3,6 +3,123 @@
 use crate::chunk::{BlockType, Chunk};
 use crate::world_gen::utils::{OverflowBlock, get_block_safe, set_block_safe};
 
+/// Cross-shaped trunk pattern offsets (plus sign when viewed from above).
+/// ```text
+///  #
+/// ###
+///  #
+/// ```
+const TRUNK_CROSS_OFFSETS: [(i32, i32); 5] = [(0, 0), (1, 0), (-1, 0), (0, 1), (0, -1)];
+
+/// Place a cross-shaped trunk section at the given position.
+#[allow(clippy::too_many_arguments)]
+fn place_trunk_cross(
+    chunk: &mut Chunk,
+    x: i32,
+    y: i32,
+    z: i32,
+    chunk_world_x: i32,
+    chunk_world_y: i32,
+    chunk_world_z: i32,
+    overflow_blocks: &mut Vec<OverflowBlock>,
+) {
+    for &(dx, dz) in &TRUNK_CROSS_OFFSETS {
+        set_block_safe(
+            chunk,
+            x + dx,
+            y,
+            z + dz,
+            BlockType::Log,
+            chunk_world_x,
+            chunk_world_y,
+            chunk_world_z,
+            overflow_blocks,
+        );
+    }
+}
+
+/// Place a thick (2-wide) branch log at the given position.
+/// Thickens perpendicular to the branch direction.
+#[allow(clippy::too_many_arguments)]
+fn place_thick_branch_log(
+    chunk: &mut Chunk,
+    px: i32,
+    py: i32,
+    pz: i32,
+    dir_x: i32,
+    dir_z: i32,
+    chunk_world_x: i32,
+    chunk_world_y: i32,
+    chunk_world_z: i32,
+    overflow_blocks: &mut Vec<OverflowBlock>,
+) {
+    // Place main log
+    set_block_safe(
+        chunk,
+        px,
+        py,
+        pz,
+        BlockType::Log,
+        chunk_world_x,
+        chunk_world_y,
+        chunk_world_z,
+        overflow_blocks,
+    );
+
+    // Calculate perpendicular direction for thickness
+    // Perpendicular to (dir_x, dir_z) is (-dir_z, dir_x)
+    let perp_x = if dir_z != 0 {
+        if dir_z > 0 { -1 } else { 1 }
+    } else {
+        0
+    };
+    let perp_z = if dir_x != 0 {
+        if dir_x > 0 { 1 } else { -1 }
+    } else {
+        0
+    };
+
+    // If branch is diagonal, thicken in both perpendicular directions
+    if dir_x != 0 && dir_z != 0 {
+        // Place logs to fill the diagonal gap
+        set_block_safe(
+            chunk,
+            px + 1,
+            py,
+            pz,
+            BlockType::Log,
+            chunk_world_x,
+            chunk_world_y,
+            chunk_world_z,
+            overflow_blocks,
+        );
+        set_block_safe(
+            chunk,
+            px,
+            py,
+            pz + 1,
+            BlockType::Log,
+            chunk_world_x,
+            chunk_world_y,
+            chunk_world_z,
+            overflow_blocks,
+        );
+    } else if perp_x != 0 || perp_z != 0 {
+        // Place perpendicular log for axis-aligned branches
+        set_block_safe(
+            chunk,
+            px + perp_x,
+            py,
+            pz + perp_z,
+            BlockType::Log,
+            chunk_world_x,
+            chunk_world_y,
+            chunk_world_z,
+            overflow_blocks,
+        );
+    }
+}
+
 /// Generate an oak tree (normal or giant based on hash).
 #[allow(clippy::too_many_arguments)]
 pub fn generate_oak(
@@ -253,14 +370,13 @@ fn generate_forking_trunk_oak(
     let fork_ratio = 40 + (hash / 19) % 21; // 40-60
     let fork_height = (height * fork_ratio) / 100;
 
-    // Build main trunk up to fork point
+    // Build main trunk up to fork point with cross-shaped pattern
     for dy in 1..=fork_height {
-        set_block_safe(
+        place_trunk_cross(
             chunk,
             x,
             y + dy,
             z,
-            BlockType::Log,
             chunk_world_x,
             chunk_world_y,
             chunk_world_z,
@@ -291,20 +407,23 @@ fn generate_forking_trunk_oak(
         let limb_end_y = y + fork_height + limb_rise;
         let limb_end_z = z + dz;
 
-        // Place logs along the limb (diagonal rise)
+        // Place logs along the limb (diagonal rise) with thick branches
         let steps = limb_rise.max(limb_spread.abs().max(1));
+        let dir_x = dx.signum();
+        let dir_z = dz.signum();
         for step in 1..=steps {
             let t = step as f32 / steps as f32;
             let lx = x + (dx as f32 * t).round() as i32;
             let ly = y + fork_height + (limb_rise as f32 * t).round() as i32;
             let lz = z + (dz as f32 * t).round() as i32;
 
-            set_block_safe(
+            place_thick_branch_log(
                 chunk,
                 lx,
                 ly,
                 lz,
-                BlockType::Log,
+                dir_x,
+                dir_z,
                 chunk_world_x,
                 chunk_world_y,
                 chunk_world_z,
@@ -414,14 +533,13 @@ fn generate_single_trunk_oak(
     // Trunk extends to ~70% of height
     let trunk_top = (height * 70) / 100;
 
-    // Build continuous trunk
+    // Build continuous trunk with cross-shaped pattern
     for dy in 1..=trunk_top {
-        set_block_safe(
+        place_trunk_cross(
             chunk,
             x,
             y + dy,
             z,
-            BlockType::Log,
             chunk_world_x,
             chunk_world_y,
             chunk_world_z,
@@ -539,19 +657,24 @@ fn generate_curved_branch(
     let seg1_len = dx1.max(dy1).max(dz1).max(1);
     let seg2_len = dx2.max(dy2).max(dz2).max(1);
 
-    // First segment: start to mid (droop)
+    // Direction for first segment (start to mid)
+    let dir1_x = (mid_x - start_x).signum();
+    let dir1_z = (mid_z - start_z).signum();
+
+    // First segment: start to mid (droop) with thick branches
     for step in 1..=seg1_len {
         let t = step as f32 / seg1_len as f32;
         let px = start_x + ((mid_x - start_x) as f32 * t).round() as i32;
         let py = start_y + ((mid_y - start_y) as f32 * t).round() as i32;
         let pz = start_z + ((mid_z - start_z) as f32 * t).round() as i32;
 
-        set_block_safe(
+        place_thick_branch_log(
             chunk,
             px,
             py,
             pz,
-            BlockType::Log,
+            dir1_x,
+            dir1_z,
             chunk_world_x,
             chunk_world_y,
             chunk_world_z,
@@ -559,19 +682,24 @@ fn generate_curved_branch(
         );
     }
 
-    // Second segment: mid to end (rise)
+    // Direction for second segment (mid to end)
+    let dir2_x = (end_x - mid_x).signum();
+    let dir2_z = (end_z - mid_z).signum();
+
+    // Second segment: mid to end (rise) with thick branches
     for step in 1..=seg2_len {
         let t = step as f32 / seg2_len as f32;
         let px = mid_x + ((end_x - mid_x) as f32 * t).round() as i32;
         let py = mid_y + ((end_y - mid_y) as f32 * t).round() as i32;
         let pz = mid_z + ((end_z - mid_z) as f32 * t).round() as i32;
 
-        set_block_safe(
+        place_thick_branch_log(
             chunk,
             px,
             py,
             pz,
-            BlockType::Log,
+            dir2_x,
+            dir2_z,
             chunk_world_x,
             chunk_world_y,
             chunk_world_z,
