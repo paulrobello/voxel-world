@@ -30,7 +30,7 @@ impl Minimap {
             mode: MinimapMode::Combined,
             rotate: true,
             zoom: 0.5,
-            skip_decorative: false,
+            skip_decorative: true,
         }
     }
 
