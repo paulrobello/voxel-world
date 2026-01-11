@@ -487,6 +487,11 @@ impl SettingsUI {
                         ui.collapsing("Minimap (Toggle: M)", |ui| {
                         ui.checkbox(show_minimap, "Show minimap");
                         ui.checkbox(&mut settings.show_compass, "Show compass");
+
+                        // Track previous values to detect changes
+                        let prev_mode = minimap.mode;
+                        let prev_zoom = minimap.zoom;
+
                         ui.horizontal(|ui| {
                             ui.label("Mode:");
                             ui.selectable_value(
@@ -505,12 +510,24 @@ impl SettingsUI {
                                 "Combined",
                             );
                         });
+
+                        // Clear cache if mode changed
+                        if minimap.mode != prev_mode {
+                            *minimap_cached_image = None;
+                        }
+
                         ui.checkbox(&mut minimap.rotate, "Rotate with player");
                         ui.add(
                             egui::Slider::new(&mut minimap.zoom, 0.25..=2.0)
                                 .text("Zoom")
                                 .logarithmic(true),
                         );
+
+                        // Clear cache if zoom changed
+                        if (minimap.zoom - prev_zoom).abs() > 0.001 {
+                            *minimap_cached_image = None;
+                        }
+
                         if ui
                             .checkbox(
                                 &mut minimap.skip_decorative,
