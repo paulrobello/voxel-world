@@ -106,6 +106,9 @@ fn generate_normal_chunk(
             let height = terrain.get_height(world_x, world_z);
             let biome = terrain.get_biome(world_x, world_z);
 
+            // Check if this column is in a river (for water filling above sea level)
+            let river_water_level = terrain.get_river_water_level(world_x, world_z);
+
             for ly in 0..CHUNK_SIZE {
                 let world_y = chunk_world_y + ly as i32;
 
@@ -117,6 +120,14 @@ fn generate_normal_chunk(
                 let block_type = if world_y == 0 {
                     BlockType::Bedrock
                 } else if world_y > height && world_y > SEA_LEVEL {
+                    // Above terrain and above sea level - check for river water
+                    if let Some(water_level) = river_water_level {
+                        if world_y <= water_level {
+                            // Fill river with water above sea level
+                            chunk.set_water_block(lx, ly, lz, biome.water_type());
+                            continue;
+                        }
+                    }
                     BlockType::Air
                 } else if world_y > height && world_y <= SEA_LEVEL {
                     BlockType::Water

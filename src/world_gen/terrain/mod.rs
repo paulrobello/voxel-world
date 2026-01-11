@@ -506,6 +506,30 @@ impl TerrainGenerator {
         base_terrain_height
     }
 
+    /// Get the river water level at a position, if this position is in a river.
+    ///
+    /// Returns Some(water_level) if a river exists here (water fills from carved
+    /// terrain up to water_level), or None if no river.
+    pub fn get_river_water_level(&self, world_x: i32, world_z: i32) -> Option<i32> {
+        let base_height = self.get_base_height(world_x, world_z);
+        let biome = self.get_biome(world_x, world_z);
+
+        if let Some(river_info) =
+            self.river_generator
+                .get_river_at(world_x, world_z, base_height, biome)
+        {
+            let carve_depth =
+                self.river_generator
+                    .get_height_modification(world_x, world_z, &river_info);
+
+            // Water level is 1 block below the original surface
+            // (river carves out the channel, water fills it but not to the very top)
+            Some(base_height - 1.max(carve_depth.saturating_sub(1)))
+        } else {
+            None
+        }
+    }
+
     /// Simple hash for placement randomness
     pub fn hash(&self, x: i32, z: i32) -> i32 {
         let mut h = (x.wrapping_mul(374761393)) ^ (z.wrapping_mul(668265263));
