@@ -188,15 +188,20 @@ impl World {
         self.chunks.values().filter(|c| c.dirty).count()
     }
 
-    /// Gets chunk positions that should be loaded based on player position.
+    /// Gets chunk positions that should be loaded based on player position and view direction.
     ///
     /// Returns chunks within the given view distance that are not yet loaded.
-    /// Chunks are sorted by distance to the center (closest first).
+    /// Chunks are sorted by a score that prioritizes:
+    /// 1. Chunks in the viewing direction (lower score = higher priority)
+    /// 2. Closer chunks over farther chunks
+    ///
+    /// `view_dir` is the normalized XZ viewing direction (from camera yaw).
     pub fn get_chunks_to_load(
         &self,
         center: ChunkPos,
         view_distance: i32,
         world_bounds: (ChunkPos, ChunkPos), // (min_chunk, max_chunk) inclusive
+        view_dir: Option<(f32, f32)>,       // Optional (dir_x, dir_z) normalized
     ) -> Vec<ChunkPos> {
         let mut to_load = Vec::new();
         let (min_chunk, max_chunk) = world_bounds;
@@ -232,14 +237,55 @@ impl World {
             }
         }
 
-        // Sort by horizontal distance to center (closest first)
-        to_load.sort_by_key(|pos| {
-            let dx = pos.x - center.x;
-            let dz = pos.z - center.z;
-            dx * dx + dz * dz
+        // Sort by priority score: combines distance and view direction alignment
+        // Lower score = higher priority (loaded first)
+        to_load.sort_by(|a, b| {
+            let score_a = Self::chunk_load_priority(center, *a, view_dir);
+            let score_b = Self::chunk_load_priority(center, *b, view_dir);
+            score_a
+                .partial_cmp(&score_b)
+                .unwrap_or(std::cmp::Ordering::Equal)
         });
 
         to_load
+    }
+
+    /// Calculate load priority for a chunk.
+    /// Lower score = higher priority.
+    /// Combines distance with view direction alignment.
+    pub fn chunk_load_priority(
+        center: ChunkPos,
+        chunk: ChunkPos,
+        view_dir: Option<(f32, f32)>,
+    ) -> f32 {
+        let dx = (chunk.x - center.x) as f32;
+        let dz = (chunk.z - center.z) as f32;
+        let dist_sq = dx * dx + dz * dz;
+        let dist = dist_sq.sqrt();
+
+        // Base priority is distance
+        let mut score = dist;
+
+        // If we have view direction, adjust score based on alignment
+        if let Some((vx, vz)) = view_dir {
+            if dist > 0.1 {
+                // Normalize chunk direction
+                let cx = dx / dist;
+                let cz = dz / dist;
+
+                // Dot product: 1.0 = same direction, -1.0 = opposite
+                let dot = cx * vx + cz * vz;
+
+                // Convert to multiplier:
+                // - Looking at chunk (dot=1): multiply by 0.5 (higher priority)
+                // - Perpendicular (dot=0): multiply by 1.0 (normal priority)
+                // - Looking away (dot=-1): multiply by 2.0 (lower priority)
+                let dir_multiplier = 1.25 - dot * 0.75;
+                score *= dir_multiplier;
+            }
+        }
+
+        score
     }
 
     /// Gets chunk positions that should be unloaded based on player position.

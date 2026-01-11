@@ -5,8 +5,8 @@
 
 use nalgebra::Vector3;
 use std::collections::HashSet;
-use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
+use std::sync::{Arc, RwLock};
 use std::thread::{self, JoinHandle};
 
 use crate::chunk::Chunk;
@@ -46,7 +46,8 @@ pub struct ChunkLoader {
     /// Worker thread handles (for cleanup).
     workers: Vec<JoinHandle<()>>,
     /// Set of chunks currently being generated (to avoid duplicates).
-    in_flight: HashSet<Vector3<i32>>,
+    /// Shared with workers so they can skip cancelled chunks.
+    in_flight: Arc<RwLock<HashSet<Vector3<i32>>>>,
     /// Shutdown signal sender.
     shutdown_tx: Sender<()>,
 }
@@ -75,6 +76,9 @@ impl ChunkLoader {
         let (shutdown_tx, shutdown_rx) = mpsc::channel::<()>();
         let shutdown_rx = Arc::new(std::sync::Mutex::new(shutdown_rx));
 
+        // Shared in-flight set so workers can skip cancelled chunks
+        let in_flight = Arc::new(RwLock::new(HashSet::new()));
+
         // Spawn worker threads
         let mut workers = Vec::with_capacity(WORKER_THREADS);
         for i in 0..WORKER_THREADS {
@@ -83,6 +87,7 @@ impl ChunkLoader {
             let generator = Arc::clone(&generator);
             let shutdown_rx = Arc::clone(&shutdown_rx);
             let storage = storage.as_ref().map(Arc::clone);
+            let in_flight_worker = Arc::clone(&in_flight);
 
             let handle = thread::Builder::new()
                 .name(format!("chunk-worker-{}", i))
@@ -106,6 +111,15 @@ impl ChunkLoader {
 
                         match request {
                             Ok(req) => {
+                                // Check if this chunk was cancelled before doing expensive work
+                                {
+                                    let in_flight_guard = in_flight_worker.read().unwrap();
+                                    if !in_flight_guard.contains(&req.position) {
+                                        // Chunk was cancelled, skip processing
+                                        continue;
+                                    }
+                                }
+
                                 // Try to load from disk first
                                 let (chunk, overflow_blocks) = if let Some(ref storage) = storage {
                                     match storage.load_chunk(req.position) {
@@ -170,7 +184,7 @@ impl ChunkLoader {
             request_tx,
             result_rx,
             workers,
-            in_flight: HashSet::new(),
+            in_flight,
             shutdown_tx,
         }
     }
@@ -180,20 +194,22 @@ impl ChunkLoader {
     /// Returns true if the chunk was queued, false if it was already in flight
     /// or the queue is full.
     pub fn request_chunk(&mut self, position: Vector3<i32>) -> bool {
+        let mut in_flight = self.in_flight.write().unwrap();
+
         // Don't queue if already in flight
-        if self.in_flight.contains(&position) {
+        if in_flight.contains(&position) {
             return false;
         }
 
         // Check queue size limit
-        if self.in_flight.len() >= MAX_QUEUE_SIZE {
+        if in_flight.len() >= MAX_QUEUE_SIZE {
             return false;
         }
 
         // Send request to workers
         match self.request_tx.send(ChunkRequest { position }) {
             Ok(()) => {
-                self.in_flight.insert(position);
+                in_flight.insert(position);
                 true
             }
             Err(_) => false,
@@ -223,12 +239,13 @@ impl ChunkLoader {
     ///
     /// Returns a vector of all currently available completed chunks.
     pub fn receive_chunks(&mut self) -> Vec<ChunkResult> {
-        let mut results = Vec::with_capacity(self.in_flight.len().min(32));
+        let in_flight_len = self.in_flight.read().unwrap().len();
+        let mut results = Vec::with_capacity(in_flight_len.min(32));
 
         loop {
             match self.result_rx.try_recv() {
                 Ok(result) => {
-                    self.in_flight.remove(&result.position);
+                    self.in_flight.write().unwrap().remove(&result.position);
                     results.push(result);
                 }
                 Err(TryRecvError::Empty) => break,
@@ -241,29 +258,35 @@ impl ChunkLoader {
 
     /// Returns the number of chunks currently being generated.
     pub fn in_flight_count(&self) -> usize {
-        self.in_flight.len()
+        self.in_flight.read().unwrap().len()
     }
 
     /// Returns true if a position is already queued or in-flight.
     #[allow(dead_code)]
     pub fn is_in_flight(&self, position: Vector3<i32>) -> bool {
-        self.in_flight.contains(&position)
+        self.in_flight.read().unwrap().contains(&position)
+    }
+
+    /// Returns a copy of all currently in-flight chunk positions.
+    pub fn in_flight_positions(&self) -> Vec<Vector3<i32>> {
+        self.in_flight.read().unwrap().iter().copied().collect()
     }
 
     /// Cancels a pending chunk request if it hasn't started yet.
     ///
-    /// Note: This only removes it from tracking, the worker may still
-    /// process it but the result will be ignored.
+    /// Workers check in_flight before processing, so cancelled chunks
+    /// will be skipped efficiently.
     pub fn cancel_chunk(&mut self, position: Vector3<i32>) {
-        self.in_flight.remove(&position);
+        self.in_flight.write().unwrap().remove(&position);
     }
 
     /// Clears all pending requests.
     ///
-    /// Note: Workers may still process some requests, but results will be ignored.
+    /// Workers check in_flight before processing, so all pending chunks
+    /// will be skipped.
     #[allow(dead_code)]
     pub fn clear_pending(&mut self) {
-        self.in_flight.clear();
+        self.in_flight.write().unwrap().clear();
     }
 }
 

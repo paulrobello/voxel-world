@@ -310,6 +310,21 @@ impl App {
         if !uploads.is_empty() {
             // Clear the texture first (set all to air)
             self.clear_voxel_texture();
+
+            // CRITICAL: Sync GPU metadata buffers IMMEDIATELY after clearing texture
+            // and BEFORE uploading chunks. This prevents the render pass from using
+            // stale metadata that references old chunk positions.
+            {
+                let mut chunk_meta_write = self.graphics.chunk_metadata_buffer.write().unwrap();
+                chunk_meta_write.copy_from_slice(&self.sim.metadata_state.chunk_bits);
+
+                let mut brick_mask_write = self.graphics.brick_mask_buffer.write().unwrap();
+                brick_mask_write.copy_from_slice(&self.sim.metadata_state.brick_masks);
+
+                let mut brick_dist_write = self.graphics.brick_dist_buffer.write().unwrap();
+                brick_dist_write.copy_from_slice(&self.sim.metadata_state.brick_distances);
+            }
+
             // Upload chunks at new positions - convert to slice references
             let upload_slices: Vec<_> =
                 uploads.iter().map(|u| (u.pos, u.block, &*u.meta)).collect();
@@ -427,14 +442,38 @@ impl App {
 
         // === STEP 2: Queue new chunks for generation ===
         // Use load_distance (not view_distance) to preload chunks before they become visible
+        // Calculate view direction from camera yaw for prioritized loading
+        // Camera: yaw=0 looks at -Z, yaw increases counterclockwise from above
+        // Forward XZ direction = (sin(yaw), -cos(yaw))
+        let yaw = self.sim.player.camera.rotation.y as f32;
+        let view_dir = Some((yaw.sin(), -yaw.cos())); // XZ direction player is looking
+
         let to_load = self.sim.world.get_chunks_to_load(
             player_chunk,
             self.sim.load_distance,
             (min_chunk, max_chunk),
+            view_dir,
         );
 
-        // Queue chunks for async generation (ChunkLoader handles deduplication)
+        // Queue chunks for async generation with aggressive priority management
         let max_to_queue = CHUNKS_PER_FRAME * 4;
+
+        // Get the top priority chunks we want to load
+        let priority_set: HashSet<Vector3<i32>> =
+            to_load.iter().take(max_to_queue).copied().collect();
+
+        // Cancel ALL in-flight chunks that aren't in our priority set
+        // This ensures we're always working on the most important chunks
+        // Workers check in_flight before processing, so cancelled chunks
+        // will be skipped efficiently without wasted generation work.
+        let in_flight = self.sim.chunk_loader.in_flight_positions();
+        for pos in in_flight {
+            if !priority_set.contains(&pos) {
+                self.sim.chunk_loader.cancel_chunk(pos);
+            }
+        }
+
+        // Now request the priority chunks
         let queued = self
             .sim
             .chunk_loader
@@ -486,44 +525,70 @@ impl App {
             let positions: Vec<_> = chunks_to_upload.iter().map(|(pos, _, _)| *pos).collect();
 
             // IMMEDIATE metadata update for newly loaded chunks to prevent invisible chunks
+            // First, collect all metadata updates to avoid repeated lock acquisition
+            struct MetadataUpdate {
+                idx: usize,
+                word_idx: usize,
+                bit_idx: usize,
+                is_empty: bool,
+                mask_low: u32,
+                mask_high: u32,
+                packed_dist: [u32; 16],
+            }
+
+            let mut updates: Vec<MetadataUpdate> = Vec::with_capacity(positions.len());
+
             for pos in &positions {
                 if let Some(idx) = world_pos_to_chunk_index(self.sim.texture_origin, *pos) {
                     if let Some(chunk) = self.sim.world.get_chunk_mut(*pos) {
                         chunk.update_metadata();
                         let svt = ChunkSVT::from_block_data(&chunk.clone_blocks());
-
-                        // Write metadata directly to GPU buffers
-                        let mut chunk_meta_write =
-                            self.graphics.chunk_metadata_buffer.write().unwrap();
-                        let mut brick_mask_write = self.graphics.brick_mask_buffer.write().unwrap();
-                        let mut brick_dist_write = self.graphics.brick_dist_buffer.write().unwrap();
-
-                        // Update chunk empty bit
                         let word_idx = idx / 32;
                         let bit_idx = idx % 32;
-                        if svt.brick_mask == 0 {
-                            self.sim.metadata_state.chunk_bits[word_idx] |= 1u32 << bit_idx;
-                        } else {
-                            self.sim.metadata_state.chunk_bits[word_idx] &= !(1u32 << bit_idx);
-                        }
-                        chunk_meta_write[word_idx] = self.sim.metadata_state.chunk_bits[word_idx];
 
-                        // Update brick mask
-                        let mask_offset = idx * 2;
-                        let mask_low = svt.brick_mask as u32;
-                        let mask_high = (svt.brick_mask >> 32) as u32;
-                        self.sim.metadata_state.brick_masks[mask_offset] = mask_low;
-                        self.sim.metadata_state.brick_masks[mask_offset + 1] = mask_high;
-                        brick_mask_write[mask_offset] = mask_low;
-                        brick_mask_write[mask_offset + 1] = mask_high;
+                        updates.push(MetadataUpdate {
+                            idx,
+                            word_idx,
+                            bit_idx,
+                            is_empty: svt.brick_mask == 0,
+                            mask_low: svt.brick_mask as u32,
+                            mask_high: (svt.brick_mask >> 32) as u32,
+                            packed_dist: pack_distances(&svt.brick_distances),
+                        });
+                    }
+                }
+            }
 
-                        // Update brick distances
-                        let dist_offset = idx * 16;
-                        let packed_dist = pack_distances(&svt.brick_distances);
-                        for (i, word) in packed_dist.iter().enumerate() {
-                            self.sim.metadata_state.brick_distances[dist_offset + i] = *word;
-                            brick_dist_write[dist_offset + i] = *word;
-                        }
+            // Now acquire locks once and apply all updates atomically
+            if !updates.is_empty() {
+                let mut chunk_meta_write = self.graphics.chunk_metadata_buffer.write().unwrap();
+                let mut brick_mask_write = self.graphics.brick_mask_buffer.write().unwrap();
+                let mut brick_dist_write = self.graphics.brick_dist_buffer.write().unwrap();
+
+                for update in &updates {
+                    // Update chunk empty bit
+                    if update.is_empty {
+                        self.sim.metadata_state.chunk_bits[update.word_idx] |=
+                            1u32 << update.bit_idx;
+                    } else {
+                        self.sim.metadata_state.chunk_bits[update.word_idx] &=
+                            !(1u32 << update.bit_idx);
+                    }
+                    chunk_meta_write[update.word_idx] =
+                        self.sim.metadata_state.chunk_bits[update.word_idx];
+
+                    // Update brick mask
+                    let mask_offset = update.idx * 2;
+                    self.sim.metadata_state.brick_masks[mask_offset] = update.mask_low;
+                    self.sim.metadata_state.brick_masks[mask_offset + 1] = update.mask_high;
+                    brick_mask_write[mask_offset] = update.mask_low;
+                    brick_mask_write[mask_offset + 1] = update.mask_high;
+
+                    // Update brick distances
+                    let dist_offset = update.idx * 16;
+                    for (i, word) in update.packed_dist.iter().enumerate() {
+                        self.sim.metadata_state.brick_distances[dist_offset + i] = *word;
+                        brick_dist_write[dist_offset + i] = *word;
                     }
                 }
             }
