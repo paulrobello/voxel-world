@@ -52,7 +52,8 @@ pub mod trees;
 pub mod utils;
 pub mod vegetation;
 
-// Re-export functions at module root (types are accessed directly via submodules)
+// Re-export functions and types at module root
+// ColumnData is used by terrain_gen.rs via terrain::ColumnData path
 pub use trees::generate_trees;
 pub use vegetation::{generate_cave_decorations, generate_ground_cover};
 

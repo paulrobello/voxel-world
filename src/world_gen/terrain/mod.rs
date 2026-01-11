@@ -8,6 +8,22 @@ use crate::world_gen::climate::{ClimateGenerator, ClimatePoint};
 use crate::world_gen::rivers::{RiverGenerator, RiverInfo};
 use noise::{Fbm, MultiFractal, NoiseFn, Perlin, RidgedMulti};
 
+/// Pre-computed data for a single terrain column.
+///
+/// Used to avoid redundant noise evaluations when generating chunks.
+/// All column-level data is computed once and cached for efficient block iteration.
+#[derive(Clone, Copy, Debug)]
+pub struct ColumnData {
+    /// Terrain height at this column
+    pub height: i32,
+    /// Surface biome type
+    pub biome: BiomeType,
+    /// River water level if this column is in a river
+    pub river_water_level: Option<i32>,
+    /// Hash value for placement randomness
+    pub hash: i32,
+}
+
 /// Terrain generator using multiple noise layers for varied landscapes
 #[derive(Clone)]
 pub struct TerrainGenerator {
@@ -552,6 +568,7 @@ impl TerrainGenerator {
     ///
     /// Returns Some(water_level) if a river exists here (water fills from carved
     /// terrain up to water_level), or None if no river.
+    #[allow(dead_code)]
     pub fn get_river_water_level(&self, world_x: i32, world_z: i32) -> Option<i32> {
         let base_height = self.get_base_height(world_x, world_z);
         let biome = self.get_biome(world_x, world_z);
@@ -619,5 +636,199 @@ impl TerrainGenerator {
         let mut h = (x.wrapping_mul(374761393)) ^ (z.wrapping_mul(668265263));
         h = (h ^ (h >> 13)).wrapping_mul(1274126177);
         (h ^ (h >> 16)).abs()
+    }
+
+    /// Get all pre-computed column data at once.
+    ///
+    /// More efficient than calling get_height(), get_biome(), etc. separately
+    /// because it avoids redundant noise evaluations.
+    pub fn get_column_data(&self, world_x: i32, world_z: i32) -> ColumnData {
+        let x = world_x as f64;
+        let z = world_z as f64;
+
+        // Compute all noise values once
+        let base = self.height_noise.get([x, z]);
+        let ridges = self.mountain_noise.get([x, z]);
+        let detail = self.detail_noise.get([x * 0.02, z * 0.02]);
+
+        // Get climate once (this is the expensive part)
+        let climate = self.climate_generator.get_climate_2d(world_x, world_z);
+
+        // Compute biome from climate (cheap)
+        let adjusted_temp = {
+            let temp = climate.temperature * 0.5 + 0.5;
+            let elevation_cooling = base.max(0.0) * 0.25;
+            (temp - elevation_cooling).clamp(0.0, 1.0)
+        };
+        let biome = self.select_biome_from_climate(&climate, adjusted_temp, base);
+
+        // Compute hash (very cheap)
+        let hash = self.hash(world_x, world_z);
+
+        // Compute height using the already-computed values
+        let height =
+            self.get_height_internal(world_x, world_z, base, ridges, detail, &climate, biome);
+
+        // Check river water level using cached values
+        let river_water_level = self.get_river_water_level_fast(world_x, world_z, height, biome);
+
+        ColumnData {
+            height,
+            biome,
+            river_water_level,
+            hash,
+        }
+    }
+
+    /// Internal height calculation that reuses pre-computed noise values.
+    #[allow(clippy::too_many_arguments)]
+    fn get_height_internal(
+        &self,
+        world_x: i32,
+        world_z: i32,
+        base: f64,
+        ridges: f64,
+        detail: f64,
+        climate: &ClimatePoint,
+        center_biome: BiomeType,
+    ) -> i32 {
+        // Sample neighboring biomes to detect boundaries
+        // Use smaller offset for faster boundary detection
+        const SAMPLE_OFFSET: i32 = 8;
+        let neighbors = [
+            self.get_biome(world_x + SAMPLE_OFFSET, world_z),
+            self.get_biome(world_x - SAMPLE_OFFSET, world_z),
+            self.get_biome(world_x, world_z + SAMPLE_OFFSET),
+            self.get_biome(world_x, world_z - SAMPLE_OFFSET),
+        ];
+
+        let at_boundary = neighbors.iter().any(|&b| b != center_biome);
+
+        let base_terrain_height = if !at_boundary {
+            // Not at boundary - use center biome height directly
+            let height = self.calculate_biome_height(center_biome, climate, base, ridges, detail);
+            height.round() as i32
+        } else {
+            // At a boundary - use reduced sampling for performance
+            // Optimized: 12-block radius with step 6 = 5x5 = 25 samples (was 81)
+            const BLEND_RADIUS: i32 = 12;
+            const BLEND_STEP: usize = 6;
+
+            let mut total_weight = 0.0;
+            let mut weighted_height = 0.0;
+
+            for dx in (-BLEND_RADIUS..=BLEND_RADIUS).step_by(BLEND_STEP) {
+                for dz in (-BLEND_RADIUS..=BLEND_RADIUS).step_by(BLEND_STEP) {
+                    let dist_sq = (dx * dx + dz * dz) as f64;
+                    if dist_sq > (BLEND_RADIUS * BLEND_RADIUS) as f64 {
+                        continue;
+                    }
+
+                    let sample_x = world_x + dx;
+                    let sample_z = world_z + dz;
+                    let sample_biome = self.get_biome(sample_x, sample_z);
+
+                    // Calculate height at sample position
+                    let sample_climate = self.climate_generator.get_climate_2d(sample_x, sample_z);
+                    let sample_base = self.height_noise.get([sample_x as f64, sample_z as f64]);
+                    let sample_ridges = self.mountain_noise.get([sample_x as f64, sample_z as f64]);
+                    let sample_detail = self
+                        .detail_noise
+                        .get([sample_x as f64 * 0.02, sample_z as f64 * 0.02]);
+
+                    let height = self.calculate_biome_height(
+                        sample_biome,
+                        &sample_climate,
+                        sample_base,
+                        sample_ridges,
+                        sample_detail,
+                    );
+
+                    // Weight by inverse distance
+                    let weight = 1.0 / (dist_sq.sqrt() + 1.0);
+                    weighted_height += height * weight;
+                    total_weight += weight;
+                }
+            }
+
+            (weighted_height / total_weight).round() as i32
+        };
+
+        // Apply river carving if terrain is flat enough
+        let slope = self.calculate_slope_fast(world_x, world_z, base_terrain_height);
+        if slope <= 0.25 {
+            if let Some(river_info) = self.river_generator.get_river_at(
+                world_x,
+                world_z,
+                base_terrain_height,
+                center_biome,
+            ) {
+                let carve_depth =
+                    self.river_generator
+                        .get_height_modification(world_x, world_z, &river_info);
+                return base_terrain_height - carve_depth;
+            }
+        }
+
+        base_terrain_height
+    }
+
+    /// Fast slope calculation using fewer samples.
+    fn calculate_slope_fast(&self, world_x: i32, world_z: i32, center_height: i32) -> f64 {
+        let center = center_height as f64;
+
+        // Sample only at distance 4 and 8 (was 2, 4, 8 with diagonals)
+        // This reduces samples from 24 to 8
+        let mut max_slope = 0.0f64;
+
+        for &dist in &[4, 8] {
+            let heights = [
+                self.get_base_height(world_x + dist, world_z) as f64,
+                self.get_base_height(world_x - dist, world_z) as f64,
+                self.get_base_height(world_x, world_z + dist) as f64,
+                self.get_base_height(world_x, world_z - dist) as f64,
+            ];
+
+            for h in heights {
+                let slope = (h - center).abs() / dist as f64;
+                max_slope = max_slope.max(slope);
+            }
+        }
+
+        max_slope
+    }
+
+    /// Fast river water level check using pre-computed values.
+    fn get_river_water_level_fast(
+        &self,
+        world_x: i32,
+        world_z: i32,
+        height: i32,
+        biome: BiomeType,
+    ) -> Option<i32> {
+        // Use a simplified slope check - just cardinal directions at distance 4
+        let mut max_slope = 0.0f64;
+        let center = height as f64;
+        for &(dx, dz) in &[(4, 0), (-4, 0), (0, 4), (0, -4)] {
+            let h = self.get_base_height(world_x + dx, world_z + dz) as f64;
+            let slope = (h - center).abs() / 4.0;
+            max_slope = max_slope.max(slope);
+        }
+
+        if max_slope > 0.25 {
+            return None;
+        }
+
+        if let Some(river_info) = self
+            .river_generator
+            .get_river_at(world_x, world_z, height, biome)
+        {
+            let carve_depth =
+                self.river_generator
+                    .get_height_modification(world_x, world_z, &river_info);
+            Some(height - 1.max(carve_depth.saturating_sub(1)))
+        } else {
+            None
+        }
     }
 }

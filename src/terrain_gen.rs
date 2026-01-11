@@ -103,11 +103,12 @@ fn generate_normal_chunk(
         for lz in 0..CHUNK_SIZE {
             let world_x = chunk_world_x + lx as i32;
             let world_z = chunk_world_z + lz as i32;
-            let height = terrain.get_height(world_x, world_z);
-            let biome = terrain.get_biome(world_x, world_z);
 
-            // Check if this column is in a river (for water filling above sea level)
-            let river_water_level = terrain.get_river_water_level(world_x, world_z);
+            // Use optimized single-call column data lookup
+            let col = terrain.get_column_data(world_x, world_z);
+            let height = col.height;
+            let biome = col.biome;
+            let river_water_level = col.river_water_level;
 
             for ly in 0..CHUNK_SIZE {
                 let world_y = chunk_world_y + ly as i32;
@@ -158,7 +159,7 @@ fn generate_normal_chunk(
                         BiomeType::Mountains => {
                             if world_y > 160 {
                                 // High peaks - bare stone with some gravel
-                                if terrain.hash(world_x, world_z) % 5 == 0 {
+                                if col.hash % 5 == 0 {
                                     BlockType::Gravel
                                 } else {
                                     BlockType::Stone
@@ -176,7 +177,7 @@ fn generate_normal_chunk(
 
                         // Beach - sand with occasional clay
                         BiomeType::Beach => {
-                            if terrain.hash(world_x, world_z) % 12 == 0 {
+                            if col.hash % 12 == 0 {
                                 BlockType::Clay
                             } else {
                                 BlockType::Sand
@@ -185,7 +186,7 @@ fn generate_normal_chunk(
 
                         // Ocean floor - varied: sand, gravel, clay
                         BiomeType::Ocean => {
-                            let hash = terrain.hash(world_x, world_z) % 10;
+                            let hash = col.hash % 10;
                             if hash < 2 {
                                 BlockType::Gravel
                             } else if hash < 4 {
@@ -197,7 +198,7 @@ fn generate_normal_chunk(
 
                         // Savanna - coarse dirt patches in grass
                         BiomeType::Savanna => {
-                            if terrain.hash(world_x, world_z) % 4 == 0 {
+                            if col.hash % 4 == 0 {
                                 BlockType::CoarseDirt
                             } else {
                                 BlockType::Grass
@@ -206,7 +207,7 @@ fn generate_normal_chunk(
 
                         // Taiga - podzol forest floor
                         BiomeType::Taiga => {
-                            if terrain.hash(world_x, world_z) % 3 == 0 {
+                            if col.hash % 3 == 0 {
                                 BlockType::Podzol
                             } else {
                                 BlockType::Grass
@@ -215,7 +216,7 @@ fn generate_normal_chunk(
 
                         // Dark forest - podzol with coarse dirt
                         BiomeType::DarkForest => {
-                            let hash = terrain.hash(world_x, world_z) % 5;
+                            let hash = col.hash % 5;
                             if hash < 2 {
                                 BlockType::Podzol
                             } else if hash < 3 {
@@ -229,7 +230,7 @@ fn generate_normal_chunk(
                         BiomeType::Jungle => {
                             if world_y <= SEA_LEVEL + 2 {
                                 BlockType::Sand
-                            } else if terrain.hash(world_x, world_z) % 6 == 0 {
+                            } else if col.hash % 6 == 0 {
                                 BlockType::CoarseDirt
                             } else {
                                 BlockType::Grass
@@ -252,7 +253,7 @@ fn generate_normal_chunk(
                         // Underground biomes - shouldn't normally be visible at surface
                         BiomeType::LushCaves => BlockType::Moss,
                         BiomeType::DripstoneCaves => {
-                            let hash = terrain.hash(world_x, world_z) % 5;
+                            let hash = col.hash % 5;
                             if hash < 2 {
                                 BlockType::Dripstone
                             } else if hash < 3 {
@@ -278,7 +279,7 @@ fn generate_normal_chunk(
 
                         // Snowy biomes - packed ice or regular ice
                         BiomeType::SnowyPlains | BiomeType::Snow => {
-                            if terrain.hash(world_x, world_z) % 3 == 0 {
+                            if col.hash % 3 == 0 {
                                 BlockType::PackedIce
                             } else {
                                 BlockType::Ice
@@ -295,7 +296,7 @@ fn generate_normal_chunk(
 
                         // Ocean/Beach - sand with clay pockets
                         BiomeType::Ocean | BiomeType::Beach => {
-                            if terrain.hash(world_x, world_z) % 8 == 0 {
+                            if col.hash % 8 == 0 {
                                 BlockType::Clay
                             } else {
                                 BlockType::Sand
@@ -316,7 +317,7 @@ fn generate_normal_chunk(
 
                         // Dark forest - coarse dirt under surface
                         BiomeType::DarkForest => {
-                            if terrain.hash(world_x, world_z) % 4 == 0 {
+                            if col.hash % 4 == 0 {
                                 BlockType::CoarseDirt
                             } else {
                                 BlockType::Dirt
@@ -325,7 +326,7 @@ fn generate_normal_chunk(
 
                         // Savanna - coarse dirt subsurface
                         BiomeType::Savanna => {
-                            if terrain.hash(world_x, world_z) % 3 == 0 {
+                            if col.hash % 3 == 0 {
                                 BlockType::CoarseDirt
                             } else {
                                 BlockType::Dirt
@@ -334,14 +335,14 @@ fn generate_normal_chunk(
 
                         // Underground biomes
                         BiomeType::LushCaves => {
-                            if terrain.hash(world_x, world_z) % 3 == 0 {
+                            if col.hash % 3 == 0 {
                                 BlockType::RootedDirt
                             } else {
                                 BlockType::Moss
                             }
                         }
                         BiomeType::DripstoneCaves => {
-                            let hash = terrain.hash(world_x, world_z) % 4;
+                            let hash = col.hash % 4;
                             if hash < 2 {
                                 BlockType::Dripstone
                             } else if hash < 3 {
@@ -375,7 +376,7 @@ fn generate_normal_chunk(
                         }
                         // Underground biomes have special stone
                         BiomeType::LushCaves => {
-                            if terrain.hash(world_x, world_z) % 6 == 0 {
+                            if col.hash % 6 == 0 {
                                 BlockType::MossyCobblestone
                             } else {
                                 BlockType::Stone
