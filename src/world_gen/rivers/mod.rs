@@ -1,32 +1,29 @@
 //! River generation system.
 //!
-//! Uses noise-based river detection that works with chunk-based terrain generation.
-//! Rivers are procedurally determined at each point using 2D noise, allowing
-//! them to be generated independently per chunk while maintaining continuity.
+//! Uses Minecraft-style edge detection on a patchy noise map.
+//! Rivers form along the BOUNDARIES between noise regions, not at zero-crossings.
+//! This creates naturally connected, meandering river paths.
 //!
-//! ## Algorithm
-//! Rivers are created by looking for where noise values cross near zero.
-//! This creates LINEAR features (contour lines) rather than circular patches.
-//! Domain warping adds organic curves to the rivers.
+//! ## Algorithm (based on Minecraft's River Layer)
+//! 1. Generate a "region" noise map that creates distinct patches
+//! 2. Calculate the gradient (rate of change) at each point
+//! 3. Rivers form where the gradient is HIGH (boundaries between patches)
+//! 4. This naturally creates connected linear features
 //!
 //! ## River Types
-//! - **Main rivers**: Wide rivers flowing from mountains to ocean
-//! - **Tributaries**: Smaller streams that feed into main rivers
-//! - **Mountain streams**: Narrow channels in mountainous terrain
+//! - **Main rivers**: Wide rivers at major region boundaries
+//! - **Tributaries**: Smaller streams at minor boundaries
 
 use crate::terrain_gen::BiomeType;
 use noise::{NoiseFn, Perlin};
 
-/// River generator using noise-based detection.
+/// River generator using edge detection on patchy noise.
 #[derive(Clone)]
 pub struct RiverGenerator {
-    /// Primary river noise - rivers form at zero-crossings
-    river_noise: Perlin,
-    /// Domain warping noise for organic curves
-    warp_noise_x: Perlin,
-    warp_noise_z: Perlin,
-    /// Secondary river layer for tributaries
-    tributary_noise: Perlin,
+    /// Region noise - rivers form at edges between regions
+    region_noise: Perlin,
+    /// Secondary region noise for tributaries (different frequency)
+    tributary_region_noise: Perlin,
     /// Width variation noise
     width_noise: Perlin,
 }
@@ -35,18 +32,16 @@ impl RiverGenerator {
     /// Creates a new river generator with the given seed.
     pub fn new(seed: u32) -> Self {
         Self {
-            river_noise: Perlin::new(seed + 500),
-            warp_noise_x: Perlin::new(seed + 501),
-            warp_noise_z: Perlin::new(seed + 502),
-            tributary_noise: Perlin::new(seed + 503),
-            width_noise: Perlin::new(seed + 504),
+            region_noise: Perlin::new(seed + 500),
+            tributary_region_noise: Perlin::new(seed + 501),
+            width_noise: Perlin::new(seed + 502),
         }
     }
 
     /// Check if a position is within a river channel.
     ///
-    /// Rivers form where noise crosses near zero, creating linear features.
-    /// Domain warping adds organic curves to prevent straight lines.
+    /// Rivers form at edges between noise regions (high gradient areas).
+    /// This creates naturally connected, meandering river paths like Minecraft.
     ///
     /// # Arguments
     /// * `world_x`, `world_z` - World coordinates
@@ -62,8 +57,8 @@ impl RiverGenerator {
         terrain_height: i32,
         biome: BiomeType,
     ) -> Option<RiverInfo> {
-        // Get river width threshold for this biome
-        let (river_half_width, enabled) = self.get_river_params(biome);
+        // Get river parameters for this biome
+        let (gradient_threshold, enabled) = self.get_river_params(biome);
         if !enabled {
             return None;
         }
@@ -71,30 +66,18 @@ impl RiverGenerator {
         let x = world_x as f64;
         let z = world_z as f64;
 
-        // Apply domain warping for organic river curves
-        // Warp amount increases at lower frequencies for smoother bends
-        let warp_scale = 0.002;
-        let warp_amount = 50.0; // How much to warp coordinates
-        let warp_x = self.warp_noise_x.get([x * warp_scale, z * warp_scale]) * warp_amount;
-        let warp_z = self.warp_noise_z.get([x * warp_scale, z * warp_scale]) * warp_amount;
+        // Main rivers: detect edges in low-frequency region noise
+        // Scale creates large patches (~200 blocks across)
+        let main_scale = 0.005;
+        let main_gradient = self.calculate_gradient(x, z, main_scale, &self.region_noise);
 
-        let warped_x = x + warp_x;
-        let warped_z = z + warp_z;
-
-        // Main river: low frequency noise, rivers at zero-crossing
-        let river_scale = 0.0015; // Large scale for main rivers
-        let main_river_value = self
-            .river_noise
-            .get([warped_x * river_scale, warped_z * river_scale]);
-
-        // Distance from zero-crossing (closer = more in river)
-        let main_distance = main_river_value.abs();
-
-        // Check if we're within the river channel
-        if main_distance < river_half_width {
-            let river_strength = 1.0 - (main_distance / river_half_width);
+        // Rivers form where gradient is HIGH (at region boundaries)
+        // gradient_threshold controls how "sharp" the boundary needs to be
+        if main_gradient > gradient_threshold {
+            // Stronger gradient = more centered in river
+            let river_strength = ((main_gradient - gradient_threshold) / 0.02).clamp(0.0, 1.0);
             let base_width = self.calculate_river_width(world_x, world_z, terrain_height, true);
-            let depth = (base_width * 0.5).clamp(2.0, 5.0) as i32;
+            let depth = (base_width * 0.6).clamp(3.0, 6.0) as i32;
 
             return Some(RiverInfo {
                 width: base_width,
@@ -104,18 +87,17 @@ impl RiverGenerator {
             });
         }
 
-        // Tributary rivers: higher frequency, narrower
-        let tributary_scale = 0.004;
-        let tributary_value = self
-            .tributary_noise
-            .get([warped_x * tributary_scale, warped_z * tributary_scale]);
-        let tributary_distance = tributary_value.abs();
-        let tributary_half_width = river_half_width * 0.5; // Narrower than main rivers
+        // Tributary rivers: higher frequency noise creates smaller stream networks
+        let tributary_scale = 0.012;
+        let tributary_gradient =
+            self.calculate_gradient(x, z, tributary_scale, &self.tributary_region_noise);
+        let tributary_threshold = gradient_threshold * 1.2; // Slightly higher threshold
 
-        if tributary_distance < tributary_half_width {
-            let river_strength = 1.0 - (tributary_distance / tributary_half_width);
+        if tributary_gradient > tributary_threshold {
+            let river_strength =
+                ((tributary_gradient - tributary_threshold) / 0.02).clamp(0.0, 1.0);
             let base_width = self.calculate_river_width(world_x, world_z, terrain_height, false);
-            let depth = (base_width * 0.4).clamp(2.0, 3.0) as i32;
+            let depth = (base_width * 0.5).clamp(2.0, 4.0) as i32;
 
             return Some(RiverInfo {
                 width: base_width,
@@ -132,30 +114,48 @@ impl RiverGenerator {
         None
     }
 
+    /// Calculate the gradient magnitude at a position.
+    /// High gradient = boundary between noise regions = river location.
+    fn calculate_gradient(&self, x: f64, z: f64, scale: f64, noise: &Perlin) -> f64 {
+        // Sample noise at 4 neighbors to compute gradient
+        let sample_dist = 2.0; // Distance for gradient calculation
+        let north = noise.get([x * scale, (z - sample_dist) * scale]);
+        let south = noise.get([x * scale, (z + sample_dist) * scale]);
+        let west = noise.get([(x - sample_dist) * scale, z * scale]);
+        let east = noise.get([(x + sample_dist) * scale, z * scale]);
+
+        // Calculate gradient components (rate of change in x and z)
+        let grad_x = (east - west) / (2.0 * sample_dist);
+        let grad_z = (south - north) / (2.0 * sample_dist);
+
+        // Return gradient magnitude
+        (grad_x * grad_x + grad_z * grad_z).sqrt()
+    }
+
     /// Get river parameters for a biome.
-    /// Returns (river_half_width, enabled).
-    /// Larger half_width = wider rivers, more likely to find rivers.
+    /// Returns (gradient_threshold, enabled).
+    /// Lower threshold = more rivers (easier to trigger at boundaries).
     fn get_river_params(&self, biome: BiomeType) -> (f64, bool) {
         #[allow(deprecated)]
         match biome {
-            // Desert has very rare thin rivers (oases)
-            BiomeType::Desert => (0.02, true),
+            // Desert has very rare rivers (high threshold = hard to trigger)
+            BiomeType::Desert => (0.025, true),
             // Ocean doesn't have surface rivers
             BiomeType::Ocean => (0.0, false),
             // Beach has minimal rivers
-            BiomeType::Beach => (0.03, true),
-            // Mountains have streams
-            BiomeType::Mountains => (0.06, true),
+            BiomeType::Beach => (0.022, true),
+            // Mountains have streams (moderate threshold)
+            BiomeType::Mountains => (0.015, true),
             // Swamp has rivers
-            BiomeType::Swamp => (0.07, true),
-            // Jungle has many wide rivers
-            BiomeType::Jungle => (0.10, true),
+            BiomeType::Swamp => (0.012, true),
+            // Jungle has many rivers (low threshold = easy to trigger)
+            BiomeType::Jungle => (0.008, true),
             // Snowy biomes have rivers
-            BiomeType::SnowyPlains | BiomeType::SnowyTaiga | BiomeType::Snow => (0.06, true),
+            BiomeType::SnowyPlains | BiomeType::SnowyTaiga | BiomeType::Snow => (0.015, true),
             // Underground biomes don't have surface rivers
             BiomeType::LushCaves | BiomeType::DripstoneCaves | BiomeType::DeepDark => (0.0, false),
             // Default: moderate rivers
-            _ => (0.07, true),
+            _ => (0.012, true),
         }
     }
 
@@ -215,24 +215,13 @@ impl RiverGenerator {
         let x = world_x as f64;
         let z = world_z as f64;
 
-        // Apply same domain warping as river detection
-        let warp_scale = 0.002;
-        let warp_amount = 50.0;
-        let warp_x = self.warp_noise_x.get([x * warp_scale, z * warp_scale]) * warp_amount;
-        let warp_z = self.warp_noise_z.get([x * warp_scale, z * warp_scale]) * warp_amount;
+        // Use same gradient approach as river detection
+        let main_scale = 0.005;
+        let gradient = self.calculate_gradient(x, z, main_scale, &self.region_noise);
 
-        let warped_x = x + warp_x;
-        let warped_z = z + warp_z;
-
-        let river_scale = 0.0015;
-        let river_value = self
-            .river_noise
-            .get([warped_x * river_scale, warped_z * river_scale]);
-        let distance = river_value.abs();
-
-        // Bank is slightly outside the river channel (0.07-0.12 range)
-        // but only at reasonable terrain heights
-        distance > 0.07 && distance < 0.12 && terrain_height < 120
+        // Bank is where gradient is moderate (near river but not in it)
+        // River threshold is ~0.012, bank is slightly below that
+        gradient > 0.008 && gradient < 0.012 && terrain_height < 120
     }
 
     /// Get the water type for rivers in a biome.
