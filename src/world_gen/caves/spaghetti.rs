@@ -53,23 +53,23 @@ impl SpaghettiCaves {
         let y = world_y as f64;
         let z = world_z as f64;
 
-        // Medium frequency for moderate-sized tunnels
+        // Lower frequency for wider tunnels (was 0.05, now 0.03)
         // Y axis stretched for more horizontal tunnels
-        let n1 = self.noise1.get([x * 0.05, y * 0.08, z * 0.05]);
+        let n1 = self.noise1.get([x * 0.03, y * 0.05, z * 0.03]);
         let n2 = self
             .noise2
-            .get([x * 0.05 + 1000.0, y * 0.08, z * 0.05 + 1000.0]);
+            .get([x * 0.03 + 1000.0, y * 0.05, z * 0.03 + 1000.0]);
 
         // Regional density affects threshold
         let density = self.density_noise.get([x * 0.01, z * 0.01]) * 0.5 + 0.5;
 
         // Depth bonus - more caves deeper down
         let depth_factor = ((surface_height - world_y) as f64 / 50.0).clamp(0.0, 1.0);
-        let depth_bonus = depth_factor * 0.01;
+        let depth_bonus = depth_factor * 0.02;
 
         // Base threshold with density variation
-        // Higher threshold = more caves (easier to pass intersection test)
-        let threshold = 0.08 - (density * 0.02) - depth_bonus;
+        // Higher threshold = wider caves (easier to pass intersection test)
+        let threshold = 0.12 - (density * 0.02) - depth_bonus;
 
         // Intersection: both noise values must be close to zero
         // Use looser threshold for more cave coverage
@@ -107,14 +107,14 @@ impl SpaghettiCaves {
         let y = world_y as f64;
         let z = world_z as f64;
 
-        let n1 = self.noise1.get([x * 0.05, y * 0.08, z * 0.05]);
+        let n1 = self.noise1.get([x * 0.03, y * 0.05, z * 0.03]);
         let n2 = self
             .noise2
-            .get([x * 0.05 + 1000.0, y * 0.08, z * 0.05 + 1000.0]);
+            .get([x * 0.03 + 1000.0, y * 0.05, z * 0.03 + 1000.0]);
 
         let density = self.density_noise.get([x * 0.01, z * 0.01]) * 0.5 + 0.5;
         let depth_factor = ((surface_height - world_y) as f64 / 50.0).clamp(0.0, 1.0);
-        let threshold = 0.08 - (density * 0.02) - (depth_factor * 0.01);
+        let threshold = 0.12 - (density * 0.02) - (depth_factor * 0.02);
 
         n1.abs() < threshold && n2.abs() < threshold
     }

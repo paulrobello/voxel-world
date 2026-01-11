@@ -60,15 +60,14 @@ impl NoodleCaves {
         let y = world_y as f64;
         let z = world_z as f64;
 
-        // High frequency for fine features
-        let n1 = self.noise1.get([x * 0.1, y * 0.12, z * 0.1]);
+        // Medium-high frequency for interconnected passages (was 0.1, now 0.06)
+        let n1 = self.noise1.get([x * 0.06, y * 0.08, z * 0.06]);
         let n2 = self
             .noise2
-            .get([x * 0.1 + 500.0, y * 0.12, z * 0.1 + 500.0]);
+            .get([x * 0.06 + 500.0, y * 0.08, z * 0.06 + 500.0]);
 
-        // Threshold for narrow tunnels - must be low enough to create fine network
-        // but high enough to actually generate some caves
-        let threshold = 0.045;
+        // Threshold for medium-width tunnels - wider than before for walkable passages
+        let threshold = 0.09;
 
         // Both noise values must be close to zero
         n1.abs() < threshold && n2.abs() < threshold
