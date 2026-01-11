@@ -458,26 +458,15 @@ impl App {
         // Queue chunks for async generation with aggressive priority management
         let max_to_queue = CHUNKS_PER_FRAME * 4;
 
-        // Get the top priority chunks we want to load
-        let priority_set: HashSet<Vector3<i32>> =
-            to_load.iter().take(max_to_queue).copied().collect();
+        // Get priority-sorted chunks to load
+        let chunks_to_request: Vec<_> = to_load.into_iter().take(max_to_queue).collect();
 
-        // Cancel ALL in-flight chunks that aren't in our priority set
-        // This ensures we're always working on the most important chunks
-        // Workers check in_flight before processing, so cancelled chunks
-        // will be skipped efficiently without wasted generation work.
-        let in_flight = self.sim.chunk_loader.in_flight_positions();
-        for pos in in_flight {
-            if !priority_set.contains(&pos) {
-                self.sim.chunk_loader.cancel_chunk(pos);
-            }
-        }
+        // Request new chunks (adds to in_flight)
+        let queued = self.sim.chunk_loader.request_chunks(&chunks_to_request);
 
-        // Now request the priority chunks
-        let queued = self
-            .sim
-            .chunk_loader
-            .request_chunks(&to_load.into_iter().take(max_to_queue).collect::<Vec<_>>());
+        // Update the work queue with current priorities
+        // This re-sorts the queue so workers always get the highest priority chunks first
+        self.sim.chunk_loader.update_priorities(&chunks_to_request);
 
         if queued > 20 {
             println!(

@@ -2,11 +2,14 @@
 //!
 //! This module provides background chunk generation using a thread pool
 //! to avoid blocking the main thread during terrain generation.
+//!
+//! Uses a priority-based work queue that gets re-sorted each frame to ensure
+//! chunks in the player's viewing direction are loaded first.
 
 use nalgebra::Vector3;
-use std::collections::HashSet;
-use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
-use std::sync::{Arc, RwLock};
+use std::collections::{HashSet, VecDeque};
+use std::sync::mpsc::{self, Receiver, TryRecvError};
+use std::sync::{Arc, Condvar, Mutex, RwLock};
 use std::thread::{self, JoinHandle};
 
 use crate::chunk::Chunk;
@@ -25,6 +28,7 @@ const MAX_BATCH_REQUEST: usize = 256;
 
 /// Request to generate a chunk at a specific position.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct ChunkRequest {
     pub position: Vector3<i32>,
 }
@@ -37,19 +41,59 @@ pub struct ChunkResult {
     pub overflow_blocks: Vec<OverflowBlock>,
 }
 
+/// Priority-based work queue for chunk generation.
+/// Allows the main thread to update priorities each frame.
+struct WorkQueue {
+    /// Queue of chunk positions to generate, in priority order (front = highest)
+    queue: VecDeque<Vector3<i32>>,
+    /// Set of positions in the queue for fast lookup
+    queued_set: HashSet<Vector3<i32>>,
+    /// Shutdown flag
+    shutdown: bool,
+}
+
+impl WorkQueue {
+    fn new() -> Self {
+        Self {
+            queue: VecDeque::new(),
+            queued_set: HashSet::new(),
+            shutdown: false,
+        }
+    }
+
+    /// Replace the queue with a new priority-sorted list of chunks.
+    /// Only adds chunks that are in the in_flight set (not cancelled).
+    fn update_queue(&mut self, positions: &[Vector3<i32>], in_flight: &HashSet<Vector3<i32>>) {
+        self.queue.clear();
+        self.queued_set.clear();
+        for &pos in positions {
+            if in_flight.contains(&pos) && self.queued_set.insert(pos) {
+                self.queue.push_back(pos);
+            }
+        }
+    }
+
+    /// Pop the highest priority chunk (front of queue).
+    fn pop(&mut self) -> Option<Vector3<i32>> {
+        if let Some(pos) = self.queue.pop_front() {
+            self.queued_set.remove(&pos);
+            Some(pos)
+        } else {
+            None
+        }
+    }
+}
+
 /// Async chunk loader that generates chunks in background threads.
 pub struct ChunkLoader {
-    /// Sender to queue chunk generation requests.
-    request_tx: Sender<ChunkRequest>,
+    /// Shared work queue protected by mutex
+    work_queue: Arc<(Mutex<WorkQueue>, Condvar)>,
     /// Receiver for completed chunks.
     result_rx: Receiver<ChunkResult>,
     /// Worker thread handles (for cleanup).
     workers: Vec<JoinHandle<()>>,
     /// Set of chunks currently being generated (to avoid duplicates).
-    /// Shared with workers so they can skip cancelled chunks.
     in_flight: Arc<RwLock<HashSet<Vector3<i32>>>>,
-    /// Shutdown signal sender.
-    shutdown_tx: Sender<()>,
 }
 
 impl ChunkLoader {
@@ -65,27 +109,21 @@ impl ChunkLoader {
     {
         let generator = Arc::new(generator);
 
-        // Channel for sending requests to workers
-        let (request_tx, request_rx) = mpsc::channel::<ChunkRequest>();
-        let request_rx = Arc::new(std::sync::Mutex::new(request_rx));
+        // Shared work queue with condition variable for notification
+        let work_queue = Arc::new((Mutex::new(WorkQueue::new()), Condvar::new()));
 
         // Channel for receiving results from workers
         let (result_tx, result_rx) = mpsc::channel::<ChunkResult>();
 
-        // Channel for shutdown signal
-        let (shutdown_tx, shutdown_rx) = mpsc::channel::<()>();
-        let shutdown_rx = Arc::new(std::sync::Mutex::new(shutdown_rx));
-
-        // Shared in-flight set so workers can skip cancelled chunks
+        // Shared in-flight set so workers can check for cancellation
         let in_flight = Arc::new(RwLock::new(HashSet::new()));
 
         // Spawn worker threads
         let mut workers = Vec::with_capacity(WORKER_THREADS);
         for i in 0..WORKER_THREADS {
-            let request_rx = Arc::clone(&request_rx);
+            let work_queue = Arc::clone(&work_queue);
             let result_tx = result_tx.clone();
             let generator = Arc::clone(&generator);
-            let shutdown_rx = Arc::clone(&shutdown_rx);
             let storage = storage.as_ref().map(Arc::clone);
             let in_flight_worker = Arc::clone(&in_flight);
 
@@ -93,86 +131,72 @@ impl ChunkLoader {
                 .name(format!("chunk-worker-{}", i))
                 .spawn(move || {
                     loop {
-                        // Check for shutdown signal (non-blocking)
-                        if let Ok(guard) = shutdown_rx.try_lock() {
-                            if guard.try_recv().is_ok() {
+                        // Wait for work or shutdown
+                        let position = {
+                            let (lock, cvar) = &*work_queue;
+                            let mut queue = lock.lock().unwrap();
+
+                            // Wait until there's work or shutdown
+                            while queue.queue.is_empty() && !queue.shutdown {
+                                queue = cvar.wait(queue).unwrap();
+                            }
+
+                            if queue.shutdown {
                                 break;
+                            }
+
+                            queue.pop()
+                        };
+
+                        let Some(position) = position else {
+                            continue;
+                        };
+
+                        // Check if this chunk was cancelled
+                        {
+                            let in_flight_guard = in_flight_worker.read().unwrap();
+                            if !in_flight_guard.contains(&position) {
+                                // Chunk was cancelled, skip processing
+                                continue;
                             }
                         }
 
-                        // Try to get a request (with timeout to allow shutdown checks)
-                        let request = {
-                            let guard = match request_rx.lock() {
-                                Ok(g) => g,
-                                Err(_) => break, // Mutex poisoned, exit
-                            };
-                            guard.recv_timeout(std::time::Duration::from_millis(100))
-                        };
-
-                        match request {
-                            Ok(req) => {
-                                // Check if this chunk was cancelled before doing expensive work
-                                {
-                                    let in_flight_guard = in_flight_worker.read().unwrap();
-                                    if !in_flight_guard.contains(&req.position) {
-                                        // Chunk was cancelled, skip processing
-                                        continue;
-                                    }
+                        // Try to load from disk first
+                        let (chunk, overflow_blocks) = if let Some(ref storage) = storage {
+                            match storage.load_chunk(position) {
+                                Ok(Some(mut chunk)) => {
+                                    chunk.update_metadata();
+                                    chunk.mark_dirty();
+                                    chunk.persistence_dirty = false;
+                                    (chunk, Vec::new())
                                 }
-
-                                // Try to load from disk first
-                                let (chunk, overflow_blocks) = if let Some(ref storage) = storage {
-                                    match storage.load_chunk(req.position) {
-                                        Ok(Some(mut chunk)) => {
-                                            chunk.update_metadata();
-                                            // Mark dirty for GPU upload
-                                            chunk.mark_dirty();
-                                            // Loaded from disk, so it's clean for persistence
-                                            chunk.persistence_dirty = false;
-                                            // Loaded chunks have no overflow blocks
-                                            (chunk, Vec::new())
-                                        }
-                                        Ok(None) => {
-                                            let result = generator(req.position);
-                                            let mut chunk = result.chunk;
-                                            // New procedural chunk, clean for persistence until modified
-                                            chunk.persistence_dirty = false;
-                                            (chunk, result.overflow_blocks)
-                                        }
-                                        Err(e) => {
-                                            eprintln!(
-                                                "[Storage] Load error for {:?}: {}",
-                                                req.position, e
-                                            );
-                                            let result = generator(req.position);
-                                            let mut chunk = result.chunk;
-                                            chunk.persistence_dirty = false;
-                                            (chunk, result.overflow_blocks)
-                                        }
-                                    }
-                                } else {
-                                    let result = generator(req.position);
+                                Ok(None) => {
+                                    let result = generator(position);
                                     let mut chunk = result.chunk;
                                     chunk.persistence_dirty = false;
                                     (chunk, result.overflow_blocks)
-                                };
+                                }
+                                Err(e) => {
+                                    eprintln!("[Storage] Load error for {:?}: {}", position, e);
+                                    let result = generator(position);
+                                    let mut chunk = result.chunk;
+                                    chunk.persistence_dirty = false;
+                                    (chunk, result.overflow_blocks)
+                                }
+                            }
+                        } else {
+                            let result = generator(position);
+                            let mut chunk = result.chunk;
+                            chunk.persistence_dirty = false;
+                            (chunk, result.overflow_blocks)
+                        };
 
-                                // Send result back (block_data computed after pending overflow applied)
-                                let _ = result_tx.send(ChunkResult {
-                                    position: req.position,
-                                    chunk,
-                                    overflow_blocks,
-                                });
-                            }
-                            Err(mpsc::RecvTimeoutError::Timeout) => {
-                                // No work available, loop and check shutdown
-                                continue;
-                            }
-                            Err(mpsc::RecvTimeoutError::Disconnected) => {
-                                // Channel closed, exit
-                                break;
-                            }
-                        }
+                        // Send result back
+                        let _ = result_tx.send(ChunkResult {
+                            position,
+                            chunk,
+                            overflow_blocks,
+                        });
                     }
                 })
                 .expect("Failed to spawn chunk worker thread");
@@ -181,11 +205,10 @@ impl ChunkLoader {
         }
 
         Self {
-            request_tx,
+            work_queue,
             result_rx,
             workers,
             in_flight,
-            shutdown_tx,
         }
     }
 
@@ -206,14 +229,9 @@ impl ChunkLoader {
             return false;
         }
 
-        // Send request to workers
-        match self.request_tx.send(ChunkRequest { position }) {
-            Ok(()) => {
-                in_flight.insert(position);
-                true
-            }
-            Err(_) => false,
-        }
+        // Add to in_flight (will be added to work queue in update_priorities)
+        in_flight.insert(position);
+        true
     }
 
     /// Queues multiple chunks for generation.
@@ -221,8 +239,6 @@ impl ChunkLoader {
     /// Returns the number of chunks successfully queued.
     pub fn request_chunks(&mut self, positions: &[Vector3<i32>]) -> usize {
         let mut queued = 0;
-        // Deduplicate within the batch to avoid spamming the channel with repeats.
-        use std::collections::HashSet;
         let mut batch_seen = HashSet::with_capacity(positions.len().min(MAX_BATCH_REQUEST));
         for &pos in positions.iter().take(MAX_BATCH_REQUEST) {
             if !batch_seen.insert(pos) {
@@ -233,6 +249,18 @@ impl ChunkLoader {
             }
         }
         queued
+    }
+
+    /// Update the work queue with a new priority-sorted list of chunks.
+    /// This should be called each frame with chunks sorted by priority (highest first).
+    /// Only chunks that are in in_flight will be added to the work queue.
+    pub fn update_priorities(&mut self, priority_sorted_chunks: &[Vector3<i32>]) {
+        let in_flight = self.in_flight.read().unwrap();
+        let (lock, cvar) = &*self.work_queue;
+        let mut queue = lock.lock().unwrap();
+        queue.update_queue(priority_sorted_chunks, &in_flight);
+        // Notify all waiting workers
+        cvar.notify_all();
     }
 
     /// Receives completed chunks (non-blocking).
@@ -268,6 +296,7 @@ impl ChunkLoader {
     }
 
     /// Returns a copy of all currently in-flight chunk positions.
+    #[allow(dead_code)]
     pub fn in_flight_positions(&self) -> Vec<Vector3<i32>> {
         self.in_flight.read().unwrap().iter().copied().collect()
     }
@@ -292,12 +321,15 @@ impl ChunkLoader {
 
 impl Drop for ChunkLoader {
     fn drop(&mut self) {
-        // Send shutdown signals
-        for _ in 0..WORKER_THREADS {
-            let _ = self.shutdown_tx.send(());
+        // Signal shutdown
+        {
+            let (lock, cvar) = &*self.work_queue;
+            let mut queue = lock.lock().unwrap();
+            queue.shutdown = true;
+            cvar.notify_all();
         }
 
-        // Wait for workers to finish (with timeout)
+        // Wait for workers to finish
         for worker in self.workers.drain(..) {
             let _ = worker.join();
         }
@@ -338,6 +370,9 @@ mod tests {
         assert!(!loader.request_chunk(Vector3::new(0, 0, 0)));
         assert_eq!(loader.in_flight_count(), 1);
 
+        // Update priorities to trigger work
+        loader.update_priorities(&[Vector3::new(0, 0, 0)]);
+
         // Wait for completion
         thread::sleep(Duration::from_millis(200));
 
@@ -355,6 +390,9 @@ mod tests {
         let positions: Vec<_> = (0..8).map(|i| Vector3::new(i, 0, 0)).collect();
         let queued = loader.request_chunks(&positions);
         assert_eq!(queued, 8);
+
+        // Update priorities to trigger work
+        loader.update_priorities(&positions);
 
         // Wait for completion
         thread::sleep(Duration::from_millis(500));
