@@ -20,65 +20,80 @@ impl StatsUI {
             .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-10.0, 10.0))
             .show(ctx, |ui| {
                 HudHelpers::overlay_frame().show(ui, |ui| {
-                    ui.set_min_width(150.0);
+                    ui.set_min_width(170.0);
+
+                    // FPS header
                     ui.label(
                         egui::RichText::new(format!("FPS: {}", fps))
                             .color(egui::Color32::WHITE)
                             .strong(),
                     );
+
+                    // Chunk stats - always show all fields for fixed height
                     ui.label(
                         egui::RichText::new(format!("Chunks: {}", chunk_stats.loaded_count))
                             .color(egui::Color32::LIGHT_GRAY)
                             .small(),
                     );
-                    if chunk_stats.dirty_count > 0 {
-                        ui.label(
-                            egui::RichText::new(format!("Dirty: {}", chunk_stats.dirty_count))
-                                .color(egui::Color32::YELLOW)
-                                .small(),
-                        );
-                    }
-                    if chunk_stats.in_flight_count > 0 {
-                        ui.label(
-                            egui::RichText::new(format!(
-                                "Generating: {}",
-                                chunk_stats.in_flight_count
-                            ))
-                            .color(egui::Color32::LIGHT_GREEN)
+
+                    let dirty_color = if chunk_stats.dirty_count > 0 {
+                        egui::Color32::YELLOW
+                    } else {
+                        egui::Color32::DARK_GRAY
+                    };
+                    ui.label(
+                        egui::RichText::new(format!("Dirty: {}", chunk_stats.dirty_count))
+                            .color(dirty_color)
                             .small(),
-                        );
-                    }
+                    );
+
+                    let gen_color = if chunk_stats.in_flight_count > 0 {
+                        egui::Color32::LIGHT_GREEN
+                    } else {
+                        egui::Color32::DARK_GRAY
+                    };
+                    ui.label(
+                        egui::RichText::new(format!("Generating: {}", chunk_stats.in_flight_count))
+                            .color(gen_color)
+                            .small(),
+                    );
+
                     ui.label(
                         egui::RichText::new(format!("GPU: {:.1} MB", chunk_stats.memory_mb))
                             .color(egui::Color32::LIGHT_GRAY)
                             .small(),
                     );
-                    // Show fluid stats when there are active fluid cells
-                    if fluid_stats.water_cells > 0 || fluid_stats.lava_cells > 0 {
-                        ui.separator();
-                        if fluid_stats.water_cells > 0 {
-                            let water_color = egui::Color32::from_rgb(64, 164, 223);
-                            ui.label(
-                                egui::RichText::new(format!(
-                                    "Water: {} ({} active)",
-                                    fluid_stats.water_cells, fluid_stats.water_active
-                                ))
-                                .color(water_color)
-                                .small(),
-                            );
-                        }
-                        if fluid_stats.lava_cells > 0 {
-                            let lava_color = egui::Color32::from_rgb(255, 100, 50);
-                            ui.label(
-                                egui::RichText::new(format!(
-                                    "Lava: {} ({} active)",
-                                    fluid_stats.lava_cells, fluid_stats.lava_active
-                                ))
-                                .color(lava_color)
-                                .small(),
-                            );
-                        }
-                    }
+
+                    // Fluid stats - always show for fixed height
+                    ui.separator();
+
+                    let water_color = if fluid_stats.water_cells > 0 {
+                        egui::Color32::from_rgb(64, 164, 223)
+                    } else {
+                        egui::Color32::DARK_GRAY
+                    };
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "Water: {} ({} active)",
+                            fluid_stats.water_cells, fluid_stats.water_active
+                        ))
+                        .color(water_color)
+                        .small(),
+                    );
+
+                    let lava_color = if fluid_stats.lava_cells > 0 {
+                        egui::Color32::from_rgb(255, 100, 50)
+                    } else {
+                        egui::Color32::DARK_GRAY
+                    };
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "Lava: {} ({} active)",
+                            fluid_stats.lava_cells, fluid_stats.lava_active
+                        ))
+                        .color(lava_color)
+                        .small(),
+                    );
                 });
             });
     }
