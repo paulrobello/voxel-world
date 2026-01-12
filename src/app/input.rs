@@ -93,6 +93,13 @@ impl App {
             return true;
         }
 
+        // Cancel bridge tool
+        if self.input.key_pressed(KeyCode::Escape) && self.ui.bridge_tool.active {
+            println!("Bridge Tool: OFF");
+            self.ui.bridge_tool.deactivate();
+            return true;
+        }
+
         // Handle escape to unfocus
         if self.input.key_pressed(KeyCode::Escape) && self.input.focused {
             self.input.focused = false;
@@ -537,6 +544,16 @@ impl App {
             }
         }
 
+        // Update bridge tool preview from raycast (only when start position is set)
+        if self.ui.bridge_tool.active && self.ui.bridge_tool.start_position.is_some() {
+            if let Some(hit) = self.ui.current_hit {
+                let target = get_place_position(&hit);
+                self.ui.bridge_tool.update_preview(target);
+            } else {
+                self.ui.bridge_tool.clear_preview();
+            }
+        }
+
         // Handle template placement with right-click
         // Check if mouse was released (clear reclick flag)
         if self.ui.place_needs_reclick && !self.input.mouse_held(MouseButton::Right) {
@@ -631,6 +648,29 @@ impl App {
             self.place_cube();
             self.ui.place_needs_reclick = true;
             return; // Skip block placement
+        }
+
+        // Handle bridge tool with right-click (two-click workflow)
+        if self.input.focused
+            && self.ui.bridge_tool.active
+            && self.input.mouse_pressed(MouseButton::Right)
+            && !self.ui.place_needs_reclick
+        {
+            if let Some(hit) = self.ui.current_hit {
+                let target = get_place_position(&hit);
+
+                if self.ui.bridge_tool.start_position.is_some() {
+                    // Second click - place the bridge and clear start
+                    self.place_bridge();
+                    self.ui.bridge_tool.cancel(); // Clear start position for next bridge
+                } else {
+                    // First click - set start position
+                    self.ui.bridge_tool.start_position = Some(target);
+                    println!("Bridge start: ({}, {}, {})", target.x, target.y, target.z);
+                }
+                self.ui.place_needs_reclick = true;
+                return; // Skip block placement
+            }
         }
 
         // Handle flood fill with right-click

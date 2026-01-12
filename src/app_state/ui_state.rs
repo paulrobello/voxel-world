@@ -9,7 +9,7 @@ use crate::console::ConsoleState;
 use crate::editor::EditorState;
 use crate::hud::Minimap;
 use crate::raycast::RaycastHit;
-use crate::shape_tools::{CubeToolState, SphereToolState};
+use crate::shape_tools::{BridgeToolState, CubeToolState, SphereToolState};
 use crate::templates::{TemplateLibrary, TemplatePlacement, TemplateSelection, TemplateUi};
 use crate::ui::tools::ToolsPaletteState;
 
@@ -119,4 +119,7 @@ pub struct UiState {
 
     /// Cube placement tool state.
     pub cube_tool: CubeToolState,
+
+    /// Bridge (line) placement tool state.
+    pub bridge_tool: BridgeToolState,
 }

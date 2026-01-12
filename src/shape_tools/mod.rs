@@ -1,8 +1,9 @@
 //! Shape tools for placing geometric shapes in the world.
 //!
-//! This module provides tools for placing spheres, cubes, and other shapes
+//! This module provides tools for placing spheres, cubes, bridges, and other shapes
 //! with holographic previews and configurable parameters.
 
+pub mod bridge;
 pub mod cube;
 pub mod sphere;
 
@@ -264,6 +265,59 @@ impl CubeToolState {
             } else {
                 self.preview_positions = all_positions;
             }
+        }
+    }
+}
+
+/// State for the bridge (line) placement tool.
+#[derive(Clone, Debug, Default)]
+pub struct BridgeToolState {
+    /// Whether the bridge tool is currently active.
+    pub active: bool,
+    /// Starting position for the bridge (set on first right-click).
+    pub start_position: Option<Vector3<i32>>,
+    /// Cached preview positions for GPU upload.
+    pub preview_positions: Vec<Vector3<i32>>,
+    /// Current end position for preview (crosshair target).
+    pub preview_end: Option<Vector3<i32>>,
+    /// Total block count for the line.
+    pub total_blocks: usize,
+}
+
+impl BridgeToolState {
+    /// Clear the preview state.
+    pub fn clear_preview(&mut self) {
+        self.preview_positions.clear();
+        self.preview_end = None;
+        self.total_blocks = 0;
+    }
+
+    /// Cancel the bridge (clear start position and preview).
+    pub fn cancel(&mut self) {
+        self.start_position = None;
+        self.clear_preview();
+    }
+
+    /// Deactivate the tool and clear all state.
+    pub fn deactivate(&mut self) {
+        self.active = false;
+        self.start_position = None;
+        self.clear_preview();
+    }
+
+    /// Update the bridge preview from start to the given target position.
+    ///
+    /// Only generates preview if start_position is set.
+    pub fn update_preview(&mut self, target: Vector3<i32>) {
+        if let Some(start) = self.start_position {
+            // Only regenerate if end changed
+            if self.preview_end != Some(target) {
+                self.preview_end = Some(target);
+                self.preview_positions = bridge::generate_line_positions(start, target);
+                self.total_blocks = self.preview_positions.len();
+            }
+        } else {
+            self.clear_preview();
         }
     }
 }

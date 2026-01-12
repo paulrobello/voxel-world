@@ -460,6 +460,45 @@ impl App {
                 }
             }
 
+            // Add blocks from bridge tool preview
+            if self.ui.bridge_tool.active {
+                // First, show start position marker (magenta) if set but no preview yet
+                if let Some(start) = self.ui.bridge_tool.start_position {
+                    // Use magenta (color_id 2) for start marker to stand out
+                    let start_color_id = 2u32;
+                    if total_blocks < gpu_resources::MAX_STENCIL_BLOCKS {
+                        let tex_pos = world_to_tex(start);
+                        write[total_blocks] = gpu_resources::GpuStencilBlock {
+                            position: [
+                                tex_pos.0 as f32,
+                                tex_pos.1 as f32,
+                                tex_pos.2 as f32,
+                                start_color_id as f32,
+                            ],
+                        };
+                        total_blocks += 1;
+                    }
+                }
+
+                // Then show preview line (cyan)
+                let preview_color_id = 0u32; // Cyan for bridge preview
+                for world_pos in &self.ui.bridge_tool.preview_positions {
+                    if total_blocks >= gpu_resources::MAX_STENCIL_BLOCKS {
+                        break;
+                    }
+                    let tex_pos = world_to_tex(*world_pos);
+                    write[total_blocks] = gpu_resources::GpuStencilBlock {
+                        position: [
+                            tex_pos.0 as f32,
+                            tex_pos.1 as f32,
+                            tex_pos.2 as f32,
+                            preview_color_id as f32,
+                        ],
+                    };
+                    total_blocks += 1;
+                }
+            }
+
             (
                 total_blocks as u32,
                 self.ui.stencil_manager.global_opacity,

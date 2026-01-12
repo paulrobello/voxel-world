@@ -7,6 +7,7 @@
 //! - Flood Fill: Mass block replacement (tools palette/console only)
 //! - Sphere: Place solid or hollow spheres (tools palette only)
 //! - Cube: Place solid or hollow cubes/boxes (tools palette only)
+//! - Bridge: Draw lines between two points (tools palette only)
 
 use egui_winit_vulkano::egui;
 use serde::{Deserialize, Serialize};
@@ -24,6 +25,7 @@ pub enum ToolAction {
     ToggleFloodFill,
     ToggleSphereTool,
     ToggleCubeTool,
+    ToggleBridgeTool,
 }
 
 /// Which tool is currently active/highlighted in the palette.
@@ -37,6 +39,7 @@ pub enum ActiveTool {
     FloodFill,
     Sphere,
     Cube,
+    Bridge,
 }
 
 impl ActiveTool {
@@ -50,6 +53,7 @@ impl ActiveTool {
             ActiveTool::FloodFill => "Flood Fill",
             ActiveTool::Sphere => "Sphere",
             ActiveTool::Cube => "Cube",
+            ActiveTool::Bridge => "Bridge",
         }
     }
 
@@ -63,6 +67,7 @@ impl ActiveTool {
             ActiveTool::FloodFill => "🪣",   // Paint bucket
             ActiveTool::Sphere => "🔵",      // Blue circle
             ActiveTool::Cube => "🟦",        // Blue square
+            ActiveTool::Bridge => "📍",      // Pin/marker for line endpoints
         }
     }
 
@@ -76,6 +81,7 @@ impl ActiveTool {
             ActiveTool::FloodFill => "", // No dedicated hotkey, tools palette/console only
             ActiveTool::Sphere => "",    // No dedicated hotkey, button only
             ActiveTool::Cube => "",      // No dedicated hotkey, button only
+            ActiveTool::Bridge => "",    // No dedicated hotkey, button only
         }
     }
 
@@ -89,6 +95,7 @@ impl ActiveTool {
             ActiveTool::FloodFill => "Right-click to fill connected blocks",
             ActiveTool::Sphere => "Place solid or hollow spheres",
             ActiveTool::Cube => "Place solid or hollow cubes/boxes",
+            ActiveTool::Bridge => "Draw line between two points",
         }
     }
 }
@@ -222,6 +229,7 @@ impl ToolsPaletteUI {
         flood_fill_active: bool,
         sphere_tool_active: bool,
         cube_tool_active: bool,
+        bridge_tool_active: bool,
         stencil_opacity: f32,
         stencil_render_mode: StencilRenderMode,
     ) -> ToolsPaletteResult {
@@ -248,6 +256,8 @@ impl ToolsPaletteUI {
             ActiveTool::Sphere
         } else if cube_tool_active {
             ActiveTool::Cube
+        } else if bridge_tool_active {
+            ActiveTool::Bridge
         } else {
             ActiveTool::None
         };
@@ -276,6 +286,7 @@ impl ToolsPaletteUI {
                         ActiveTool::FloodFill,
                         ActiveTool::Sphere,
                         ActiveTool::Cube,
+                        ActiveTool::Bridge,
                     ];
 
                     for tool in tools {
@@ -290,6 +301,7 @@ impl ToolsPaletteUI {
                                 ActiveTool::FloodFill => ToolAction::ToggleFloodFill,
                                 ActiveTool::Sphere => ToolAction::ToggleSphereTool,
                                 ActiveTool::Cube => ToolAction::ToggleCubeTool,
+                                ActiveTool::Bridge => ToolAction::ToggleBridgeTool,
                                 ActiveTool::None => ToolAction::None,
                             };
                         }
@@ -430,6 +442,15 @@ impl ToolsPaletteUI {
                 // Cube tool has its own settings window (CubeToolUI)
                 ui.label(
                     egui::RichText::new("Cube settings in separate window")
+                        .color(egui::Color32::from_gray(140))
+                        .size(11.0)
+                        .italics(),
+                );
+            }
+            ActiveTool::Bridge => {
+                // Bridge tool has its own status window (BridgeToolUI)
+                ui.label(
+                    egui::RichText::new("Bridge status in separate window")
                         .color(egui::Color32::from_gray(140))
                         .size(11.0)
                         .italics(),

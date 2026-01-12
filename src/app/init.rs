@@ -556,6 +556,7 @@ impl App {
             tools_palette: crate::ui::tools::ToolsPaletteState::default(),
             sphere_tool: crate::shape_tools::SphereToolState::default(),
             cube_tool: crate::shape_tools::CubeToolState::default(),
+            bridge_tool: crate::shape_tools::BridgeToolState::default(),
         };
 
         let input = InputState {

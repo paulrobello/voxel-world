@@ -25,6 +25,7 @@ use crate::utils::ChunkStats;
 use egui_winit_vulkano::egui;
 use nalgebra::Vector3;
 
+pub mod bridge_tool;
 pub mod console;
 pub mod cube_tool;
 pub mod helpers;
@@ -37,6 +38,7 @@ pub mod stats;
 pub mod time;
 pub mod tools;
 
+use bridge_tool::BridgeToolUI;
 use console::ConsoleUI;
 use cube_tool::CubeToolUI;
 use hotbar::HotbarUI;
@@ -114,6 +116,7 @@ pub struct HudInputs<'a> {
     pub stencil_browser_open: bool,
     pub sphere_tool: &'a mut crate::shape_tools::SphereToolState,
     pub cube_tool: &'a mut crate::shape_tools::CubeToolState,
+    pub bridge_tool: &'a mut crate::shape_tools::BridgeToolState,
 }
 
 pub struct HUDRenderer;
@@ -176,6 +179,7 @@ impl HUDRenderer {
             stencil_browser_open,
             sphere_tool,
             cube_tool,
+            bridge_tool,
         } = input;
         let mut scale_changed = false;
         let mut editor_action = EditorAction::None;
@@ -245,6 +249,7 @@ impl HUDRenderer {
                 flood_fill_active,
                 sphere_tool.active,
                 cube_tool.active,
+                bridge_tool.active,
                 stencil_manager.global_opacity,
                 stencil_manager.render_mode,
             );
@@ -264,6 +269,9 @@ impl HUDRenderer {
 
             // Cube tool settings window
             CubeToolUI::draw(&ctx, cube_tool);
+
+            // Bridge tool status window
+            BridgeToolUI::draw(&ctx, bridge_tool);
 
             // Crosshair (hide when editor or console is open)
             if !editor.active && !console.active {

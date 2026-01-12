@@ -82,6 +82,7 @@ pub fn render_hud(
             stencil_browser_open: ui.stencil_ui.browser_open,
             sphere_tool: &mut ui.sphere_tool,
             cube_tool: &mut ui.cube_tool,
+            bridge_tool: &mut ui.bridge_tool,
         },
     );
 
@@ -151,6 +152,18 @@ pub fn render_hud(
             if ui.cube_tool.active {
                 ui.tools_palette.open = false;
                 // Don't request cursor grab - cube tool UI needs mouse interaction
+            }
+        }
+        ToolAction::ToggleBridgeTool => {
+            ui.bridge_tool.active = !ui.bridge_tool.active;
+            println!(
+                "Bridge Tool: {}",
+                if ui.bridge_tool.active { "ON" } else { "OFF" }
+            );
+            // Close tools palette and grab cursor when activating bridge mode
+            if ui.bridge_tool.active {
+                ui.tools_palette.open = false;
+                ui.request_cursor_grab = true;
             }
         }
         ToolAction::None => {}
