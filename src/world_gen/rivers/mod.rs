@@ -1,31 +1,40 @@
 //! River generation system.
 //!
-//! Uses Minecraft-style edge detection on a patchy noise map.
-//! Rivers form along the BOUNDARIES between noise regions, not at zero-crossings.
-//! This creates naturally connected, meandering river paths.
+//! Uses Minecraft-style region boundary detection. Rivers form at the
+//! EXACT boundaries between quantized noise regions, creating naturally
+//! connected linear features.
 //!
-//! ## Algorithm (based on Minecraft's River Layer)
-//! 1. Generate a "region" noise map that creates distinct patches
-//! 2. Calculate the gradient (rate of change) at each point
-//! 3. Rivers form where the gradient is HIGH (boundaries between patches)
-//! 4. This naturally creates connected linear features
+//! ## Algorithm
+//! 1. Quantize noise into discrete "regions" (e.g., 4 region types)
+//! 2. Rivers form where a point's region differs from its neighbors
+//! 3. This creates continuous boundary lines, not scattered points
 //!
-//! ## River Types
-//! - **Main rivers**: Wide rivers at major region boundaries
-//! - **Tributaries**: Smaller streams at minor boundaries
+//! ## Key Design
+//! - Rivers have a FIXED water level (not per-column)
+//! - Terrain is carved DOWN to below the water level
+//! - Rivers only form where terrain is high enough above sea level
 
 use crate::terrain_gen::BiomeType;
+use crate::world_gen::SEA_LEVEL;
 use noise::{NoiseFn, Perlin};
 
-/// River generator using edge detection on patchy noise.
+/// Base water level for all rivers (above sea level).
+/// Rivers carve terrain down to below this level.
+pub const RIVER_WATER_LEVEL: i32 = SEA_LEVEL + 8; // 83
+
+/// Minimum terrain height for rivers to form.
+/// Terrain must be at least this high for a river to carve through it.
+const MIN_RIVER_TERRAIN: i32 = RIVER_WATER_LEVEL + 4; // 87
+
+/// River generator using quantized region boundaries.
 #[derive(Clone)]
 pub struct RiverGenerator {
-    /// Region noise - rivers form at edges between regions
+    /// Region noise - quantized to create distinct regions
     region_noise: Perlin,
-    /// Secondary region noise for tributaries (different frequency)
-    tributary_region_noise: Perlin,
-    /// Width variation noise
-    width_noise: Perlin,
+    /// Secondary noise for tributaries
+    tributary_noise: Perlin,
+    /// Noise for width/depth variation
+    variation_noise: Perlin,
 }
 
 impl RiverGenerator {
@@ -33,23 +42,15 @@ impl RiverGenerator {
     pub fn new(seed: u32) -> Self {
         Self {
             region_noise: Perlin::new(seed + 500),
-            tributary_region_noise: Perlin::new(seed + 501),
-            width_noise: Perlin::new(seed + 502),
+            tributary_noise: Perlin::new(seed + 501),
+            variation_noise: Perlin::new(seed + 502),
         }
     }
 
     /// Check if a position is within a river channel.
     ///
-    /// Rivers form at edges between noise regions (high gradient areas).
-    /// This creates naturally connected, meandering river paths like Minecraft.
-    ///
-    /// # Arguments
-    /// * `world_x`, `world_z` - World coordinates
-    /// * `terrain_height` - Height of terrain at this position
-    /// * `biome` - Biome type (rivers are less common in deserts)
-    ///
-    /// # Returns
-    /// `Some(river_info)` if this is a river, `None` otherwise
+    /// Rivers form at boundaries between quantized noise regions.
+    /// This creates naturally connected, linear river paths.
     pub fn get_river_at(
         &self,
         world_x: i32,
@@ -57,178 +58,262 @@ impl RiverGenerator {
         terrain_height: i32,
         biome: BiomeType,
     ) -> Option<RiverInfo> {
-        // Get river parameters for this biome
-        let (gradient_threshold, enabled) = self.get_river_params(biome);
-        if !enabled {
+        // Check if rivers are enabled for this biome
+        if !self.is_river_enabled(biome) {
+            return None;
+        }
+
+        // Rivers need terrain high enough to carve into
+        if terrain_height < MIN_RIVER_TERRAIN {
             return None;
         }
 
         let x = world_x as f64;
         let z = world_z as f64;
 
-        // Main rivers: detect edges in low-frequency region noise
-        // Scale creates medium-sized patches (~100 blocks across)
-        // Higher scale = smaller patches = more river boundaries
-        let main_scale = 0.008;
-        let main_gradient = self.calculate_gradient(x, z, main_scale, &self.region_noise);
-
-        // Rivers form where gradient is HIGH (at region boundaries)
-        // gradient_threshold controls how "sharp" the boundary needs to be
-        if main_gradient > gradient_threshold {
-            // Stronger gradient = more centered in river
-            let river_strength = ((main_gradient - gradient_threshold) / 0.3).clamp(0.0, 1.0);
-            let base_width = self.calculate_river_width(world_x, world_z, terrain_height, true);
-            let depth = (base_width * 0.6).clamp(3.0, 6.0) as i32;
-
-            return Some(RiverInfo {
-                width: base_width,
-                depth,
-                river_type: RiverType::MainRiver,
-                strength: river_strength,
-            });
+        // Check for main river (large-scale region boundaries)
+        if let Some(info) = self.check_main_river(x, z, terrain_height, biome) {
+            return Some(info);
         }
 
-        // Tributary rivers: higher frequency noise creates smaller stream networks
-        let tributary_scale = 0.015;
-        let tributary_gradient =
-            self.calculate_gradient(x, z, tributary_scale, &self.tributary_region_noise);
-        let tributary_threshold = gradient_threshold * 1.2; // Slightly higher threshold than main
-
-        if tributary_gradient > tributary_threshold {
-            let river_strength = ((tributary_gradient - tributary_threshold) / 0.3).clamp(0.0, 1.0);
-            let base_width = self.calculate_river_width(world_x, world_z, terrain_height, false);
-            let depth = (base_width * 0.5).clamp(2.0, 4.0) as i32;
-
-            return Some(RiverInfo {
-                width: base_width,
-                depth,
-                river_type: if terrain_height > 120 {
-                    RiverType::MountainStream
-                } else {
-                    RiverType::Tributary
-                },
-                strength: river_strength,
-            });
+        // Check for tributary (smaller-scale boundaries)
+        if let Some(info) = self.check_tributary(x, z, terrain_height, biome) {
+            return Some(info);
         }
 
         None
     }
 
-    /// Calculate the gradient magnitude at a position.
-    /// High gradient = boundary between noise regions = river location.
-    fn calculate_gradient(&self, x: f64, z: f64, scale: f64, noise: &Perlin) -> f64 {
-        // Sample noise at 4 neighbors to compute gradient
-        // Larger sample distance = detect larger-scale boundaries
-        let sample_dist = 8.0;
-        let north = noise.get([x * scale, (z - sample_dist) * scale]);
-        let south = noise.get([x * scale, (z + sample_dist) * scale]);
-        let west = noise.get([(x - sample_dist) * scale, z * scale]);
-        let east = noise.get([(x + sample_dist) * scale, z * scale]);
+    /// Check for main river at region boundary.
+    fn check_main_river(
+        &self,
+        x: f64,
+        z: f64,
+        terrain_height: i32,
+        biome: BiomeType,
+    ) -> Option<RiverInfo> {
+        // Scale for large regions (~250 blocks across)
+        let scale = 0.004;
 
-        // Calculate gradient components (rate of change in x and z)
-        // Don't divide by distance - we want raw difference for threshold comparison
-        let grad_x = east - west;
-        let grad_z = south - north;
+        // Number of distinct regions - more regions = more boundaries = more rivers
+        let num_regions = 5.0;
 
-        // Return gradient magnitude
-        (grad_x * grad_x + grad_z * grad_z).sqrt()
+        // Quantize center point into a region
+        let center_val = self.region_noise.get([x * scale, z * scale]);
+        let center_region = (center_val * num_regions).floor() as i32;
+
+        // Check distance for boundary detection - wider = wider rivers
+        let river_half_width = self.get_river_half_width(x, z, biome, true);
+
+        // Check if any neighbor is in a different region
+        let at_boundary = self.is_at_region_boundary(
+            x,
+            z,
+            scale,
+            center_region,
+            num_regions,
+            river_half_width,
+            &self.region_noise,
+        );
+
+        if !at_boundary {
+            return None;
+        }
+
+        // Calculate carving depth - terrain carved down to below water level
+        let base_depth = (terrain_height - RIVER_WATER_LEVEL + 3).max(3);
+        let variation = self.variation_noise.get([x * 0.02, z * 0.02]) * 0.3 + 0.85;
+        // Minimum depth ensures carved terrain is at least 1 block below water level
+        let min_depth = terrain_height - RIVER_WATER_LEVEL + 1;
+        let depth = ((base_depth as f64) * variation)
+            .round()
+            .max(min_depth as f64) as i32;
+
+        Some(RiverInfo {
+            width: river_half_width * 2.0,
+            depth,
+            river_type: RiverType::MainRiver,
+            water_level: RIVER_WATER_LEVEL,
+        })
     }
 
-    /// Get river parameters for a biome.
-    /// Returns (gradient_threshold, enabled).
-    /// Lower threshold = more rivers (easier to trigger at boundaries).
-    /// Thresholds are compared against raw noise gradient (typically 0.0-1.5 range).
-    fn get_river_params(&self, biome: BiomeType) -> (f64, bool) {
+    /// Check for tributary at smaller region boundary.
+    fn check_tributary(
+        &self,
+        x: f64,
+        z: f64,
+        terrain_height: i32,
+        biome: BiomeType,
+    ) -> Option<RiverInfo> {
+        // Higher threshold for tributaries - only in wetter biomes
+        if !self.has_tributaries(biome) {
+            return None;
+        }
+
+        // Scale for smaller regions (~120 blocks across)
+        let scale = 0.008;
+        let num_regions = 4.0;
+
+        let center_val = self.tributary_noise.get([x * scale, z * scale]);
+        let center_region = (center_val * num_regions).floor() as i32;
+
+        let river_half_width = self.get_river_half_width(x, z, biome, false);
+
+        let at_boundary = self.is_at_region_boundary(
+            x,
+            z,
+            scale,
+            center_region,
+            num_regions,
+            river_half_width,
+            &self.tributary_noise,
+        );
+
+        if !at_boundary {
+            return None;
+        }
+
+        let base_depth = (terrain_height - RIVER_WATER_LEVEL + 2).max(2);
+        let variation = self.variation_noise.get([x * 0.03, z * 0.03]) * 0.3 + 0.85;
+        // Minimum depth ensures carved terrain is at least 1 block below water level
+        let min_depth = terrain_height - RIVER_WATER_LEVEL + 1;
+        let depth = ((base_depth as f64) * variation)
+            .round()
+            .max(min_depth as f64) as i32;
+
+        Some(RiverInfo {
+            width: river_half_width * 2.0,
+            depth,
+            river_type: if terrain_height > 120 {
+                RiverType::MountainStream
+            } else {
+                RiverType::Tributary
+            },
+            water_level: RIVER_WATER_LEVEL,
+        })
+    }
+
+    /// Check if position is at a region boundary by comparing with neighbors.
+    #[allow(clippy::too_many_arguments)]
+    fn is_at_region_boundary(
+        &self,
+        x: f64,
+        z: f64,
+        scale: f64,
+        center_region: i32,
+        num_regions: f64,
+        check_dist: f64,
+        noise: &Perlin,
+    ) -> bool {
+        // Check 4 cardinal directions
+        for (dx, dz) in &[(1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)] {
+            let nx = x + dx * check_dist;
+            let nz = z + dz * check_dist;
+            let neighbor_val = noise.get([nx * scale, nz * scale]);
+            let neighbor_region = (neighbor_val * num_regions).floor() as i32;
+
+            if neighbor_region != center_region {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Get river half-width with variation.
+    fn get_river_half_width(&self, x: f64, z: f64, biome: BiomeType, is_main: bool) -> f64 {
+        let base = if is_main { 5.0 } else { 3.0 };
+
+        // Biome modifier
+        let biome_mult = match biome {
+            BiomeType::Jungle => 1.3,
+            BiomeType::Swamp => 1.2,
+            BiomeType::Desert => 0.7,
+            BiomeType::Mountains => 0.6,
+            _ => 1.0,
+        };
+
+        // Add variation
+        let variation = self.variation_noise.get([x * 0.008, z * 0.008]) * 0.3 + 0.85;
+
+        base * biome_mult * variation
+    }
+
+    /// Check if rivers are enabled for this biome.
+    fn is_river_enabled(&self, biome: BiomeType) -> bool {
         #[allow(deprecated)]
         match biome {
-            // Desert has very rare rivers (high threshold = hard to trigger)
-            BiomeType::Desert => (0.8, true),
-            // Ocean doesn't have surface rivers
-            BiomeType::Ocean => (0.0, false),
-            // Beach has minimal rivers
-            BiomeType::Beach => (0.7, true),
-            // Mountains have streams (moderate threshold)
-            BiomeType::Mountains => (0.5, true),
-            // Swamp has rivers
-            BiomeType::Swamp => (0.4, true),
-            // Jungle has many rivers (low threshold = easy to trigger)
-            BiomeType::Jungle => (0.3, true),
-            // Snowy biomes have rivers
-            BiomeType::SnowyPlains | BiomeType::SnowyTaiga | BiomeType::Snow => (0.5, true),
-            // Underground biomes don't have surface rivers
-            BiomeType::LushCaves | BiomeType::DripstoneCaves | BiomeType::DeepDark => (0.0, false),
-            // Default: moderate rivers
-            _ => (0.4, true),
+            BiomeType::Ocean => false,
+            BiomeType::Beach => false, // Rivers end at beaches, not cross them
+            BiomeType::LushCaves | BiomeType::DripstoneCaves | BiomeType::DeepDark => false,
+            _ => true,
         }
     }
 
-    /// Calculate river width at a position.
-    fn calculate_river_width(
-        &self,
-        world_x: i32,
-        world_z: i32,
-        terrain_height: i32,
-        is_main: bool,
-    ) -> f64 {
-        let x = world_x as f64;
-        let z = world_z as f64;
-
-        // Base width: main rivers are wider
-        let base = if is_main { 6.0 } else { 3.0 };
-
-        // Width varies with terrain height
-        // Higher terrain = narrower rivers (mountain streams)
-        // Lower terrain = wider rivers (approaching ocean)
-        let height_factor = 1.0 - ((terrain_height as f64 - 75.0) / 100.0).clamp(0.0, 0.5);
-        let height_adjusted = base * (0.7 + height_factor * 0.6);
-
-        // Add width variation
-        let variation = self.width_noise.get([x * 0.01, z * 0.01]) * 0.3 + 0.85;
-
-        height_adjusted * variation
+    /// Check if tributaries are enabled for this biome.
+    #[allow(deprecated)]
+    fn has_tributaries(&self, biome: BiomeType) -> bool {
+        matches!(
+            biome,
+            BiomeType::Jungle
+                | BiomeType::Swamp
+                | BiomeType::Forest
+                | BiomeType::DarkForest
+                | BiomeType::Taiga
+        )
     }
 
-    /// Get the terrain height modification for a river.
-    ///
-    /// This returns how much to lower the terrain at this position
-    /// to create the river channel.
-    #[allow(dead_code)]
+    /// Get terrain height modification for river carving.
     pub fn get_height_modification(
         &self,
-        world_x: i32,
-        world_z: i32,
+        _world_x: i32,
+        _world_z: i32,
         river_info: &RiverInfo,
     ) -> i32 {
-        let x = world_x as f64;
-        let z = world_z as f64;
-
-        // Add some variation to the carving depth using width_noise
-        let variation = self.width_noise.get([x * 0.05, z * 0.05]) * 0.3 + 0.85;
-
-        // Depth varies based on position within river channel
-        let depth_factor = river_info.strength.clamp(0.3, 1.0);
-
-        (river_info.depth as f64 * variation * depth_factor).round() as i32
+        river_info.depth
     }
 
-    /// Check if a position should have river banks.
-    ///
-    /// Returns true if near a river but not in the river itself.
-    /// Used for placing sand/gravel banks along river edges.
+    /// Check if position should have river banks (sand/gravel).
     pub fn is_river_bank(&self, world_x: i32, world_z: i32, terrain_height: i32) -> bool {
+        if !(MIN_RIVER_TERRAIN - 2..=MIN_RIVER_TERRAIN + 10).contains(&terrain_height) {
+            return false;
+        }
+
         let x = world_x as f64;
         let z = world_z as f64;
+        let scale = 0.004;
+        let num_regions = 5.0;
 
-        // Use same gradient approach as river detection
-        let main_scale = 0.005;
-        let gradient = self.calculate_gradient(x, z, main_scale, &self.region_noise);
+        let center_val = self.region_noise.get([x * scale, z * scale]);
+        let center_region = (center_val * num_regions).floor() as i32;
 
-        // Bank is where gradient is moderate (near river but not in it)
-        // River threshold is ~0.012, bank is slightly below that
-        gradient > 0.008 && gradient < 0.012 && terrain_height < 120
+        // Bank is slightly wider than river - check at wider distance
+        let bank_dist = 8.0;
+        let river_dist = 5.0;
+
+        // Must be near boundary (bank) but not AT boundary (river)
+        let at_bank = self.is_at_region_boundary(
+            x,
+            z,
+            scale,
+            center_region,
+            num_regions,
+            bank_dist,
+            &self.region_noise,
+        );
+        let at_river = self.is_at_region_boundary(
+            x,
+            z,
+            scale,
+            center_region,
+            num_regions,
+            river_dist,
+            &self.region_noise,
+        );
+
+        at_bank && !at_river
     }
 
-    /// Get the water type for rivers in a biome.
+    /// Get water type for rivers in a biome.
     #[allow(dead_code)]
     pub fn get_water_type(&self, biome: BiomeType) -> crate::chunk::WaterType {
         biome.water_type()
@@ -237,24 +322,24 @@ impl RiverGenerator {
 
 /// Information about a river at a specific location.
 #[derive(Debug, Clone, Copy)]
-#[allow(dead_code)]
 pub struct RiverInfo {
     /// Width of the river in blocks
+    #[allow(dead_code)]
     pub width: f64,
-    /// Depth of the river carving
+    /// Depth to carve terrain
     pub depth: i32,
     /// Type of river
     pub river_type: RiverType,
-    /// Strength of river presence (0.0-1.0)
-    pub strength: f64,
+    /// Water surface level (FIXED for all river positions)
+    pub water_level: i32,
 }
 
 /// Types of rivers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RiverType {
-    /// Large main river flowing to ocean
+    /// Large main river
     MainRiver,
-    /// Smaller stream feeding into main river
+    /// Smaller tributary stream
     Tributary,
     /// Narrow mountain stream
     MountainStream,
@@ -269,13 +354,14 @@ mod tests {
         let rivers = RiverGenerator::new(12345);
 
         // Same coordinates should give same result
-        let result1 = rivers.get_river_at(100, 100, 80, BiomeType::Plains);
-        let result2 = rivers.get_river_at(100, 100, 80, BiomeType::Plains);
+        let result1 = rivers.get_river_at(100, 100, 95, BiomeType::Plains);
+        let result2 = rivers.get_river_at(100, 100, 95, BiomeType::Plains);
 
         match (result1, result2) {
             (Some(r1), Some(r2)) => {
                 assert!((r1.width - r2.width).abs() < 0.001);
                 assert_eq!(r1.depth, r2.depth);
+                assert_eq!(r1.water_level, r2.water_level);
             }
             (None, None) => {}
             _ => panic!("Inconsistent river generation"),
@@ -283,29 +369,36 @@ mod tests {
     }
 
     #[test]
-    fn test_desert_has_few_rivers() {
+    fn test_fixed_water_level() {
         let rivers = RiverGenerator::new(12345);
 
-        // Count rivers in desert vs plains
-        let mut desert_count = 0;
-        let mut plains_count = 0;
-
-        for x in 0..100 {
-            for z in 0..100 {
-                if rivers.get_river_at(x, z, 80, BiomeType::Desert).is_some() {
-                    desert_count += 1;
-                }
-                if rivers.get_river_at(x, z, 80, BiomeType::Plains).is_some() {
-                    plains_count += 1;
+        // All rivers should have the same water level
+        for x in 0..200 {
+            for z in 0..200 {
+                if let Some(info) = rivers.get_river_at(x, z, 95, BiomeType::Plains) {
+                    assert_eq!(
+                        info.water_level, RIVER_WATER_LEVEL,
+                        "All rivers must have fixed water level"
+                    );
                 }
             }
         }
+    }
 
-        // Desert should have significantly fewer rivers
-        assert!(
-            desert_count < plains_count,
-            "Desert should have fewer rivers: desert={desert_count}, plains={plains_count}"
-        );
+    #[test]
+    fn test_no_rivers_in_low_terrain() {
+        let rivers = RiverGenerator::new(12345);
+
+        // Rivers shouldn't form in terrain below minimum
+        for x in 0..100 {
+            for z in 0..100 {
+                let result = rivers.get_river_at(x, z, MIN_RIVER_TERRAIN - 1, BiomeType::Plains);
+                assert!(
+                    result.is_none(),
+                    "No rivers should form below minimum terrain height"
+                );
+            }
+        }
     }
 
     #[test]
@@ -315,7 +408,7 @@ mod tests {
         for x in 0..50 {
             for z in 0..50 {
                 assert!(
-                    rivers.get_river_at(x, z, 70, BiomeType::Ocean).is_none(),
+                    rivers.get_river_at(x, z, 95, BiomeType::Ocean).is_none(),
                     "Ocean should not have rivers"
                 );
             }
@@ -323,14 +416,20 @@ mod tests {
     }
 
     #[test]
-    fn test_river_depth_reasonable() {
+    fn test_river_carves_below_water() {
         let rivers = RiverGenerator::new(12345);
 
-        for x in 0..100 {
-            for z in 0..100 {
-                if let Some(info) = rivers.get_river_at(x, z, 80, BiomeType::Plains) {
-                    assert!(info.depth >= 2, "River depth should be at least 2");
-                    assert!(info.depth <= 4, "River depth should be at most 4");
+        for x in 0..200 {
+            for z in 0..200 {
+                let terrain_height = 100;
+                if let Some(info) = rivers.get_river_at(x, z, terrain_height, BiomeType::Plains) {
+                    let carved_height = terrain_height - info.depth;
+                    assert!(
+                        carved_height < info.water_level,
+                        "Carved terrain ({}) must be below water level ({})",
+                        carved_height,
+                        info.water_level
+                    );
                 }
             }
         }

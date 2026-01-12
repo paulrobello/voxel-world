@@ -671,12 +671,9 @@ impl TerrainGenerator {
         // Compute hash (very cheap)
         let hash = self.hash(world_x, world_z);
 
-        // Compute height using the already-computed values
-        let height =
-            self.get_height_internal(world_x, world_z, base, ridges, detail, &climate, biome);
-
-        // Check river water level using cached values
-        let river_water_level = self.get_river_water_level_fast(world_x, world_z, height, biome);
+        // Compute BASE terrain height (before river carving) and check for rivers
+        let (height, river_water_level) =
+            self.get_height_with_river(world_x, world_z, base, ridges, detail, &climate, biome);
 
         ColumnData {
             height,
@@ -686,7 +683,137 @@ impl TerrainGenerator {
         }
     }
 
+    /// Calculate terrain height and river water level together.
+    ///
+    /// This properly computes the water level from the UNCARVED base height,
+    /// ensuring river water fills the carved channel correctly.
+    ///
+    /// Returns (final_height, Option<river_water_level>)
+    #[allow(clippy::too_many_arguments)]
+    fn get_height_with_river(
+        &self,
+        world_x: i32,
+        world_z: i32,
+        base: f64,
+        ridges: f64,
+        detail: f64,
+        climate: &ClimatePoint,
+        center_biome: BiomeType,
+    ) -> (i32, Option<i32>) {
+        // First calculate the BASE terrain height (before any river carving)
+        let base_terrain_height = self.get_base_terrain_height(
+            world_x,
+            world_z,
+            base,
+            ridges,
+            detail,
+            climate,
+            center_biome,
+        );
+
+        // Check slope - rivers shouldn't form on steep terrain
+        let slope = self.calculate_slope_fast(world_x, world_z, base_terrain_height);
+        if slope > 0.25 {
+            // Too steep for a river
+            return (base_terrain_height, None);
+        }
+
+        // Check if a river exists at this location
+        if let Some(river_info) =
+            self.river_generator
+                .get_river_at(world_x, world_z, base_terrain_height, center_biome)
+        {
+            let carve_depth =
+                self.river_generator
+                    .get_height_modification(world_x, world_z, &river_info);
+
+            // Carved terrain height (the actual ground level after carving)
+            let carved_height = base_terrain_height - carve_depth;
+
+            // Use the FIXED water level from RiverInfo
+            // All river positions share the same water level for consistent water surfaces
+            (carved_height, Some(river_info.water_level))
+        } else {
+            (base_terrain_height, None)
+        }
+    }
+
+    /// Calculate base terrain height without river carving.
+    /// Used internally for proper river water level calculation.
+    #[allow(clippy::too_many_arguments)]
+    fn get_base_terrain_height(
+        &self,
+        world_x: i32,
+        world_z: i32,
+        base: f64,
+        ridges: f64,
+        detail: f64,
+        climate: &ClimatePoint,
+        center_biome: BiomeType,
+    ) -> i32 {
+        // Sample neighboring biomes to detect boundaries
+        const SAMPLE_OFFSET: i32 = 8;
+        let neighbors = [
+            self.get_biome(world_x + SAMPLE_OFFSET, world_z),
+            self.get_biome(world_x - SAMPLE_OFFSET, world_z),
+            self.get_biome(world_x, world_z + SAMPLE_OFFSET),
+            self.get_biome(world_x, world_z - SAMPLE_OFFSET),
+        ];
+
+        let at_boundary = neighbors.iter().any(|&b| b != center_biome);
+
+        if !at_boundary {
+            // Not at boundary - use center biome height directly
+            let height = self.calculate_biome_height(center_biome, climate, base, ridges, detail);
+            height.round() as i32
+        } else {
+            // At a boundary - use reduced sampling for performance
+            const BLEND_RADIUS: i32 = 12;
+            const BLEND_STEP: usize = 6;
+
+            let mut total_weight = 0.0;
+            let mut weighted_height = 0.0;
+
+            for dx in (-BLEND_RADIUS..=BLEND_RADIUS).step_by(BLEND_STEP) {
+                for dz in (-BLEND_RADIUS..=BLEND_RADIUS).step_by(BLEND_STEP) {
+                    let dist_sq = (dx * dx + dz * dz) as f64;
+                    if dist_sq > (BLEND_RADIUS * BLEND_RADIUS) as f64 {
+                        continue;
+                    }
+
+                    let sample_x = world_x + dx;
+                    let sample_z = world_z + dz;
+                    let sample_biome = self.get_biome(sample_x, sample_z);
+
+                    // Calculate height at sample position
+                    let sample_climate = self.climate_generator.get_climate_2d(sample_x, sample_z);
+                    let sample_base = self.height_noise.get([sample_x as f64, sample_z as f64]);
+                    let sample_ridges = self.mountain_noise.get([sample_x as f64, sample_z as f64]);
+                    let sample_detail = self
+                        .detail_noise
+                        .get([sample_x as f64 * 0.02, sample_z as f64 * 0.02]);
+
+                    let height = self.calculate_biome_height(
+                        sample_biome,
+                        &sample_climate,
+                        sample_base,
+                        sample_ridges,
+                        sample_detail,
+                    );
+
+                    // Weight by inverse distance
+                    let weight = 1.0 / (dist_sq.sqrt() + 1.0);
+                    weighted_height += height * weight;
+                    total_weight += weight;
+                }
+            }
+
+            (weighted_height / total_weight).round() as i32
+        }
+    }
+
     /// Internal height calculation that reuses pre-computed noise values.
+    #[allow(dead_code)]
     #[allow(clippy::too_many_arguments)]
     fn get_height_internal(
         &self,
@@ -805,6 +932,7 @@ impl TerrainGenerator {
     }
 
     /// Fast river water level check using pre-computed values.
+    #[allow(dead_code)]
     fn get_river_water_level_fast(
         &self,
         world_x: i32,

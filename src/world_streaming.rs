@@ -382,9 +382,16 @@ impl App {
             .player
             .get_chunk_pos(self.sim.world_extent, self.sim.texture_origin);
 
-        // Infinite world in X/Z, bounded in Y (0 to WORLD_CHUNKS_Y-1)
-        let min_chunk = vector![i32::MIN, 0, i32::MIN];
-        let max_chunk = vector![i32::MAX, WORLD_CHUNKS_Y - 1, i32::MAX];
+        // Bounds limited to texture pool - chunks outside cannot be stored in GPU texture
+        // This prevents infinite re-requesting of chunks that complete but can't be inserted
+        let origin_chunk_x = self.sim.texture_origin.x / CHUNK_SIZE as i32;
+        let origin_chunk_z = self.sim.texture_origin.z / CHUNK_SIZE as i32;
+        let min_chunk = vector![origin_chunk_x, 0, origin_chunk_z];
+        let max_chunk = vector![
+            origin_chunk_x + LOADED_CHUNKS_X - 1,
+            WORLD_CHUNKS_Y - 1,
+            origin_chunk_z + LOADED_CHUNKS_Z - 1
+        ];
 
         // === STEP 1: Receive completed chunks from background threads ===
         let mut completed = self.sim.chunk_loader.receive_chunks();
@@ -405,24 +412,36 @@ impl App {
         let mut chunks_to_upload: Vec<(Vector3<i32>, Vec<u8>, Vec<u8>)> = Vec::new();
         let mut loaded = 0;
 
+        // CRITICAL: Two-pass processing to fix tree overflow race condition.
+        // If we process chunks in order (apply overflow, insert, extract), a chunk
+        // processed early in the batch may be modified by a later chunk's overflow
+        // AFTER its block_data was already extracted, causing stale GPU data.
+        //
+        // Fix: First pass applies ALL overflow, second pass inserts and extracts.
+        // This ensures all cross-chunk modifications happen before any extraction.
+
+        // First pass: Apply all overflow blocks from the batch
+        // This handles both immediate application (target exists) and pending (target doesn't exist yet)
+        for result in &completed {
+            self.sim
+                .world
+                .apply_overflow_blocks(result.overflow_blocks.clone());
+        }
+
+        // Second pass: Insert chunks and extract block_data
+        // Now all overflow targeting these chunks has been applied
         for result in completed {
             // Skip chunks that are outside the current texture bounds.
             // This can happen if texture origin shifted while chunks were in-flight.
             // These chunks will be re-requested next frame at their new positions.
             if world_pos_to_chunk_index(self.sim.texture_origin, result.position).is_none() {
-                // Still process overflow blocks - they may target in-bounds chunks
-                self.sim.world.apply_overflow_blocks(result.overflow_blocks);
                 continue;
             }
-
-            // Apply overflow blocks (immediate if chunk exists, pending if not)
-            self.sim.world.apply_overflow_blocks(result.overflow_blocks);
 
             // Insert chunk into world (will also apply any pending overflow for this chunk)
             self.sim.world.insert_chunk(result.position, result.chunk);
 
-            // CRITICAL: Recompute block_data and model_metadata AFTER insert_chunk
-            // because pending overflow may have modified the chunk
+            // Extract block_data AFTER insert and AFTER all overflow has been applied
             let chunk = self
                 .sim
                 .world
