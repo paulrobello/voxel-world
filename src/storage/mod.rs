@@ -3,6 +3,7 @@ pub mod format;
 pub mod metadata;
 pub mod model_format;
 pub mod region;
+pub mod stencil_state;
 pub mod worker;
 
 pub use crate::chunk::Chunk;
