@@ -246,6 +246,19 @@ impl App {
             );
         }
 
+        // Toggle debug cutaway mode (C key) - hides chunk in front of player for cave exploration
+        if self.input.key_pressed(KeyCode::KeyC) {
+            self.ui.settings.debug_cutaway_enabled = !self.ui.settings.debug_cutaway_enabled;
+            println!(
+                "Debug cutaway: {}",
+                if self.ui.settings.debug_cutaway_enabled {
+                    "ON (chunk in front hidden)"
+                } else {
+                    "OFF"
+                }
+            );
+        }
+
         // Toggle minimap (M key)
         if self.input.key_pressed(KeyCode::KeyM) {
             self.ui.show_minimap = !self.ui.show_minimap;

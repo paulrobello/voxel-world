@@ -88,3 +88,27 @@ float raySubVoxelIntersect(vec3 origin, vec3 dir, vec3 boxMin, vec3 boxMax, out 
     localHit = (hitPoint - boxMin) / (boxMax - boxMin);
     return tHit;
 }
+
+// Check if a texture coordinate is within the cutaway chunks (debug feature)
+// Returns true if the coordinate should be treated as transparent
+// Hides both the player's current chunk AND the chunk in front of them
+bool isInCutawayChunk(ivec3 texCoord) {
+    if (pc.cutaway_enabled == 0u) {
+        return false;
+    }
+    // Get the chunk position (in texture space, blocks divided by CHUNK_SIZE)
+    ivec3 chunkPos = texCoord / int(CHUNK_SIZE);
+
+    // Check if in the chunk ahead of player (facing direction)
+    ivec3 cutawayChunkStart = ivec3(pc.cutaway_chunk_x, 0, pc.cutaway_chunk_z);
+    ivec3 cutawayChunkPos = cutawayChunkStart / int(CHUNK_SIZE);
+    bool inFrontChunk = (chunkPos.x == cutawayChunkPos.x && chunkPos.z == cutawayChunkPos.z);
+
+    // Check if in player's current chunk
+    ivec3 playerChunkStart = ivec3(pc.cutaway_player_chunk_x, 0, pc.cutaway_player_chunk_z);
+    ivec3 playerChunkPos = playerChunkStart / int(CHUNK_SIZE);
+    bool inPlayerChunk = (chunkPos.x == playerChunkPos.x && chunkPos.z == playerChunkPos.z);
+
+    // Hide both chunks (all Y levels)
+    return inFrontChunk || inPlayerChunk;
+}

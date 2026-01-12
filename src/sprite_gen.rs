@@ -655,6 +655,12 @@ fn render_icon(
         selection_pos2_y: -1,
         selection_pos2_z: -1,
         hide_ground_cover: 0,
+        cutaway_enabled: 0,
+        cutaway_chunk_x: -1000,
+        cutaway_chunk_y: -1000,
+        cutaway_chunk_z: -1000,
+        cutaway_player_chunk_x: -1000,
+        cutaway_player_chunk_z: -1000,
     };
 
     // Render

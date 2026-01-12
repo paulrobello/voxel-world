@@ -353,6 +353,12 @@ pub struct PushConstants {
     pub selection_pos2_y: i32,
     pub selection_pos2_z: i32,
     pub hide_ground_cover: u32,
+    pub cutaway_enabled: u32,
+    pub cutaway_chunk_x: i32,
+    pub cutaway_chunk_y: i32,
+    pub cutaway_chunk_z: i32,
+    pub cutaway_player_chunk_x: i32,
+    pub cutaway_player_chunk_z: i32,
 }
 
 pub fn get_swapchain_images(

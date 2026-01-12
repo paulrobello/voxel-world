@@ -110,6 +110,10 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
     vec3 firstTintedGlassLocalHit = vec3(0.0);
 
     uint blockType = readBlockTypeAtTexCoord(ivec3(coord));
+    // Debug cutaway: treat blocks in cutaway chunk as air
+    if (isInCutawayChunk(ivec3(coord)) && blockType != BLOCK_AIR) {
+        blockType = BLOCK_AIR;
+    }
     bool instantHit = (blockType != BLOCK_AIR && blockType != BLOCK_WATER && blockType != BLOCK_GLASS && blockType != BLOCK_TINTED_GLASS && blockType != BLOCK_MODEL && blockType != BLOCK_CRYSTAL);
 
     // Track water type for rendering
@@ -230,6 +234,10 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
         }
 
         blockType = readBlockTypeAtTexCoord(ivec3(coord));
+        // Debug cutaway: treat blocks in cutaway chunk as air
+        if (isInCutawayChunk(ivec3(coord)) && blockType != BLOCK_AIR) {
+            blockType = BLOCK_AIR;
+        }
 
         if (blockType == BLOCK_WATER && !inWater) {
             inWater = true;

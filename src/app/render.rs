@@ -572,6 +572,93 @@ impl App {
             } else {
                 0
             },
+            cutaway_enabled: if self.ui.settings.debug_cutaway_enabled {
+                1
+            } else {
+                0
+            },
+            cutaway_chunk_x: {
+                if self.ui.settings.debug_cutaway_enabled {
+                    // Get camera position and direction
+                    let cam_pos = self
+                        .sim
+                        .player
+                        .camera_world_pos(self.sim.world_extent, self.sim.texture_origin);
+                    let cam_dir = self.sim.player.camera_direction();
+
+                    // Find player's current chunk
+                    let player_chunk_x = (cam_pos.x / 32.0).floor() as i32;
+
+                    // Find chunk one ahead in facing direction (use horizontal component only)
+                    let facing_chunk_offset_x = if cam_dir.x.abs() > cam_dir.z.abs() {
+                        if cam_dir.x > 0.0 { 1 } else { -1 }
+                    } else {
+                        0
+                    };
+
+                    // Calculate the cutaway chunk's texture-relative position (in blocks)
+                    let cutaway_world_x = (player_chunk_x + facing_chunk_offset_x) * 32;
+                    cutaway_world_x - self.sim.texture_origin.x
+                } else {
+                    -1000 // Far outside any valid chunk
+                }
+            },
+            cutaway_chunk_y: {
+                if self.ui.settings.debug_cutaway_enabled {
+                    // Use full Y range of chunks (0 to world height)
+                    0 // We'll check all Y levels in the shader
+                } else {
+                    -1000
+                }
+            },
+            cutaway_chunk_z: {
+                if self.ui.settings.debug_cutaway_enabled {
+                    let cam_pos = self
+                        .sim
+                        .player
+                        .camera_world_pos(self.sim.world_extent, self.sim.texture_origin);
+                    let cam_dir = self.sim.player.camera_direction();
+
+                    let player_chunk_z = (cam_pos.z / 32.0).floor() as i32;
+
+                    let facing_chunk_offset_z = if cam_dir.z.abs() >= cam_dir.x.abs() {
+                        if cam_dir.z > 0.0 { 1 } else { -1 }
+                    } else {
+                        0
+                    };
+
+                    let cutaway_world_z = (player_chunk_z + facing_chunk_offset_z) * 32;
+                    cutaway_world_z - self.sim.texture_origin.z
+                } else {
+                    -1000
+                }
+            },
+            cutaway_player_chunk_x: {
+                if self.ui.settings.debug_cutaway_enabled {
+                    let cam_pos = self
+                        .sim
+                        .player
+                        .camera_world_pos(self.sim.world_extent, self.sim.texture_origin);
+                    let player_chunk_x = (cam_pos.x / 32.0).floor() as i32;
+                    let player_chunk_world_x = player_chunk_x * 32;
+                    player_chunk_world_x - self.sim.texture_origin.x
+                } else {
+                    -1000
+                }
+            },
+            cutaway_player_chunk_z: {
+                if self.ui.settings.debug_cutaway_enabled {
+                    let cam_pos = self
+                        .sim
+                        .player
+                        .camera_world_pos(self.sim.world_extent, self.sim.texture_origin);
+                    let player_chunk_z = (cam_pos.z / 32.0).floor() as i32;
+                    let player_chunk_world_z = player_chunk_z * 32;
+                    player_chunk_world_z - self.sim.texture_origin.z
+                } else {
+                    -1000
+                }
+            },
         };
 
         let mut builder = AutoCommandBufferBuilder::primary(

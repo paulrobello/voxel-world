@@ -199,6 +199,12 @@ layout(push_constant) uniform PushConstants {
     int selection_pos2_y;
     int selection_pos2_z;
     uint hide_ground_cover;
+    uint cutaway_enabled;
+    int cutaway_chunk_x;
+    int cutaway_chunk_y;
+    int cutaway_chunk_z;
+    int cutaway_player_chunk_x;
+    int cutaway_player_chunk_z;
 } pc;
 
 // Particles (set 3)
