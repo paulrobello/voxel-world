@@ -19,7 +19,7 @@ pub use placement::PlacedStencil;
 #[allow(unused_imports)]
 pub use state::{StencilManager, StencilRenderMode};
 #[allow(unused_imports)]
-pub use ui::{StencilBrowserAction, StencilUi};
+pub use ui::{StencilBrowserAction, StencilUi, draw_stencil_browser};
 
 use std::fs;
 use std::io;

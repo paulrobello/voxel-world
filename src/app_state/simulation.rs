@@ -109,7 +109,11 @@ impl WorldSim {
         }
     }
 
-    pub fn save_all(&mut self, measurement_markers: &[Vector3<i32>]) {
+    pub fn save_all(
+        &mut self,
+        measurement_markers: &[Vector3<i32>],
+        stencil_manager: &crate::stencils::StencilManager,
+    ) {
         let mut saved_count = 0;
         for (pos, chunk) in self.world.chunks_mut() {
             if chunk.persistence_dirty {
@@ -138,6 +142,17 @@ impl WorldSim {
                     fluid_sources.lava.len()
                 );
             }
+        }
+
+        // Save stencil state (active stencils in world)
+        let stencil_state = storage::stencil_state::StencilState::from_manager(stencil_manager);
+        if let Err(e) = stencil_state.save(&self.world_dir) {
+            eprintln!("[Storage] Failed to save stencil state: {}", e);
+        } else if !stencil_manager.active_stencils.is_empty() {
+            println!(
+                "[Storage] Saved {} active stencils",
+                stencil_manager.active_stencils.len()
+            );
         }
 
         self.save_metadata(measurement_markers);

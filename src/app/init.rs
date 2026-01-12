@@ -424,6 +424,17 @@ impl App {
                 .load_sources(&fluid_sources.lava, &mut sim.world);
         }
 
+        // Load stencil state (active stencils in world)
+        let stencil_state = storage::stencil_state::StencilState::load(&world_dir);
+        let mut stencil_manager = crate::stencils::StencilManager::new();
+        stencil_state.apply_to_manager(&mut stencil_manager);
+        if !stencil_manager.active_stencils.is_empty() {
+            println!(
+                "[Storage] Loaded {} active stencils",
+                stencil_manager.active_stencils.len()
+            );
+        }
+
         let start_time = Instant::now();
 
         let ui = UiState {
@@ -532,6 +543,9 @@ impl App {
                 }
                 lib
             },
+            stencil_manager,
+            stencil_ui: crate::stencils::StencilUi::new(),
+            stencil_previously_focused: false,
             active_placement: None,
             template_previously_focused: false,
             request_cursor_grab: false,

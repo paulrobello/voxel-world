@@ -75,7 +75,8 @@ impl App {
         let panel_open = self.ui.palette_open
             || self.ui.editor.active
             || self.ui.console.active
-            || self.ui.template_ui.browser_open;
+            || self.ui.template_ui.browser_open
+            || self.ui.stencil_ui.browser_open;
 
         if !self.input.focused && self.input.mouse_pressed(MouseButton::Left) && !panel_open {
             println!("Focus click...");
@@ -603,6 +604,33 @@ impl App {
             self.toggle_template_browser();
         }
 
+        // Toggle stencil browser (K key)
+        if self.input.key_pressed(KeyCode::KeyK) {
+            self.toggle_stencil_browser();
+        }
+
+        // Stencil opacity adjustment ([ and ] keys)
+        if self.input.key_pressed(KeyCode::BracketLeft) {
+            self.ui.stencil_manager.adjust_global_opacity(-0.1);
+            println!(
+                "Stencil opacity: {:.0}%",
+                self.ui.stencil_manager.global_opacity * 100.0
+            );
+        }
+        if self.input.key_pressed(KeyCode::BracketRight) {
+            self.ui.stencil_manager.adjust_global_opacity(0.1);
+            println!(
+                "Stencil opacity: {:.0}%",
+                self.ui.stencil_manager.global_opacity * 100.0
+            );
+        }
+
+        // Toggle stencil render mode (\ key)
+        if self.input.key_pressed(KeyCode::Backslash) {
+            self.ui.stencil_manager.toggle_render_mode();
+            println!("Stencil mode: {:?}", self.ui.stencil_manager.render_mode);
+        }
+
         // Handle deferred cursor grab request (from template loading)
         if self.ui.request_cursor_grab {
             self.ui.request_cursor_grab = false;
@@ -793,6 +821,29 @@ impl App {
                 self.ui.template_previously_focused = false;
             }
             println!("Template browser: OFF");
+        }
+    }
+
+    /// Toggles the stencil browser on/off.
+    fn toggle_stencil_browser(&mut self) {
+        self.ui.stencil_ui.toggle_browser();
+        if self.ui.stencil_ui.browser_open {
+            // Opening stencil browser: release cursor, store previous focus
+            self.ui.stencil_previously_focused = self.input.focused;
+            self.input.focused = false;
+            self.input.pending_grab = Some(false);
+            println!("Stencil browser: ON");
+        } else {
+            // Closing stencil browser: restore focus if we were focused before and no other panel is open
+            let other_panel_open =
+                self.ui.palette_open || self.ui.editor.active || self.ui.console.active;
+            if !other_panel_open && self.ui.stencil_previously_focused {
+                self.input.focused = true;
+                self.input.pending_grab = Some(true);
+                self.input.skip_input_frame = true;
+                self.ui.stencil_previously_focused = false;
+            }
+            println!("Stencil browser: OFF");
         }
     }
 }

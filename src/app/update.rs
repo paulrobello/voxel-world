@@ -208,7 +208,8 @@ impl App {
 
         if self.input.close_requested() {
             println!("[Storage] Saving world before exit...");
-            self.sim.save_all(&self.ui.measurement_markers);
+            self.sim
+                .save_all(&self.ui.measurement_markers, &self.ui.stencil_manager);
             println!("[Prefs] Saving user preferences...");
             self.save_preferences();
             event_loop.exit();

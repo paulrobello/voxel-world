@@ -374,6 +374,37 @@ impl App {
             0
         };
 
+        // Populate stencil block buffer from all active stencils
+        let (stencil_block_count, stencil_opacity, stencil_render_mode) = {
+            let mut total_blocks = 0usize;
+            let mut write = self.graphics.stencil_block_buffer.write().unwrap();
+
+            for stencil in &self.ui.stencil_manager.active_stencils {
+                let color_id = stencil.id as u32 % 8; // Cycle through 8 colors
+                for world_pos in stencil.iter_positions() {
+                    if total_blocks >= gpu_resources::MAX_STENCIL_BLOCKS {
+                        break;
+                    }
+                    let tex_pos = world_to_tex(world_pos);
+                    write[total_blocks] = gpu_resources::GpuStencilBlock {
+                        position: [
+                            tex_pos.0 as f32,
+                            tex_pos.1 as f32,
+                            tex_pos.2 as f32,
+                            color_id as f32,
+                        ],
+                    };
+                    total_blocks += 1;
+                }
+            }
+
+            (
+                total_blocks as u32,
+                self.ui.stencil_manager.global_opacity,
+                self.ui.stencil_manager.render_mode.as_i32() as u32,
+            )
+        };
+
         let (break_x, break_y, break_z) = self
             .ui
             .breaking_block
@@ -785,10 +816,10 @@ impl App {
                 .get(3)
                 .map(|p| p.z - self.sim.texture_origin.z)
                 .unwrap_or(-10000),
-            // Stencil rendering (placeholders - will be populated when stencils are fully integrated)
-            stencil_block_count: 0,
-            stencil_opacity: 0.5,
-            stencil_render_mode: 0,
+            // Stencil rendering
+            stencil_block_count,
+            stencil_opacity,
+            stencil_render_mode,
         };
 
         let mut builder = AutoCommandBufferBuilder::primary(

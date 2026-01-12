@@ -84,6 +84,12 @@ pub struct UiState {
     pub template_library: TemplateLibrary,
     /// Stencil library manager.
     pub stencil_library: crate::stencils::StencilLibrary,
+    /// Stencil manager for active stencils.
+    pub stencil_manager: crate::stencils::StencilManager,
+    /// Stencil browser UI state.
+    pub stencil_ui: crate::stencils::StencilUi,
+    /// Whether we were focused before opening the stencil browser.
+    pub stencil_previously_focused: bool,
     /// Active template placement (when loading a template).
     #[allow(dead_code)] // TODO: Will be used for template placement handlers
     pub active_placement: Option<TemplatePlacement>,

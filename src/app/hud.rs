@@ -3,6 +3,7 @@ use crate::chunk::BlockType;
 use crate::editor::EditorAction;
 use crate::editor::rasterizer::generate_model_sprite;
 use crate::gpu_resources::RenderContext;
+use crate::stencils::{StencilBrowserAction, draw_stencil_browser};
 use crate::templates::{TemplateBrowserAction, draw_save_template_dialog, draw_template_browser};
 use crate::ui::{FluidStats, HUDRenderer, HudInputs};
 use egui_winit_vulkano::egui;
@@ -376,6 +377,164 @@ pub fn render_hud(
                 }
             }
         }
+    }
+
+    // Render stencil browser UI
+    let stencil_action = draw_stencil_browser(
+        &ctx,
+        &mut ui.stencil_ui,
+        &ui.template_selection,
+        &ui.stencil_library,
+        &ui.stencil_manager,
+    );
+
+    // Handle stencil browser actions
+    match stencil_action {
+        StencilBrowserAction::OpenSaveDialog => {
+            ui.stencil_ui.open_save_dialog("my_stencil");
+        }
+        StencilBrowserAction::ClearSelection => {
+            ui.template_selection.clear();
+        }
+        StencilBrowserAction::SaveStencil { name, tags } => {
+            if let Some((min, max)) = ui.template_selection.bounds() {
+                match ui.template_selection.validate_size() {
+                    Ok(_) => {
+                        let author = "Player".to_string();
+                        match crate::stencils::StencilFile::from_world_region(
+                            &sim.world,
+                            name.clone(),
+                            author,
+                            min,
+                            max,
+                        ) {
+                            Ok(mut stencil) => {
+                                stencil.tags = tags;
+                                match ui.stencil_library.save_stencil(&stencil) {
+                                    Ok(_) => {
+                                        // Generate thumbnail
+                                        let thumbnail_path =
+                                            ui.stencil_library.get_thumbnail_path(&name);
+                                        if let Err(e) =
+                                            crate::stencils::rasterizer::generate_stencil_thumbnail(
+                                                &stencil,
+                                                &thumbnail_path,
+                                            )
+                                        {
+                                            eprintln!(
+                                                "[Stencil] Warning: Failed to generate thumbnail: {}",
+                                                e
+                                            );
+                                        }
+
+                                        println!("Saved stencil '{}'", name);
+                                        ui.stencil_ui.error_message = Some(format!(
+                                            "✓ Successfully saved stencil '{}' ({} positions)",
+                                            name,
+                                            stencil.positions.len()
+                                        ));
+                                        ui.stencil_ui.clear_thumbnail_cache(&name);
+                                        ui.stencil_ui.refresh_stencils(&ui.stencil_library);
+                                    }
+                                    Err(e) => {
+                                        eprintln!("Failed to save stencil: {}", e);
+                                        ui.stencil_ui.error_message =
+                                            Some(format!("Failed to save stencil: {}", e));
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("Failed to create stencil: {}", e);
+                                ui.stencil_ui.error_message =
+                                    Some(format!("Failed to create stencil: {}", e));
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Invalid selection: {}", e);
+                        ui.stencil_ui.error_message = Some(format!("Invalid selection: {}", e));
+                    }
+                }
+            }
+        }
+        StencilBrowserAction::LoadStencil(name) => {
+            match ui.stencil_library.load_stencil(&name) {
+                Ok(stencil) => {
+                    println!(
+                        "Loaded stencil '{}' ({}×{}×{}, {} positions)",
+                        stencil.name,
+                        stencil.width,
+                        stencil.height,
+                        stencil.depth,
+                        stencil.positions.len()
+                    );
+
+                    // Place stencil at player position
+                    let placement_pos = nalgebra::Vector3::new(
+                        player_world_pos.x.floor() as i32,
+                        (player_world_pos.y - 1.0).floor() as i32,
+                        player_world_pos.z.floor() as i32,
+                    );
+
+                    ui.stencil_manager.add_stencil(stencil, placement_pos);
+                    println!(
+                        "Added stencil at ({}, {}, {}). Active stencils: {}",
+                        placement_pos.x,
+                        placement_pos.y,
+                        placement_pos.z,
+                        ui.stencil_manager.active_stencils.len()
+                    );
+                }
+                Err(e) => {
+                    eprintln!("Failed to load stencil '{}': {}", name, e);
+                }
+            }
+        }
+        StencilBrowserAction::DeleteStencil(name) => {
+            match ui.stencil_library.delete_stencil(&name) {
+                Ok(_) => {
+                    println!("Deleted stencil '{}'", name);
+                    ui.stencil_ui.error_message = Some(format!("✓ Deleted stencil '{}'", name));
+                    ui.stencil_ui.refresh_stencils(&ui.stencil_library);
+                }
+                Err(e) => {
+                    eprintln!("Failed to delete stencil '{}': {}", name, e);
+                    ui.stencil_ui.error_message = Some(format!("Failed to delete stencil: {}", e));
+                }
+            }
+        }
+        StencilBrowserAction::RemoveActiveStencil(id) => {
+            ui.stencil_manager.remove_stencil(id);
+            println!("Removed active stencil {}", id);
+        }
+        StencilBrowserAction::RegenerateThumbnail(name) => {
+            match ui.stencil_library.regenerate_thumbnail(&name) {
+                Ok(_) => {
+                    println!("Regenerated thumbnail for stencil '{}'", name);
+                    ui.stencil_ui.error_message =
+                        Some(format!("✓ Regenerated thumbnail for '{}'", name));
+                    ui.stencil_ui.clear_thumbnail_cache(&name);
+                    ui.stencil_ui.refresh_stencils(&ui.stencil_library);
+                }
+                Err(e) => {
+                    eprintln!("Failed to regenerate thumbnail for '{}': {}", name, e);
+                    ui.stencil_ui.error_message =
+                        Some(format!("Failed to regenerate thumbnail: {}", e));
+                }
+            }
+        }
+        StencilBrowserAction::ClearAllActive => {
+            let count = ui.stencil_manager.active_stencils.len();
+            ui.stencil_manager.clear();
+            println!("Cleared {} active stencils", count);
+        }
+        StencilBrowserAction::SetGlobalOpacity(opacity) => {
+            ui.stencil_manager.set_global_opacity(opacity);
+        }
+        StencilBrowserAction::ToggleRenderMode => {
+            ui.stencil_manager.toggle_render_mode();
+        }
+        StencilBrowserAction::None => {}
     }
 
     scale_changed
