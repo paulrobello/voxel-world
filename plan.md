@@ -380,7 +380,7 @@ impl PlacedStencil {
 }
 ```
 
-#### 16.4 Flood Fill Tool ✅ (Console Command Complete)
+#### 16.4 Flood Fill Tool ✅
 
 **16.4.1 Flood Fill Logic**
 - [x] Start block: raycast to determine clicked block type (or explicit coordinates)
@@ -396,11 +396,13 @@ impl PlacedStencil {
 - [x] Maximum fill size: 1,000,000 blocks (hard limit with error message)
 - [ ] Frame-distributed filling: spread over multiple frames (deferred - immediate fill works for most cases)
 
-**16.4.3 Flood Fill UI** (Deferred)
-- [ ] Hotbar item: `FloodFillTool`
-- [ ] Select replacement block from palette (right-click to choose)
-- [ ] HUD display: "Fill: [source] → [target]"
-- [ ] Click block to execute fill
+**16.4.3 Flood Fill UI** ✅
+- [x] F key toggles Fill Mode on/off
+- [x] Right-click fills connected blocks with selected hotbar block
+- [x] Blue "🪣 FILL MODE" indicator with block type display
+- [x] Blue bracket cursor overlay when targeting a block
+- [x] Escape to cancel fill mode
+- [x] Tool palette integration (shows as active when enabled)
 
 **16.4.4 Console Command**
 - [x] `/floodfill <target_block> [x] [y] [z]` (aliases: `flood_fill`, `ff`)
@@ -707,11 +709,18 @@ git commit -m "type: description"
 
 ---
 
-## Current Work (2026-01-11)
+## Current Work (2026-01-12)
 
-**Status**: Phase 16.5 (Tools Palette UI) - IN PROGRESS
+**Status**: Phase 16 Building Tools - COMPLETE
 
 **Completed Features:**
+- **Interactive Flood Fill Mode** (16.4.3): ✅ NEW
+  - F key toggles Fill Mode on/off
+  - Right-click fills connected blocks with selected hotbar block
+  - Blue "🪣 FILL MODE" indicator with block type display
+  - Blue bracket cursor overlay when targeting a block
+  - Escape to cancel fill mode
+  - Tool palette integration (shows as active when enabled)
 - **Tools Palette UI** (16.5.1 + 16.5.2):
   - T key toggles tools palette window
   - Vertical toolbar with 4 tools: Template (📋), Measurement (📏), Stencil (👻), Flood Fill (🪣)
@@ -791,7 +800,13 @@ git commit -m "type: description"
 
 **Testing Guide:**
 ```bash
-# Flood fill (aim at a block and open console with /)
+# Interactive flood fill mode (recommended)
+F                           # Toggle fill mode on
+# Select block in hotbar (1-9 keys)
+# Right-click on block to fill connected blocks with hotbar selection
+Escape                      # Exit fill mode
+
+# Flood fill via console (aim at a block and open console with /)
 /floodfill stone            # Replace matching blocks at crosshair with stone
 /floodfill air              # Clear connected blocks at crosshair
 /ff cobblestone ~ ~ ~       # Fill from player position (ff is alias)
@@ -840,12 +855,20 @@ Enter                       # Confirm placement
 
 ## Done Recently
 
+- **Phase 16.4.3: Interactive Flood Fill Mode** (2026-01-12): ✅ COMPLETE
+  - F key toggles Fill Mode on/off (replaces console-only approach)
+  - Right-click fills connected blocks with selected hotbar block
+  - Blue "🪣 FILL MODE" HUD indicator showing current fill block type
+  - Blue bracket cursor overlay when targeting a block
+  - Escape to cancel fill mode
+  - Integrated with Tools Palette (shows as active tool when enabled)
+  - Uses existing BFS flood fill algorithm with BlockIdentity matching
 - **Phase 16.5.1 + 16.5.2: Tools Palette UI** (2026-01-11): ✅ COMPLETE
   - T key toggles tools palette window (right side of screen)
   - Vertical toolbar with 4 tool buttons and emoji icons
-  - Template (📋 L), Measurement (📏 G), Stencil (👻 K), Flood Fill (🪣 /ff)
+  - Template (📋 L), Measurement (📏 G), Stencil (👻 K), Flood Fill (🪣 F)
   - **Buttons are functional**: clicking opens the respective tool/browser
-  - Flood Fill button opens console with `/floodfill ` pre-typed
+  - Flood Fill button toggles interactive Fill Mode
   - Tooltips showing tool descriptions and hotkeys on hover
   - Active tool auto-detection based on current mode (template selection, rangefinder, stencil browser)
   - Active tool highlighted with green border and indicator dot
@@ -946,5 +969,5 @@ Enter                       # Confirm placement
 
 ---
 
-*Last Updated: 2026-01-11*
-*Plan Version: 2.6 - Building Tools (Tools Palette UI)*
+*Last Updated: 2026-01-12*
+*Plan Version: 2.7 - Building Tools Complete (Interactive Flood Fill)*
