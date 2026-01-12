@@ -351,7 +351,7 @@ impl ToolsPaletteUI {
         result: &mut ToolsPaletteResult,
     ) {
         egui::Window::new("Tool Settings")
-            .default_pos(egui::pos2(ctx.screen_rect().width() - 200.0, 360.0))
+            .default_pos(egui::pos2(ctx.screen_rect().width() - 200.0, 500.0))
             .default_size(egui::vec2(180.0, 150.0))
             .resizable(false)
             .collapsible(false)
