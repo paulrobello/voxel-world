@@ -106,7 +106,7 @@ impl App {
         }
 
         let metadata_path = world_dir.join("level.dat");
-        let mut seed = args.seed.unwrap_or(1234567);
+        let mut seed = args.seed.unwrap_or(12345678);
         let mut initial_time_of_day = DEFAULT_TIME_OF_DAY;
         let mut initial_day_paused = true; // Default
         let mut world_gen = args.world_gen; // Default to CLI arg
