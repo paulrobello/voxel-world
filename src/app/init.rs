@@ -551,6 +551,7 @@ impl App {
             template_previously_focused: false,
             request_cursor_grab: false,
             rangefinder_active: false,
+            flood_fill_active: false,
             measurement_markers: initial_measurement_markers,
             tools_palette: crate::ui::tools::ToolsPaletteState::default(),
         };

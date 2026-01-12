@@ -103,6 +103,7 @@ pub struct HudInputs<'a> {
     pub water_grid: &'a crate::water::WaterGrid,
     pub active_placement: &'a mut Option<crate::templates::TemplatePlacement>,
     pub rangefinder_active: bool,
+    pub flood_fill_active: bool,
     pub measurement_markers: &'a mut Vec<Vector3<i32>>,
     pub tools_palette: &'a mut ToolsPaletteState,
     pub stencil_browser_open: bool,
@@ -161,6 +162,7 @@ impl HUDRenderer {
             water_grid,
             active_placement,
             rangefinder_active,
+            flood_fill_active,
             measurement_markers,
             tools_palette,
             stencil_browser_open,
@@ -230,6 +232,7 @@ impl HUDRenderer {
                 rangefinder_active,
                 stencil_browser_open,
                 template_selection.visual_mode,
+                flood_fill_active,
             );
 
             // Crosshair (hide when editor or console is open)
@@ -240,6 +243,11 @@ impl HUDRenderer {
             // Rangefinder distance display (when active and targeting a block)
             if rangefinder_active && !editor.active && !console.active {
                 Self::draw_rangefinder_overlay(&ctx, current_hit, measurement_markers);
+            }
+
+            // Flood fill mode indicator
+            if flood_fill_active && !editor.active && !console.active {
+                Self::draw_flood_fill_overlay(&ctx, current_hit, &selected_block);
             }
 
             // Minimap settings panel integration
@@ -797,5 +805,165 @@ impl HUDRenderer {
     ) {
         // This is now integrated in settings window
         // Keeping this empty stub for potential future use
+    }
+
+    /// Draw flood fill mode indicator.
+    fn draw_flood_fill_overlay(
+        ctx: &egui::Context,
+        current_hit: &Option<RaycastHit>,
+        selected_block: &crate::chunk::BlockType,
+    ) {
+        let screen_rect = ctx.screen_rect();
+        let center = screen_rect.center();
+
+        // Position the mode indicator below the crosshair
+        egui::Area::new(egui::Id::new("flood_fill_overlay"))
+            .fixed_pos(egui::pos2(center.x, center.y + 100.0))
+            .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 0.0))
+            .show(ctx, |ui| {
+                egui::Frame::new()
+                    .fill(egui::Color32::from_rgba_unmultiplied(20, 30, 50, 200))
+                    .stroke(egui::Stroke::new(
+                        1.5,
+                        egui::Color32::from_rgb(100, 180, 255),
+                    ))
+                    .inner_margin(egui::Margin::symmetric(10, 6))
+                    .corner_radius(4.0)
+                    .show(ui, |ui| {
+                        // Mode indicator
+                        ui.label(
+                            egui::RichText::new("🪣 FILL MODE")
+                                .color(egui::Color32::from_rgb(100, 180, 255))
+                                .size(14.0)
+                                .strong(),
+                        );
+
+                        ui.add_space(4.0);
+
+                        // Show what will be filled
+                        if current_hit.is_some() {
+                            ui.label(
+                                egui::RichText::new(format!("Fill with: {:?}", selected_block))
+                                    .color(egui::Color32::WHITE)
+                                    .size(12.0),
+                            );
+                        } else {
+                            ui.label(
+                                egui::RichText::new("Aim at a block to fill")
+                                    .color(egui::Color32::from_gray(150))
+                                    .size(12.0),
+                            );
+                        }
+
+                        ui.add_space(4.0);
+                        ui.label(
+                            egui::RichText::new("Right-click to fill | Esc to cancel")
+                                .color(egui::Color32::from_gray(120))
+                                .size(11.0),
+                        );
+                    });
+            });
+
+        // Draw paint bucket cursor overlay when targeting
+        if current_hit.is_some() {
+            let painter = ctx.layer_painter(egui::LayerId::new(
+                egui::Order::Background,
+                egui::Id::new("flood_fill_cursor"),
+            ));
+
+            // Draw decorative brackets with blue color
+            let bracket_color = egui::Color32::from_rgba_unmultiplied(100, 180, 255, 150);
+            let bracket_stroke = egui::Stroke::new(2.0, bracket_color);
+            let bracket_size = 24.0;
+            let bracket_offset = 16.0;
+
+            // Top-left bracket
+            painter.line_segment(
+                [
+                    egui::pos2(center.x - bracket_offset, center.y - bracket_offset),
+                    egui::pos2(
+                        center.x - bracket_offset + bracket_size * 0.5,
+                        center.y - bracket_offset,
+                    ),
+                ],
+                bracket_stroke,
+            );
+            painter.line_segment(
+                [
+                    egui::pos2(center.x - bracket_offset, center.y - bracket_offset),
+                    egui::pos2(
+                        center.x - bracket_offset,
+                        center.y - bracket_offset + bracket_size * 0.5,
+                    ),
+                ],
+                bracket_stroke,
+            );
+
+            // Top-right bracket
+            painter.line_segment(
+                [
+                    egui::pos2(center.x + bracket_offset, center.y - bracket_offset),
+                    egui::pos2(
+                        center.x + bracket_offset - bracket_size * 0.5,
+                        center.y - bracket_offset,
+                    ),
+                ],
+                bracket_stroke,
+            );
+            painter.line_segment(
+                [
+                    egui::pos2(center.x + bracket_offset, center.y - bracket_offset),
+                    egui::pos2(
+                        center.x + bracket_offset,
+                        center.y - bracket_offset + bracket_size * 0.5,
+                    ),
+                ],
+                bracket_stroke,
+            );
+
+            // Bottom-left bracket
+            painter.line_segment(
+                [
+                    egui::pos2(center.x - bracket_offset, center.y + bracket_offset),
+                    egui::pos2(
+                        center.x - bracket_offset + bracket_size * 0.5,
+                        center.y + bracket_offset,
+                    ),
+                ],
+                bracket_stroke,
+            );
+            painter.line_segment(
+                [
+                    egui::pos2(center.x - bracket_offset, center.y + bracket_offset),
+                    egui::pos2(
+                        center.x - bracket_offset,
+                        center.y + bracket_offset - bracket_size * 0.5,
+                    ),
+                ],
+                bracket_stroke,
+            );
+
+            // Bottom-right bracket
+            painter.line_segment(
+                [
+                    egui::pos2(center.x + bracket_offset, center.y + bracket_offset),
+                    egui::pos2(
+                        center.x + bracket_offset - bracket_size * 0.5,
+                        center.y + bracket_offset,
+                    ),
+                ],
+                bracket_stroke,
+            );
+            painter.line_segment(
+                [
+                    egui::pos2(center.x + bracket_offset, center.y + bracket_offset),
+                    egui::pos2(
+                        center.x + bracket_offset,
+                        center.y + bracket_offset - bracket_size * 0.5,
+                    ),
+                ],
+                bracket_stroke,
+            );
+        }
     }
 }

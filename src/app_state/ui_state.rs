@@ -104,6 +104,9 @@ pub struct UiState {
     /// Laser rangefinder mode active (shows distance to targeted block).
     pub rangefinder_active: bool,
 
+    /// Flood fill mode active (right-click to fill connected blocks).
+    pub flood_fill_active: bool,
+
     /// Measurement marker positions (up to 8 markers for dimension display).
     pub measurement_markers: Vec<Vector3<i32>>,
 

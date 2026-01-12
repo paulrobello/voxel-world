@@ -78,6 +78,13 @@ impl App {
             return true;
         }
 
+        // Cancel flood fill mode
+        if self.input.key_pressed(KeyCode::Escape) && self.ui.flood_fill_active {
+            println!("Flood Fill Mode: OFF");
+            self.ui.flood_fill_active = false;
+            return true;
+        }
+
         // Handle escape to unfocus
         if self.input.key_pressed(KeyCode::Escape) && self.input.focused {
             self.input.focused = false;
@@ -291,6 +298,19 @@ impl App {
             println!(
                 "Rangefinder: {}",
                 if self.ui.rangefinder_active {
+                    "ON"
+                } else {
+                    "OFF"
+                }
+            );
+        }
+
+        // Toggle flood fill mode (F key)
+        if self.input.key_pressed(KeyCode::KeyF) {
+            self.ui.flood_fill_active = !self.ui.flood_fill_active;
+            println!(
+                "Flood Fill Mode: {}",
+                if self.ui.flood_fill_active {
                     "ON"
                 } else {
                     "OFF"
@@ -552,6 +572,47 @@ impl App {
 
             self.ui.place_needs_reclick = true;
             return; // Skip block breaking
+        }
+
+        // Handle flood fill with right-click
+        if self.input.focused
+            && self.ui.flood_fill_active
+            && self.input.mouse_pressed(MouseButton::Right)
+            && !self.ui.place_needs_reclick
+        {
+            if let Some(hit) = self.ui.current_hit {
+                let target_block = self.ui.hotbar_blocks[self.ui.hotbar_index];
+                let start_pos = hit.block_pos;
+
+                // Call the flood fill function
+                let player_pos = Vector3::new(
+                    self.sim.player.camera.position.x.floor() as i32,
+                    self.sim.player.camera.position.y.floor() as i32,
+                    self.sim.player.camera.position.z.floor() as i32,
+                );
+                // Get block name as lowercase string (e.g., "Stone" -> "stone")
+                let block_name = format!("{:?}", target_block).to_lowercase();
+                let args = [block_name.as_str()];
+
+                match crate::console::commands::floodfill(
+                    &args,
+                    &mut self.sim.world,
+                    player_pos,
+                    Some(start_pos),
+                    true, // confirmed - skip threshold check for interactive mode
+                ) {
+                    crate::console::CommandResult::Success(msg) => {
+                        println!("{}", msg);
+                    }
+                    crate::console::CommandResult::Error(msg) => {
+                        println!("Flood fill error: {}", msg);
+                    }
+                    _ => {}
+                }
+            }
+
+            self.ui.place_needs_reclick = true;
+            return; // Skip block placement
         }
 
         // Block breaking (hold to break) - must be after raycast update

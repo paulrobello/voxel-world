@@ -75,6 +75,7 @@ pub fn render_hud(
             water_grid: &sim.water_grid,
             active_placement: &mut ui.active_placement,
             rangefinder_active: ui.rangefinder_active,
+            flood_fill_active: ui.flood_fill_active,
             measurement_markers: &mut ui.measurement_markers,
             tools_palette: &mut ui.tools_palette,
             stencil_browser_open: ui.stencil_ui.browser_open,
@@ -111,13 +112,17 @@ pub fn render_hud(
             // Close tools palette when opening stencil browser
             ui.tools_palette.open = false;
         }
-        ToolAction::OpenFloodFillConsole => {
-            // Open console with floodfill pre-typed (no leading slash needed when console is open)
-            ui.console.active = true;
-            ui.console.input = "floodfill ".to_string();
-            ui.console.request_focus = true;
-            // Close tools palette when opening console
-            ui.tools_palette.open = false;
+        ToolAction::ToggleFloodFill => {
+            ui.flood_fill_active = !ui.flood_fill_active;
+            println!(
+                "Flood Fill Mode: {}",
+                if ui.flood_fill_active { "ON" } else { "OFF" }
+            );
+            // Close tools palette and grab cursor when activating fill mode
+            if ui.flood_fill_active {
+                ui.tools_palette.open = false;
+                ui.request_cursor_grab = true;
+            }
         }
         ToolAction::None => {}
     }

@@ -15,7 +15,7 @@ pub enum ToolAction {
     ToggleTemplateBrowser,
     ToggleRangefinder,
     ToggleStencilBrowser,
-    OpenFloodFillConsole,
+    ToggleFloodFill,
 }
 
 /// Which tool is currently active/highlighted in the palette.
@@ -59,7 +59,7 @@ impl ActiveTool {
             ActiveTool::Template => "L",
             ActiveTool::Measurement => "G",
             ActiveTool::Stencil => "K",
-            ActiveTool::FloodFill => "/ff",
+            ActiveTool::FloodFill => "F",
         }
     }
 
@@ -70,7 +70,7 @@ impl ActiveTool {
             ActiveTool::Template => "Copy and paste building regions",
             ActiveTool::Measurement => "Place markers and measure distances",
             ActiveTool::Stencil => "Create holographic building guides",
-            ActiveTool::FloodFill => "Replace connected blocks (console)",
+            ActiveTool::FloodFill => "Right-click to fill connected blocks",
         }
     }
 }
@@ -106,6 +106,7 @@ impl ToolsPaletteUI {
         rangefinder_active: bool,
         stencil_browser_open: bool,
         selection_mode_active: bool,
+        flood_fill_active: bool,
     ) -> ToolAction {
         if !state.open {
             return ToolAction::None;
@@ -120,6 +121,8 @@ impl ToolsPaletteUI {
             ActiveTool::Measurement
         } else if stencil_browser_open {
             ActiveTool::Stencil
+        } else if flood_fill_active {
+            ActiveTool::FloodFill
         } else {
             ActiveTool::None
         };
@@ -150,7 +153,7 @@ impl ToolsPaletteUI {
                                 ActiveTool::Template => ToolAction::ToggleTemplateBrowser,
                                 ActiveTool::Measurement => ToolAction::ToggleRangefinder,
                                 ActiveTool::Stencil => ToolAction::ToggleStencilBrowser,
-                                ActiveTool::FloodFill => ToolAction::OpenFloodFillConsole,
+                                ActiveTool::FloodFill => ToolAction::ToggleFloodFill,
                                 ActiveTool::None => ToolAction::None,
                             };
                         }
