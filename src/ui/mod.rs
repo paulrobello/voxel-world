@@ -543,11 +543,13 @@ impl HUDRenderer {
             (laser_color[2] * 255.0) as u8,
         );
 
-        // Position the distance display below the crosshair (offset to avoid overlapping position HUD)
-        // Note: Position HUD is at top center with y=10, so we position this well below the screen center
+        // Position the distance display below the crosshair (screen center)
+        // Use anchor from CENTER_CENTER with positive Y offset to place below crosshair
         egui::Area::new(egui::Id::new("rangefinder_overlay"))
-            .fixed_pos(egui::pos2(center.x, center.y + 150.0))
-            .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 0.0))
+            .anchor(
+                egui::Align2::CENTER_TOP,
+                egui::vec2(0.0, screen_rect.height() * 0.5 + 50.0),
+            )
             .show(ctx, |ui| {
                 egui::Frame::new()
                     .fill(egui::Color32::from_rgba_unmultiplied(20, 20, 30, 200))
@@ -843,8 +845,10 @@ impl HUDRenderer {
 
         // Position the mode indicator below the crosshair (consistent with rangefinder)
         egui::Area::new(egui::Id::new("flood_fill_overlay"))
-            .fixed_pos(egui::pos2(center.x, center.y + 150.0))
-            .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 0.0))
+            .anchor(
+                egui::Align2::CENTER_TOP,
+                egui::vec2(0.0, screen_rect.height() * 0.5 + 50.0),
+            )
             .show(ctx, |ui| {
                 egui::Frame::new()
                     .fill(egui::Color32::from_rgba_unmultiplied(20, 30, 50, 200))

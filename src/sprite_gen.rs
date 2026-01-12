@@ -678,6 +678,9 @@ fn render_icon(
         stencil_block_count: 0,
         stencil_opacity: 0.5,
         stencil_render_mode: 0,
+        laser_color_r: 1.0,
+        laser_color_g: 0.2,
+        laser_color_b: 0.2,
     };
 
     // Render

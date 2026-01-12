@@ -706,11 +706,11 @@ bool renderMeasurementLines(vec3 origin, vec3 dir, inout vec3 color, float scene
             float thickness = 0.08 + 0.02 * (t / 50.0);
 
             if (distToLine < thickness) {
-                // White/bright line with subtle pulsing
-                vec3 lineColor = vec3(1.0, 1.0, 1.0);
+                // Use laser color from push constants with subtle pulsing
+                vec3 lineColor = vec3(pc.laser_color_r, pc.laser_color_g, pc.laser_color_b);
                 float pulse = 0.7 + 0.3 * sin(pc.animation_time * 2.5);
                 float edgeFade = 1.0 - (distToLine / thickness);
-                float alpha = edgeFade * pulse * 0.8;
+                float alpha = edgeFade * pulse * 0.9;
 
                 color = mix(color, lineColor, alpha);
                 anyHit = true;

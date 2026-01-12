@@ -842,6 +842,10 @@ impl App {
             stencil_block_count,
             stencil_opacity,
             stencil_render_mode,
+            // Measurement laser color
+            laser_color_r: self.ui.tools_palette.settings.measurement.laser_color[0],
+            laser_color_g: self.ui.tools_palette.settings.measurement.laser_color[1],
+            laser_color_b: self.ui.tools_palette.settings.measurement.laser_color[2],
         };
 
         let mut builder = AutoCommandBufferBuilder::primary(

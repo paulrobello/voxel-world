@@ -223,6 +223,10 @@ layout(push_constant) uniform PushConstants {
     uint stencil_block_count;
     float stencil_opacity;
     uint stencil_render_mode; // 0=wireframe, 1=solid
+    // Measurement laser color
+    float laser_color_r;
+    float laser_color_g;
+    float laser_color_b;
 } pc;
 
 // Particles (set 3)

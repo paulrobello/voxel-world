@@ -377,6 +377,10 @@ pub struct PushConstants {
     pub stencil_block_count: u32,
     pub stencil_opacity: f32,
     pub stencil_render_mode: u32,
+    // Measurement laser color
+    pub laser_color_r: f32,
+    pub laser_color_g: f32,
+    pub laser_color_b: f32,
 }
 
 pub fn get_swapchain_images(
