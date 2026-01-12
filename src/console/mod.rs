@@ -1123,9 +1123,14 @@ impl ConsoleState {
                 template_library,
                 confirmed,
             ),
-            "stencil" => {
-                commands::stencil(args, template_selection, world, stencil_library, confirmed)
-            }
+            "stencil" => commands::stencil(
+                args,
+                template_selection,
+                world,
+                stencil_library,
+                template_library,
+                confirmed,
+            ),
             "clear" => {
                 self.output.clear();
                 CommandResult::Success("Console cleared.".to_string())

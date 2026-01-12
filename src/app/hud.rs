@@ -112,9 +112,10 @@ pub fn render_hud(
             ui.tools_palette.open = false;
         }
         ToolAction::OpenFloodFillConsole => {
-            // Open console with /floodfill pre-typed
+            // Open console with floodfill pre-typed (no leading slash needed when console is open)
             ui.console.active = true;
-            ui.console.input = "/floodfill ".to_string();
+            ui.console.input = "floodfill ".to_string();
+            ui.console.request_focus = true;
             // Close tools palette when opening console
             ui.tools_palette.open = false;
         }
@@ -354,6 +355,48 @@ pub fn render_hud(
                 }
             }
         }
+        TemplateBrowserAction::ToStencil(name) => {
+            // Load template and convert to stencil
+            match ui.template_library.load_template(&name) {
+                Ok(template) => {
+                    let stencil = crate::stencils::StencilFile::from_template(&template, None);
+                    let stencil_name = stencil.name.clone();
+                    let position_count = stencil.position_count();
+
+                    // Generate thumbnail
+                    let thumbnail_path = ui.stencil_library.get_thumbnail_path(&stencil_name);
+                    if let Err(e) = crate::stencils::rasterizer::generate_stencil_thumbnail(
+                        &stencil,
+                        &thumbnail_path,
+                    ) {
+                        eprintln!("[Stencil] Warning: Failed to generate thumbnail: {}", e);
+                    }
+
+                    // Save stencil
+                    match ui.stencil_library.save_stencil(&stencil) {
+                        Ok(_) => {
+                            println!(
+                                "Created stencil '{}' from template '{}' ({} positions)",
+                                stencil_name, name, position_count
+                            );
+                            ui.template_ui.error_message = Some(format!(
+                                "✓ Created stencil '{}' ({} positions)",
+                                stencil_name, position_count
+                            ));
+                        }
+                        Err(e) => {
+                            eprintln!("Failed to save stencil '{}': {}", stencil_name, e);
+                            ui.template_ui.error_message =
+                                Some(format!("Failed to save stencil: {}", e));
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Failed to load template '{}': {}", name, e);
+                    ui.template_ui.error_message = Some(format!("Failed to load template: {}", e));
+                }
+            }
+        }
         TemplateBrowserAction::None => {}
     }
 
@@ -511,20 +554,26 @@ pub fn render_hud(
                         stencil.positions.len()
                     );
 
-                    // Place stencil at player position
+                    // Start at player position (Y=0 sits ON the ground)
                     let placement_pos = nalgebra::Vector3::new(
                         player_world_pos.x.floor() as i32,
-                        (player_world_pos.y - 1.0).floor() as i32,
+                        player_world_pos.y.floor() as i32,
                         player_world_pos.z.floor() as i32,
                     );
 
-                    ui.stencil_manager.add_stencil(stencil, placement_pos);
+                    // Enter stencil placement mode
+                    let placement =
+                        crate::stencils::StencilPlacementMode::new(stencil, placement_pos);
+                    ui.active_stencil_placement = Some(placement);
+
+                    // Close stencil browser after loading
+                    ui.stencil_ui.browser_open = false;
+
+                    // Request cursor grab to begin placement
+                    ui.request_cursor_grab = true;
+
                     println!(
-                        "Added stencil at ({}, {}, {}). Active stencils: {}",
-                        placement_pos.x,
-                        placement_pos.y,
-                        placement_pos.z,
-                        ui.stencil_manager.active_stencils.len()
+                        "Stencil placement ready. Use R to rotate, Right Click to place, Escape to cancel."
                     );
                 }
                 Err(e) => {

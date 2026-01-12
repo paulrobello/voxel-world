@@ -69,6 +69,15 @@ impl App {
             return true;
         }
 
+        // Cancel stencil placement
+        if self.input.key_pressed(KeyCode::Escape) && self.ui.active_stencil_placement.is_some() {
+            if let Some(ref placement) = self.ui.active_stencil_placement {
+                println!("Cancelled stencil placement: {}", placement.stencil.name);
+            }
+            self.ui.active_stencil_placement = None;
+            return true;
+        }
+
         // Handle escape to unfocus
         if self.input.key_pressed(KeyCode::Escape) && self.input.focused {
             self.input.focused = false;
@@ -465,6 +474,14 @@ impl App {
             }
         }
 
+        // Update stencil placement position from raycast
+        if let Some(ref mut placement) = self.ui.active_stencil_placement {
+            if let Some(hit) = self.ui.current_hit {
+                let place_pos = get_place_position(&hit);
+                placement.update_position_from_raycast(place_pos);
+            }
+        }
+
         // Handle template placement with right-click
         // Check if mouse was released (clear reclick flag)
         if self.ui.place_needs_reclick && !self.input.mouse_held(MouseButton::Right) {
@@ -503,9 +520,46 @@ impl App {
             return; // Skip block breaking
         }
 
+        // Handle stencil placement with right-click
+        if self.input.focused
+            && self.ui.active_stencil_placement.is_some()
+            && self.input.mouse_pressed(MouseButton::Right)
+            && !self.ui.place_needs_reclick
+        {
+            if let Some(placement) = self.ui.active_stencil_placement.take() {
+                let stencil_name = placement.stencil.name.clone();
+                let position_count = placement.stencil.position_count();
+                let pos = placement.position;
+
+                // Add stencil to manager with current position and rotation
+                let placed = placement.commit(
+                    0, // ID will be assigned by manager
+                    self.ui.stencil_manager.default_color,
+                    self.ui.stencil_manager.global_opacity,
+                );
+                self.ui.stencil_manager.active_stencils.push(placed);
+
+                // Update next_id
+                if let Some(last) = self.ui.stencil_manager.active_stencils.last() {
+                    self.ui.stencil_manager.next_id = last.id + 1;
+                }
+
+                println!(
+                    "Placed stencil '{}' ({} positions) at ({}, {}, {})",
+                    stencil_name, position_count, pos.x, pos.y, pos.z
+                );
+            }
+
+            self.ui.place_needs_reclick = true;
+            return; // Skip block breaking
+        }
+
         // Block breaking (hold to break) - must be after raycast update
-        // Skip if in template placement mode
-        if self.input.focused && self.ui.active_placement.is_none() {
+        // Skip if in template or stencil placement mode
+        if self.input.focused
+            && self.ui.active_placement.is_none()
+            && self.ui.active_stencil_placement.is_none()
+        {
             let holding_break = self.input.mouse_held(MouseButton::Left);
 
             // Clear skip flag when mouse is released
@@ -656,6 +710,11 @@ impl App {
             if let Some(ref mut placement) = self.ui.active_placement {
                 placement.rotate_90();
                 println!("Rotated template to {}°", placement.rotation * 90);
+            }
+            // Rotate stencil placement (R key)
+            if let Some(ref mut placement) = self.ui.active_stencil_placement {
+                placement.rotate_90();
+                println!("Rotated stencil to {}°", placement.rotation * 90);
             }
         }
 

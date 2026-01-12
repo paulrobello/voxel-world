@@ -11,9 +11,9 @@ use serde::{Deserialize, Serialize};
 #[allow(dead_code)]
 pub enum StencilRenderMode {
     /// Render as wireframe edges only.
-    #[default]
     Wireframe,
     /// Render as semi-transparent solid blocks.
+    #[default]
     Solid,
 }
 
@@ -325,13 +325,13 @@ mod tests {
     #[test]
     fn test_render_mode() {
         let mut manager = StencilManager::new();
-        assert_eq!(manager.render_mode, StencilRenderMode::Wireframe);
-
-        manager.toggle_render_mode();
         assert_eq!(manager.render_mode, StencilRenderMode::Solid);
 
         manager.toggle_render_mode();
         assert_eq!(manager.render_mode, StencilRenderMode::Wireframe);
+
+        manager.toggle_render_mode();
+        assert_eq!(manager.render_mode, StencilRenderMode::Solid);
     }
 
     #[test]

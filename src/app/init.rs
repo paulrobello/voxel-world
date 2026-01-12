@@ -546,6 +546,7 @@ impl App {
             stencil_manager,
             stencil_ui: crate::stencils::StencilUi::new(),
             stencil_previously_focused: false,
+            active_stencil_placement: None,
             active_placement: None,
             template_previously_focused: false,
             request_cursor_grab: false,

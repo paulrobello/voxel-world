@@ -4,6 +4,7 @@
 /// holographic building guides. They are simpler than templates and used
 /// for repeating structural patterns.
 use crate::chunk::BlockType;
+use crate::templates::format::VxtFile;
 use nalgebra::Vector3;
 use serde::{Deserialize, Serialize};
 
@@ -67,6 +68,48 @@ impl StencilFile {
             depth,
             positions: Vec::new(),
         }
+    }
+
+    /// Creates a stencil from a template, extracting just the block positions.
+    ///
+    /// This discards block type and metadata information from the template,
+    /// keeping only the spatial structure for use as a building guide.
+    ///
+    /// # Arguments
+    /// * `template` - The source template to convert
+    /// * `name` - Optional new name (uses template name with "-stencil" suffix if None)
+    ///
+    /// # Returns
+    /// A StencilFile containing all non-air block positions from the template.
+    pub fn from_template(template: &VxtFile, name: Option<String>) -> Self {
+        let stencil_name = name.unwrap_or_else(|| format!("{}-stencil", template.name));
+
+        let mut stencil = Self::new(
+            stencil_name,
+            template.author.clone(),
+            template.width,
+            template.height,
+            template.depth,
+        );
+
+        // Copy tags from template
+        stencil.tags = template.tags.clone();
+
+        // Extract positions from template blocks (ignoring block types)
+        stencil.positions = template
+            .blocks
+            .iter()
+            .map(|b| StencilPosition {
+                x: b.x,
+                y: b.y,
+                z: b.z,
+            })
+            .collect();
+
+        // Sort for compression efficiency
+        stencil.sort_positions();
+
+        stencil
     }
 
     /// Creates a stencil from a world region, capturing ALL non-air block positions.

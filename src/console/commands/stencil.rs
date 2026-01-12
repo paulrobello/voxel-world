@@ -2,20 +2,21 @@
 
 use crate::console::CommandResult;
 use crate::stencils::{StencilFile, StencilLibrary};
-use crate::templates::TemplateSelection;
+use crate::templates::{TemplateLibrary, TemplateSelection};
 use crate::world::World;
 
-/// Handles /stencil command with subcommands: create, load, list, delete, active, clear, opacity, mode
+/// Handles /stencil command with subcommands: create, load, list, delete, active, clear, opacity, mode, from-template
 pub fn stencil(
     args: &[&str],
     selection: &TemplateSelection,
     world: &World,
     library: &StencilLibrary,
+    template_library: &TemplateLibrary,
     confirmed: bool,
 ) -> CommandResult {
     if args.is_empty() {
         return CommandResult::Error(
-            "Usage: /stencil create|load|list|delete|active|clear|opacity|mode <args>".to_string(),
+            "Usage: /stencil create|load|list|delete|active|clear|opacity|mode|from-template <args>".to_string(),
         );
     }
 
@@ -31,8 +32,9 @@ pub fn stencil(
         "opacity" => stencil_opacity(args),
         "mode" => stencil_mode(args),
         "remove" => stencil_remove(args),
+        "from-template" => stencil_from_template(args, library, template_library, confirmed),
         _ => CommandResult::Error(format!(
-            "Unknown subcommand '{}'. Use: create, load, list, delete, active, clear, opacity, mode, remove",
+            "Unknown subcommand '{}'. Use: create, load, list, delete, active, clear, opacity, mode, remove, from-template",
             subcommand
         )),
     }
@@ -227,4 +229,84 @@ fn stencil_remove(args: &[&str]) -> CommandResult {
     };
 
     CommandResult::RemoveStencil(id)
+}
+
+/// Creates a stencil from an existing template.
+fn stencil_from_template(
+    args: &[&str],
+    stencil_library: &StencilLibrary,
+    template_library: &crate::templates::TemplateLibrary,
+    confirmed: bool,
+) -> CommandResult {
+    if args.len() < 2 {
+        return CommandResult::Error(
+            "Usage: /stencil from-template <template-name> [stencil-name]".to_string(),
+        );
+    }
+
+    let template_name = args[1];
+    let stencil_name = if args.len() >= 3 {
+        Some(args[2].to_string())
+    } else {
+        None // Will use template name with "-stencil" suffix
+    };
+
+    // Load the template
+    let template = match template_library.load_template(template_name) {
+        Ok(t) => t,
+        Err(e) => {
+            return CommandResult::Error(format!(
+                "Failed to load template '{}': {}",
+                template_name, e
+            ));
+        }
+    };
+
+    // Determine final stencil name
+    let final_name = stencil_name
+        .clone()
+        .unwrap_or_else(|| format!("{}-stencil", template.name));
+
+    // Check if stencil exists (skip if already confirmed)
+    if !confirmed && stencil_library.stencil_exists(&final_name) {
+        return CommandResult::NeedsConfirmation {
+            message: format!(
+                "Stencil '{}' already exists. Overwrite? (yes/no)",
+                final_name
+            ),
+            command: if args.len() >= 3 {
+                format!("stencil from-template {} {}", template_name, args[2])
+            } else {
+                format!("stencil from-template {}", template_name)
+            },
+        };
+    }
+
+    // Convert template to stencil
+    let stencil = StencilFile::from_template(&template, stencil_name);
+    let position_count = stencil.position_count();
+
+    // Save to library
+    match stencil_library.save_stencil(&stencil) {
+        Ok(_) => {
+            // Generate thumbnail
+            let thumbnail_path = stencil_library.get_thumbnail_path(&final_name);
+            if let Err(e) =
+                crate::stencils::rasterizer::generate_stencil_thumbnail(&stencil, &thumbnail_path)
+            {
+                eprintln!("[Stencil] Warning: Failed to generate thumbnail: {}", e);
+            }
+
+            CommandResult::Success(format!(
+                "Created stencil '{}' from template '{}' ({}×{}×{}, {} positions)",
+                final_name,
+                template.name,
+                stencil.width,
+                stencil.height,
+                stencil.depth,
+                position_count
+            ))
+        }
+        Err(e) => CommandResult::Error(format!("Failed to save stencil: {}", e)),
+    }
 }

@@ -91,6 +91,8 @@ pub struct UiState {
     pub stencil_ui: crate::stencils::StencilUi,
     /// Whether we were focused before opening the stencil browser.
     pub stencil_previously_focused: bool,
+    /// Active stencil placement preview (when loading a stencil for positioning).
+    pub active_stencil_placement: Option<crate::stencils::StencilPlacementMode>,
     /// Active template placement (when loading a template).
     #[allow(dead_code)] // TODO: Will be used for template placement handlers
     pub active_placement: Option<TemplatePlacement>,

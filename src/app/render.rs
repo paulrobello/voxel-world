@@ -374,11 +374,12 @@ impl App {
             0
         };
 
-        // Populate stencil block buffer from all active stencils
+        // Populate stencil block buffer from all active stencils and placement preview
         let (stencil_block_count, stencil_opacity, stencil_render_mode) = {
             let mut total_blocks = 0usize;
             let mut write = self.graphics.stencil_block_buffer.write().unwrap();
 
+            // Add blocks from active stencils
             for stencil in &self.ui.stencil_manager.active_stencils {
                 let color_id = stencil.id as u32 % 8; // Cycle through 8 colors
                 for world_pos in stencil.iter_positions() {
@@ -392,6 +393,27 @@ impl App {
                             tex_pos.1 as f32,
                             tex_pos.2 as f32,
                             color_id as f32,
+                        ],
+                    };
+                    total_blocks += 1;
+                }
+            }
+
+            // Add blocks from stencil placement preview
+            if let Some(ref placement) = self.ui.active_stencil_placement {
+                let preview_color_id = 7u32; // Use distinct color for preview
+                for world_pos in placement.get_preview_positions(gpu_resources::MAX_STENCIL_BLOCKS)
+                {
+                    if total_blocks >= gpu_resources::MAX_STENCIL_BLOCKS {
+                        break;
+                    }
+                    let tex_pos = world_to_tex(world_pos);
+                    write[total_blocks] = gpu_resources::GpuStencilBlock {
+                        position: [
+                            tex_pos.0 as f32,
+                            tex_pos.1 as f32,
+                            tex_pos.2 as f32,
+                            preview_color_id as f32,
                         ],
                     };
                     total_blocks += 1;

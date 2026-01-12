@@ -15,7 +15,7 @@ pub mod ui;
 #[allow(unused_imports)]
 pub use format::{StencilBuilder, StencilFile, StencilPosition};
 #[allow(unused_imports)]
-pub use placement::PlacedStencil;
+pub use placement::{PlacedStencil, StencilPlacementMode};
 #[allow(unused_imports)]
 pub use state::{StencilManager, StencilRenderMode};
 #[allow(unused_imports)]

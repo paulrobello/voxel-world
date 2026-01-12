@@ -127,6 +127,8 @@ pub enum TemplateBrowserAction {
     ClearSelection,
     /// User clicked regenerate thumbnail button for a template.
     RegenerateThumbnail(String),
+    /// User clicked "To Stencil" button to convert template to stencil.
+    ToStencil(String),
 }
 
 /// Draws the template browser window.
@@ -325,6 +327,17 @@ pub fn draw_template_browser(
                                                         .clicked()
                                                     {
                                                         action = TemplateBrowserAction::RegenerateThumbnail(
+                                                            info.name.clone(),
+                                                        );
+                                                    }
+                                                    if ui
+                                                        .button("📐 Stencil")
+                                                        .on_hover_text(
+                                                            "Convert to stencil guide",
+                                                        )
+                                                        .clicked()
+                                                    {
+                                                        action = TemplateBrowserAction::ToStencil(
                                                             info.name.clone(),
                                                         );
                                                     }

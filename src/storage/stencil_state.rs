@@ -170,7 +170,7 @@ mod tests {
         assert!(state.active_stencils.is_empty());
         assert_eq!(state.next_id, 1);
         assert!((state.global_opacity - 0.5).abs() < 0.01);
-        assert_eq!(state.render_mode, StencilRenderMode::Wireframe);
+        assert_eq!(state.render_mode, StencilRenderMode::Solid);
 
         // Cleanup
         let _ = fs::remove_dir_all(&temp_dir);
