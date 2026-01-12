@@ -105,8 +105,6 @@ pub struct UiState {
     /// Measurement marker positions (up to 8 markers for dimension display).
     pub measurement_markers: Vec<Vector3<i32>>,
 
-    /// Tools palette UI state.
+    /// Tools palette UI state (passive overlay, doesn't capture cursor).
     pub tools_palette: ToolsPaletteState,
-    /// Whether we were focused before opening the tools palette.
-    pub tools_previously_focused: bool,
 }

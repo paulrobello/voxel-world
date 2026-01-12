@@ -64,29 +64,19 @@ impl App {
     }
 
     /// Toggles the tools palette on/off.
+    /// Note: Tools palette is an overlay that doesn't capture the cursor,
+    /// allowing navigation while viewing tool status.
     pub fn toggle_tools_palette(&mut self) {
         self.ui.tools_palette.toggle();
-        if self.ui.tools_palette.open {
-            // Opening tools palette: release cursor, store previous focus
-            self.ui.tools_previously_focused = self.input.focused;
-            self.input.focused = false;
-            self.input.pending_grab = Some(false);
-            println!("Tools palette: ON");
-        } else {
-            // Closing tools palette: restore focus if we were focused before and no other panel is open
-            let other_panel_open = self.ui.palette_open
-                || self.ui.editor.active
-                || self.ui.console.active
-                || self.ui.template_ui.browser_open
-                || self.ui.stencil_ui.browser_open;
-            if !other_panel_open && self.ui.tools_previously_focused {
-                self.input.focused = true;
-                self.input.pending_grab = Some(true);
-                self.input.skip_input_frame = true;
-                self.ui.tools_previously_focused = false;
+        // Tools palette is a passive overlay - doesn't affect cursor/focus
+        println!(
+            "Tools palette: {}",
+            if self.ui.tools_palette.open {
+                "ON"
+            } else {
+                "OFF"
             }
-            println!("Tools palette: OFF");
-        }
+        );
     }
 
     /// Saves user preferences to disk.

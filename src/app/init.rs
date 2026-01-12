@@ -552,7 +552,6 @@ impl App {
             rangefinder_active: false,
             measurement_markers: initial_measurement_markers,
             tools_palette: crate::ui::tools::ToolsPaletteState::default(),
-            tools_previously_focused: false,
         };
 
         let input = InputState {

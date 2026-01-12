@@ -54,21 +54,10 @@ impl App {
             return true;
         }
 
-        // Close tools palette with Escape
+        // Close tools palette with Escape (no cursor handling - it's a passive overlay)
         if self.input.key_pressed(KeyCode::Escape) && self.ui.tools_palette.open {
             self.ui.tools_palette.open = false;
-            let other_panel_open = self.ui.palette_open
-                || self.ui.editor.active
-                || self.ui.console.active
-                || self.ui.template_ui.browser_open
-                || self.ui.stencil_ui.browser_open;
-            if !other_panel_open && self.ui.tools_previously_focused {
-                self.input.focused = true;
-                self.input.pending_grab = Some(true);
-                self.input.skip_input_frame = true;
-                self.ui.tools_previously_focused = false;
-            }
-            return true;
+            // Don't return - allow other escape handlers to run
         }
 
         // Cancel template placement
@@ -89,12 +78,12 @@ impl App {
 
         // Handle focus toggling - click to focus (don't process this click for gameplay)
         // Only allow focusing if no panels are open that need the cursor
+        // Note: tools_palette is excluded - it's a passive overlay that doesn't need cursor
         let panel_open = self.ui.palette_open
             || self.ui.editor.active
             || self.ui.console.active
             || self.ui.template_ui.browser_open
-            || self.ui.stencil_ui.browser_open
-            || self.ui.tools_palette.open;
+            || self.ui.stencil_ui.browser_open;
 
         if !self.input.focused && self.input.mouse_pressed(MouseButton::Left) && !panel_open {
             println!("Focus click...");
