@@ -92,11 +92,12 @@ impl RiverGenerator {
         terrain_height: i32,
         biome: BiomeType,
     ) -> Option<RiverInfo> {
-        // Scale for large regions (~250 blocks across)
-        let scale = 0.004;
+        // Scale for very large regions (~800-1000 blocks across)
+        // Smaller scale = larger regions = fewer river boundaries
+        let scale = 0.00125;
 
-        // Number of distinct regions - more regions = more boundaries = more rivers
-        let num_regions = 5.0;
+        // Only 2 regions - creates sparse river network with single boundary lines
+        let num_regions = 2.0;
 
         // Quantize center point into a region
         let center_val = self.region_noise.get([x * scale, z * scale]);
@@ -150,9 +151,10 @@ impl RiverGenerator {
             return None;
         }
 
-        // Scale for smaller regions (~120 blocks across)
-        let scale = 0.008;
-        let num_regions = 4.0;
+        // Scale for medium regions (~400-500 blocks across)
+        // Still larger than main rivers to avoid overlapping too much
+        let scale = 0.002;
+        let num_regions = 2.0;
 
         let center_val = self.tributary_noise.get([x * scale, z * scale]);
         let center_region = (center_val * num_regions).floor() as i32;
