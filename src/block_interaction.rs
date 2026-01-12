@@ -451,12 +451,15 @@ impl App {
     }
 
     pub fn update_block_placing(&mut self, delta_time: f32) {
-        // Skip block placement if in template/stencil placement mode, selection mode, rangefinder, or flood fill mode
+        // Skip block placement if in template/stencil placement mode, selection mode, rangefinder, flood fill, or shape tools
         if self.ui.active_placement.is_some()
             || self.ui.active_stencil_placement.is_some()
             || self.ui.template_selection.visual_mode
             || self.ui.rangefinder_active
             || self.ui.flood_fill_active
+            || self.ui.sphere_tool.active
+            || self.ui.cube_tool.active
+            || self.ui.bridge_tool.active
         {
             return;
         }
