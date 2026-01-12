@@ -122,9 +122,14 @@ impl RiverGenerator {
             return None;
         }
 
-        // Calculate dynamic water level: tracks terrain but capped at MAX_RIVER_WATER_LEVEL
-        // This prevents floating water on low terrain while keeping consistent water on high terrain
-        let water_level = (terrain_height - 1).min(MAX_RIVER_WATER_LEVEL);
+        // Calculate dynamic water level based on biome and terrain
+        // Coastal biomes (beach) use sea level so rivers flow into the ocean
+        // Inland biomes track terrain height, capped at MAX_RIVER_WATER_LEVEL
+        let water_level = if self.is_coastal_biome(biome) {
+            SEA_LEVEL
+        } else {
+            (terrain_height - 1).min(MAX_RIVER_WATER_LEVEL)
+        };
 
         // Calculate carving depth - must carve below water level
         // min_depth ensures carved terrain is at least 2 blocks below water surface
@@ -180,7 +185,12 @@ impl RiverGenerator {
         }
 
         // Calculate dynamic water level for tributaries
-        let water_level = (terrain_height - 1).min(MAX_RIVER_WATER_LEVEL);
+        // Coastal biomes use sea level, inland tracks terrain
+        let water_level = if self.is_coastal_biome(biome) {
+            SEA_LEVEL
+        } else {
+            (terrain_height - 1).min(MAX_RIVER_WATER_LEVEL)
+        };
 
         // Calculate carving depth - must carve below water level
         // Tributaries slightly shallower (+1 instead of +2)
@@ -252,10 +262,16 @@ impl RiverGenerator {
         #[allow(deprecated)]
         match biome {
             BiomeType::Ocean => false,
-            BiomeType::Beach => false, // Rivers end at beaches, not cross them
+            // Beach: rivers flow through to meet the ocean
+            BiomeType::Beach => true,
             BiomeType::LushCaves | BiomeType::DripstoneCaves | BiomeType::DeepDark => false,
             _ => true,
         }
+    }
+
+    /// Check if this biome is coastal (uses sea level for water).
+    fn is_coastal_biome(&self, biome: BiomeType) -> bool {
+        matches!(biome, BiomeType::Beach)
     }
 
     /// Check if tributaries are enabled for this biome.
