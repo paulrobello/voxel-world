@@ -500,6 +500,9 @@ impl FloodFillTool {
 - [x] Measurement: ruler icon (📏)
 - [x] Stencil: ghost icon (👻)
 - [x] Flood Fill: bucket icon (🪣)
+- [x] Sphere: circle icon (🔵)
+- [x] Cube: square icon (🟦)
+- [x] Bridge: pin icon (📍)
 - [x] Active tool: highlighted border with green indicator dot
 
 **16.5.3 Multi-Tool Support**
@@ -517,6 +520,40 @@ impl FloodFillTool {
   - Flood Fill: preview mode checkbox (visual preview deferred - requires shader integration)
 - [x] Laser color passed to GPU via push constants (laser_color_r/g/b)
 - [x] Measurement lines in 3D world use selected laser color
+
+#### 16.6 Shape Tools ✅
+
+**16.6.1 Sphere Tool** ✅
+- [x] Activate via Tools Palette (🔵 button)
+- [x] Configurable radius (1-50 blocks)
+- [x] Hollow mode for shell-only spheres
+- [x] Dome mode for top-half only
+- [x] Placement mode: Center or Base
+- [x] Holographic preview follows crosshair (uses stencil buffer)
+- [x] Right-click to place sphere using selected hotbar block
+- [x] Escape to cancel tool
+- [x] Preview truncation warning when >4096 blocks
+
+**16.6.2 Cube Tool** ✅
+- [x] Activate via Tools Palette (🟦 button)
+- [x] Configurable size per axis (X, Y, Z from 1-50)
+- [x] Hollow mode for shell-only cubes
+- [x] Dome mode for top-half only
+- [x] Placement mode: Center or Base
+- [x] Holographic preview follows crosshair (uses stencil buffer)
+- [x] Right-click to place cube using selected hotbar block
+- [x] Escape to cancel tool
+
+**16.6.3 Bridge Tool** ✅
+- [x] Activate via Tools Palette (📍 button)
+- [x] Two-click workflow: first right-click sets start, second places line
+- [x] Visual start marker (magenta hologram)
+- [x] Preview line (cyan hologram) from start to crosshair target
+- [x] Uses 3D Bresenham algorithm for line generation
+- [x] Places blocks using selected hotbar material
+- [x] Block count display in status window
+- [x] Clear Start button to reset start position
+- [x] Escape to cancel tool
 
 ---
 
@@ -722,7 +759,7 @@ git commit -m "type: description"
   - Tool palette integration (shows as active when enabled)
 - **Tools Palette UI** (16.5.1 + 16.5.2 + 16.5.4): ✅ ENHANCED
   - T key toggles tools palette window
-  - Vertical toolbar with 4 tools: Template (📋), Measurement (📏), Stencil (👻), Flood Fill (🪣)
+  - Vertical toolbar with 7 tools: Template (📋), Measurement (📏), Stencil (👻), Flood Fill (🪣), Sphere (🔵), Cube (🟦), Bridge (📍)
   - Tooltips with tool descriptions and hotkey hints
   - Active tool highlighting with green border and indicator dot
   - Auto-detection of active tool based on current mode
@@ -731,6 +768,14 @@ git commit -m "type: description"
     - Measurement: laser color presets (8 colors: Red, Green, Blue, Yellow, Orange, Purple, Cyan, White)
     - Stencil: opacity slider (30-80%), render mode toggle (Solid/Wireframe)
     - Flood Fill: preview mode checkbox (visual preview deferred)
+- **Shape Tools** (16.6): ✅ NEW
+  - **Sphere Tool**: Radius 1-50, hollow/dome modes, Center/Base placement
+  - **Cube Tool**: Size per axis 1-50, hollow/dome modes, Center/Base placement
+  - **Bridge Tool**: Two-click workflow, 3D Bresenham line algorithm
+  - Holographic preview via stencil buffer (cyan blocks, magenta start marker for bridge)
+  - Right-click to place using selected hotbar block
+  - Supports all block types with proper metadata handling
+  - Normal block placement suppressed while shape tools active
 - **Flood Fill Console Command** (16.4):
   - `/floodfill <target_block> [x] [y] [z]` (aliases: `flood_fill`, `ff`)
   - BFS algorithm with smart block matching (BlockIdentity system)
@@ -835,9 +880,34 @@ Enter                       # Confirm placement
 
 # Copy region directly
 /copy ~ ~ ~ ~10 ~5 ~10 ~20 ~ ~ rotate_90
+
+# Shape tools (via Tools Palette)
+T                           # Open Tools Palette
+# Click Sphere (🔵) to activate
+# Adjust radius, hollow, dome, placement mode in settings window
+# Aim at ground and right-click to place
+
+# Cube tool
+T                           # Open Tools Palette
+# Click Cube (🟦) to activate
+# Adjust X/Y/Z sizes, hollow, dome, placement mode
+# Aim and right-click to place
+
+# Bridge tool
+T                           # Open Tools Palette
+# Click Bridge (📍) to activate
+# First right-click sets start point (magenta marker)
+# Move crosshair to endpoint
+# Second right-click places the line
+Escape                      # Cancel tool
 ```
 
-**Recently Added** (2026-01-07):
+**Recently Added** (2026-01-12):
+- Shape tools: Sphere, Cube, Bridge via Tools Palette
+- Holographic previews for all shape tools
+- Bridge tool with two-click workflow and 3D Bresenham algorithm
+
+**Previously Added** (2026-01-07):
 - Search/filter functionality (by name, tags, dimensions)
 - Runtime thumbnail generation (CPU-based software rasterizer)
   - Auto-generates 64×64 PNG thumbnails when saving templates
@@ -858,6 +928,15 @@ Enter                       # Confirm placement
 
 ## Done Recently
 
+- **Phase 16.6: Shape Tools** (2026-01-12): ✅ COMPLETE
+  - **Sphere Tool**: Configurable radius (1-50), hollow/dome modes, Center/Base placement
+  - **Cube Tool**: Configurable size per axis (X, Y, Z), hollow/dome modes, Center/Base placement
+  - **Bridge Tool**: Two-click workflow (set start, then draw line), 3D Bresenham algorithm
+  - All tools use holographic preview via stencil buffer (cyan preview, magenta start marker for bridge)
+  - Right-click to place using selected hotbar block material
+  - Supports all block types (TintedGlass, Crystal, Painted, Water, Lava, etc.)
+  - Integrated into Tools Palette with dedicated icons (🔵/🟦/📍)
+  - Normal block placement suppressed while shape tools are active
 - **Phase 16.5.4: Tool Settings Panel** (2026-01-12): ✅ COMPLETE
   - Expandable settings panel in Tools Palette (click "▶ Settings" to expand)
   - Measurement tool: 8 laser color presets (Red, Green, Blue, Yellow, Orange, Purple, Cyan, White)
@@ -982,4 +1061,4 @@ Enter                       # Confirm placement
 ---
 
 *Last Updated: 2026-01-12*
-*Plan Version: 2.9 - Tool Settings Panel with GPU Laser Color Integration*
+*Plan Version: 3.0 - Shape Tools (Sphere, Cube, Bridge) for World Building*
