@@ -23,8 +23,8 @@ use noise::{NoiseFn, Perlin};
 pub const RIVER_WATER_LEVEL: i32 = SEA_LEVEL + 8; // 83
 
 /// Minimum terrain height for rivers to form.
-/// Terrain must be at least this high for a river to carve through it.
-const MIN_RIVER_TERRAIN: i32 = RIVER_WATER_LEVEL + 4; // 87
+/// Just above sea level to allow rivers on most land.
+const MIN_RIVER_TERRAIN: i32 = SEA_LEVEL + 1; // 76
 
 /// River generator using quantized region boundaries.
 #[derive(Clone)]

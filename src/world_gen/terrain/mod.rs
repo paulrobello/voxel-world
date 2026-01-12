@@ -711,13 +711,6 @@ impl TerrainGenerator {
             center_biome,
         );
 
-        // Check slope - rivers shouldn't form on steep terrain
-        let slope = self.calculate_slope_fast(world_x, world_z, base_terrain_height);
-        if slope > 0.25 {
-            // Too steep for a river
-            return (base_terrain_height, None);
-        }
-
         // Check if a river exists at this location
         if let Some(river_info) =
             self.river_generator
