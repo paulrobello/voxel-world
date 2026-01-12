@@ -8,6 +8,16 @@
 
 use egui_winit_vulkano::egui;
 
+/// Action requested by clicking a tool button.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToolAction {
+    None,
+    ToggleTemplateBrowser,
+    ToggleRangefinder,
+    ToggleStencilBrowser,
+    OpenFloodFillConsole,
+}
+
 /// Which tool is currently active/highlighted in the palette.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ActiveTool {
@@ -87,7 +97,7 @@ pub struct ToolsPaletteUI;
 impl ToolsPaletteUI {
     /// Draw the tools palette window.
     ///
-    /// Returns true if a tool was clicked and the window should trigger that tool's action.
+    /// Returns a `ToolAction` if a tool button was clicked.
     #[allow(clippy::too_many_arguments)]
     pub fn draw_tools_window(
         ctx: &egui::Context,
@@ -96,12 +106,12 @@ impl ToolsPaletteUI {
         rangefinder_active: bool,
         stencil_browser_open: bool,
         selection_mode_active: bool,
-    ) -> Option<ActiveTool> {
+    ) -> ToolAction {
         if !state.open {
-            return None;
+            return ToolAction::None;
         }
 
-        let mut clicked_tool: Option<ActiveTool> = None;
+        let mut action = ToolAction::None;
 
         // Determine active tool based on current state
         let active = if template_browser_open || selection_mode_active {
@@ -136,7 +146,13 @@ impl ToolsPaletteUI {
                         let response = Self::draw_tool_button(ui, tool, is_active);
 
                         if response.clicked() {
-                            clicked_tool = Some(tool);
+                            action = match tool {
+                                ActiveTool::Template => ToolAction::ToggleTemplateBrowser,
+                                ActiveTool::Measurement => ToolAction::ToggleRangefinder,
+                                ActiveTool::Stencil => ToolAction::ToggleStencilBrowser,
+                                ActiveTool::FloodFill => ToolAction::OpenFloodFillConsole,
+                                ActiveTool::None => ToolAction::None,
+                            };
                         }
 
                         // Tooltip on hover
@@ -177,7 +193,7 @@ impl ToolsPaletteUI {
                 });
             });
 
-        clicked_tool
+        action
     }
 
     /// Draw a single tool button with icon, label, and hotkey.

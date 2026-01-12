@@ -5,7 +5,7 @@ use crate::editor::rasterizer::generate_model_sprite;
 use crate::gpu_resources::RenderContext;
 use crate::stencils::{StencilBrowserAction, draw_stencil_browser};
 use crate::templates::{TemplateBrowserAction, draw_save_template_dialog, draw_template_browser};
-use crate::ui::{FluidStats, HUDRenderer, HudInputs};
+use crate::ui::{FluidStats, HUDRenderer, HudInputs, ToolAction};
 use egui_winit_vulkano::egui;
 use nalgebra::Vector3;
 use std::path::Path;
@@ -28,7 +28,7 @@ pub fn render_hud(
         lava_active: sim.lava_grid.active_count(),
     };
 
-    let (scale_changed, editor_action) = HUDRenderer.render(
+    let (scale_changed, editor_action, tool_action) = HUDRenderer.render(
         &mut rcx.gui,
         HudInputs {
             fps: ui.fps,
@@ -80,6 +80,35 @@ pub fn render_hud(
             stencil_browser_open: ui.stencil_ui.browser_open,
         },
     );
+
+    // Handle tool palette actions
+    match tool_action {
+        ToolAction::ToggleTemplateBrowser => {
+            ui.template_ui.browser_open = !ui.template_ui.browser_open;
+            if ui.template_ui.browser_open {
+                ui.template_ui.refresh_templates(&ui.template_library);
+            }
+        }
+        ToolAction::ToggleRangefinder => {
+            ui.rangefinder_active = !ui.rangefinder_active;
+            println!(
+                "Rangefinder: {}",
+                if ui.rangefinder_active { "ON" } else { "OFF" }
+            );
+        }
+        ToolAction::ToggleStencilBrowser => {
+            ui.stencil_ui.browser_open = !ui.stencil_ui.browser_open;
+            if ui.stencil_ui.browser_open {
+                ui.stencil_ui.refresh_stencils(&ui.stencil_library);
+            }
+        }
+        ToolAction::OpenFloodFillConsole => {
+            // Open console with /floodfill pre-typed
+            ui.console.active = true;
+            ui.console.input = "/floodfill ".to_string();
+        }
+        ToolAction::None => {}
+    }
 
     // Handle editor action
     match editor_action {

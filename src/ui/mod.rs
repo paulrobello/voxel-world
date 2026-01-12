@@ -41,6 +41,7 @@ use minimap::MinimapUI;
 use palette::PaletteUI;
 use settings::SettingsUI;
 use stats::StatsUI;
+pub use tools::ToolAction;
 use tools::{ToolsPaletteState, ToolsPaletteUI};
 
 /// Water/lava simulation stats for debug display.
@@ -114,7 +115,7 @@ impl HUDRenderer {
         &self,
         gui: &mut egui_winit_vulkano::Gui,
         input: HudInputs<'_>,
-    ) -> (bool, EditorAction) {
+    ) -> (bool, EditorAction, ToolAction) {
         let HudInputs {
             fps,
             chunk_stats,
@@ -166,6 +167,7 @@ impl HUDRenderer {
         } = input;
         let mut scale_changed = false;
         let mut editor_action = EditorAction::None;
+        let mut tool_action = ToolAction::None;
         gui.immediate_ui(|gui| {
             let ctx = gui.context();
 
@@ -221,7 +223,7 @@ impl HUDRenderer {
             );
 
             // Tools palette (T key)
-            let _clicked_tool = ToolsPaletteUI::draw_tools_window(
+            tool_action = ToolsPaletteUI::draw_tools_window(
                 &ctx,
                 tools_palette,
                 template_selection.visual_mode,
@@ -229,7 +231,6 @@ impl HUDRenderer {
                 stencil_browser_open,
                 template_selection.visual_mode,
             );
-            // Note: clicked_tool handling is done via keybinds, not UI clicks
 
             // Crosshair (hide when editor or console is open)
             if !editor.active && !console.active {
@@ -313,7 +314,7 @@ impl HUDRenderer {
             }
         });
 
-        (scale_changed, editor_action)
+        (scale_changed, editor_action, tool_action)
     }
 
     fn draw_selection_mode_overlay(

@@ -58,30 +58,52 @@ impl SettingsUI {
                                 ui.label("  Right Click - Place block");
                                 ui.label("  Scroll - Select block");
                                 ui.label("  1-9 - Select hotbar slot");
-                                ui.label("  E - Open palette");
+                                ui.label("  E - Open block/model palette");
                                 ui.label("  N - Open model editor");
                                 ui.label("  P - Repaint painted block");
-                                ui.label("  [ ] - Cycle paint texture");
+                                ui.label("  [ ] - Cycle paint texture/stencil opacity");
                                 ui.label("  , . - Cycle tint color");
                             });
 
-                            ui.collapsing("Templates", |ui| {
-                                ui.label("  T - Open template browser");
-                                ui.label("  R - Rotate template");
-                                ui.label("  Right Click - Place template");
+                            ui.collapsing("Tools (T key)", |ui| {
+                                ui.label("  T - Toggle tools palette");
+                                ui.label("  V - Toggle selection mode");
+                                ui.label("  G - Toggle rangefinder (distance)");
+                                ui.label("  L - Open template library");
+                                ui.label("  K - Open stencil browser");
+                                ui.label("  R - Rotate template/stencil");
+                                ui.label("  \\ - Toggle stencil render mode");
+                            });
+
+                            ui.collapsing("Measurements", |ui| {
+                                ui.label("  G - Toggle rangefinder mode");
+                                ui.label("  LClick - Place marker (up to 4)");
+                                ui.label("  RClick - Remove last marker");
+                                ui.label("  /measure clear - Remove all");
+                            });
+
+                            ui.collapsing("Templates & Stencils", |ui| {
+                                ui.label("  V - Toggle selection mode");
+                                ui.label("  L - Open template library");
+                                ui.label("  K - Open stencil browser");
+                                ui.label("  R - Rotate placement");
+                                ui.label("  RClick - Confirm placement");
+                                ui.label("  Esc - Cancel placement");
                                 ui.label("Console commands:");
-                                ui.label("  /select pos1 - Set corner 1");
-                                ui.label("  /select pos2 - Set corner 2");
-                                ui.label("  /template save <name> - Save");
-                                ui.label("  /template load <name> - Load");
-                                ui.label("  /template list - List all");
+                                ui.label("  /select pos1|pos2 - Set corners");
+                                ui.label("  /template save|load|list");
+                                ui.label("  /stencil create|load|list");
+                                ui.label("  /floodfill <block> - Mass replace");
                             });
 
                             ui.collapsing("UI & System", |ui| {
                                 ui.label("  / - Open command console");
-                                ui.label("  L - Toggle torch light");
+                                ui.label("  J - Toggle torch light");
+                                ui.label("  M - Toggle minimap");
                                 ui.label("  B - Toggle chunk boundaries");
-                                ui.label("  Escape - Release cursor");
+                                ui.label("  C - Toggle debug cutaway");
+                                ui.label("  Esc - Release cursor/close panels");
+                                ui.label("  F12 - Screenshot");
                             });
                         });
                         ui.separator();
