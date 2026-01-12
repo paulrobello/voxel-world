@@ -11,6 +11,7 @@ mod measure;
 mod positions;
 mod select;
 mod sphere;
+mod stencil;
 mod template;
 mod tp;
 
@@ -24,6 +25,8 @@ pub use positions::{delete_pos, list_pos, save_pos};
 #[allow(unused_imports)] // TODO: Remove once integrated with main.rs
 pub use select::select;
 pub use sphere::sphere;
+#[allow(unused_imports)] // TODO: Remove once integrated with main.rs
+pub use stencil::stencil;
 #[allow(unused_imports)] // TODO: Remove once integrated with main.rs
 pub use template::template;
 pub use tp::tp;
@@ -80,6 +83,18 @@ pub fn help() -> CommandResult {
     delete <name>: Delete a template
     info <name>: Show template details
 
+  stencil create|load|list|delete|active|clear|opacity|mode|remove <args>
+    Manage holographic building guides.
+    create <name> [tags]: Create stencil from selection (non-air positions only)
+    load <name>: Load stencil at crosshair position
+    list: Show all saved stencils
+    delete <name>: Delete a stencil
+    active: Show active stencils with IDs
+    clear: Remove all active stencils
+    opacity <0.3-0.8>: Set global stencil opacity
+    mode <wireframe|solid>: Set render mode
+    remove <id>: Remove a specific active stencil
+
   measure clear
     Clear all measurement markers from the world.
 
@@ -134,7 +149,14 @@ Examples:
   save_pos home
   save_pos mining_base
   delete_pos old_base
-  list_pos"#;
+  list_pos
+  stencil create wall_guide building
+  stencil load wall_guide
+  stencil active
+  stencil opacity 0.6
+  stencil mode wireframe
+  stencil remove 2
+  stencil clear"#;
 
     CommandResult::Success(help_text.to_string())
 }

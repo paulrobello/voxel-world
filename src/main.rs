@@ -58,6 +58,7 @@ mod player;
 mod raycast;
 mod render_mode;
 mod sprite_gen;
+mod stencils;
 mod storage;
 mod sub_voxel;
 mod svt;

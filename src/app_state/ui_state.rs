@@ -82,6 +82,8 @@ pub struct UiState {
     pub template_selection: TemplateSelection,
     /// Template library manager.
     pub template_library: TemplateLibrary,
+    /// Stencil library manager.
+    pub stencil_library: crate::stencils::StencilLibrary,
     /// Active template placement (when loading a template).
     #[allow(dead_code)] // TODO: Will be used for template placement handlers
     pub active_placement: Option<TemplatePlacement>,

@@ -19,6 +19,7 @@ impl ConsoleUI {
         fluid_stats: FluidStats,
         template_selection: &mut crate::templates::TemplateSelection,
         template_library: &crate::templates::TemplateLibrary,
+        stencil_library: &crate::stencils::StencilLibrary,
         water_grid: &crate::water::WaterGrid,
         active_placement: &mut Option<TemplatePlacement>,
         terrain_generator: &crate::terrain_gen::TerrainGenerator,
@@ -268,6 +269,7 @@ impl ConsoleUI {
                                 player_pos,
                                 template_selection,
                                 template_library,
+                                stencil_library,
                                 water_grid,
                                 terrain_generator,
                             );

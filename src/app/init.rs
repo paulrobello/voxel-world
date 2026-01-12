@@ -30,7 +30,8 @@ use crate::sub_voxel::ModelRegistry;
 use crate::templates::{TemplateLibrary, TemplateSelection, TemplateUi};
 use crate::terrain_gen::{TerrainGenerator, generate_chunk_terrain};
 use crate::user_prefs::{
-    UserPreferences, profiles_dir, set_data_dir, user_models_dir, user_templates_dir, worlds_dir,
+    UserPreferences, profiles_dir, set_data_dir, user_models_dir, user_stencils_dir,
+    user_templates_dir, worlds_dir,
 };
 use crate::utils::{ChunkStats, Profiler};
 use crate::vulkan_context::VulkanContext;
@@ -519,6 +520,13 @@ impl App {
                 let lib = TemplateLibrary::new(user_templates_dir());
                 if let Err(e) = lib.init() {
                     eprintln!("Failed to initialize template library: {}", e);
+                }
+                lib
+            },
+            stencil_library: {
+                let lib = crate::stencils::StencilLibrary::new(user_stencils_dir());
+                if let Err(e) = lib.init() {
+                    eprintln!("Failed to initialize stencil library: {}", e);
                 }
                 lib
             },

@@ -283,9 +283,8 @@ impl Template {
 - [x] Total distance shown when 3+ markers present
 
 **16.2.4 Measurement Block Persistence**
-- [ ] Measurement blocks persist in world (saved with chunks)
-- [ ] Breaking: punch like normal block (creative mode-style)
-- [ ] Console command: `/measure clear` removes all measurement blocks in loaded chunks
+- [x] Measurement blocks persist in world (saved in metadata, loaded on startup)
+- [x] Console command: `/measure clear` removes all measurement markers
 
 **Technical Approach:**
 ```rust
@@ -708,7 +707,7 @@ git commit -m "type: description"
 
 ## Current Work (2026-01-11)
 
-**Status**: Phase 16.2 (Measurement Tool) - MOSTLY COMPLETE
+**Status**: Phase 16.2 (Measurement Tool) - COMPLETE
 
 **Completed Features:**
 - **Laser Rangefinder** (16.2.2):
@@ -718,11 +717,14 @@ git commit -m "type: description"
   - Shows "--.- blocks" when not targeting anything
 - **Measurement Markers** (16.2.1 + 16.2.3):
   - Left-click places holographic marker blocks (up to 4, color-coded)
-  - Right-click removes the last marker
+  - Right-click removes the last marker (stack-based)
   - Shader-rendered glowing cubes with pulsing animation
   - White connecting lines between consecutive markers
   - HUD panel shows distances with axis breakdowns (X:n, Y:n, Z:n)
   - Total distance when 3+ markers present
+- **Measurement Persistence** (16.2.4):
+  - Markers saved in world metadata, loaded on startup
+  - `/measure clear` command to remove all markers
 - **Visual Selection System**:
   - V key toggles selection mode (with HUD indicator)
   - Left-click places green pos1 marker, right-click places blue pos2 marker
@@ -815,6 +817,9 @@ Enter                       # Confirm placement
   - Real-time distance display below crosshair (e.g., "📏 12.5 blocks")
   - Decorative red corner brackets around crosshair when targeting
   - Dark HUD overlay with red border for visibility
+- **Phase 16.2.4: Measurement Persistence** (2026-01-11): ✅ COMPLETE
+  - Markers saved in world metadata, loaded on startup
+  - `/measure clear` console command
 - **Multi-Resolution Sub-Voxel System** (2026-01-09): ✅ COMPLETE
   - Three-tier GPU atlas system for native 8³, 16³, and 32³ model rendering
   - Separate texture atlases (128×8×128, 256×16×256, 512×32×512) with zero voxel loss

@@ -47,6 +47,11 @@ pub fn user_templates_dir() -> PathBuf {
     get_data_dir().join("user_templates")
 }
 
+/// Returns the path to the user stencils directory.
+pub fn user_stencils_dir() -> PathBuf {
+    get_data_dir().join("user_stencils")
+}
+
 /// Returns the path to the profiles directory.
 pub fn profiles_dir() -> PathBuf {
     get_data_dir().join("profiles")

@@ -77,6 +77,18 @@ pub enum CommandResult {
     SetBiomeDebug(bool),
     /// Load template for placement.
     LoadTemplate(crate::templates::VxtFile),
+    /// Load stencil for placement.
+    LoadStencil(crate::stencils::StencilFile),
+    /// Set global stencil opacity.
+    SetStencilOpacity(f32),
+    /// Set stencil render mode (0 = wireframe, 1 = solid).
+    SetStencilRenderMode(i32),
+    /// Clear all active stencils.
+    ClearStencils,
+    /// Remove a specific active stencil by ID.
+    RemoveStencil(u64),
+    /// List active stencils (requires access to StencilManager).
+    ListActiveStencils,
     /// Biome location found.
     LocateBiome {
         biome_name: String,
@@ -219,6 +231,18 @@ pub struct ConsoleState {
     pub pending_biome_debug: Option<bool>,
     /// Pending template to be loaded for placement.
     pub pending_template_load: Option<crate::templates::VxtFile>,
+    /// Pending stencil to be loaded for placement.
+    pub pending_stencil_load: Option<crate::stencils::StencilFile>,
+    /// Pending stencil opacity change.
+    pub pending_stencil_opacity: Option<f32>,
+    /// Pending stencil render mode change (0 = wireframe, 1 = solid).
+    pub pending_stencil_render_mode: Option<i32>,
+    /// Pending clear all stencils request.
+    pub pending_stencil_clear: bool,
+    /// Pending remove stencil by ID.
+    pub pending_stencil_remove: Option<u64>,
+    /// Pending list active stencils request.
+    pub pending_stencil_list: bool,
     /// Pending locate search being processed frame by frame.
     pub pending_locate_search: Option<PendingLocateSearch>,
     /// Pending clear measurement markers request.
@@ -258,6 +282,12 @@ impl ConsoleState {
             pending_water_analyze: false,
             pending_biome_debug: None,
             pending_template_load: None,
+            pending_stencil_load: None,
+            pending_stencil_opacity: None,
+            pending_stencil_render_mode: None,
+            pending_stencil_clear: false,
+            pending_stencil_remove: None,
+            pending_stencil_list: false,
             pending_locate_search: None,
             pending_clear_markers: false,
             pending_save_position: None,
@@ -400,6 +430,15 @@ impl ConsoleState {
                 params: &[
                     ParamType::Text, // subcommand: save, load, list, delete, info
                     ParamType::Text, // name
+                    ParamType::Text, // tags (variadic)
+                ],
+            },
+            CommandSignature {
+                name: "stencil",
+                aliases: &[],
+                params: &[
+                    ParamType::Text, // subcommand: create, load, list, delete, active, clear, opacity, mode, remove
+                    ParamType::Text, // name, id, or value
                     ParamType::Text, // tags (variadic)
                 ],
             },
@@ -767,6 +806,7 @@ impl ConsoleState {
         player_pos: Vector3<i32>,
         template_selection: &mut crate::templates::TemplateSelection,
         template_library: &crate::templates::TemplateLibrary,
+        stencil_library: &crate::stencils::StencilLibrary,
         water_grid: &crate::water::WaterGrid,
         terrain_generator: &crate::terrain_gen::TerrainGenerator,
     ) {
@@ -794,6 +834,7 @@ impl ConsoleState {
             player_pos,
             template_selection,
             template_library,
+            stencil_library,
             water_grid,
             terrain_generator,
         );
@@ -808,6 +849,7 @@ impl ConsoleState {
         player_pos: Vector3<i32>,
         template_selection: &mut crate::templates::TemplateSelection,
         template_library: &crate::templates::TemplateLibrary,
+        stencil_library: &crate::stencils::StencilLibrary,
         water_grid: &crate::water::WaterGrid,
         terrain_generator: &crate::terrain_gen::TerrainGenerator,
     ) {
@@ -825,6 +867,7 @@ impl ConsoleState {
                     player_pos,
                     template_selection,
                     template_library,
+                    stencil_library,
                     water_grid,
                     terrain_generator,
                 );
@@ -841,6 +884,7 @@ impl ConsoleState {
             player_pos,
             template_selection,
             template_library,
+            stencil_library,
             water_grid,
             terrain_generator,
             false,
@@ -857,6 +901,7 @@ impl ConsoleState {
         player_pos: Vector3<i32>,
         template_selection: &mut crate::templates::TemplateSelection,
         template_library: &crate::templates::TemplateLibrary,
+        stencil_library: &crate::stencils::StencilLibrary,
         water_grid: &crate::water::WaterGrid,
         terrain_generator: &crate::terrain_gen::TerrainGenerator,
     ) {
@@ -866,6 +911,7 @@ impl ConsoleState {
             player_pos,
             template_selection,
             template_library,
+            stencil_library,
             water_grid,
             terrain_generator,
             true,
@@ -917,6 +963,35 @@ impl ConsoleState {
                 ));
                 self.pending_template_load = Some(template);
             }
+            CommandResult::LoadStencil(stencil) => {
+                self.success(format!(
+                    "Loaded stencil '{}' ({}×{}×{}, {} positions). Use R to rotate, Enter to place",
+                    stencil.name,
+                    stencil.width,
+                    stencil.height,
+                    stencil.depth,
+                    stencil.position_count()
+                ));
+                self.pending_stencil_load = Some(stencil);
+            }
+            CommandResult::SetStencilOpacity(opacity) => {
+                self.success(format!("Set stencil opacity to {:.1}", opacity));
+                self.pending_stencil_opacity = Some(opacity);
+            }
+            CommandResult::SetStencilRenderMode(mode) => {
+                let mode_name = if mode == 0 { "wireframe" } else { "solid" };
+                self.success(format!("Set stencil render mode to {}", mode_name));
+                self.pending_stencil_render_mode = Some(mode);
+            }
+            CommandResult::ClearStencils => {
+                self.pending_stencil_clear = true;
+            }
+            CommandResult::RemoveStencil(id) => {
+                self.pending_stencil_remove = Some(id);
+            }
+            CommandResult::ListActiveStencils => {
+                self.pending_stencil_list = true;
+            }
             CommandResult::LocateBiome {
                 biome_name,
                 x,
@@ -966,6 +1041,7 @@ impl ConsoleState {
         player_pos: Vector3<i32>,
         template_selection: &mut crate::templates::TemplateSelection,
         template_library: &crate::templates::TemplateLibrary,
+        stencil_library: &crate::stencils::StencilLibrary,
         water_grid: &crate::water::WaterGrid,
         terrain_generator: &crate::terrain_gen::TerrainGenerator,
         confirmed: bool,
@@ -1030,6 +1106,9 @@ impl ConsoleState {
                 template_library,
                 confirmed,
             ),
+            "stencil" => {
+                commands::stencil(args, template_selection, world, stencil_library, confirmed)
+            }
             "clear" => {
                 self.output.clear();
                 CommandResult::Success("Console cleared.".to_string())
