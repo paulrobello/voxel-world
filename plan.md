@@ -172,8 +172,6 @@
 - [x] Console command: `/biome_debug [on|off]`
 - [x] Overlay HUD: show current elevation, temperature, rainfall values
 - [x] Minimap mode: color-coded biome map (red=desert, green=grassland, etc.)
-- [ ] Noise map export: save elevation/temp/rainfall as PNG for external editing
-- [ ] Hot-reload biome rules without restarting
 
 ---
 
@@ -630,8 +628,7 @@ impl FloodFillTool {
 - [x] 5 distinct biomes generate with natural transitions
 - [x] Temperature decreases visibly with elevation (snow on mountain peaks)
 - [x] Rainfall affects vegetation density (sparse grass in dry areas)
-- [ ] Debug overlay shows elevation/temp/rainfall values
-- [ ] Rare biomes spawn (<5% of world)
+- [x] Debug overlay shows elevation/temp/rainfall values (`/biome_debug on`)
 - [x] Caves have biome-specific features (partially: sandstone in desert, etc.)
 
 ### Phase 16: Building Tools
