@@ -54,12 +54,6 @@ impl App {
             return true;
         }
 
-        // Close tools palette with Escape (no cursor handling - it's a passive overlay)
-        if self.input.key_pressed(KeyCode::Escape) && self.ui.tools_palette.open {
-            self.ui.tools_palette.open = false;
-            // Don't return - allow other escape handlers to run
-        }
-
         // Cancel template placement
         if self.input.key_pressed(KeyCode::Escape) && self.ui.active_placement.is_some() {
             if let Some(ref placement) = self.ui.active_placement {

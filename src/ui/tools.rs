@@ -411,41 +411,46 @@ impl ToolsPaletteUI {
                 .color(egui::Color32::from_gray(180)),
         );
 
-        ui.horizontal_wrapped(|ui| {
-            for (i, (color, name)) in LASER_COLOR_PRESETS.iter().enumerate() {
-                let is_selected = settings.color_preset_index == i;
-                let color32 = egui::Color32::from_rgb(
-                    (color[0] * 255.0) as u8,
-                    (color[1] * 255.0) as u8,
-                    (color[2] * 255.0) as u8,
-                );
+        // Use a grid for reliable button layout
+        egui::Grid::new("laser_color_grid")
+            .spacing([4.0, 4.0])
+            .show(ui, |ui| {
+                for (i, (color, name)) in LASER_COLOR_PRESETS.iter().enumerate() {
+                    let is_selected = settings.color_preset_index == i;
+                    let color32 = egui::Color32::from_rgb(
+                        (color[0] * 255.0) as u8,
+                        (color[1] * 255.0) as u8,
+                        (color[2] * 255.0) as u8,
+                    );
 
-                let size = if is_selected { 20.0 } else { 16.0 };
-                let (rect, response) =
-                    ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::click());
+                    let size = egui::vec2(20.0, 20.0);
 
-                if ui.is_rect_visible(rect) {
-                    let painter = ui.painter();
-                    painter.rect_filled(rect, egui::CornerRadius::same(3), color32);
+                    // Use a Button with custom fill color for reliable click handling
+                    let button = egui::Button::new("")
+                        .fill(color32)
+                        .min_size(size)
+                        .stroke(if is_selected {
+                            egui::Stroke::new(2.0, egui::Color32::WHITE)
+                        } else {
+                            egui::Stroke::new(1.0, egui::Color32::from_gray(60))
+                        })
+                        .corner_radius(egui::CornerRadius::same(3));
 
-                    if is_selected {
-                        painter.rect_stroke(
-                            rect,
-                            egui::CornerRadius::same(3),
-                            egui::Stroke::new(2.0, egui::Color32::WHITE),
-                            egui::StrokeKind::Outside,
-                        );
+                    let response = ui.add(button);
+
+                    if response.clicked() {
+                        settings.color_preset_index = i;
+                        settings.laser_color = *color;
+                    }
+
+                    response.on_hover_text(*name);
+
+                    // 4 colors per row
+                    if (i + 1) % 4 == 0 {
+                        ui.end_row();
                     }
                 }
-
-                if response.clicked() {
-                    settings.color_preset_index = i;
-                    settings.laser_color = *color;
-                }
-
-                response.on_hover_text(*name);
-            }
-        });
+            });
     }
 
     /// Draw stencil tool settings.
