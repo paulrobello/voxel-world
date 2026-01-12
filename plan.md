@@ -844,10 +844,13 @@ Enter                       # Confirm placement
   - T key toggles tools palette window (right side of screen)
   - Vertical toolbar with 4 tool buttons and emoji icons
   - Template (📋 L), Measurement (📏 G), Stencil (👻 K), Flood Fill (🪣 /ff)
+  - **Buttons are functional**: clicking opens the respective tool/browser
+  - Flood Fill button opens console with `/floodfill ` pre-typed
   - Tooltips showing tool descriptions and hotkeys on hover
   - Active tool auto-detection based on current mode (template selection, rangefinder, stencil browser)
   - Active tool highlighted with green border and indicator dot
   - Keybind reorganization: T=Tools palette, L=Library (templates), J=Torch light
+  - Updated Settings > Controls with complete keybind documentation
 - **Phase 16.4: Flood Fill Console Command** (2026-01-11): ✅ COMPLETE
   - `/floodfill <target_block> [x] [y] [z]` (aliases: `flood_fill`, `ff`)
   - BFS algorithm with BlockIdentity system for smart block matching
