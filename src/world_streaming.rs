@@ -562,8 +562,10 @@ impl App {
         if !chunks_to_upload.is_empty() {
             let positions: Vec<_> = chunks_to_upload.iter().map(|(pos, _, _)| *pos).collect();
 
-            // IMMEDIATE metadata update for newly loaded chunks to prevent invisible chunks
-            // First, collect all metadata updates to avoid repeated lock acquisition
+            // IMMEDIATE metadata update for newly loaded chunks to prevent invisible chunks.
+            // CRITICAL: Use the block_data we already have from chunks_to_upload, NOT a lookup
+            // into the World. The World lookup can fail if the chunk was modified/unloaded
+            // between upload and metadata update, causing invisible chunks.
             struct MetadataUpdate {
                 idx: usize,
                 word_idx: usize,
@@ -574,26 +576,24 @@ impl App {
                 packed_dist: [u32; 16],
             }
 
-            let mut updates: Vec<MetadataUpdate> = Vec::with_capacity(positions.len());
+            let mut updates: Vec<MetadataUpdate> = Vec::with_capacity(chunks_to_upload.len());
 
-            for pos in &positions {
+            for (pos, block_data, _model_metadata) in &chunks_to_upload {
                 if let Some(idx) = world_pos_to_chunk_index(self.sim.texture_origin, *pos) {
-                    if let Some(chunk) = self.sim.world.get_chunk_mut(*pos) {
-                        chunk.update_metadata();
-                        let svt = ChunkSVT::from_block_data(&chunk.clone_blocks());
-                        let word_idx = idx / 32;
-                        let bit_idx = idx % 32;
+                    // Compute SVT directly from block_data we already have
+                    let svt = ChunkSVT::from_bytes(block_data);
+                    let word_idx = idx / 32;
+                    let bit_idx = idx % 32;
 
-                        updates.push(MetadataUpdate {
-                            idx,
-                            word_idx,
-                            bit_idx,
-                            is_empty: svt.brick_mask == 0,
-                            mask_low: svt.brick_mask as u32,
-                            mask_high: (svt.brick_mask >> 32) as u32,
-                            packed_dist: pack_distances(&svt.brick_distances),
-                        });
-                    }
+                    updates.push(MetadataUpdate {
+                        idx,
+                        word_idx,
+                        bit_idx,
+                        is_empty: svt.brick_mask == 0,
+                        mask_low: svt.brick_mask as u32,
+                        mask_high: (svt.brick_mask >> 32) as u32,
+                        packed_dist: pack_distances(&svt.brick_distances),
+                    });
                 }
             }
 

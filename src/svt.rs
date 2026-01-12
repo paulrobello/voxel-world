@@ -61,6 +61,70 @@ impl ChunkSVT {
         Self::from_block_data(chunk.block_slice())
     }
 
+    /// Builds a sparse voxel tree from raw byte data (used for immediate metadata updates).
+    /// This avoids the need to look up chunks in the World hashmap.
+    pub fn from_bytes(bytes: &[u8]) -> Self {
+        if bytes.len() != CHUNK_VOLUME {
+            return Self::empty();
+        }
+
+        // Early return for all-air chunks
+        if bytes.iter().all(|&b| b == 0) {
+            return Self::empty();
+        }
+
+        let mut brick_mask = 0u64;
+        let mut brick_data = Vec::new();
+        let mut brick_has_solid = [false; BRICKS_PER_CHUNK];
+
+        for bz in 0..BRICKS_PER_AXIS {
+            for by in 0..BRICKS_PER_AXIS {
+                for bx in 0..BRICKS_PER_AXIS {
+                    let brick_idx =
+                        bx + by * BRICKS_PER_AXIS + bz * BRICKS_PER_AXIS * BRICKS_PER_AXIS;
+                    let mut brick_voxels = [0u8; VOXELS_PER_BRICK];
+                    let mut has_solid = false;
+
+                    for vz in 0..BRICK_SIZE {
+                        for vy in 0..BRICK_SIZE {
+                            for vx in 0..BRICK_SIZE {
+                                let world_x = bx * BRICK_SIZE + vx;
+                                let world_y = by * BRICK_SIZE + vy;
+                                let world_z = bz * BRICK_SIZE + vz;
+
+                                let idx = world_x
+                                    + world_y * CHUNK_SIZE
+                                    + world_z * CHUNK_SIZE * CHUNK_SIZE;
+                                let block_u8 = bytes[idx];
+                                let voxel_idx = vx + vy * BRICK_SIZE + vz * BRICK_SIZE * BRICK_SIZE;
+                                brick_voxels[voxel_idx] = block_u8;
+
+                                if block_u8 != 0 {
+                                    // 0 = Air
+                                    has_solid = true;
+                                }
+                            }
+                        }
+                    }
+
+                    if has_solid {
+                        brick_mask |= 1u64 << brick_idx;
+                        brick_data.push(brick_voxels);
+                        brick_has_solid[brick_idx] = true;
+                    }
+                }
+            }
+        }
+
+        let brick_distances = Self::calculate_brick_distances(&brick_has_solid);
+
+        Self {
+            brick_mask,
+            brick_data,
+            brick_distances,
+        }
+    }
+
     /// Builds a sparse voxel tree from raw block storage (32³ array).
     pub fn from_block_data(blocks: &[BlockType; CHUNK_VOLUME]) -> Self {
         // Early return for all-air chunks (skip 32,768 block checks)
