@@ -784,6 +784,12 @@ git commit -m "type: description"
 
 **Testing Guide:**
 ```bash
+# Flood fill (aim at a block and open console with /)
+/floodfill stone            # Replace matching blocks at crosshair with stone
+/floodfill air              # Clear connected blocks at crosshair
+/ff cobblestone ~ ~ ~       # Fill from player position (ff is alias)
+/floodfill dirt 100 64 200  # Fill from specific coordinates
+
 # Visual selection and save
 V                           # Enter selection mode
 # Click to set pos1 and pos2
@@ -923,4 +929,4 @@ Enter                       # Confirm placement
 ---
 
 *Last Updated: 2026-01-11*
-*Plan Version: 2.4 - Building Tools (Stencils)*
+*Plan Version: 2.5 - Building Tools (Flood Fill)*
