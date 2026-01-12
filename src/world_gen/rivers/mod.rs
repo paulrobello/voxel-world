@@ -18,14 +18,14 @@ use crate::terrain_gen::BiomeType;
 use crate::world_gen::SEA_LEVEL;
 use noise::{NoiseFn, Perlin};
 
-/// Base water level for all rivers (above sea level).
-/// Rivers carve terrain down to below this level.
-pub const RIVER_WATER_LEVEL: i32 = SEA_LEVEL + 8; // 83
+/// Maximum water level for rivers (caps how high river water can be).
+/// On high terrain, water is at this level. On lower terrain, water
+/// tracks the terrain height to avoid floating water.
+pub const MAX_RIVER_WATER_LEVEL: i32 = SEA_LEVEL + 8; // 83
 
 /// Minimum terrain height for rivers to form.
-/// Must be ABOVE river water level so carving down makes sense.
-/// Rivers can't form in terrain lower than the water surface.
-const MIN_RIVER_TERRAIN: i32 = RIVER_WATER_LEVEL + 2; // 85
+/// Just above sea level - rivers can form on most land.
+const MIN_RIVER_TERRAIN: i32 = SEA_LEVEL + 1; // 76
 
 /// River generator using quantized region boundaries.
 #[derive(Clone)]
@@ -122,12 +122,15 @@ impl RiverGenerator {
             return None;
         }
 
-        // Calculate carving depth - terrain carved down to below water level
-        let base_depth = (terrain_height - RIVER_WATER_LEVEL + 3).max(3);
+        // Calculate dynamic water level: tracks terrain but capped at MAX_RIVER_WATER_LEVEL
+        // This prevents floating water on low terrain while keeping consistent water on high terrain
+        let water_level = (terrain_height - 1).min(MAX_RIVER_WATER_LEVEL);
+
+        // Calculate carving depth - must carve below water level
+        // min_depth ensures carved terrain is at least 2 blocks below water surface
+        let min_depth = (terrain_height - water_level + 2).max(3);
         let variation = self.variation_noise.get([x * 0.02, z * 0.02]) * 0.3 + 0.85;
-        // Minimum depth ensures carved terrain is at least 1 block below water level
-        let min_depth = terrain_height - RIVER_WATER_LEVEL + 1;
-        let depth = ((base_depth as f64) * variation)
+        let depth = ((min_depth as f64) * variation)
             .round()
             .max(min_depth as f64) as i32;
 
@@ -135,7 +138,7 @@ impl RiverGenerator {
             width: river_half_width * 2.0,
             depth,
             river_type: RiverType::MainRiver,
-            water_level: RIVER_WATER_LEVEL,
+            water_level,
         })
     }
 
@@ -176,11 +179,14 @@ impl RiverGenerator {
             return None;
         }
 
-        let base_depth = (terrain_height - RIVER_WATER_LEVEL + 2).max(2);
+        // Calculate dynamic water level for tributaries
+        let water_level = (terrain_height - 1).min(MAX_RIVER_WATER_LEVEL);
+
+        // Calculate carving depth - must carve below water level
+        // Tributaries slightly shallower (+1 instead of +2)
+        let min_depth = (terrain_height - water_level + 1).max(2);
         let variation = self.variation_noise.get([x * 0.03, z * 0.03]) * 0.3 + 0.85;
-        // Minimum depth ensures carved terrain is at least 1 block below water level
-        let min_depth = terrain_height - RIVER_WATER_LEVEL + 1;
-        let depth = ((base_depth as f64) * variation)
+        let depth = ((min_depth as f64) * variation)
             .round()
             .max(min_depth as f64) as i32;
 
@@ -192,7 +198,7 @@ impl RiverGenerator {
             } else {
                 RiverType::Tributary
             },
-            water_level: RIVER_WATER_LEVEL,
+            water_level,
         })
     }
 
@@ -375,13 +381,27 @@ mod tests {
     fn test_fixed_water_level() {
         let rivers = RiverGenerator::new(12345);
 
-        // All rivers should have the same water level
+        // On high terrain, water level should be capped at MAX_RIVER_WATER_LEVEL
         for x in 0..200 {
             for z in 0..200 {
                 if let Some(info) = rivers.get_river_at(x, z, 95, BiomeType::Plains) {
                     assert_eq!(
-                        info.water_level, RIVER_WATER_LEVEL,
-                        "All rivers must have fixed water level"
+                        info.water_level, MAX_RIVER_WATER_LEVEL,
+                        "High terrain rivers should have max water level"
+                    );
+                }
+            }
+        }
+
+        // On low terrain, water level should track terrain height
+        for x in 0..200 {
+            for z in 0..200 {
+                let terrain_height = 80; // Below MAX_RIVER_WATER_LEVEL (83)
+                if let Some(info) = rivers.get_river_at(x, z, terrain_height, BiomeType::Plains) {
+                    assert_eq!(
+                        info.water_level,
+                        terrain_height - 1,
+                        "Low terrain rivers should track terrain height"
                     );
                 }
             }
