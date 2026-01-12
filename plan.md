@@ -380,31 +380,32 @@ impl PlacedStencil {
 }
 ```
 
-#### 16.4 Flood Fill Tool
+#### 16.4 Flood Fill Tool ✅ (Console Command Complete)
 
 **16.4.1 Flood Fill Logic**
-- [ ] Start block: raycast to determine clicked block type
-- [ ] Fill rule: only replace blocks of same type as start block
-- [ ] Painted blocks: only fill if texture AND tint match
-- [ ] Model blocks: do not fill (prevents accidental overwrite)
-- [ ] Water blocks: treat as separate type (don't mix with solid blocks)
+- [x] Start block: raycast to determine clicked block type (or explicit coordinates)
+- [x] Fill rule: only replace blocks of same type as start block
+- [x] Painted blocks: only fill if texture AND tint match
+- [x] Model blocks: do not fill (prevents accidental overwrite)
+- [x] Water blocks: treat as separate type (match by WaterType)
+- [x] Tinted glass and Crystal: match by tint index
 
 **16.4.2 Safety Limits**
-- [ ] Pre-scan flood fill region, count affected blocks
-- [ ] If count > 10,000: show confirmation dialog with exact count
-- [ ] Maximum fill size: 1,000,000 blocks (hard limit with error message)
-- [ ] Frame-distributed filling: spread over multiple frames (like template placement)
+- [x] Pre-scan flood fill region, count affected blocks
+- [x] If count > 10,000: show confirmation dialog with exact count
+- [x] Maximum fill size: 1,000,000 blocks (hard limit with error message)
+- [ ] Frame-distributed filling: spread over multiple frames (deferred - immediate fill works for most cases)
 
-**16.4.3 Flood Fill UI**
+**16.4.3 Flood Fill UI** (Deferred)
 - [ ] Hotbar item: `FloodFillTool`
 - [ ] Select replacement block from palette (right-click to choose)
 - [ ] HUD display: "Fill: [source] → [target]"
 - [ ] Click block to execute fill
 
 **16.4.4 Console Command**
-- [ ] `/fill_flood <target_block> [x] [y] [z]`
-- [ ] If coordinates omitted: use raycast hit point
-- [ ] Confirmation prompt if >10,000 blocks affected
+- [x] `/floodfill <target_block> [x] [y] [z]` (aliases: `flood_fill`, `ff`)
+- [x] If coordinates omitted: use raycast hit point (crosshair target)
+- [x] Confirmation prompt if >10,000 blocks affected
 
 **Technical Approach:**
 ```rust
@@ -635,7 +636,8 @@ impl FloodFillTool {
 - [x] Measurement blocks show distance accurately (±0.1 blocks)
 - [x] Laser rangefinder updates in real-time (<16ms latency)
 - [x] Stencil opacity adjustable from 0.3 to 0.8
-- [ ] Flood fill 50,000 blocks without freezing (frame-distributed)
+- [x] Flood fill console command with BFS algorithm and smart block matching
+- [ ] Flood fill 50,000+ blocks with frame-distributed filling (deferred)
 - [ ] Tools palette (T key) responsive, <50ms to open/close
 
 ### Performance Targets
@@ -707,9 +709,19 @@ git commit -m "type: description"
 
 ## Current Work (2026-01-11)
 
-**Status**: Phase 16.3 (Stencil System) - COMPLETE
+**Status**: Phase 16.4 (Flood Fill Tool) - CONSOLE COMMAND COMPLETE
 
 **Completed Features:**
+- **Flood Fill Console Command** (16.4):
+  - `/floodfill <target_block> [x] [y] [z]` (aliases: `flood_fill`, `ff`)
+  - BFS algorithm with smart block matching (BlockIdentity system)
+  - Painted blocks: match both texture AND tint index
+  - TintedGlass/Crystal: match by tint index
+  - Water blocks: match by WaterType (Ocean, Lake, River, Swamp, Spring)
+  - Model blocks: cannot be flood filled (prevents accidents)
+  - Pre-scan with confirmation at 10K+ blocks
+  - Hard limit at 1M blocks with error message
+  - Crosshair targeting: uses raycast hit if no coordinates provided
 - **Stencil System** (16.3):
   - K key toggles stencil browser
   - [ and ] keys adjust opacity (±10%, range 30-80%)
@@ -815,6 +827,13 @@ Enter                       # Confirm placement
 
 ## Done Recently
 
+- **Phase 16.4: Flood Fill Console Command** (2026-01-11): ✅ COMPLETE
+  - `/floodfill <target_block> [x] [y] [z]` (aliases: `flood_fill`, `ff`)
+  - BFS algorithm with BlockIdentity system for smart block matching
+  - Painted blocks: match texture + tint, Water: match WaterType
+  - TintedGlass/Crystal: match tint index, Model: not fillable
+  - Pre-scan with 10K confirmation, 1M hard limit
+  - Crosshair targeting via raycast_hit integration
 - **Phase 16.3: Stencil System** (2026-01-11): ✅ COMPLETE
   - Stencil data format (.vxs) with zstd compression and bincode serialization
   - Stencil library manager for saving/loading stencils to user_stencils/ directory

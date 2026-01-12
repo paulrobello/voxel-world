@@ -221,6 +221,9 @@ pub struct ConsoleState {
     pub request_focus: bool,
     /// Pending teleport to be handled by game loop.
     pub pending_teleport: Option<PendingTeleport>,
+    /// Current raycast hit for commands that use crosshair target.
+    /// Set by the UI/game loop before command submission.
+    pub raycast_hit: Option<Vector3<i32>>,
     /// Pending fluid debug output request.
     pub pending_fluid_debug: bool,
     /// Pending force water active request.
@@ -277,6 +280,7 @@ impl ConsoleState {
             pending_confirm: None,
             request_focus: false,
             pending_teleport: None,
+            raycast_hit: None,
             pending_fluid_debug: false,
             pending_force_water_active: false,
             pending_water_analyze: false,
@@ -340,6 +344,16 @@ impl ConsoleState {
                     ParamType::CoordY,
                     ParamType::CoordZ,
                     ParamType::Flag(HOLLOW_FLAG),
+                ],
+            },
+            CommandSignature {
+                name: "floodfill",
+                aliases: &["flood_fill", "ff"],
+                params: &[
+                    ParamType::Block,
+                    ParamType::CoordX,
+                    ParamType::CoordY,
+                    ParamType::CoordZ,
                 ],
             },
             CommandSignature {
@@ -1057,6 +1071,9 @@ impl ConsoleState {
         match cmd.as_str() {
             "help" | "?" => commands::help(),
             "fill" => commands::fill(args, world, player_pos, confirmed),
+            "floodfill" | "flood_fill" | "ff" => {
+                commands::floodfill(args, world, player_pos, self.raycast_hit, confirmed)
+            }
             "sphere" => commands::sphere(args, world, player_pos, confirmed),
             "boxme" => commands::boxme(args, world, player_pos, confirmed),
             "copy" => commands::copy(args, world, player_pos, confirmed),

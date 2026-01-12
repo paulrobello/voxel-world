@@ -266,6 +266,9 @@ impl HUDRenderer {
                 crate::editor::draw_model_preview(&ctx, editor);
             }
 
+            // Set raycast hit for commands that use crosshair targeting (e.g., floodfill)
+            console.raycast_hit = current_hit.as_ref().map(|hit| hit.block_pos);
+
             ConsoleUI::draw_console(
                 &ctx,
                 console,

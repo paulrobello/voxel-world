@@ -5,6 +5,7 @@
 mod boxme;
 mod copy;
 mod fill;
+mod floodfill;
 mod locate;
 mod locate_async;
 mod measure;
@@ -18,6 +19,7 @@ mod tp;
 pub use boxme::boxme;
 pub use copy::copy;
 pub use fill::fill;
+pub use floodfill::floodfill;
 pub use locate::locate;
 pub use locate_async::update_locate_search;
 pub use measure::measure;
@@ -40,6 +42,12 @@ pub fn help() -> CommandResult {
     Fill a region with blocks. Use 'air' to clear.
     Coordinates support ~ for relative (e.g., ~5 = player + 5)
     'hollow' flag creates a shell with air inside
+
+  floodfill <block> [x] [y] [z]
+    Replace connected blocks of the same type with target block.
+    If no coordinates, uses crosshair target.
+    Smart matching: painted blocks match texture+tint, water matches type.
+    Model blocks cannot be flood filled (prevents accidents).
 
   sphere <block> <cx> <cy> <cz> <radius> [hollow]
     Create a sphere of blocks at center (cx, cy, cz).
@@ -127,6 +135,9 @@ Examples:
   fill stone 0 0 0 10 5 10
   fill air ~-5 ~ ~-5 ~5 ~10 ~5
   fill brick ~ ~-1 ~ ~10 ~3 ~10 hollow
+  floodfill stone
+  floodfill air ~ ~ ~
+  floodfill cobblestone 100 64 200
   sphere stone ~ ~5 ~ 10
   sphere glass ~ ~ ~ 15 hollow
   boxme brick 5
