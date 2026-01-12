@@ -33,6 +33,7 @@ pub mod palette;
 pub mod settings;
 pub mod stats;
 pub mod time;
+pub mod tools;
 
 use console::ConsoleUI;
 use hotbar::HotbarUI;
@@ -40,6 +41,7 @@ use minimap::MinimapUI;
 use palette::PaletteUI;
 use settings::SettingsUI;
 use stats::StatsUI;
+use tools::{ToolsPaletteState, ToolsPaletteUI};
 
 /// Water/lava simulation stats for debug display.
 #[derive(Debug, Clone, Copy, Default)]
@@ -101,6 +103,8 @@ pub struct HudInputs<'a> {
     pub active_placement: &'a mut Option<crate::templates::TemplatePlacement>,
     pub rangefinder_active: bool,
     pub measurement_markers: &'a mut Vec<Vector3<i32>>,
+    pub tools_palette: &'a mut ToolsPaletteState,
+    pub stencil_browser_open: bool,
 }
 
 pub struct HUDRenderer;
@@ -157,6 +161,8 @@ impl HUDRenderer {
             active_placement,
             rangefinder_active,
             measurement_markers,
+            tools_palette,
+            stencil_browser_open,
         } = input;
         let mut scale_changed = false;
         let mut editor_action = EditorAction::None;
@@ -213,6 +219,17 @@ impl HUDRenderer {
                 show_minimap,
                 minimap_cached_image,
             );
+
+            // Tools palette (T key)
+            let _clicked_tool = ToolsPaletteUI::draw_tools_window(
+                &ctx,
+                tools_palette,
+                template_selection.visual_mode,
+                rangefinder_active,
+                stencil_browser_open,
+                template_selection.visual_mode,
+            );
+            // Note: clicked_tool handling is done via keybinds, not UI clicks
 
             // Crosshair (hide when editor or console is open)
             if !editor.active && !console.active {

@@ -54,6 +54,23 @@ impl App {
             return true;
         }
 
+        // Close tools palette with Escape
+        if self.input.key_pressed(KeyCode::Escape) && self.ui.tools_palette.open {
+            self.ui.tools_palette.open = false;
+            let other_panel_open = self.ui.palette_open
+                || self.ui.editor.active
+                || self.ui.console.active
+                || self.ui.template_ui.browser_open
+                || self.ui.stencil_ui.browser_open;
+            if !other_panel_open && self.ui.tools_previously_focused {
+                self.input.focused = true;
+                self.input.pending_grab = Some(true);
+                self.input.skip_input_frame = true;
+                self.ui.tools_previously_focused = false;
+            }
+            return true;
+        }
+
         // Cancel template placement
         if self.input.key_pressed(KeyCode::Escape) && self.ui.active_placement.is_some() {
             if let Some(ref placement) = self.ui.active_placement {
@@ -76,7 +93,8 @@ impl App {
             || self.ui.editor.active
             || self.ui.console.active
             || self.ui.template_ui.browser_open
-            || self.ui.stencil_ui.browser_open;
+            || self.ui.stencil_ui.browser_open
+            || self.ui.tools_palette.open;
 
         if !self.input.focused && self.input.mouse_pressed(MouseButton::Left) && !panel_open {
             println!("Focus click...");
@@ -218,8 +236,8 @@ impl App {
             );
         }
 
-        // Toggle player torch light (L key)
-        if self.input.key_pressed(KeyCode::KeyL) {
+        // Toggle player torch light (J key)
+        if self.input.key_pressed(KeyCode::KeyJ) {
             self.sim.player.light_enabled = !self.sim.player.light_enabled;
             if self.sim.player.light_enabled {
                 if self.ui.settings.enable_point_lights {
@@ -599,8 +617,13 @@ impl App {
             self.toggle_editor_panel();
         }
 
-        // Toggle template browser (T key)
+        // Toggle tools palette (T key)
         if self.input.key_pressed(KeyCode::KeyT) {
+            self.toggle_tools_palette();
+        }
+
+        // Toggle template browser (L key for Library)
+        if self.input.key_pressed(KeyCode::KeyL) {
             self.toggle_template_browser();
         }
 

@@ -76,6 +76,8 @@ pub fn render_hud(
             active_placement: &mut ui.active_placement,
             rangefinder_active: ui.rangefinder_active,
             measurement_markers: &mut ui.measurement_markers,
+            tools_palette: &mut ui.tools_palette,
+            stencil_browser_open: ui.stencil_ui.browser_open,
         },
     );
 
