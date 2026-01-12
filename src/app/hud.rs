@@ -88,6 +88,8 @@ pub fn render_hud(
             if ui.template_ui.browser_open {
                 ui.template_ui.refresh_templates(&ui.template_library);
             }
+            // Close tools palette when opening template browser
+            ui.tools_palette.open = false;
         }
         ToolAction::ToggleRangefinder => {
             ui.rangefinder_active = !ui.rangefinder_active;
@@ -95,17 +97,26 @@ pub fn render_hud(
                 "Rangefinder: {}",
                 if ui.rangefinder_active { "ON" } else { "OFF" }
             );
+            // Close tools palette and grab cursor when activating rangefinder
+            if ui.rangefinder_active {
+                ui.tools_palette.open = false;
+                ui.request_cursor_grab = true;
+            }
         }
         ToolAction::ToggleStencilBrowser => {
             ui.stencil_ui.browser_open = !ui.stencil_ui.browser_open;
             if ui.stencil_ui.browser_open {
                 ui.stencil_ui.refresh_stencils(&ui.stencil_library);
             }
+            // Close tools palette when opening stencil browser
+            ui.tools_palette.open = false;
         }
         ToolAction::OpenFloodFillConsole => {
             // Open console with /floodfill pre-typed
             ui.console.active = true;
             ui.console.input = "/floodfill ".to_string();
+            // Close tools palette when opening console
+            ui.tools_palette.open = false;
         }
         ToolAction::None => {}
     }
