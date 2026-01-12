@@ -508,9 +508,9 @@ impl HUDRenderer {
         let screen_rect = ctx.screen_rect();
         let center = screen_rect.center();
 
-        // Position the distance display below the crosshair (offset enough to avoid position HUD)
+        // Position the distance display below the crosshair (offset to avoid overlapping other HUDs)
         egui::Area::new(egui::Id::new("rangefinder_overlay"))
-            .fixed_pos(egui::pos2(center.x, center.y + 60.0))
+            .fixed_pos(egui::pos2(center.x, center.y + 100.0))
             .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 0.0))
             .show(ctx, |ui| {
                 egui::Frame::new()
