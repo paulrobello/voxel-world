@@ -100,6 +100,7 @@ pub struct HudInputs<'a> {
     pub template_selection: &'a mut crate::templates::TemplateSelection,
     pub template_library: &'a crate::templates::TemplateLibrary,
     pub stencil_library: &'a crate::stencils::StencilLibrary,
+    pub stencil_manager: &'a mut crate::stencils::StencilManager,
     pub water_grid: &'a crate::water::WaterGrid,
     pub active_placement: &'a mut Option<crate::templates::TemplatePlacement>,
     pub rangefinder_active: bool,
@@ -159,6 +160,7 @@ impl HUDRenderer {
             template_selection,
             template_library,
             stencil_library,
+            stencil_manager,
             water_grid,
             active_placement,
             rangefinder_active,
@@ -225,7 +227,7 @@ impl HUDRenderer {
             );
 
             // Tools palette (T key)
-            tool_action = ToolsPaletteUI::draw_tools_window(
+            let tools_result = ToolsPaletteUI::draw_tools_window(
                 &ctx,
                 tools_palette,
                 template_selection.visual_mode,
@@ -233,7 +235,19 @@ impl HUDRenderer {
                 stencil_browser_open,
                 template_selection.visual_mode,
                 flood_fill_active,
+                stencil_manager.global_opacity,
+                stencil_manager.render_mode,
             );
+            tool_action = tools_result.action;
+
+            // Apply stencil setting changes from the tools palette
+            if let Some(opacity) = tools_result.stencil_opacity_changed {
+                stencil_manager.set_global_opacity(opacity);
+                stencil_manager.apply_global_opacity_to_all();
+            }
+            if let Some(render_mode) = tools_result.stencil_render_mode_changed {
+                stencil_manager.set_render_mode(render_mode);
+            }
 
             // Crosshair (hide when editor or console is open)
             if !editor.active && !console.active {
@@ -242,7 +256,12 @@ impl HUDRenderer {
 
             // Rangefinder distance display (when active and targeting a block)
             if rangefinder_active && !editor.active && !console.active {
-                Self::draw_rangefinder_overlay(&ctx, current_hit, measurement_markers);
+                Self::draw_rangefinder_overlay(
+                    &ctx,
+                    current_hit,
+                    measurement_markers,
+                    tools_palette.settings.measurement.laser_color,
+                );
             }
 
             // Flood fill mode indicator
@@ -512,9 +531,17 @@ impl HUDRenderer {
         ctx: &egui::Context,
         current_hit: &Option<RaycastHit>,
         measurement_markers: &[Vector3<i32>],
+        laser_color: [f32; 3],
     ) {
         let screen_rect = ctx.screen_rect();
         let center = screen_rect.center();
+
+        // Convert laser color from f32 RGB to egui Color32
+        let laser_color32 = egui::Color32::from_rgb(
+            (laser_color[0] * 255.0) as u8,
+            (laser_color[1] * 255.0) as u8,
+            (laser_color[2] * 255.0) as u8,
+        );
 
         // Position the distance display below the crosshair (offset to avoid overlapping other HUDs)
         egui::Area::new(egui::Id::new("rangefinder_overlay"))
@@ -523,10 +550,7 @@ impl HUDRenderer {
             .show(ctx, |ui| {
                 egui::Frame::new()
                     .fill(egui::Color32::from_rgba_unmultiplied(20, 20, 30, 200))
-                    .stroke(egui::Stroke::new(
-                        1.5,
-                        egui::Color32::from_rgb(255, 100, 100),
-                    ))
+                    .stroke(egui::Stroke::new(1.5, laser_color32))
                     .inner_margin(egui::Margin::symmetric(10, 6))
                     .corner_radius(4.0)
                     .show(ui, |ui| {
@@ -534,7 +558,7 @@ impl HUDRenderer {
                             // Show distance with 1 decimal place
                             ui.label(
                                 egui::RichText::new(format!("📏 {:.1} blocks", hit.distance))
-                                    .color(egui::Color32::from_rgb(255, 100, 100))
+                                    .color(laser_color32)
                                     .size(14.0)
                                     .strong(),
                             );

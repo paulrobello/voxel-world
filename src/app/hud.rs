@@ -72,6 +72,7 @@ pub fn render_hud(
             template_selection: &mut ui.template_selection,
             template_library: &ui.template_library,
             stencil_library: &ui.stencil_library,
+            stencil_manager: &mut ui.stencil_manager,
             water_grid: &sim.water_grid,
             active_placement: &mut ui.active_placement,
             rangefinder_active: ui.rangefinder_active,

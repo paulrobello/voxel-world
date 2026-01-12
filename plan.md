@@ -489,7 +489,7 @@ impl FloodFillTool {
 }
 ```
 
-#### 16.5 Tools Palette UI ✅ (Partial)
+#### 16.5 Tools Palette UI ✅
 
 **16.5.1 UI Layout** ✅
 - [x] Keybind: T key toggles tools window
@@ -511,12 +511,12 @@ impl FloodFillTool {
   - Template placement is exclusive (blocks other tools)
 - [ ] Tool state: independent activation/deactivation
 
-**16.5.4 Tool Settings Panel**
-- [ ] Expandable panel below tool icons
-- [ ] Settings per tool:
-  - Measurement: dimension interval, laser color
-  - Stencil: opacity slider, color picker
-  - Flood Fill: preview mode (show affected blocks before filling)
+**16.5.4 Tool Settings Panel** ✅
+- [x] Expandable panel below tool icons (click "▶ Settings" to expand)
+- [x] Settings per tool:
+  - Measurement: laser color presets (8 colors)
+  - Stencil: opacity slider (30-80%), render mode toggle (Solid/Wireframe)
+  - Flood Fill: preview mode checkbox (visual preview deferred - requires shader integration)
 
 ---
 
@@ -721,13 +721,17 @@ git commit -m "type: description"
   - Blue bracket cursor overlay when targeting a block
   - Escape to cancel fill mode
   - Tool palette integration (shows as active when enabled)
-- **Tools Palette UI** (16.5.1 + 16.5.2):
+- **Tools Palette UI** (16.5.1 + 16.5.2 + 16.5.4): ✅ ENHANCED
   - T key toggles tools palette window
   - Vertical toolbar with 4 tools: Template (📋), Measurement (📏), Stencil (👻), Flood Fill (🪣)
   - Tooltips with tool descriptions and hotkey hints
   - Active tool highlighting with green border and indicator dot
   - Auto-detection of active tool based on current mode
   - Keybind changes: T=Tools, L=Library (templates), J=Torch light
+  - **Tool Settings Panel** (click "▶ Settings" to expand):
+    - Measurement: laser color presets (8 colors: Red, Green, Blue, Yellow, Orange, Purple, Cyan, White)
+    - Stencil: opacity slider (30-80%), render mode toggle (Solid/Wireframe)
+    - Flood Fill: preview mode checkbox (visual preview deferred)
 - **Flood Fill Console Command** (16.4):
   - `/floodfill <target_block> [x] [y] [z]` (aliases: `flood_fill`, `ff`)
   - BFS algorithm with smart block matching (BlockIdentity system)
@@ -855,6 +859,13 @@ Enter                       # Confirm placement
 
 ## Done Recently
 
+- **Phase 16.5.4: Tool Settings Panel** (2026-01-12): ✅ COMPLETE
+  - Expandable settings panel in Tools Palette (click "▶ Settings" to expand)
+  - Measurement tool: 8 laser color presets (Red, Green, Blue, Yellow, Orange, Purple, Cyan, White)
+  - Stencil tool: opacity slider (30-80%), render mode toggle (Solid/Wireframe)
+  - Flood Fill tool: preview mode checkbox (visual preview deferred - requires shader integration)
+  - Settings automatically sync with their respective systems (stencil manager, rangefinder overlay)
+  - Separate attached window for settings when expanded
 - **Phase 16.4.3: Interactive Flood Fill Mode** (2026-01-12): ✅ COMPLETE
   - F key toggles Fill Mode on/off (replaces console-only approach)
   - Right-click fills connected blocks with selected hotbar block
@@ -970,4 +981,4 @@ Enter                       # Confirm placement
 ---
 
 *Last Updated: 2026-01-12*
-*Plan Version: 2.7 - Building Tools Complete (Interactive Flood Fill)*
+*Plan Version: 2.8 - Building Tools Complete (Tool Settings Panel)*

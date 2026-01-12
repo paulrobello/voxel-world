@@ -4,13 +4,17 @@
 //! - Template (L key): Copy/paste building templates
 //! - Measurement (G key): Place markers and measure distances
 //! - Stencil (K key): Holographic building guides
-//! - Flood Fill: Mass block replacement (console only for now)
+//! - Flood Fill (F key): Mass block replacement
 
 use egui_winit_vulkano::egui;
+use serde::{Deserialize, Serialize};
+
+use crate::stencils::StencilRenderMode;
 
 /// Action requested by clicking a tool button.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ToolAction {
+    #[default]
     None,
     ToggleTemplateBrowser,
     ToggleRangefinder,
@@ -75,6 +79,84 @@ impl ActiveTool {
     }
 }
 
+// ============================================================================
+// Tool Settings
+// ============================================================================
+
+/// Preset colors for the measurement laser.
+pub const LASER_COLOR_PRESETS: &[([f32; 3], &str)] = &[
+    ([1.0, 0.2, 0.2], "Red"),
+    ([0.2, 1.0, 0.2], "Green"),
+    ([0.2, 0.6, 1.0], "Blue"),
+    ([1.0, 1.0, 0.2], "Yellow"),
+    ([1.0, 0.5, 0.0], "Orange"),
+    ([0.8, 0.2, 1.0], "Purple"),
+    ([0.0, 1.0, 1.0], "Cyan"),
+    ([1.0, 1.0, 1.0], "White"),
+];
+
+/// Settings for the measurement/rangefinder tool.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MeasurementSettings {
+    /// Color for the laser rangefinder display (RGB 0-1).
+    pub laser_color: [f32; 3],
+    /// Index of the selected color preset (for UI).
+    pub color_preset_index: usize,
+}
+
+impl Default for MeasurementSettings {
+    fn default() -> Self {
+        Self {
+            laser_color: LASER_COLOR_PRESETS[0].0, // Default: Red
+            color_preset_index: 0,
+        }
+    }
+}
+
+/// Settings for the stencil tool (references StencilManager for actual values).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StencilSettings {
+    /// Global opacity for stencils (0.3-0.8).
+    pub opacity: f32,
+    /// Render mode (wireframe or solid).
+    pub render_mode: StencilRenderMode,
+}
+
+impl Default for StencilSettings {
+    fn default() -> Self {
+        Self {
+            opacity: 0.5,
+            render_mode: StencilRenderMode::Solid,
+        }
+    }
+}
+
+/// Settings for the flood fill tool.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FloodFillSettings {
+    /// Whether to show a preview of affected blocks before filling.
+    pub preview_mode: bool,
+    /// Maximum blocks to preview (performance limit).
+    pub preview_limit: usize,
+}
+
+impl Default for FloodFillSettings {
+    fn default() -> Self {
+        Self {
+            preview_mode: false,
+            preview_limit: 5000,
+        }
+    }
+}
+
+/// All tool settings combined.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ToolSettings {
+    pub measurement: MeasurementSettings,
+    pub stencil: StencilSettings,
+    pub flood_fill: FloodFillSettings,
+}
+
 /// Tools palette UI state.
 #[derive(Debug, Clone, Default)]
 pub struct ToolsPaletteState {
@@ -82,6 +164,10 @@ pub struct ToolsPaletteState {
     pub open: bool,
     /// Which tool is currently highlighted/active.
     pub active_tool: ActiveTool,
+    /// Whether the settings panel is expanded.
+    pub show_settings: bool,
+    /// Per-tool settings.
+    pub settings: ToolSettings,
 }
 
 impl ToolsPaletteState {
@@ -94,10 +180,21 @@ impl ToolsPaletteState {
 /// Tools palette UI renderer.
 pub struct ToolsPaletteUI;
 
+/// Result of drawing the tools palette.
+#[derive(Debug, Clone, Default)]
+pub struct ToolsPaletteResult {
+    /// Action requested by clicking a tool button.
+    pub action: ToolAction,
+    /// Whether stencil opacity was changed (value to sync).
+    pub stencil_opacity_changed: Option<f32>,
+    /// Whether stencil render mode was changed.
+    pub stencil_render_mode_changed: Option<StencilRenderMode>,
+}
+
 impl ToolsPaletteUI {
     /// Draw the tools palette window.
     ///
-    /// Returns a `ToolAction` if a tool button was clicked.
+    /// Returns a `ToolsPaletteResult` with any actions or setting changes.
     #[allow(clippy::too_many_arguments)]
     pub fn draw_tools_window(
         ctx: &egui::Context,
@@ -107,12 +204,18 @@ impl ToolsPaletteUI {
         stencil_browser_open: bool,
         selection_mode_active: bool,
         flood_fill_active: bool,
-    ) -> ToolAction {
+        stencil_opacity: f32,
+        stencil_render_mode: StencilRenderMode,
+    ) -> ToolsPaletteResult {
+        // Sync stencil settings from manager on each frame
+        state.settings.stencil.opacity = stencil_opacity;
+        state.settings.stencil.render_mode = stencil_render_mode;
+
         if !state.open {
-            return ToolAction::None;
+            return ToolsPaletteResult::default();
         }
 
-        let mut action = ToolAction::None;
+        let mut result = ToolsPaletteResult::default();
 
         // Determine active tool based on current state
         let active = if template_browser_open || selection_mode_active {
@@ -128,12 +231,19 @@ impl ToolsPaletteUI {
         };
         state.active_tool = active;
 
+        // Extract values we need to avoid borrow conflicts
+        let active_tool = state.active_tool;
+        let show_settings = state.show_settings;
+
+        let mut window_open = state.open;
+        let mut toggle_settings = false;
+
         egui::Window::new("Tools")
-            .default_pos(egui::pos2(ctx.screen_rect().width() - 180.0, 100.0))
-            .default_size(egui::vec2(160.0, 280.0))
+            .default_pos(egui::pos2(ctx.screen_rect().width() - 200.0, 100.0))
+            .default_size(egui::vec2(180.0, 380.0))
             .resizable(false)
             .collapsible(true)
-            .open(&mut state.open)
+            .open(&mut window_open)
             .show(ctx, |ui| {
                 ui.vertical(|ui| {
                     // Tool buttons
@@ -145,11 +255,11 @@ impl ToolsPaletteUI {
                     ];
 
                     for tool in tools {
-                        let is_active = state.active_tool == tool;
+                        let is_active = active_tool == tool;
                         let response = Self::draw_tool_button(ui, tool, is_active);
 
                         if response.clicked() {
-                            action = match tool {
+                            result.action = match tool {
                                 ActiveTool::Template => ToolAction::ToggleTemplateBrowser,
                                 ActiveTool::Measurement => ToolAction::ToggleRangefinder,
                                 ActiveTool::Stencil => ToolAction::ToggleStencilBrowser,
@@ -183,9 +293,33 @@ impl ToolsPaletteUI {
                         });
                     }
 
-                    ui.add_space(12.0);
-                    ui.separator();
                     ui.add_space(8.0);
+                    ui.separator();
+                    ui.add_space(4.0);
+
+                    // Settings toggle header
+                    let settings_header = if show_settings {
+                        "▼ Settings"
+                    } else {
+                        "▶ Settings"
+                    };
+                    if ui
+                        .add(
+                            egui::Label::new(
+                                egui::RichText::new(settings_header)
+                                    .color(egui::Color32::from_gray(180))
+                                    .size(12.0),
+                            )
+                            .sense(egui::Sense::click()),
+                        )
+                        .clicked()
+                    {
+                        toggle_settings = true;
+                    }
+
+                    ui.add_space(8.0);
+                    ui.separator();
+                    ui.add_space(4.0);
 
                     // Help text
                     ui.label(
@@ -196,7 +330,217 @@ impl ToolsPaletteUI {
                 });
             });
 
-        action
+        // Update state after window closes
+        state.open = window_open;
+        if toggle_settings {
+            state.show_settings = !state.show_settings;
+        }
+
+        // Draw settings panel in a separate window if expanded
+        if state.open && state.show_settings {
+            Self::draw_settings_window(ctx, state, &mut result);
+        }
+
+        result
+    }
+
+    /// Draw the settings panel as a separate attached window.
+    fn draw_settings_window(
+        ctx: &egui::Context,
+        state: &mut ToolsPaletteState,
+        result: &mut ToolsPaletteResult,
+    ) {
+        egui::Window::new("Tool Settings")
+            .default_pos(egui::pos2(ctx.screen_rect().width() - 200.0, 360.0))
+            .default_size(egui::vec2(180.0, 150.0))
+            .resizable(false)
+            .collapsible(false)
+            .title_bar(false)
+            .show(ctx, |ui| {
+                egui::Frame::new()
+                    .fill(egui::Color32::from_rgba_unmultiplied(30, 30, 40, 220))
+                    .inner_margin(egui::Margin::same(8))
+                    .corner_radius(egui::CornerRadius::same(4))
+                    .show(ui, |ui| {
+                        Self::draw_settings_panel(ui, state, result);
+                    });
+            });
+    }
+
+    /// Draw the settings panel content based on active tool.
+    fn draw_settings_panel(
+        ui: &mut egui::Ui,
+        state: &mut ToolsPaletteState,
+        result: &mut ToolsPaletteResult,
+    ) {
+        match state.active_tool {
+            ActiveTool::Measurement => {
+                Self::draw_measurement_settings(ui, &mut state.settings.measurement);
+            }
+            ActiveTool::Stencil => {
+                Self::draw_stencil_settings(ui, &mut state.settings.stencil, result);
+            }
+            ActiveTool::FloodFill => {
+                Self::draw_flood_fill_settings(ui, &mut state.settings.flood_fill);
+            }
+            ActiveTool::Template | ActiveTool::None => {
+                ui.label(
+                    egui::RichText::new("Select a tool to configure")
+                        .color(egui::Color32::from_gray(140))
+                        .size(11.0)
+                        .italics(),
+                );
+            }
+        }
+    }
+
+    /// Draw measurement tool settings.
+    fn draw_measurement_settings(ui: &mut egui::Ui, settings: &mut MeasurementSettings) {
+        ui.label(
+            egui::RichText::new("📏 Measurement")
+                .strong()
+                .size(12.0)
+                .color(egui::Color32::from_rgb(200, 200, 255)),
+        );
+        ui.add_space(6.0);
+
+        // Laser color presets
+        ui.label(
+            egui::RichText::new("Laser Color")
+                .size(11.0)
+                .color(egui::Color32::from_gray(180)),
+        );
+
+        ui.horizontal_wrapped(|ui| {
+            for (i, (color, name)) in LASER_COLOR_PRESETS.iter().enumerate() {
+                let is_selected = settings.color_preset_index == i;
+                let color32 = egui::Color32::from_rgb(
+                    (color[0] * 255.0) as u8,
+                    (color[1] * 255.0) as u8,
+                    (color[2] * 255.0) as u8,
+                );
+
+                let size = if is_selected { 20.0 } else { 16.0 };
+                let (rect, response) =
+                    ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::click());
+
+                if ui.is_rect_visible(rect) {
+                    let painter = ui.painter();
+                    painter.rect_filled(rect, egui::CornerRadius::same(3), color32);
+
+                    if is_selected {
+                        painter.rect_stroke(
+                            rect,
+                            egui::CornerRadius::same(3),
+                            egui::Stroke::new(2.0, egui::Color32::WHITE),
+                            egui::StrokeKind::Outside,
+                        );
+                    }
+                }
+
+                if response.clicked() {
+                    settings.color_preset_index = i;
+                    settings.laser_color = *color;
+                }
+
+                response.on_hover_text(*name);
+            }
+        });
+    }
+
+    /// Draw stencil tool settings.
+    fn draw_stencil_settings(
+        ui: &mut egui::Ui,
+        settings: &mut StencilSettings,
+        result: &mut ToolsPaletteResult,
+    ) {
+        ui.label(
+            egui::RichText::new("👻 Stencil")
+                .strong()
+                .size(12.0)
+                .color(egui::Color32::from_rgb(200, 255, 200)),
+        );
+        ui.add_space(6.0);
+
+        // Opacity slider
+        ui.label(
+            egui::RichText::new("Opacity")
+                .size(11.0)
+                .color(egui::Color32::from_gray(180)),
+        );
+
+        let old_opacity = settings.opacity;
+        ui.add(
+            egui::Slider::new(&mut settings.opacity, 0.3..=0.8)
+                .show_value(true)
+                .custom_formatter(|n, _| format!("{:.0}%", n * 100.0)),
+        );
+        if (settings.opacity - old_opacity).abs() > 0.001 {
+            result.stencil_opacity_changed = Some(settings.opacity);
+        }
+
+        ui.add_space(6.0);
+
+        // Render mode toggle
+        ui.label(
+            egui::RichText::new("Render Mode")
+                .size(11.0)
+                .color(egui::Color32::from_gray(180)),
+        );
+
+        ui.horizontal(|ui| {
+            let is_solid = settings.render_mode == StencilRenderMode::Solid;
+
+            if ui.selectable_label(is_solid, "Solid").clicked() && !is_solid {
+                settings.render_mode = StencilRenderMode::Solid;
+                result.stencil_render_mode_changed = Some(StencilRenderMode::Solid);
+            }
+
+            if ui.selectable_label(!is_solid, "Wireframe").clicked() && is_solid {
+                settings.render_mode = StencilRenderMode::Wireframe;
+                result.stencil_render_mode_changed = Some(StencilRenderMode::Wireframe);
+            }
+        });
+
+        ui.add_space(4.0);
+        ui.label(
+            egui::RichText::new("[ ] keys: adjust opacity")
+                .size(10.0)
+                .color(egui::Color32::from_gray(120)),
+        );
+    }
+
+    /// Draw flood fill tool settings.
+    fn draw_flood_fill_settings(ui: &mut egui::Ui, settings: &mut FloodFillSettings) {
+        ui.label(
+            egui::RichText::new("🪣 Flood Fill")
+                .strong()
+                .size(12.0)
+                .color(egui::Color32::from_rgb(255, 200, 150)),
+        );
+        ui.add_space(6.0);
+
+        // Preview mode checkbox
+        ui.checkbox(&mut settings.preview_mode, "Preview Mode");
+        ui.label(
+            egui::RichText::new("Show affected blocks before filling")
+                .size(10.0)
+                .color(egui::Color32::from_gray(140)),
+        );
+
+        if settings.preview_mode {
+            ui.add_space(4.0);
+            ui.label(
+                egui::RichText::new("Preview Limit")
+                    .size(11.0)
+                    .color(egui::Color32::from_gray(180)),
+            );
+            ui.add(
+                egui::Slider::new(&mut settings.preview_limit, 1000..=10000)
+                    .logarithmic(true)
+                    .suffix(" blocks"),
+            );
+        }
     }
 
     /// Draw a single tool button with icon, label, and hotkey.
