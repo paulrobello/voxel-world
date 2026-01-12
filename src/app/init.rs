@@ -555,6 +555,7 @@ impl App {
             measurement_markers: initial_measurement_markers,
             tools_palette: crate::ui::tools::ToolsPaletteState::default(),
             sphere_tool: crate::shape_tools::SphereToolState::default(),
+            cube_tool: crate::shape_tools::CubeToolState::default(),
         };
 
         let input = InputState {

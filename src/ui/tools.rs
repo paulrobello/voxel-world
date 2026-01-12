@@ -6,6 +6,7 @@
 //! - Stencil (K key): Holographic building guides
 //! - Flood Fill: Mass block replacement (tools palette/console only)
 //! - Sphere: Place solid or hollow spheres (tools palette only)
+//! - Cube: Place solid or hollow cubes/boxes (tools palette only)
 
 use egui_winit_vulkano::egui;
 use serde::{Deserialize, Serialize};
@@ -22,6 +23,7 @@ pub enum ToolAction {
     ToggleStencilBrowser,
     ToggleFloodFill,
     ToggleSphereTool,
+    ToggleCubeTool,
 }
 
 /// Which tool is currently active/highlighted in the palette.
@@ -34,6 +36,7 @@ pub enum ActiveTool {
     Stencil,
     FloodFill,
     Sphere,
+    Cube,
 }
 
 impl ActiveTool {
@@ -46,6 +49,7 @@ impl ActiveTool {
             ActiveTool::Stencil => "Stencil",
             ActiveTool::FloodFill => "Flood Fill",
             ActiveTool::Sphere => "Sphere",
+            ActiveTool::Cube => "Cube",
         }
     }
 
@@ -58,6 +62,7 @@ impl ActiveTool {
             ActiveTool::Stencil => "👻",     // Ghost block
             ActiveTool::FloodFill => "🪣",   // Paint bucket
             ActiveTool::Sphere => "🔵",      // Blue circle
+            ActiveTool::Cube => "🟦",        // Blue square
         }
     }
 
@@ -70,6 +75,7 @@ impl ActiveTool {
             ActiveTool::Stencil => "K",
             ActiveTool::FloodFill => "", // No dedicated hotkey, tools palette/console only
             ActiveTool::Sphere => "",    // No dedicated hotkey, button only
+            ActiveTool::Cube => "",      // No dedicated hotkey, button only
         }
     }
 
@@ -82,6 +88,7 @@ impl ActiveTool {
             ActiveTool::Stencil => "Create holographic building guides",
             ActiveTool::FloodFill => "Right-click to fill connected blocks",
             ActiveTool::Sphere => "Place solid or hollow spheres",
+            ActiveTool::Cube => "Place solid or hollow cubes/boxes",
         }
     }
 }
@@ -214,6 +221,7 @@ impl ToolsPaletteUI {
         selection_mode_active: bool,
         flood_fill_active: bool,
         sphere_tool_active: bool,
+        cube_tool_active: bool,
         stencil_opacity: f32,
         stencil_render_mode: StencilRenderMode,
     ) -> ToolsPaletteResult {
@@ -238,6 +246,8 @@ impl ToolsPaletteUI {
             ActiveTool::FloodFill
         } else if sphere_tool_active {
             ActiveTool::Sphere
+        } else if cube_tool_active {
+            ActiveTool::Cube
         } else {
             ActiveTool::None
         };
@@ -265,6 +275,7 @@ impl ToolsPaletteUI {
                         ActiveTool::Stencil,
                         ActiveTool::FloodFill,
                         ActiveTool::Sphere,
+                        ActiveTool::Cube,
                     ];
 
                     for tool in tools {
@@ -278,6 +289,7 @@ impl ToolsPaletteUI {
                                 ActiveTool::Stencil => ToolAction::ToggleStencilBrowser,
                                 ActiveTool::FloodFill => ToolAction::ToggleFloodFill,
                                 ActiveTool::Sphere => ToolAction::ToggleSphereTool,
+                                ActiveTool::Cube => ToolAction::ToggleCubeTool,
                                 ActiveTool::None => ToolAction::None,
                             };
                         }
@@ -409,6 +421,15 @@ impl ToolsPaletteUI {
                 // Sphere tool has its own settings window (SphereToolUI)
                 ui.label(
                     egui::RichText::new("Sphere settings in separate window")
+                        .color(egui::Color32::from_gray(140))
+                        .size(11.0)
+                        .italics(),
+                );
+            }
+            ActiveTool::Cube => {
+                // Cube tool has its own settings window (CubeToolUI)
+                ui.label(
+                    egui::RichText::new("Cube settings in separate window")
                         .color(egui::Color32::from_gray(140))
                         .size(11.0)
                         .italics(),

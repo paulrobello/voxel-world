@@ -3,6 +3,7 @@
 //! This module provides tools for placing spheres, cubes, and other shapes
 //! with holographic previews and configurable parameters.
 
+pub mod cube;
 pub mod sphere;
 
 use nalgebra::Vector3;
@@ -116,6 +117,142 @@ impl SphereToolState {
 
             let all_positions =
                 sphere::generate_sphere_positions(center, self.radius, self.hollow, self.dome);
+
+            // Track total count and truncation status
+            self.total_blocks = all_positions.len();
+            self.preview_truncated = all_positions.len() > MAX_STENCIL_BLOCKS;
+
+            // Truncate for preview (full list used for actual placement)
+            if all_positions.len() > MAX_STENCIL_BLOCKS {
+                self.preview_positions = all_positions[..MAX_STENCIL_BLOCKS].to_vec();
+            } else {
+                self.preview_positions = all_positions;
+            }
+        }
+    }
+}
+
+/// State for the cube placement tool.
+#[derive(Clone, Debug)]
+pub struct CubeToolState {
+    /// Whether the cube tool is currently active.
+    pub active: bool,
+    /// Half-size in X direction (full width = size_x * 2 + 1).
+    pub size_x: i32,
+    /// Half-size in Y direction (full height = size_y * 2 + 1).
+    pub size_y: i32,
+    /// Half-size in Z direction (full depth = size_z * 2 + 1).
+    pub size_z: i32,
+    /// Whether to create a hollow shell instead of solid cube.
+    pub hollow: bool,
+    /// Whether to create only the top half (dome mode).
+    pub dome: bool,
+    /// Placement mode (center or base).
+    pub placement_mode: PlacementMode,
+    /// Cached preview positions for GPU upload.
+    pub preview_positions: Vec<Vector3<i32>>,
+    /// Current preview center position (if targeting a block).
+    pub preview_center: Option<Vector3<i32>>,
+    /// Total block count for the full cube (may differ from preview if truncated).
+    pub total_blocks: usize,
+    /// Whether the preview was truncated due to exceeding buffer limit.
+    pub preview_truncated: bool,
+    /// Cached size_x for detecting when to regenerate preview.
+    cached_size_x: i32,
+    /// Cached size_y for detecting when to regenerate preview.
+    cached_size_y: i32,
+    /// Cached size_z for detecting when to regenerate preview.
+    cached_size_z: i32,
+    /// Cached hollow setting for detecting when to regenerate preview.
+    cached_hollow: bool,
+    /// Cached dome setting for detecting when to regenerate preview.
+    cached_dome: bool,
+    /// Cached placement mode for detecting when to regenerate preview.
+    cached_placement_mode: PlacementMode,
+}
+
+impl Default for CubeToolState {
+    fn default() -> Self {
+        Self {
+            active: false,
+            size_x: 5,
+            size_y: 5,
+            size_z: 5,
+            hollow: false,
+            dome: false,
+            placement_mode: PlacementMode::Center,
+            preview_positions: Vec::new(),
+            preview_center: None,
+            total_blocks: 0,
+            preview_truncated: false,
+            cached_size_x: 5,
+            cached_size_y: 5,
+            cached_size_z: 5,
+            cached_hollow: false,
+            cached_dome: false,
+            cached_placement_mode: PlacementMode::Center,
+        }
+    }
+}
+
+impl CubeToolState {
+    /// Check if settings have changed since last preview generation.
+    pub fn settings_changed(&self) -> bool {
+        self.size_x != self.cached_size_x
+            || self.size_y != self.cached_size_y
+            || self.size_z != self.cached_size_z
+            || self.hollow != self.cached_hollow
+            || self.dome != self.cached_dome
+            || self.placement_mode != self.cached_placement_mode
+    }
+
+    /// Update cached settings after regenerating preview.
+    pub fn update_cache(&mut self) {
+        self.cached_size_x = self.size_x;
+        self.cached_size_y = self.size_y;
+        self.cached_size_z = self.size_z;
+        self.cached_hollow = self.hollow;
+        self.cached_dome = self.dome;
+        self.cached_placement_mode = self.placement_mode;
+    }
+
+    /// Clear the preview state.
+    pub fn clear_preview(&mut self) {
+        self.preview_positions.clear();
+        self.preview_center = None;
+        self.preview_truncated = false;
+        self.total_blocks = 0;
+    }
+
+    /// Deactivate the tool and clear preview.
+    pub fn deactivate(&mut self) {
+        self.active = false;
+        self.clear_preview();
+    }
+
+    /// Update the cube preview at the given target position.
+    ///
+    /// Regenerates preview positions when target or settings change.
+    pub fn update_preview(&mut self, target: Vector3<i32>) {
+        use crate::gpu_resources::MAX_STENCIL_BLOCKS;
+
+        let center = cube::calculate_center(target, self.size_y, self.placement_mode);
+
+        // Only regenerate if center or settings changed
+        let needs_regen = self.preview_center != Some(center) || self.settings_changed();
+
+        if needs_regen {
+            self.preview_center = Some(center);
+            self.update_cache();
+
+            let all_positions = cube::generate_cube_positions(
+                center,
+                self.size_x,
+                self.size_y,
+                self.size_z,
+                self.hollow,
+                self.dome,
+            );
 
             // Track total count and truncation status
             self.total_blocks = all_positions.len();

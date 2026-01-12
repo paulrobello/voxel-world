@@ -11,7 +11,7 @@ use nalgebra::Vector3;
 
 /// Execute the sphere command.
 ///
-/// Syntax: sphere <block> <cx> <cy> <cz> <radius> [hollow]
+/// Syntax: sphere <block> <cx> <cy> <cz> <radius> [hollow] [dome]
 pub fn sphere(
     args: &[&str],
     world: &mut World,
@@ -21,7 +21,7 @@ pub fn sphere(
     // Parse arguments
     if args.len() < 5 {
         return CommandResult::Error(
-            "Usage: sphere <block> <cx> <cy> <cz> <radius> [hollow]".to_string(),
+            "Usage: sphere <block> <cx> <cy> <cz> <radius> [hollow] [dome]".to_string(),
         );
     }
 
@@ -58,11 +58,19 @@ pub fn sphere(
         Err(_) => return CommandResult::Error(format!("Invalid radius: '{}'", args[4])),
     };
 
-    // Check for hollow flag
-    let hollow = args.len() > 5 && args[5].to_lowercase() == "hollow";
+    // Check for hollow and dome flags (can appear in any order after radius)
+    let mut hollow = false;
+    let mut dome = false;
+    for arg in args.iter().skip(5) {
+        match arg.to_lowercase().as_str() {
+            "hollow" => hollow = true,
+            "dome" => dome = true,
+            _ => {}
+        }
+    }
 
     // Validate Y bounds for sphere extent
-    let min_y = cy - radius;
+    let min_y = if dome { cy } else { cy - radius };
     let max_y = cy + radius;
     if let Some(error) = validate_y_bounds(min_y) {
         return CommandResult::Error(error);
@@ -73,7 +81,7 @@ pub fn sphere(
 
     // Estimate volume for confirmation
     let radius_f = radius as f64;
-    let estimated_volume = if hollow {
+    let mut estimated_volume = if hollow {
         // Hollow sphere shell: outer - inner (with inner radius = r-1)
         let outer_vol = (4.0 / 3.0) * std::f64::consts::PI * radius_f.powi(3);
         let inner_radius = (radius - 1).max(0) as f64;
@@ -83,6 +91,11 @@ pub fn sphere(
         // Solid sphere volume
         ((4.0 / 3.0) * std::f64::consts::PI * radius_f.powi(3)) as u64
     };
+
+    // Dome is roughly half the volume
+    if dome {
+        estimated_volume /= 2;
+    }
 
     // Check volume threshold
     if !confirmed && estimated_volume > volume_confirm_threshold() {
@@ -106,8 +119,11 @@ pub fn sphere(
 
     let mut count = 0u64;
 
+    // For dome mode, start at center.y instead of center.y - radius
+    let y_start = if dome { cy } else { cy - radius };
+
     for x in (cx - radius)..=(cx + radius) {
-        for y in (cy - radius)..=(cy + radius) {
+        for y in y_start..=(cy + radius) {
             for z in (cz - radius)..=(cz + radius) {
                 let dx = (x - cx) as i64;
                 let dy = (y - cy) as i64;
@@ -134,10 +150,11 @@ pub fn sphere(
         }
     }
 
-    let mode = if hollow { " (hollow)" } else { "" };
+    let hollow_str = if hollow { " hollow" } else { "" };
+    let dome_str = if dome { " dome" } else { "" };
     CommandResult::Success(format!(
-        "Created sphere of {} blocks with {:?}{}",
-        count, block, mode
+        "Created{}{} sphere of {} blocks with {:?}",
+        hollow_str, dome_str, count, block
     ))
 }
 

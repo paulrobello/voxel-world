@@ -26,6 +26,7 @@ use egui_winit_vulkano::egui;
 use nalgebra::Vector3;
 
 pub mod console;
+pub mod cube_tool;
 pub mod helpers;
 pub mod hotbar;
 pub mod minimap;
@@ -37,6 +38,7 @@ pub mod time;
 pub mod tools;
 
 use console::ConsoleUI;
+use cube_tool::CubeToolUI;
 use hotbar::HotbarUI;
 use minimap::MinimapUI;
 use palette::PaletteUI;
@@ -111,6 +113,7 @@ pub struct HudInputs<'a> {
     pub tools_palette: &'a mut ToolsPaletteState,
     pub stencil_browser_open: bool,
     pub sphere_tool: &'a mut crate::shape_tools::SphereToolState,
+    pub cube_tool: &'a mut crate::shape_tools::CubeToolState,
 }
 
 pub struct HUDRenderer;
@@ -172,6 +175,7 @@ impl HUDRenderer {
             tools_palette,
             stencil_browser_open,
             sphere_tool,
+            cube_tool,
         } = input;
         let mut scale_changed = false;
         let mut editor_action = EditorAction::None;
@@ -240,6 +244,7 @@ impl HUDRenderer {
                 template_selection.visual_mode,
                 flood_fill_active,
                 sphere_tool.active,
+                cube_tool.active,
                 stencil_manager.global_opacity,
                 stencil_manager.render_mode,
             );
@@ -256,6 +261,9 @@ impl HUDRenderer {
 
             // Sphere tool settings window
             SphereToolUI::draw(&ctx, sphere_tool);
+
+            // Cube tool settings window
+            CubeToolUI::draw(&ctx, cube_tool);
 
             // Crosshair (hide when editor or console is open)
             if !editor.active && !console.active {

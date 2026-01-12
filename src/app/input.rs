@@ -86,6 +86,13 @@ impl App {
             return true;
         }
 
+        // Cancel cube tool
+        if self.input.key_pressed(KeyCode::Escape) && self.ui.cube_tool.active {
+            println!("Cube Tool: OFF");
+            self.ui.cube_tool.deactivate();
+            return true;
+        }
+
         // Handle escape to unfocus
         if self.input.key_pressed(KeyCode::Escape) && self.input.focused {
             self.input.focused = false;
@@ -510,6 +517,26 @@ impl App {
             }
         }
 
+        // Update cube tool preview from raycast
+        if self.ui.cube_tool.active {
+            if let Some(hit) = self.ui.current_hit {
+                // For Base mode, use hit block position (cube sits ON the block)
+                // For Center mode, use placement position (where block would be placed)
+                let target = if self.ui.cube_tool.placement_mode
+                    == crate::shape_tools::PlacementMode::Base
+                {
+                    // Base mode: cube bottom rests on top of hit block
+                    // So target is one above hit block (first air block)
+                    hit.block_pos + Vector3::new(0, 1, 0)
+                } else {
+                    get_place_position(&hit)
+                };
+                self.ui.cube_tool.update_preview(target);
+            } else {
+                self.ui.cube_tool.clear_preview();
+            }
+        }
+
         // Handle template placement with right-click
         // Check if mouse was released (clear reclick flag)
         if self.ui.place_needs_reclick && !self.input.mouse_held(MouseButton::Right) {
@@ -590,6 +617,18 @@ impl App {
             && !self.ui.place_needs_reclick
         {
             self.place_sphere();
+            self.ui.place_needs_reclick = true;
+            return; // Skip block placement
+        }
+
+        // Handle cube placement with right-click
+        if self.input.focused
+            && self.ui.cube_tool.active
+            && !self.ui.cube_tool.preview_positions.is_empty()
+            && self.input.mouse_pressed(MouseButton::Right)
+            && !self.ui.place_needs_reclick
+        {
+            self.place_cube();
             self.ui.place_needs_reclick = true;
             return; // Skip block placement
         }

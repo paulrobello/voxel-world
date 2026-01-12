@@ -81,6 +81,7 @@ pub fn render_hud(
             tools_palette: &mut ui.tools_palette,
             stencil_browser_open: ui.stencil_ui.browser_open,
             sphere_tool: &mut ui.sphere_tool,
+            cube_tool: &mut ui.cube_tool,
         },
     );
 
@@ -137,6 +138,19 @@ pub fn render_hud(
             if ui.sphere_tool.active {
                 ui.tools_palette.open = false;
                 // Don't request cursor grab - sphere tool UI needs mouse interaction
+            }
+        }
+        ToolAction::ToggleCubeTool => {
+            ui.cube_tool.active = !ui.cube_tool.active;
+            println!(
+                "Cube Tool: {}",
+                if ui.cube_tool.active { "ON" } else { "OFF" }
+            );
+            // Close tools palette but DON'T grab cursor - let user adjust settings first
+            // User clicks in 3D view to start placement (which will grab cursor)
+            if ui.cube_tool.active {
+                ui.tools_palette.open = false;
+                // Don't request cursor grab - cube tool UI needs mouse interaction
             }
         }
         ToolAction::None => {}
