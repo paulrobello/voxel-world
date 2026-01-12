@@ -98,6 +98,8 @@ pub struct HudInputs<'a> {
     pub template_library: &'a crate::templates::TemplateLibrary,
     pub water_grid: &'a crate::water::WaterGrid,
     pub active_placement: &'a mut Option<crate::templates::TemplatePlacement>,
+    pub rangefinder_active: bool,
+    pub measurement_markers: &'a mut Vec<Vector3<i32>>,
 }
 
 pub struct HUDRenderer;
@@ -151,6 +153,8 @@ impl HUDRenderer {
             template_library,
             water_grid,
             active_placement,
+            rangefinder_active,
+            measurement_markers,
         } = input;
         let mut scale_changed = false;
         let mut editor_action = EditorAction::None;
@@ -213,6 +217,11 @@ impl HUDRenderer {
                 Self::draw_crosshair(&ctx, current_hit);
             }
 
+            // Rangefinder distance display (when active and targeting a block)
+            if rangefinder_active && !editor.active && !console.active {
+                Self::draw_rangefinder_overlay(&ctx, current_hit, measurement_markers);
+            }
+
             // Minimap settings panel integration
             if *show_minimap {
                 Self::draw_minimap_settings(&ctx, show_minimap, minimap, minimap_cached_image);
@@ -267,6 +276,7 @@ impl HUDRenderer {
                 active_placement,
                 terrain_generator,
                 cave_generator,
+                measurement_markers,
             );
 
             // Template placement overlay
@@ -463,6 +473,296 @@ impl HUDRenderer {
             ],
             stroke,
         );
+    }
+
+    /// Draws laser rangefinder distance display below the crosshair.
+    fn draw_rangefinder_overlay(
+        ctx: &egui::Context,
+        current_hit: &Option<RaycastHit>,
+        measurement_markers: &[Vector3<i32>],
+    ) {
+        let screen_rect = ctx.screen_rect();
+        let center = screen_rect.center();
+
+        // Position the distance display below the crosshair (offset enough to avoid position HUD)
+        egui::Area::new(egui::Id::new("rangefinder_overlay"))
+            .fixed_pos(egui::pos2(center.x, center.y + 60.0))
+            .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 0.0))
+            .show(ctx, |ui| {
+                egui::Frame::new()
+                    .fill(egui::Color32::from_rgba_unmultiplied(20, 20, 30, 200))
+                    .stroke(egui::Stroke::new(
+                        1.5,
+                        egui::Color32::from_rgb(255, 100, 100),
+                    ))
+                    .inner_margin(egui::Margin::symmetric(10, 6))
+                    .corner_radius(4.0)
+                    .show(ui, |ui| {
+                        if let Some(hit) = current_hit {
+                            // Show distance with 1 decimal place
+                            ui.label(
+                                egui::RichText::new(format!("📏 {:.1} blocks", hit.distance))
+                                    .color(egui::Color32::from_rgb(255, 100, 100))
+                                    .size(14.0)
+                                    .strong(),
+                            );
+                        } else {
+                            // No target
+                            ui.label(
+                                egui::RichText::new("📏 --.- blocks")
+                                    .color(egui::Color32::from_gray(120))
+                                    .size(14.0),
+                            );
+                        }
+
+                        // Show marker count and instructions
+                        if !measurement_markers.is_empty() {
+                            ui.add_space(4.0);
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "Markers: {}/4",
+                                    measurement_markers.len()
+                                ))
+                                .color(egui::Color32::from_rgb(100, 200, 255))
+                                .size(12.0),
+                            );
+                        } else {
+                            ui.add_space(4.0);
+                            ui.label(
+                                egui::RichText::new("Left-click to place markers")
+                                    .color(egui::Color32::from_gray(150))
+                                    .size(11.0),
+                            );
+                        }
+                    });
+            });
+
+        // Draw measurement panel on the left side when markers exist
+        if measurement_markers.len() >= 2 {
+            egui::Area::new(egui::Id::new("measurement_panel"))
+                .fixed_pos(egui::pos2(10.0, screen_rect.center().y - 50.0))
+                .show(ctx, |ui| {
+                    egui::Frame::new()
+                        .fill(egui::Color32::from_rgba_unmultiplied(20, 20, 30, 220))
+                        .stroke(egui::Stroke::new(
+                            1.5,
+                            egui::Color32::from_rgb(100, 200, 255),
+                        ))
+                        .inner_margin(egui::Margin::symmetric(10, 8))
+                        .corner_radius(6.0)
+                        .show(ui, |ui| {
+                            ui.label(
+                                egui::RichText::new("📐 Measurements")
+                                    .color(egui::Color32::from_rgb(100, 200, 255))
+                                    .size(14.0)
+                                    .strong(),
+                            );
+                            ui.add_space(4.0);
+
+                            // Show distances between consecutive markers
+                            for i in 0..measurement_markers.len() - 1 {
+                                let p1 = measurement_markers[i];
+                                let p2 = measurement_markers[i + 1];
+
+                                let dx = (p2.x - p1.x).abs();
+                                let dy = (p2.y - p1.y).abs();
+                                let dz = (p2.z - p1.z).abs();
+
+                                let dist = ((p2.x - p1.x).pow(2)
+                                    + (p2.y - p1.y).pow(2)
+                                    + (p2.z - p1.z).pow(2))
+                                    as f32;
+                                let dist = dist.sqrt();
+
+                                // Marker colors matching shader
+                                let colors = [
+                                    egui::Color32::from_rgb(0, 255, 255),  // Cyan
+                                    egui::Color32::from_rgb(255, 77, 255), // Magenta
+                                    egui::Color32::from_rgb(255, 255, 77), // Yellow
+                                    egui::Color32::from_rgb(255, 128, 51), // Orange
+                                ];
+
+                                ui.horizontal(|ui| {
+                                    ui.label(
+                                        egui::RichText::new(format!("{}", i + 1))
+                                            .color(colors[i % 4])
+                                            .size(12.0),
+                                    );
+                                    ui.label(
+                                        egui::RichText::new("→")
+                                            .color(egui::Color32::WHITE)
+                                            .size(12.0),
+                                    );
+                                    ui.label(
+                                        egui::RichText::new(format!("{}", i + 2))
+                                            .color(colors[(i + 1) % 4])
+                                            .size(12.0),
+                                    );
+                                    ui.label(
+                                        egui::RichText::new(format!(": {:.1}", dist))
+                                            .color(egui::Color32::WHITE)
+                                            .size(12.0)
+                                            .strong(),
+                                    );
+                                });
+
+                                // Show axis breakdown
+                                if dx > 0 || dy > 0 || dz > 0 {
+                                    ui.horizontal(|ui| {
+                                        ui.add_space(20.0);
+                                        if dx > 0 {
+                                            ui.label(
+                                                egui::RichText::new(format!("X:{}", dx))
+                                                    .color(egui::Color32::from_rgb(255, 100, 100))
+                                                    .size(10.0),
+                                            );
+                                        }
+                                        if dy > 0 {
+                                            ui.label(
+                                                egui::RichText::new(format!("Y:{}", dy))
+                                                    .color(egui::Color32::from_rgb(100, 255, 100))
+                                                    .size(10.0),
+                                            );
+                                        }
+                                        if dz > 0 {
+                                            ui.label(
+                                                egui::RichText::new(format!("Z:{}", dz))
+                                                    .color(egui::Color32::from_rgb(100, 100, 255))
+                                                    .size(10.0),
+                                            );
+                                        }
+                                    });
+                                }
+                            }
+
+                            // Show total distance if 3+ markers
+                            if measurement_markers.len() >= 3 {
+                                ui.add_space(4.0);
+                                let mut total = 0.0f32;
+                                for i in 0..measurement_markers.len() - 1 {
+                                    let p1 = measurement_markers[i];
+                                    let p2 = measurement_markers[i + 1];
+                                    let dist = ((p2.x - p1.x).pow(2)
+                                        + (p2.y - p1.y).pow(2)
+                                        + (p2.z - p1.z).pow(2))
+                                        as f32;
+                                    total += dist.sqrt();
+                                }
+                                ui.label(
+                                    egui::RichText::new(format!("Total: {:.1} blocks", total))
+                                        .color(egui::Color32::from_rgb(255, 200, 100))
+                                        .size(12.0)
+                                        .strong(),
+                                );
+                            }
+                        });
+                });
+        }
+
+        // Draw a laser beam line from crosshair extending outward when targeting
+        if current_hit.is_some() {
+            let painter = ctx.layer_painter(egui::LayerId::new(
+                egui::Order::Background,
+                egui::Id::new("rangefinder_laser"),
+            ));
+
+            // Draw a subtle red laser line extending from crosshair
+            // This is a visual indicator - the actual 3D line would require projection
+            let laser_color = egui::Color32::from_rgba_unmultiplied(255, 50, 50, 100);
+            let laser_stroke = egui::Stroke::new(1.5, laser_color);
+
+            // Draw decorative laser brackets around the crosshair
+            let bracket_size = 20.0;
+            let bracket_offset = 18.0;
+
+            // Top-left bracket
+            painter.line_segment(
+                [
+                    egui::pos2(center.x - bracket_offset, center.y - bracket_offset),
+                    egui::pos2(
+                        center.x - bracket_offset + bracket_size * 0.4,
+                        center.y - bracket_offset,
+                    ),
+                ],
+                laser_stroke,
+            );
+            painter.line_segment(
+                [
+                    egui::pos2(center.x - bracket_offset, center.y - bracket_offset),
+                    egui::pos2(
+                        center.x - bracket_offset,
+                        center.y - bracket_offset + bracket_size * 0.4,
+                    ),
+                ],
+                laser_stroke,
+            );
+
+            // Top-right bracket
+            painter.line_segment(
+                [
+                    egui::pos2(center.x + bracket_offset, center.y - bracket_offset),
+                    egui::pos2(
+                        center.x + bracket_offset - bracket_size * 0.4,
+                        center.y - bracket_offset,
+                    ),
+                ],
+                laser_stroke,
+            );
+            painter.line_segment(
+                [
+                    egui::pos2(center.x + bracket_offset, center.y - bracket_offset),
+                    egui::pos2(
+                        center.x + bracket_offset,
+                        center.y - bracket_offset + bracket_size * 0.4,
+                    ),
+                ],
+                laser_stroke,
+            );
+
+            // Bottom-left bracket
+            painter.line_segment(
+                [
+                    egui::pos2(center.x - bracket_offset, center.y + bracket_offset),
+                    egui::pos2(
+                        center.x - bracket_offset + bracket_size * 0.4,
+                        center.y + bracket_offset,
+                    ),
+                ],
+                laser_stroke,
+            );
+            painter.line_segment(
+                [
+                    egui::pos2(center.x - bracket_offset, center.y + bracket_offset),
+                    egui::pos2(
+                        center.x - bracket_offset,
+                        center.y + bracket_offset - bracket_size * 0.4,
+                    ),
+                ],
+                laser_stroke,
+            );
+
+            // Bottom-right bracket
+            painter.line_segment(
+                [
+                    egui::pos2(center.x + bracket_offset, center.y + bracket_offset),
+                    egui::pos2(
+                        center.x + bracket_offset - bracket_size * 0.4,
+                        center.y + bracket_offset,
+                    ),
+                ],
+                laser_stroke,
+            );
+            painter.line_segment(
+                [
+                    egui::pos2(center.x + bracket_offset, center.y + bracket_offset),
+                    egui::pos2(
+                        center.x + bracket_offset,
+                        center.y + bracket_offset - bracket_size * 0.4,
+                    ),
+                ],
+                laser_stroke,
+            );
+        }
     }
 
     fn draw_minimap_settings(

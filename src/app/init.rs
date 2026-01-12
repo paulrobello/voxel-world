@@ -110,6 +110,7 @@ impl App {
         let mut initial_time_of_day = DEFAULT_TIME_OF_DAY;
         let mut initial_day_paused = true; // Default
         let mut world_gen = args.world_gen; // Default to CLI arg
+        let mut initial_measurement_markers: Vec<Vector3<i32>> = Vec::new();
 
         if metadata_path.exists() {
             if let Ok(meta) = storage::metadata::WorldMetadata::load(&metadata_path) {
@@ -122,6 +123,18 @@ impl App {
                 initial_day_paused = meta.day_cycle_paused;
                 // Use persisted world_gen, not CLI arg (existing world takes precedence)
                 world_gen = meta.world_gen;
+                // Load measurement markers
+                initial_measurement_markers = meta
+                    .measurement_markers
+                    .iter()
+                    .map(|&[x, y, z]| Vector3::new(x, y, z))
+                    .collect();
+                if !initial_measurement_markers.is_empty() {
+                    println!(
+                        "[Storage] Loaded {} measurement markers",
+                        initial_measurement_markers.len()
+                    );
+                }
             }
         } else {
             let meta = storage::metadata::WorldMetadata {
@@ -131,6 +144,7 @@ impl App {
                 time_of_day: DEFAULT_TIME_OF_DAY,
                 day_cycle_paused: true,
                 world_gen,
+                measurement_markers: Vec::new(),
             };
             let _ = meta.save(&metadata_path);
             println!(
@@ -511,6 +525,8 @@ impl App {
             active_placement: None,
             template_previously_focused: false,
             request_cursor_grab: false,
+            rangefinder_active: false,
+            measurement_markers: initial_measurement_markers,
         };
 
         let input = InputState {

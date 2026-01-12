@@ -23,6 +23,7 @@ impl ConsoleUI {
         active_placement: &mut Option<TemplatePlacement>,
         terrain_generator: &crate::terrain_gen::TerrainGenerator,
         cave_generator: &crate::cave_gen::CaveGenerator,
+        measurement_markers: &mut Vec<Vector3<i32>>,
     ) {
         if !console.active {
             // Still update pending searches even when console is closed
@@ -290,6 +291,12 @@ impl ConsoleUI {
                                     fluid_stats.lava_cells,
                                     fluid_stats.lava_active,
                                 );
+                            }
+
+                            // Handle pending clear measurement markers
+                            if console.pending_clear_markers {
+                                measurement_markers.clear();
+                                console.pending_clear_markers = false;
                             }
                             // Re-focus the input
                             console.request_focus = true;

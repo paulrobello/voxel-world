@@ -60,17 +60,17 @@ pub struct WorldSim {
 }
 
 impl WorldSim {
-    pub fn auto_save(&mut self) {
+    pub fn auto_save(&mut self, measurement_markers: &[Vector3<i32>]) {
         let now = Instant::now();
         if now.duration_since(self.last_save) > Duration::from_secs(30) {
             self.save_dirty(10);
-            self.save_metadata();
+            self.save_metadata(measurement_markers);
             // Update last_save even if nothing was saved, to wait for the next interval
             self.last_save = now;
         }
     }
 
-    pub fn save_metadata(&self) {
+    pub fn save_metadata(&self, measurement_markers: &[Vector3<i32>]) {
         let player_pos = self.player.feet_pos(self.world_extent, self.texture_origin);
 
         let meta = storage::metadata::WorldMetadata {
@@ -80,6 +80,10 @@ impl WorldSim {
             time_of_day: self.time_of_day,
             day_cycle_paused: self.day_cycle_paused,
             world_gen: self.world_gen,
+            measurement_markers: measurement_markers
+                .iter()
+                .map(|v| [v.x, v.y, v.z])
+                .collect(),
         };
 
         if let Err(e) = meta.save(self.world_dir.join("level.dat")) {
@@ -105,7 +109,7 @@ impl WorldSim {
         }
     }
 
-    pub fn save_all(&mut self) {
+    pub fn save_all(&mut self, measurement_markers: &[Vector3<i32>]) {
         let mut saved_count = 0;
         for (pos, chunk) in self.world.chunks_mut() {
             if chunk.persistence_dirty {
@@ -136,6 +140,6 @@ impl WorldSim {
             }
         }
 
-        self.save_metadata();
+        self.save_metadata(measurement_markers);
     }
 }

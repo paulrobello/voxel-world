@@ -270,6 +270,58 @@ impl App {
             self.ui.console.pending_water_analyze = false;
         }
 
+        // Handle pending save position from console
+        if let Some(name) = self.ui.console.pending_save_position.take() {
+            let player_pos = self
+                .sim
+                .player
+                .feet_pos(self.sim.world_extent, self.sim.texture_origin);
+            let position = [player_pos.x, player_pos.y, player_pos.z];
+            self.prefs
+                .save_position(&self.sim.world_name, &name, position);
+            self.prefs.save();
+            self.ui.console.success(format!(
+                "Saved position '{}' at ({:.1}, {:.1}, {:.1})",
+                name, player_pos.x, player_pos.y, player_pos.z
+            ));
+        }
+
+        // Handle pending delete position from console
+        if let Some(name) = self.ui.console.pending_delete_position.take() {
+            if self.prefs.delete_position(&self.sim.world_name, &name) {
+                self.prefs.save();
+                self.ui
+                    .console
+                    .success(format!("Deleted position '{}'", name));
+            } else {
+                self.ui
+                    .console
+                    .error(format!("Position '{}' not found", name));
+            }
+        }
+
+        // Handle pending list positions from console
+        if self.ui.console.pending_list_positions {
+            let names = self.prefs.get_position_names(&self.sim.world_name);
+            if names.is_empty() {
+                self.ui.console.info("No saved positions for this world.");
+            } else {
+                self.ui.console.info("Saved positions:");
+                for name in &names {
+                    if let Some(pos) = self.prefs.get_position(&self.sim.world_name, name) {
+                        self.ui.console.info(format!(
+                            "  {} - ({:.1}, {:.1}, {:.1})",
+                            name, pos[0], pos[1], pos[2]
+                        ));
+                    }
+                }
+                self.ui
+                    .console
+                    .info("Use 'tp <x> <y> <z>' to teleport to a saved position.");
+            }
+            self.ui.console.pending_list_positions = false;
+        }
+
         let render_extent = rcx.render_image.extent();
         let resample_extent = rcx.resample_image.extent();
         self.sim.player.camera.extent = [render_extent[0] as f64, render_extent[1] as f64];
@@ -659,6 +711,80 @@ impl App {
                     -1000
                 }
             },
+            // Measurement markers
+            measurement_marker_count: self.ui.measurement_markers.len().min(4) as u32,
+            measurement_marker_0_x: self
+                .ui
+                .measurement_markers
+                .first()
+                .map(|p| p.x - self.sim.texture_origin.x)
+                .unwrap_or(-10000),
+            measurement_marker_0_y: self
+                .ui
+                .measurement_markers
+                .first()
+                .map(|p| p.y - self.sim.texture_origin.y)
+                .unwrap_or(-10000),
+            measurement_marker_0_z: self
+                .ui
+                .measurement_markers
+                .first()
+                .map(|p| p.z - self.sim.texture_origin.z)
+                .unwrap_or(-10000),
+            measurement_marker_1_x: self
+                .ui
+                .measurement_markers
+                .get(1)
+                .map(|p| p.x - self.sim.texture_origin.x)
+                .unwrap_or(-10000),
+            measurement_marker_1_y: self
+                .ui
+                .measurement_markers
+                .get(1)
+                .map(|p| p.y - self.sim.texture_origin.y)
+                .unwrap_or(-10000),
+            measurement_marker_1_z: self
+                .ui
+                .measurement_markers
+                .get(1)
+                .map(|p| p.z - self.sim.texture_origin.z)
+                .unwrap_or(-10000),
+            measurement_marker_2_x: self
+                .ui
+                .measurement_markers
+                .get(2)
+                .map(|p| p.x - self.sim.texture_origin.x)
+                .unwrap_or(-10000),
+            measurement_marker_2_y: self
+                .ui
+                .measurement_markers
+                .get(2)
+                .map(|p| p.y - self.sim.texture_origin.y)
+                .unwrap_or(-10000),
+            measurement_marker_2_z: self
+                .ui
+                .measurement_markers
+                .get(2)
+                .map(|p| p.z - self.sim.texture_origin.z)
+                .unwrap_or(-10000),
+            measurement_marker_3_x: self
+                .ui
+                .measurement_markers
+                .get(3)
+                .map(|p| p.x - self.sim.texture_origin.x)
+                .unwrap_or(-10000),
+            measurement_marker_3_y: self
+                .ui
+                .measurement_markers
+                .get(3)
+                .map(|p| p.y - self.sim.texture_origin.y)
+                .unwrap_or(-10000),
+            measurement_marker_3_z: self
+                .ui
+                .measurement_markers
+                .get(3)
+                .map(|p| p.z - self.sim.texture_origin.z)
+                .unwrap_or(-10000),
         };
 
         let mut builder = AutoCommandBufferBuilder::primary(

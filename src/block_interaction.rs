@@ -451,8 +451,11 @@ impl App {
     }
 
     pub fn update_block_placing(&mut self, delta_time: f32) {
-        // Skip block placement if in template placement mode or selection mode
-        if self.ui.active_placement.is_some() || self.ui.template_selection.visual_mode {
+        // Skip block placement if in template placement mode, selection mode, or rangefinder mode
+        if self.ui.active_placement.is_some()
+            || self.ui.template_selection.visual_mode
+            || self.ui.rangefinder_active
+        {
             return;
         }
 

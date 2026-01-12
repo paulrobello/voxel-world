@@ -114,6 +114,11 @@ pub struct UserPreferences {
     /// Console command history (most recent last, max 100 entries).
     #[serde(default)]
     pub console_history: Vec<String>,
+
+    /// Saved positions per world.
+    /// Key is the world name, value is a map of position name to coordinates.
+    #[serde(default)]
+    pub saved_positions: HashMap<String, HashMap<String, [f64; 3]>>,
 }
 
 impl Default for UserPreferences {
@@ -140,7 +145,43 @@ impl Default for UserPreferences {
             recent_worlds: Vec::new(),
             world_player_data: HashMap::new(),
             console_history: Vec::new(),
+            saved_positions: HashMap::new(),
         }
+    }
+}
+
+impl UserPreferences {
+    /// Saves a named position for a specific world.
+    pub fn save_position(&mut self, world_name: &str, name: &str, position: [f64; 3]) {
+        self.saved_positions
+            .entry(world_name.to_string())
+            .or_default()
+            .insert(name.to_string(), position);
+    }
+
+    /// Deletes a named position for a specific world.
+    /// Returns true if the position existed and was deleted.
+    pub fn delete_position(&mut self, world_name: &str, name: &str) -> bool {
+        if let Some(world_positions) = self.saved_positions.get_mut(world_name) {
+            world_positions.remove(name).is_some()
+        } else {
+            false
+        }
+    }
+
+    /// Gets a named position for a specific world.
+    pub fn get_position(&self, world_name: &str, name: &str) -> Option<[f64; 3]> {
+        self.saved_positions
+            .get(world_name)
+            .and_then(|positions| positions.get(name).copied())
+    }
+
+    /// Gets all saved position names for a specific world.
+    pub fn get_position_names(&self, world_name: &str) -> Vec<String> {
+        self.saved_positions
+            .get(world_name)
+            .map(|positions| positions.keys().cloned().collect())
+            .unwrap_or_default()
     }
 }
 

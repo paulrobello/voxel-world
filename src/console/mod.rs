@@ -88,6 +88,14 @@ pub enum CommandResult {
     },
     /// Start an asynchronous locate search.
     StartLocateSearch(PendingLocateSearch),
+    /// Clear all measurement markers.
+    ClearMeasurementMarkers,
+    /// Save current position with a name.
+    SavePosition { name: String },
+    /// Delete a saved position.
+    DeletePosition { name: String },
+    /// List all saved positions for current world.
+    ListPositions,
 }
 
 /// Pending command awaiting confirmation.
@@ -213,6 +221,14 @@ pub struct ConsoleState {
     pub pending_template_load: Option<crate::templates::VxtFile>,
     /// Pending locate search being processed frame by frame.
     pub pending_locate_search: Option<PendingLocateSearch>,
+    /// Pending clear measurement markers request.
+    pub pending_clear_markers: bool,
+    /// Pending save position (name to save).
+    pub pending_save_position: Option<String>,
+    /// Pending delete position (name to delete).
+    pub pending_delete_position: Option<String>,
+    /// Pending list positions request.
+    pub pending_list_positions: bool,
     /// Current autocomplete suggestions.
     pub suggestions: Vec<String>,
     /// Currently selected suggestion index.
@@ -243,6 +259,10 @@ impl ConsoleState {
             pending_biome_debug: None,
             pending_template_load: None,
             pending_locate_search: None,
+            pending_clear_markers: false,
+            pending_save_position: None,
+            pending_delete_position: None,
+            pending_list_positions: false,
             suggestions: Vec::new(),
             suggestion_index: 0,
             move_cursor_to_end: false,
@@ -386,6 +406,26 @@ impl ConsoleState {
             CommandSignature {
                 name: "clear",
                 aliases: &[],
+                params: &[],
+            },
+            CommandSignature {
+                name: "measure",
+                aliases: &[],
+                params: &[ParamType::Text], // subcommand: clear
+            },
+            CommandSignature {
+                name: "save_pos",
+                aliases: &["savepos", "sp"],
+                params: &[ParamType::Text], // position name
+            },
+            CommandSignature {
+                name: "delete_pos",
+                aliases: &["deletepos", "delpos", "dp"],
+                params: &[ParamType::Text], // position name
+            },
+            CommandSignature {
+                name: "list_pos",
+                aliases: &["listpos", "lp", "positions"],
                 params: &[],
             },
         ]
@@ -901,6 +941,19 @@ impl ConsoleState {
                 self.info(format!("Searching for {}...", search_name));
                 self.pending_locate_search = Some(search);
             }
+            CommandResult::ClearMeasurementMarkers => {
+                self.success("Cleared all measurement markers.".to_string());
+                self.pending_clear_markers = true;
+            }
+            CommandResult::SavePosition { name } => {
+                self.pending_save_position = Some(name);
+            }
+            CommandResult::DeletePosition { name } => {
+                self.pending_delete_position = Some(name);
+            }
+            CommandResult::ListPositions => {
+                self.pending_list_positions = true;
+            }
         }
     }
 
@@ -981,6 +1034,10 @@ impl ConsoleState {
                 self.output.clear();
                 CommandResult::Success("Console cleared.".to_string())
             }
+            "measure" => commands::measure(args),
+            "save_pos" | "savepos" | "sp" => commands::save_pos(args),
+            "delete_pos" | "deletepos" | "delpos" | "dp" => commands::delete_pos(args),
+            "list_pos" | "listpos" | "lp" | "positions" => commands::list_pos(),
             _ => CommandResult::Error(format!(
                 "Unknown command: '{}'. Type 'help' for commands.",
                 cmd

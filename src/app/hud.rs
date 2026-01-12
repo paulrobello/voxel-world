@@ -72,6 +72,8 @@ pub fn render_hud(
             template_library: &ui.template_library,
             water_grid: &sim.water_grid,
             active_placement: &mut ui.active_placement,
+            rangefinder_active: ui.rangefinder_active,
+            measurement_markers: &mut ui.measurement_markers,
         },
     );
 

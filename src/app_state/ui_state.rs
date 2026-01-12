@@ -89,4 +89,10 @@ pub struct UiState {
     pub template_previously_focused: bool,
     /// Request cursor grab (set when loading template for placement).
     pub request_cursor_grab: bool,
+
+    /// Laser rangefinder mode active (shows distance to targeted block).
+    pub rangefinder_active: bool,
+
+    /// Measurement marker positions (up to 8 markers for dimension display).
+    pub measurement_markers: Vec<Vector3<i32>>,
 }

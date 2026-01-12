@@ -661,6 +661,19 @@ fn render_icon(
         cutaway_chunk_z: -1000,
         cutaway_player_chunk_x: -1000,
         cutaway_player_chunk_z: -1000,
+        measurement_marker_count: 0,
+        measurement_marker_0_x: -10000,
+        measurement_marker_0_y: -10000,
+        measurement_marker_0_z: -10000,
+        measurement_marker_1_x: -10000,
+        measurement_marker_1_y: -10000,
+        measurement_marker_1_z: -10000,
+        measurement_marker_2_x: -10000,
+        measurement_marker_2_y: -10000,
+        measurement_marker_2_z: -10000,
+        measurement_marker_3_x: -10000,
+        measurement_marker_3_y: -10000,
+        measurement_marker_3_z: -10000,
     };
 
     // Render

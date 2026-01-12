@@ -492,3 +492,135 @@ bool renderTargetBlockOutline(vec3 origin, vec3 dir, inout vec3 color, float sce
 
     return true;
 }
+
+// Get measurement marker position by index
+ivec3 getMeasurementMarker(uint index) {
+    if (index == 0u) return ivec3(pc.measurement_marker_0_x, pc.measurement_marker_0_y, pc.measurement_marker_0_z);
+    if (index == 1u) return ivec3(pc.measurement_marker_1_x, pc.measurement_marker_1_y, pc.measurement_marker_1_z);
+    if (index == 2u) return ivec3(pc.measurement_marker_2_x, pc.measurement_marker_2_y, pc.measurement_marker_2_z);
+    return ivec3(pc.measurement_marker_3_x, pc.measurement_marker_3_y, pc.measurement_marker_3_z);
+}
+
+// Check if a measurement marker is valid (not at sentinel position)
+bool isValidMeasurementMarker(ivec3 pos) {
+    return pos.x > -5000;
+}
+
+// Get color for measurement marker by index (cyan, magenta, yellow, orange)
+vec3 getMeasurementMarkerColor(uint index) {
+    if (index == 0u) return vec3(0.0, 1.0, 1.0);   // Cyan
+    if (index == 1u) return vec3(1.0, 0.3, 1.0);   // Magenta
+    if (index == 2u) return vec3(1.0, 1.0, 0.3);   // Yellow
+    return vec3(1.0, 0.5, 0.2);                     // Orange
+}
+
+// Distance from point to line segment
+float distanceToLineSegment(vec3 p, vec3 a, vec3 b) {
+    vec3 ab = b - a;
+    vec3 ap = p - a;
+    float t = clamp(dot(ap, ab) / dot(ab, ab), 0.0, 1.0);
+    vec3 closest = a + t * ab;
+    return length(p - closest);
+}
+
+// Render measurement markers (glowing cubes at each marker position)
+bool renderMeasurementMarkers(vec3 origin, vec3 dir, inout vec3 color, float sceneHitDistance) {
+    if (pc.measurement_marker_count == 0u) {
+        return false;
+    }
+
+    bool anyHit = false;
+    float closestT = sceneHitDistance;
+
+    // Render each marker as a glowing cube
+    for (uint i = 0u; i < pc.measurement_marker_count && i < 4u; i++) {
+        ivec3 pos = getMeasurementMarker(i);
+        if (!isValidMeasurementMarker(pos)) continue;
+
+        vec3 boxMin = vec3(pos);
+        vec3 boxMax = vec3(pos) + vec3(1.0);
+
+        vec3 hitNormal;
+        float tHit;
+        if (rayBoxHit(origin, dir, boxMin, boxMax, tHit, hitNormal)) {
+            float tWorld = tHit * length(dir);
+            if (tHit >= 0.0 && tWorld < closestT + 0.5) {
+                vec3 hitPoint = origin + dir * tHit;
+                vec3 localHit = (hitPoint - boxMin) / (boxMax - boxMin);
+                localHit = clamp(localHit, vec3(0.0), vec3(1.0));
+
+                // Glowing cube with pulsing wireframe
+                float wireframe = getWireframeFactor(localHit, hitNormal);
+                vec3 markerColor = getMeasurementMarkerColor(i);
+                float pulse = 0.8 + 0.2 * sin(pc.animation_time * 3.0 + float(i) * 1.5);
+                float alpha = mix(0.4, 0.95, wireframe) * pulse;
+
+                color = mix(color, markerColor, alpha);
+                anyHit = true;
+                closestT = min(closestT, tWorld);
+            }
+        }
+    }
+
+    return anyHit;
+}
+
+// Render connecting lines between measurement markers
+bool renderMeasurementLines(vec3 origin, vec3 dir, inout vec3 color, float sceneHitDistance) {
+    if (pc.measurement_marker_count < 2u) {
+        return false;
+    }
+
+    bool anyHit = false;
+
+    // Render lines between consecutive markers
+    for (uint i = 0u; i < pc.measurement_marker_count - 1u && i < 3u; i++) {
+        ivec3 pos1 = getMeasurementMarker(i);
+        ivec3 pos2 = getMeasurementMarker(i + 1u);
+
+        if (!isValidMeasurementMarker(pos1) || !isValidMeasurementMarker(pos2)) continue;
+
+        // Line endpoints at block centers
+        vec3 lineStart = vec3(pos1) + vec3(0.5);
+        vec3 lineEnd = vec3(pos2) + vec3(0.5);
+
+        // Calculate bounding box for the line
+        vec3 lineMin = min(lineStart, lineEnd) - vec3(0.1);
+        vec3 lineMax = max(lineStart, lineEnd) + vec3(0.1);
+
+        // Ray-box intersection to check if ray might hit line
+        vec3 hitNormal;
+        float tHit;
+        if (!rayBoxHit(origin, dir, lineMin, lineMax, tHit, hitNormal)) {
+            continue;
+        }
+
+        if (tHit < 0.0) continue;
+
+        // Sample along the ray near the intersection
+        float lineLen = length(lineEnd - lineStart);
+        float sampleDist = max(0.05, lineLen * 0.01);
+
+        for (float t = max(0.0, tHit - 1.0); t < min(sceneHitDistance, tHit + lineLen + 1.0); t += sampleDist) {
+            vec3 samplePoint = origin + dir * t;
+            float distToLine = distanceToLineSegment(samplePoint, lineStart, lineEnd);
+
+            // Line thickness (thicker closer to camera)
+            float thickness = 0.08 + 0.02 * (t / 50.0);
+
+            if (distToLine < thickness) {
+                // White/bright line with subtle pulsing
+                vec3 lineColor = vec3(1.0, 1.0, 1.0);
+                float pulse = 0.7 + 0.3 * sin(pc.animation_time * 2.5);
+                float edgeFade = 1.0 - (distToLine / thickness);
+                float alpha = edgeFade * pulse * 0.8;
+
+                color = mix(color, lineColor, alpha);
+                anyHit = true;
+                break; // Only process first hit for this line
+            }
+        }
+    }
+
+    return anyHit;
+}

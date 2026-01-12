@@ -359,6 +359,20 @@ pub struct PushConstants {
     pub cutaway_chunk_z: i32,
     pub cutaway_player_chunk_x: i32,
     pub cutaway_player_chunk_z: i32,
+    // Measurement markers (up to 4 positions)
+    pub measurement_marker_count: u32,
+    pub measurement_marker_0_x: i32,
+    pub measurement_marker_0_y: i32,
+    pub measurement_marker_0_z: i32,
+    pub measurement_marker_1_x: i32,
+    pub measurement_marker_1_y: i32,
+    pub measurement_marker_1_z: i32,
+    pub measurement_marker_2_x: i32,
+    pub measurement_marker_2_y: i32,
+    pub measurement_marker_2_z: i32,
+    pub measurement_marker_3_x: i32,
+    pub measurement_marker_3_y: i32,
+    pub measurement_marker_3_z: i32,
 }
 
 pub fn get_swapchain_images(

@@ -268,6 +268,19 @@ impl App {
             );
         }
 
+        // Toggle laser rangefinder mode (G key)
+        if self.input.key_pressed(KeyCode::KeyG) {
+            self.ui.rangefinder_active = !self.ui.rangefinder_active;
+            println!(
+                "Rangefinder: {}",
+                if self.ui.rangefinder_active {
+                    "ON"
+                } else {
+                    "OFF"
+                }
+            );
+        }
+
         // Toggle water/lava source debug markers (K key)
         if self.input.key_pressed(KeyCode::KeyK) {
             self.ui.settings.show_water_sources = !self.ui.settings.show_water_sources;
@@ -357,6 +370,78 @@ impl App {
             }
 
             // Skip remaining interactions when in selection mode
+            if self.input.mouse_pressed(MouseButton::Left)
+                || self.input.mouse_pressed(MouseButton::Right)
+            {
+                return;
+            }
+        }
+
+        // Handle measurement marker placement (when rangefinder is active)
+        if self.ui.rangefinder_active
+            && self.input.focused
+            && !self.ui.template_selection.visual_mode
+        {
+            // Left-click adds a marker at the hit block position
+            if self.input.mouse_pressed(MouseButton::Left) {
+                if let Some(hit) = self.ui.current_hit {
+                    // Use the actual block position (not placement position)
+                    let pos = hit.block_pos;
+
+                    // Check if marker already exists at this position
+                    if !self.ui.measurement_markers.contains(&pos) {
+                        if self.ui.measurement_markers.len() < 4 {
+                            self.ui.measurement_markers.push(pos);
+                            println!(
+                                "Measurement marker {} placed at ({}, {}, {})",
+                                self.ui.measurement_markers.len(),
+                                pos.x,
+                                pos.y,
+                                pos.z
+                            );
+
+                            // Show distance to previous marker
+                            if self.ui.measurement_markers.len() >= 2 {
+                                let prev = self.ui.measurement_markers
+                                    [self.ui.measurement_markers.len() - 2];
+                                let dist = ((pos.x - prev.x).pow(2)
+                                    + (pos.y - prev.y).pow(2)
+                                    + (pos.z - prev.z).pow(2))
+                                    as f32;
+                                let dist = dist.sqrt();
+                                println!(
+                                    "  Distance from marker {}: {:.1} blocks",
+                                    self.ui.measurement_markers.len() - 1,
+                                    dist
+                                );
+                            }
+                        } else {
+                            println!(
+                                "Maximum 4 measurement markers reached. Right-click to remove."
+                            );
+                        }
+                    }
+                    // Skip normal block breaking
+                    self.ui.skip_break_until_release = true;
+                }
+            }
+
+            // Right-click removes the last marker
+            if self.input.mouse_pressed(MouseButton::Right) {
+                if let Some(removed) = self.ui.measurement_markers.pop() {
+                    println!(
+                        "Removed measurement marker at ({}, {}, {}). {} markers remaining.",
+                        removed.x,
+                        removed.y,
+                        removed.z,
+                        self.ui.measurement_markers.len()
+                    );
+                }
+                // Skip normal block placing
+                self.ui.place_needs_reclick = true;
+            }
+
+            // Skip remaining interactions when in rangefinder mode with click
             if self.input.mouse_pressed(MouseButton::Left)
                 || self.input.mouse_pressed(MouseButton::Right)
             {

@@ -7,6 +7,8 @@ mod copy;
 mod fill;
 mod locate;
 mod locate_async;
+mod measure;
+mod positions;
 mod select;
 mod sphere;
 mod template;
@@ -17,6 +19,8 @@ pub use copy::copy;
 pub use fill::fill;
 pub use locate::locate;
 pub use locate_async::update_locate_search;
+pub use measure::measure;
+pub use positions::{delete_pos, list_pos, save_pos};
 #[allow(unused_imports)] // TODO: Remove once integrated with main.rs
 pub use select::select;
 pub use sphere::sphere;
@@ -76,6 +80,19 @@ pub fn help() -> CommandResult {
     delete <name>: Delete a template
     info <name>: Show template details
 
+  measure clear
+    Clear all measurement markers from the world.
+
+  save_pos <name>, savepos, sp
+    Save your current position with a custom name.
+    Overwrites if name already exists.
+
+  delete_pos <name>, deletepos, delpos, dp
+    Delete a saved position by name.
+
+  list_pos, listpos, lp, positions
+    List all saved positions for the current world.
+
   waterdebug, wd
     Show water/lava simulation debug info.
 
@@ -113,7 +130,11 @@ Examples:
   template save my_house building decorated
   template load my_house
   template list
-  template info my_house"#;
+  template info my_house
+  save_pos home
+  save_pos mining_base
+  delete_pos old_base
+  list_pos"#;
 
     CommandResult::Success(help_text.to_string())
 }

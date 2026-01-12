@@ -197,7 +197,7 @@ impl App {
             self.sim.model_registry.clear_gpu_dirty();
         }
 
-        self.sim.auto_save();
+        self.sim.auto_save(&self.ui.measurement_markers);
 
         // Amortized metadata refresh runs once per frame.
         self.update_metadata_buffers();
@@ -208,7 +208,7 @@ impl App {
 
         if self.input.close_requested() {
             println!("[Storage] Saving world before exit...");
-            self.sim.save_all();
+            self.sim.save_all(&self.ui.measurement_markers);
             println!("[Prefs] Saving user preferences...");
             self.save_preferences();
             event_loop.exit();

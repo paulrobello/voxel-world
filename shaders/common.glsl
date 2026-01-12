@@ -205,6 +205,20 @@ layout(push_constant) uniform PushConstants {
     int cutaway_chunk_z;
     int cutaway_player_chunk_x;
     int cutaway_player_chunk_z;
+    // Measurement markers (up to 4 positions)
+    uint measurement_marker_count;
+    int measurement_marker_0_x;
+    int measurement_marker_0_y;
+    int measurement_marker_0_z;
+    int measurement_marker_1_x;
+    int measurement_marker_1_y;
+    int measurement_marker_1_z;
+    int measurement_marker_2_x;
+    int measurement_marker_2_y;
+    int measurement_marker_2_z;
+    int measurement_marker_3_x;
+    int measurement_marker_3_y;
+    int measurement_marker_3_z;
 } pc;
 
 // Particles (set 3)

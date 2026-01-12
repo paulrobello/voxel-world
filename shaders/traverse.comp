@@ -1006,6 +1006,8 @@ void main() {
         renderTemplatePreview(o, d, color, hitDistance);
         renderSelectionWireframe(o, d, color, hitDistance);
         renderSelectionMarkers(o, d, color, hitDistance);
+        renderMeasurementLines(o, d, color, hitDistance);
+        renderMeasurementMarkers(o, d, color, hitDistance);
     }
 
     if (underwater) {

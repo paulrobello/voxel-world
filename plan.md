@@ -265,22 +265,22 @@ impl Template {
 #### 16.2 Measurement Tool
 
 **16.2.1 Measurement Block Placement**
-- [ ] New item in hotbar: `MeasurementTool`
-- [ ] Place mode: click to place holographic marker block
-- [ ] Hologram appearance: semi-transparent cube with glowing edges
-- [ ] Maximum measurement blocks: unlimited (user manages cleanup)
+- [x] Place mode: left-click to place holographic marker block (when rangefinder active)
+- [x] Remove mode: right-click to remove last marker
+- [x] Hologram appearance: glowing colored cubes with pulsing animation (shader-rendered)
+- [x] Maximum measurement blocks: 4 markers (push constant limit), color-coded (Cyan/Magenta/Yellow/Orange)
 
 **16.2.2 Laser Rangefinder Mode**
-- [ ] Toggle mode: M key (or right-click with tool equipped)
-- [ ] Laser beam: visible colored line from player to block hit point
-- [ ] HUD display: distance in blocks (e.g., "Distance: 42 blocks")
+- [x] Toggle mode: G key toggle (M key is used by minimap)
+- [x] Laser beam: decorative red brackets around crosshair when targeting
+- [x] HUD display: distance in blocks (e.g., "📏 12.5 blocks") below crosshair
 - [ ] Locked measurement: place block while in rangefinder mode → laser stays, updates if hit block changes
 
 **16.2.3 Dimension Display**
-- [ ] When 2+ measurement blocks exist: draw wireframe connecting them
-- [ ] Display dimensions at configurable intervals (default: every 8 blocks)
-- [ ] Text labels: in-world 3D text or HUD overlay (user preference)
-- [ ] Format: "X: 24, Y: 12, Z: 16" along each axis
+- [x] When 2+ measurement blocks exist: white connecting lines between consecutive markers
+- [x] HUD panel shows distances between consecutive markers
+- [x] Text labels: HUD overlay with axis breakdowns (X:n, Y:n, Z:n)
+- [x] Total distance shown when 3+ markers present
 
 **16.2.4 Measurement Block Persistence**
 - [ ] Measurement blocks persist in world (saved with chunks)
@@ -706,11 +706,23 @@ git commit -m "type: description"
 
 ---
 
-## Current Work (2026-01-07)
+## Current Work (2026-01-11)
 
-**Status**: Phase 16.1 (Template Library) ✅ CORE COMPLETE
+**Status**: Phase 16.2 (Measurement Tool) - MOSTLY COMPLETE
 
 **Completed Features:**
+- **Laser Rangefinder** (16.2.2):
+  - G key toggles rangefinder mode on/off
+  - Real-time distance display below crosshair ("📏 X.X blocks")
+  - Red corner brackets around crosshair when targeting a block
+  - Shows "--.- blocks" when not targeting anything
+- **Measurement Markers** (16.2.1 + 16.2.3):
+  - Left-click places holographic marker blocks (up to 4, color-coded)
+  - Right-click removes the last marker
+  - Shader-rendered glowing cubes with pulsing animation
+  - White connecting lines between consecutive markers
+  - HUD panel shows distances with axis breakdowns (X:n, Y:n, Z:n)
+  - Total distance when 3+ markers present
 - **Visual Selection System**:
   - V key toggles selection mode (with HUD indicator)
   - Left-click places green pos1 marker, right-click places blue pos2 marker
@@ -790,6 +802,19 @@ Enter                       # Confirm placement
 
 ## Done Recently
 
+- **Phase 16.2.1 + 16.2.3: Measurement Markers & Dimension Display** (2026-01-11): ✅ COMPLETE
+  - Left-click to place up to 4 holographic marker cubes (color-coded: Cyan/Magenta/Yellow/Orange)
+  - Right-click to remove last marker
+  - Shader-rendered glowing cubes with pulsing animation (overlays.glsl)
+  - White connecting lines between consecutive markers
+  - HUD panel with distances and axis breakdowns (X:n, Y:n, Z:n)
+  - Total distance calculation when 3+ markers present
+  - Push constants for marker data (12 i32 fields + count)
+- **Phase 16.2.2: Laser Rangefinder Mode** (2026-01-11): ✅ COMPLETE
+  - G key toggles rangefinder mode on/off
+  - Real-time distance display below crosshair (e.g., "📏 12.5 blocks")
+  - Decorative red corner brackets around crosshair when targeting
+  - Dark HUD overlay with red border for visibility
 - **Multi-Resolution Sub-Voxel System** (2026-01-09): ✅ COMPLETE
   - Three-tier GPU atlas system for native 8³, 16³, and 32³ model rendering
   - Separate texture atlases (128×8×128, 256×16×256, 512×32×512) with zero voxel loss
@@ -849,5 +874,5 @@ Enter                       # Confirm placement
 
 ---
 
-*Last Updated: 2026-01-09*
-*Plan Version: 2.2 - Multi-Resolution Models & Building Tools*
+*Last Updated: 2026-01-11*
+*Plan Version: 2.3 - Building Tools (Measurement)*

@@ -24,6 +24,9 @@ pub struct WorldMetadata {
     /// Defaults to Normal for backwards compatibility with old worlds.
     #[serde(default)]
     pub world_gen: WorldGenType,
+    /// Measurement marker positions for the rangefinder tool.
+    #[serde(default)]
+    pub measurement_markers: Vec<[i32; 3]>,
 }
 
 impl WorldMetadata {
