@@ -373,6 +373,10 @@ pub struct PushConstants {
     pub measurement_marker_3_x: i32,
     pub measurement_marker_3_y: i32,
     pub measurement_marker_3_z: i32,
+    // Stencil rendering
+    pub stencil_block_count: u32,
+    pub stencil_opacity: f32,
+    pub stencil_render_mode: u32,
 }
 
 pub fn get_swapchain_images(
@@ -732,8 +736,17 @@ pub struct GpuTemplateBlock {
 
 pub const MAX_TEMPLATE_BLOCKS: usize = 256;
 
-/// Creates storage buffers and descriptor set for particle, falling block, water source, and template block data.
-/// All share set index 3: particles at binding 0, falling blocks at binding 1, water sources at binding 2, template blocks at binding 3.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct GpuStencilBlock {
+    /// Position XYZ + stencil_id W
+    pub position: [f32; 4],
+}
+
+pub const MAX_STENCIL_BLOCKS: usize = 4096;
+
+/// Creates storage buffers and descriptor set for particle, falling block, water source, template block, and stencil block data.
+/// All share set index 3: particles at binding 0, falling blocks at binding 1, water sources at binding 2, template blocks at binding 3, stencil blocks at binding 4.
 #[allow(clippy::type_complexity)]
 pub fn get_particle_and_falling_block_set(
     memory_allocator: Arc<StandardMemoryAllocator>,
@@ -744,6 +757,7 @@ pub fn get_particle_and_falling_block_set(
     Subbuffer<[GpuFallingBlock]>,
     Subbuffer<[GpuWaterSource]>,
     Subbuffer<[GpuTemplateBlock]>,
+    Subbuffer<[GpuStencilBlock]>,
     Arc<DescriptorSet>,
 ) {
     use particles::{GpuParticle, MAX_PARTICLES};
@@ -757,6 +771,8 @@ pub fn get_particle_and_falling_block_set(
         make_storage_buffer::<GpuWaterSource>(&memory_allocator, MAX_WATER_SOURCES as u64);
     let template_block_buffer =
         make_storage_buffer::<GpuTemplateBlock>(&memory_allocator, MAX_TEMPLATE_BLOCKS as u64);
+    let stencil_block_buffer =
+        make_storage_buffer::<GpuStencilBlock>(&memory_allocator, MAX_STENCIL_BLOCKS as u64);
 
     // Create descriptor set at set index 3 with all buffers
     let descriptor_set = make_set(
@@ -768,6 +784,7 @@ pub fn get_particle_and_falling_block_set(
             WriteDescriptorSet::buffer(1, falling_block_buffer.clone()),
             WriteDescriptorSet::buffer(2, water_source_buffer.clone()),
             WriteDescriptorSet::buffer(3, template_block_buffer.clone()),
+            WriteDescriptorSet::buffer(4, stencil_block_buffer.clone()),
         ],
     );
 
@@ -776,6 +793,7 @@ pub fn get_particle_and_falling_block_set(
         falling_block_buffer,
         water_source_buffer,
         template_block_buffer,
+        stencil_block_buffer,
         descriptor_set,
     )
 }

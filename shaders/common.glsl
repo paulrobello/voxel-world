@@ -219,6 +219,10 @@ layout(push_constant) uniform PushConstants {
     int measurement_marker_3_x;
     int measurement_marker_3_y;
     int measurement_marker_3_z;
+    // Stencil rendering
+    uint stencil_block_count;
+    float stencil_opacity;
+    uint stencil_render_mode; // 0=wireframe, 1=solid
 } pc;
 
 // Particles (set 3)
@@ -253,6 +257,14 @@ struct TemplateBlock {
 };
 layout(set = 3, binding = 3) readonly buffer TemplateBlockBuffer {
     TemplateBlock template_blocks[];
+};
+
+// Stencil block positions for holographic guides (shares particle set)
+struct StencilBlock {
+    vec4 position;  // xyz = block world position, w = stencil_id (for per-stencil color)
+};
+layout(set = 3, binding = 4) readonly buffer StencilBlockBuffer {
+    StencilBlock stencil_blocks[];
 };
 
 // Point lights (set 4)

@@ -222,12 +222,13 @@ impl App {
             &texture_path,
         );
 
-        // Create particle, falling block, water source, and template block buffers (share set 3)
+        // Create particle, falling block, water source, template block, and stencil block buffers (share set 3)
         let (
             particle_buffer,
             falling_block_buffer,
             water_source_buffer,
             template_block_buffer,
+            stencil_block_buffer,
             particle_set,
         ) = get_particle_and_falling_block_set(
             vk.memory_allocator.clone(),
@@ -339,6 +340,7 @@ impl App {
             falling_block_buffer,
             water_source_buffer,
             template_block_buffer,
+            stencil_block_buffer,
             voxel_image,
             model_atlas_8,
             model_atlas_16,

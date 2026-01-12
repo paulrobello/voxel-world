@@ -44,6 +44,8 @@ pub struct Graphics {
     pub falling_block_buffer: Subbuffer<[GpuFallingBlock]>,
     pub water_source_buffer: Subbuffer<[gpu_resources::GpuWaterSource]>,
     pub template_block_buffer: Subbuffer<[gpu_resources::GpuTemplateBlock]>,
+    #[allow(dead_code)] // Will be used when stencils are fully integrated
+    pub stencil_block_buffer: Subbuffer<[gpu_resources::GpuStencilBlock]>,
     pub voxel_image: Arc<Image>,
     pub model_atlas_8: Arc<Image>,
     pub model_atlas_16: Arc<Image>,

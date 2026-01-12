@@ -248,6 +248,103 @@ bool renderTemplatePreview(vec3 origin, vec3 dir, inout vec3 color, float sceneH
     return false;
 }
 
+// Stencil color palette (8 colors for different stencils)
+const vec3 STENCIL_COLORS[8] = vec3[8](
+    vec3(0.0, 1.0, 1.0),   // 0: Cyan (default)
+    vec3(1.0, 0.5, 0.0),   // 1: Orange
+    vec3(0.5, 1.0, 0.0),   // 2: Lime
+    vec3(1.0, 0.0, 1.0),   // 3: Magenta
+    vec3(1.0, 1.0, 0.0),   // 4: Yellow
+    vec3(0.0, 1.0, 0.5),   // 5: Teal
+    vec3(0.5, 0.5, 1.0),   // 6: Light blue
+    vec3(1.0, 0.5, 0.5)    // 7: Light red
+);
+
+// Get color for stencil by ID
+vec3 getStencilColor(uint stencilId) {
+    return STENCIL_COLORS[stencilId % 8u];
+}
+
+// Render stencil blocks as holographic guides
+bool renderStencilBlocks(vec3 origin, vec3 dir, inout vec3 color, float sceneHitDistance) {
+    if (pc.stencil_block_count == 0u) return false;
+
+    bool anyHit = false;
+    float closestT = sceneHitDistance;
+    vec3 closestColor = color;
+    vec3 closestNormal = vec3(0.0);
+    vec3 closestLocalHit = vec3(0.0);
+    uint closestStencilId = 0u;
+
+    // Find closest stencil block intersection
+    for (uint i = 0u; i < pc.stencil_block_count; i++) {
+        vec3 blockPos = stencil_blocks[i].position.xyz;
+        uint stencilId = uint(stencil_blocks[i].position.w);
+
+        // Ray-AABB intersection for this block
+        vec3 blockMin = blockPos;
+        vec3 blockMax = blockPos + vec3(1.0);
+
+        vec3 invDir = 1.0 / dir;
+        vec3 t0s = (blockMin - origin) * invDir;
+        vec3 t1s = (blockMax - origin) * invDir;
+
+        vec3 tsmaller = min(t0s, t1s);
+        vec3 tbigger = max(t0s, t1s);
+
+        float tmin = max(max(tsmaller.x, tsmaller.y), tsmaller.z);
+        float tmax = min(min(tbigger.x, tbigger.y), tbigger.z);
+
+        if (tmax >= 0.0 && tmin <= tmax && tmin < closestT) {
+            closestT = tmin;
+            closestStencilId = stencilId;
+
+            // Compute hit normal and local position
+            vec3 hitPoint = origin + dir * tmin;
+            closestLocalHit = hitPoint - blockMin;
+            closestLocalHit = clamp(closestLocalHit, vec3(0.0), vec3(1.0));
+
+            // Determine face normal based on which axis we hit first
+            if (tsmaller.x > tsmaller.y && tsmaller.x > tsmaller.z) {
+                closestNormal = vec3(sign(-dir.x), 0.0, 0.0);
+            } else if (tsmaller.y > tsmaller.z) {
+                closestNormal = vec3(0.0, sign(-dir.y), 0.0);
+            } else {
+                closestNormal = vec3(0.0, 0.0, sign(-dir.z));
+            }
+
+            anyHit = true;
+        }
+    }
+
+    if (anyHit) {
+        vec3 stencilColor = getStencilColor(closestStencilId);
+        float pulse = 0.7 + 0.3 * sin(pc.animation_time * 2.0 + float(closestStencilId) * 0.5);
+        float baseAlpha = pc.stencil_opacity * pulse;
+
+        if (pc.stencil_render_mode == 0u) {
+            // Wireframe mode - only show edges
+            float wireframe = getWireframeFactor(closestLocalHit, closestNormal);
+            if (wireframe > 0.1) {
+                float alpha = wireframe * baseAlpha;
+                color = mix(color, stencilColor, alpha);
+            }
+        } else {
+            // Solid mode - semi-transparent fill with brighter edges
+            float wireframe = getWireframeFactor(closestLocalHit, closestNormal);
+            vec3 fillColor = stencilColor * 0.7;
+            vec3 edgeColor = stencilColor;
+            vec3 blendedColor = mix(fillColor, edgeColor, wireframe);
+            float alpha = mix(baseAlpha * 0.6, baseAlpha, wireframe);
+            color = mix(color, blendedColor, alpha);
+        }
+
+        return true;
+    }
+
+    return false;
+}
+
 // Render water/lava source debug markers
 bool renderWaterSourceMarkers(vec3 origin, vec3 dir, inout vec3 color, float sceneHitDistance) {
     if (pc.show_water_sources == 0 || pc.water_source_count == 0) {

@@ -93,6 +93,7 @@ pub fn run(_args: &Args, event_loop: &EventLoop<()>) -> Result<(), Box<dyn Error
         _falling_block_buffer,
         _water_source_buffer,
         _template_block_buffer,
+        _stencil_block_buffer,
         particle_set,
     ) = get_particle_and_falling_block_set(
         memory_allocator.clone(),
@@ -674,6 +675,9 @@ fn render_icon(
         measurement_marker_3_x: -10000,
         measurement_marker_3_y: -10000,
         measurement_marker_3_z: -10000,
+        stencil_block_count: 0,
+        stencil_opacity: 0.5,
+        stencil_render_mode: 0,
     };
 
     // Render

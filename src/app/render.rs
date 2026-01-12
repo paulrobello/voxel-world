@@ -785,6 +785,10 @@ impl App {
                 .get(3)
                 .map(|p| p.z - self.sim.texture_origin.z)
                 .unwrap_or(-10000),
+            // Stencil rendering (placeholders - will be populated when stencils are fully integrated)
+            stencil_block_count: 0,
+            stencil_opacity: 0.5,
+            stencil_render_mode: 0,
         };
 
         let mut builder = AutoCommandBufferBuilder::primary(
