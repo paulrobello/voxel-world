@@ -487,20 +487,20 @@ impl FloodFillTool {
 }
 ```
 
-#### 16.5 Tools Palette UI
+#### 16.5 Tools Palette UI ✅ (Partial)
 
-**16.5.1 UI Layout**
-- [ ] Keybind: T key toggles tools window
-- [ ] Window position: right side of screen (configurable)
-- [ ] Toolbar: vertical icon list with labels
-- [ ] Mouse-over: tooltip with tool description and hotkey
+**16.5.1 UI Layout** ✅
+- [x] Keybind: T key toggles tools window
+- [x] Window position: right side of screen (default_pos)
+- [x] Toolbar: vertical icon list with labels
+- [x] Mouse-over: tooltip with tool description and hotkey
 
-**16.5.2 Tool Icons**
-- [ ] Template: blueprint icon
-- [ ] Measurement: ruler icon
-- [ ] Stencil: ghost block icon
-- [ ] Flood Fill: paint bucket icon
-- [ ] Active tool: highlighted border
+**16.5.2 Tool Icons** ✅
+- [x] Template: clipboard icon (📋)
+- [x] Measurement: ruler icon (📏)
+- [x] Stencil: ghost icon (👻)
+- [x] Flood Fill: bucket icon (🪣)
+- [x] Active tool: highlighted border with green indicator dot
 
 **16.5.3 Multi-Tool Support**
 - [ ] Some tools can be active simultaneously:
@@ -709,9 +709,16 @@ git commit -m "type: description"
 
 ## Current Work (2026-01-11)
 
-**Status**: Phase 16.4 (Flood Fill Tool) - CONSOLE COMMAND COMPLETE
+**Status**: Phase 16.5 (Tools Palette UI) - IN PROGRESS
 
 **Completed Features:**
+- **Tools Palette UI** (16.5.1 + 16.5.2):
+  - T key toggles tools palette window
+  - Vertical toolbar with 4 tools: Template (📋), Measurement (📏), Stencil (👻), Flood Fill (🪣)
+  - Tooltips with tool descriptions and hotkey hints
+  - Active tool highlighting with green border and indicator dot
+  - Auto-detection of active tool based on current mode
+  - Keybind changes: T=Tools, L=Library (templates), J=Torch light
 - **Flood Fill Console Command** (16.4):
   - `/floodfill <target_block> [x] [y] [z]` (aliases: `flood_fill`, `ff`)
   - BFS algorithm with smart block matching (BlockIdentity system)
@@ -833,6 +840,14 @@ Enter                       # Confirm placement
 
 ## Done Recently
 
+- **Phase 16.5.1 + 16.5.2: Tools Palette UI** (2026-01-11): ✅ COMPLETE
+  - T key toggles tools palette window (right side of screen)
+  - Vertical toolbar with 4 tool buttons and emoji icons
+  - Template (📋 L), Measurement (📏 G), Stencil (👻 K), Flood Fill (🪣 /ff)
+  - Tooltips showing tool descriptions and hotkeys on hover
+  - Active tool auto-detection based on current mode (template selection, rangefinder, stencil browser)
+  - Active tool highlighted with green border and indicator dot
+  - Keybind reorganization: T=Tools palette, L=Library (templates), J=Torch light
 - **Phase 16.4: Flood Fill Console Command** (2026-01-11): ✅ COMPLETE
   - `/floodfill <target_block> [x] [y] [z]` (aliases: `flood_fill`, `ff`)
   - BFS algorithm with BlockIdentity system for smart block matching
@@ -929,4 +944,4 @@ Enter                       # Confirm placement
 ---
 
 *Last Updated: 2026-01-11*
-*Plan Version: 2.5 - Building Tools (Flood Fill)*
+*Plan Version: 2.6 - Building Tools (Tools Palette UI)*
