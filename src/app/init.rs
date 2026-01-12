@@ -554,6 +554,7 @@ impl App {
             flood_fill_active: false,
             measurement_markers: initial_measurement_markers,
             tools_palette: crate::ui::tools::ToolsPaletteState::default(),
+            sphere_tool: crate::shape_tools::SphereToolState::default(),
         };
 
         let input = InputState {

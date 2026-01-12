@@ -9,6 +9,7 @@ use crate::console::ConsoleState;
 use crate::editor::EditorState;
 use crate::hud::Minimap;
 use crate::raycast::RaycastHit;
+use crate::shape_tools::SphereToolState;
 use crate::templates::{TemplateLibrary, TemplatePlacement, TemplateSelection, TemplateUi};
 use crate::ui::tools::ToolsPaletteState;
 
@@ -112,4 +113,7 @@ pub struct UiState {
 
     /// Tools palette UI state (passive overlay, doesn't capture cursor).
     pub tools_palette: ToolsPaletteState,
+
+    /// Sphere placement tool state.
+    pub sphere_tool: SphereToolState,
 }

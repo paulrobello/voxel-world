@@ -79,6 +79,13 @@ impl App {
             return true;
         }
 
+        // Cancel sphere tool
+        if self.input.key_pressed(KeyCode::Escape) && self.ui.sphere_tool.active {
+            println!("Sphere Tool: OFF");
+            self.ui.sphere_tool.deactivate();
+            return true;
+        }
+
         // Handle escape to unfocus
         if self.input.key_pressed(KeyCode::Escape) && self.input.focused {
             self.input.focused = false;
@@ -299,19 +306,6 @@ impl App {
             );
         }
 
-        // Toggle flood fill mode (F key)
-        if self.input.key_pressed(KeyCode::KeyF) {
-            self.ui.flood_fill_active = !self.ui.flood_fill_active;
-            println!(
-                "Flood Fill Mode: {}",
-                if self.ui.flood_fill_active {
-                    "ON"
-                } else {
-                    "OFF"
-                }
-            );
-        }
-
         // Toggle water/lava source debug markers (K key)
         if self.input.key_pressed(KeyCode::KeyK) {
             self.ui.settings.show_water_sources = !self.ui.settings.show_water_sources;
@@ -496,6 +490,26 @@ impl App {
             }
         }
 
+        // Update sphere tool preview from raycast
+        if self.ui.sphere_tool.active {
+            if let Some(hit) = self.ui.current_hit {
+                // For Base mode, use hit block position (sphere sits ON the block)
+                // For Center mode, use placement position (where block would be placed)
+                let target = if self.ui.sphere_tool.placement_mode
+                    == crate::shape_tools::PlacementMode::Base
+                {
+                    // Base mode: sphere bottom rests on top of hit block
+                    // So target is one above hit block (first air block)
+                    hit.block_pos + Vector3::new(0, 1, 0)
+                } else {
+                    get_place_position(&hit)
+                };
+                self.ui.sphere_tool.update_preview(target);
+            } else {
+                self.ui.sphere_tool.clear_preview();
+            }
+        }
+
         // Handle template placement with right-click
         // Check if mouse was released (clear reclick flag)
         if self.ui.place_needs_reclick && !self.input.mouse_held(MouseButton::Right) {
@@ -566,6 +580,18 @@ impl App {
 
             self.ui.place_needs_reclick = true;
             return; // Skip block breaking
+        }
+
+        // Handle sphere placement with right-click
+        if self.input.focused
+            && self.ui.sphere_tool.active
+            && !self.ui.sphere_tool.preview_positions.is_empty()
+            && self.input.mouse_pressed(MouseButton::Right)
+            && !self.ui.place_needs_reclick
+        {
+            self.place_sphere();
+            self.ui.place_needs_reclick = true;
+            return; // Skip block placement
         }
 
         // Handle flood fill with right-click

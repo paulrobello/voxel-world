@@ -80,6 +80,7 @@ pub fn render_hud(
             measurement_markers: &mut ui.measurement_markers,
             tools_palette: &mut ui.tools_palette,
             stencil_browser_open: ui.stencil_ui.browser_open,
+            sphere_tool: &mut ui.sphere_tool,
         },
     );
 
@@ -123,6 +124,19 @@ pub fn render_hud(
             if ui.flood_fill_active {
                 ui.tools_palette.open = false;
                 ui.request_cursor_grab = true;
+            }
+        }
+        ToolAction::ToggleSphereTool => {
+            ui.sphere_tool.active = !ui.sphere_tool.active;
+            println!(
+                "Sphere Tool: {}",
+                if ui.sphere_tool.active { "ON" } else { "OFF" }
+            );
+            // Close tools palette but DON'T grab cursor - let user adjust settings first
+            // User clicks in 3D view to start placement (which will grab cursor)
+            if ui.sphere_tool.active {
+                ui.tools_palette.open = false;
+                // Don't request cursor grab - sphere tool UI needs mouse interaction
             }
         }
         ToolAction::None => {}

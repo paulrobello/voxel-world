@@ -64,11 +64,27 @@ impl App {
     }
 
     /// Toggles the tools palette on/off.
-    /// Note: Tools palette is an overlay that doesn't capture the cursor,
-    /// allowing navigation while viewing tool status.
+    /// When opened, releases the cursor so user can interact with UI.
     pub fn toggle_tools_palette(&mut self) {
         self.ui.tools_palette.toggle();
-        // Tools palette is a passive overlay - doesn't affect cursor/focus
+
+        if self.ui.tools_palette.open {
+            // Release cursor when opening tools palette
+            if self.input.focused {
+                self.ui.tools_palette.previously_focused = true;
+                self.input.focused = false;
+                self.input.pending_grab = Some(false);
+            }
+        } else {
+            // Restore focus when closing if we had it before
+            if self.ui.tools_palette.previously_focused {
+                self.input.focused = true;
+                self.input.pending_grab = Some(true);
+                self.input.skip_input_frame = true;
+                self.ui.tools_palette.previously_focused = false;
+            }
+        }
+
         println!(
             "Tools palette: {}",
             if self.ui.tools_palette.open {

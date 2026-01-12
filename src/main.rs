@@ -57,6 +57,7 @@ mod particles;
 mod player;
 mod raycast;
 mod render_mode;
+mod shape_tools;
 mod sprite_gen;
 mod stencils;
 mod storage;

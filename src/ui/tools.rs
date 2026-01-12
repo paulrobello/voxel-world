@@ -4,7 +4,8 @@
 //! - Template (L key): Copy/paste building templates
 //! - Measurement (G key): Place markers and measure distances
 //! - Stencil (K key): Holographic building guides
-//! - Flood Fill (F key): Mass block replacement
+//! - Flood Fill: Mass block replacement (tools palette/console only)
+//! - Sphere: Place solid or hollow spheres (tools palette only)
 
 use egui_winit_vulkano::egui;
 use serde::{Deserialize, Serialize};
@@ -20,6 +21,7 @@ pub enum ToolAction {
     ToggleRangefinder,
     ToggleStencilBrowser,
     ToggleFloodFill,
+    ToggleSphereTool,
 }
 
 /// Which tool is currently active/highlighted in the palette.
@@ -31,6 +33,7 @@ pub enum ActiveTool {
     Measurement,
     Stencil,
     FloodFill,
+    Sphere,
 }
 
 impl ActiveTool {
@@ -42,6 +45,7 @@ impl ActiveTool {
             ActiveTool::Measurement => "Measurement",
             ActiveTool::Stencil => "Stencil",
             ActiveTool::FloodFill => "Flood Fill",
+            ActiveTool::Sphere => "Sphere",
         }
     }
 
@@ -53,6 +57,7 @@ impl ActiveTool {
             ActiveTool::Measurement => "📏", // Ruler
             ActiveTool::Stencil => "👻",     // Ghost block
             ActiveTool::FloodFill => "🪣",   // Paint bucket
+            ActiveTool::Sphere => "🔵",      // Blue circle
         }
     }
 
@@ -63,7 +68,8 @@ impl ActiveTool {
             ActiveTool::Template => "L",
             ActiveTool::Measurement => "G",
             ActiveTool::Stencil => "K",
-            ActiveTool::FloodFill => "F",
+            ActiveTool::FloodFill => "", // No dedicated hotkey, tools palette/console only
+            ActiveTool::Sphere => "",    // No dedicated hotkey, button only
         }
     }
 
@@ -75,6 +81,7 @@ impl ActiveTool {
             ActiveTool::Measurement => "Place markers and measure distances",
             ActiveTool::Stencil => "Create holographic building guides",
             ActiveTool::FloodFill => "Right-click to fill connected blocks",
+            ActiveTool::Sphere => "Place solid or hollow spheres",
         }
     }
 }
@@ -168,6 +175,8 @@ pub struct ToolsPaletteState {
     pub show_settings: bool,
     /// Per-tool settings.
     pub settings: ToolSettings,
+    /// Whether we were focused before opening the palette (to restore on close).
+    pub previously_focused: bool,
 }
 
 impl ToolsPaletteState {
@@ -204,6 +213,7 @@ impl ToolsPaletteUI {
         stencil_browser_open: bool,
         selection_mode_active: bool,
         flood_fill_active: bool,
+        sphere_tool_active: bool,
         stencil_opacity: f32,
         stencil_render_mode: StencilRenderMode,
     ) -> ToolsPaletteResult {
@@ -226,6 +236,8 @@ impl ToolsPaletteUI {
             ActiveTool::Stencil
         } else if flood_fill_active {
             ActiveTool::FloodFill
+        } else if sphere_tool_active {
+            ActiveTool::Sphere
         } else {
             ActiveTool::None
         };
@@ -252,6 +264,7 @@ impl ToolsPaletteUI {
                         ActiveTool::Measurement,
                         ActiveTool::Stencil,
                         ActiveTool::FloodFill,
+                        ActiveTool::Sphere,
                     ];
 
                     for tool in tools {
@@ -264,6 +277,7 @@ impl ToolsPaletteUI {
                                 ActiveTool::Measurement => ToolAction::ToggleRangefinder,
                                 ActiveTool::Stencil => ToolAction::ToggleStencilBrowser,
                                 ActiveTool::FloodFill => ToolAction::ToggleFloodFill,
+                                ActiveTool::Sphere => ToolAction::ToggleSphereTool,
                                 ActiveTool::None => ToolAction::None,
                             };
                         }
@@ -386,6 +400,15 @@ impl ToolsPaletteUI {
             ActiveTool::Template | ActiveTool::None => {
                 ui.label(
                     egui::RichText::new("Select a tool to configure")
+                        .color(egui::Color32::from_gray(140))
+                        .size(11.0)
+                        .italics(),
+                );
+            }
+            ActiveTool::Sphere => {
+                // Sphere tool has its own settings window (SphereToolUI)
+                ui.label(
+                    egui::RichText::new("Sphere settings in separate window")
                         .color(egui::Color32::from_gray(140))
                         .size(11.0)
                         .italics(),

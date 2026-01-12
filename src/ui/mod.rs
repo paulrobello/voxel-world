@@ -31,6 +31,7 @@ pub mod hotbar;
 pub mod minimap;
 pub mod palette;
 pub mod settings;
+pub mod sphere_tool;
 pub mod stats;
 pub mod time;
 pub mod tools;
@@ -40,6 +41,7 @@ use hotbar::HotbarUI;
 use minimap::MinimapUI;
 use palette::PaletteUI;
 use settings::SettingsUI;
+use sphere_tool::SphereToolUI;
 use stats::StatsUI;
 pub use tools::ToolAction;
 use tools::{ToolsPaletteState, ToolsPaletteUI};
@@ -108,6 +110,7 @@ pub struct HudInputs<'a> {
     pub measurement_markers: &'a mut Vec<Vector3<i32>>,
     pub tools_palette: &'a mut ToolsPaletteState,
     pub stencil_browser_open: bool,
+    pub sphere_tool: &'a mut crate::shape_tools::SphereToolState,
 }
 
 pub struct HUDRenderer;
@@ -168,6 +171,7 @@ impl HUDRenderer {
             measurement_markers,
             tools_palette,
             stencil_browser_open,
+            sphere_tool,
         } = input;
         let mut scale_changed = false;
         let mut editor_action = EditorAction::None;
@@ -235,6 +239,7 @@ impl HUDRenderer {
                 stencil_browser_open,
                 template_selection.visual_mode,
                 flood_fill_active,
+                sphere_tool.active,
                 stencil_manager.global_opacity,
                 stencil_manager.render_mode,
             );
@@ -248,6 +253,9 @@ impl HUDRenderer {
             if let Some(render_mode) = tools_result.stencil_render_mode_changed {
                 stencil_manager.set_render_mode(render_mode);
             }
+
+            // Sphere tool settings window
+            SphereToolUI::draw(&ctx, sphere_tool);
 
             // Crosshair (hide when editor or console is open)
             if !editor.active && !console.active {
