@@ -514,9 +514,11 @@ impl FloodFillTool {
 **16.5.4 Tool Settings Panel** ✅
 - [x] Expandable panel below tool icons (click "▶ Settings" to expand)
 - [x] Settings per tool:
-  - Measurement: laser color presets (8 colors)
+  - Measurement: laser color presets (8 colors) with GPU shader integration
   - Stencil: opacity slider (30-80%), render mode toggle (Solid/Wireframe)
   - Flood Fill: preview mode checkbox (visual preview deferred - requires shader integration)
+- [x] Laser color passed to GPU via push constants (laser_color_r/g/b)
+- [x] Measurement lines in 3D world use selected laser color
 
 ---
 
@@ -865,7 +867,9 @@ Enter                       # Confirm placement
   - Stencil tool: opacity slider (30-80%), render mode toggle (Solid/Wireframe)
   - Flood Fill tool: preview mode checkbox (visual preview deferred - requires shader integration)
   - Settings automatically sync with their respective systems (stencil manager, rangefinder overlay)
-  - Separate attached window for settings when expanded
+  - Separate attached window for settings (positioned below Tools window)
+  - **Laser color GPU integration**: push constants pass color to shader for 3D measurement lines
+  - **UI fixes**: rangefinder HUD positioned below crosshair, settings panel below tools window
 - **Phase 16.4.3: Interactive Flood Fill Mode** (2026-01-12): ✅ COMPLETE
   - F key toggles Fill Mode on/off (replaces console-only approach)
   - Right-click fills connected blocks with selected hotbar block
@@ -981,4 +985,4 @@ Enter                       # Confirm placement
 ---
 
 *Last Updated: 2026-01-12*
-*Plan Version: 2.8 - Building Tools Complete (Tool Settings Panel)*
+*Plan Version: 2.9 - Tool Settings Panel with GPU Laser Color Integration*
