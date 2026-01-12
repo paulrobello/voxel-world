@@ -48,8 +48,14 @@ pub fn generate_cube_positions(
                 if hollow {
                     // Only place on faces (shell)
                     let on_x_face = x == x_start || x == x_end;
-                    let on_y_face = y == y_start || y == y_end;
                     let on_z_face = z == z_start || z == z_end;
+                    // For hollow dome, don't include the bottom face (y == y_start)
+                    // We only want walls and top, not a floor
+                    let on_y_face = if dome {
+                        y == y_end // Only top face, not bottom
+                    } else {
+                        y == y_start || y == y_end // Both bottom and top faces
+                    };
 
                     if on_x_face || on_y_face || on_z_face {
                         positions.push(Vector3::new(x, y, z));

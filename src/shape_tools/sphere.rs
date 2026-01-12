@@ -55,6 +55,11 @@ pub fn generate_sphere_positions(
                     if hollow {
                         // Only place on the shell (not in interior)
                         if dist_sq > inner_radius_sq {
+                            // For hollow dome, skip the floor at y == center.y
+                            // (we only want the walls and top, not a circular floor)
+                            if dome && y == center.y {
+                                continue;
+                            }
                             positions.push(Vector3::new(x, y, z));
                         }
                     } else {
