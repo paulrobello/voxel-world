@@ -928,6 +928,14 @@ Escape                      # Cancel tool
 
 ## Done Recently
 
+- **Light Culling Optimization** (2026-01-12): ✅ COMPLETE
+  - **Distance-Based Culling**: Lights beyond `light_cull_radius` (default 64 blocks) are not sent to GPU
+  - **Frustum-Aware Prioritization**: Lights in front of player are prioritized over lights behind
+  - **Configurable Max Active Lights**: Only closest `max_active_lights` (default 64, max 256) sent to GPU
+  - **Chunk-Level Early-Out**: Entire chunks beyond cull radius are skipped during light collection
+  - **New Settings UI**: "Light Culling (CPU)" section with sliders for cull radius and max lights
+  - **Performance Impact**: Reduces GPU shader workload by limiting lights processed per pixel
+
 - **Lighting System Optimization & Sky Colors** (2026-01-12): ✅ COMPLETE
   - **Pre-computed Animation Factors**: Moved expensive sin() calculations from per-pixel shader to CPU-side pre-computation, reducing GPU load for glowing blocks
   - **All 10 Light Modes Implemented**: Previously only Steady, Pulse, Flicker worked. Now all modes functional:
