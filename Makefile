@@ -23,7 +23,7 @@ build-debug:
 	cargo build
 
 # Run targets (pass CLI args via `make run ARGS="--flag"`).
-SEED ?= 12345678
+SEED ?= 98765
 ARGS ?=
 
 run: run-release
