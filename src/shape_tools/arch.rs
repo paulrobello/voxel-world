@@ -163,27 +163,32 @@ fn is_point_in_arch(x: f64, y: f64, half_width: f64, height: f64, style: ArchSty
             }
         }
         ArchStyle::Pointed => {
-            // Pointed arch: two circular arcs meeting at apex
-            let apex_y = height;
-            let arc_radius = (half_width * half_width + height * height) / (2.0 * height);
-            let center_offset = arc_radius - height;
+            // Gothic pointed arch: two circular arcs crossing at apex
+            // Each arc is centered at the OPPOSITE base corner
+            // Left half of arch uses arc centered at (half_width, 0)
+            // Right half uses arc centered at (-half_width, 0)
+
+            // Radius needed to reach apex from base corner
+            let arc_radius = (half_width * half_width + height * height).sqrt();
 
             if y < 0.5 {
                 // Vertical jambs with wall thickness
                 let inner_edge = half_width - wall_thickness;
                 x.abs() >= inner_edge - 0.5 && x.abs() <= half_width + 0.5
             } else {
-                // Curved portion - check distance from both arc centers
-                let left_dist =
-                    ((x + half_width).powi(2) + (y - center_offset).powi(2)).sqrt() - arc_radius;
-                let right_dist =
-                    ((x - half_width).powi(2) + (y - center_offset).powi(2)).sqrt() - arc_radius;
+                // Left side of arch: arc centered at RIGHT base corner (half_width, 0)
+                let left_dist = ((x - half_width).powi(2) + y.powi(2)).sqrt() - arc_radius;
 
-                // Block is on arch wall if within wall_thickness of either arc
+                // Right side of arch: arc centered at LEFT base corner (-half_width, 0)
+                let right_dist = ((x + half_width).powi(2) + y.powi(2)).sqrt() - arc_radius;
+
+                // Left wall: on the left side (x <= 0), near the arc from right center
                 let on_left_wall =
-                    left_dist >= -wall_thickness && left_dist <= 0.5 && x <= 0.5 && y <= apex_y;
+                    left_dist >= -wall_thickness && left_dist <= 0.5 && x <= 0.5 && y <= height;
+
+                // Right wall: on the right side (x >= 0), near the arc from left center
                 let on_right_wall =
-                    right_dist >= -wall_thickness && right_dist <= 0.5 && x >= -0.5 && y <= apex_y;
+                    right_dist >= -wall_thickness && right_dist <= 0.5 && x >= -0.5 && y <= height;
 
                 on_left_wall || on_right_wall
             }
@@ -235,20 +240,20 @@ fn is_point_in_arch_inner(x: f64, y: f64, half_width: f64, height: f64, style: A
             }
         }
         ArchStyle::Pointed => {
-            let arc_radius = (half_width * half_width + height * height) / (2.0 * height);
-            let center_offset = arc_radius - height;
+            // Same geometry as is_point_in_arch
+            let arc_radius = (half_width * half_width + height * height).sqrt();
 
             if y < 0.5 {
                 // Inner jamb - not at outer edge
                 x.abs() < half_width - 0.5
             } else {
-                // For pointed arch, check if we're on the inner part of the wall
-                let left_dist =
-                    ((x + half_width).powi(2) + (y - center_offset).powi(2)).sqrt() - arc_radius;
-                let right_dist =
-                    ((x - half_width).powi(2) + (y - center_offset).powi(2)).sqrt() - arc_radius;
+                // Left side: arc centered at RIGHT base corner (half_width, 0)
+                let left_dist = ((x - half_width).powi(2) + y.powi(2)).sqrt() - arc_radius;
 
-                // Inner = not on the outer edge (dist < -0.5 means inside the arc)
+                // Right side: arc centered at LEFT base corner (-half_width, 0)
+                let right_dist = ((x + half_width).powi(2) + y.powi(2)).sqrt() - arc_radius;
+
+                // Inner = inside the wall (dist < -0.5 means well inside the arc)
                 let inner_left = left_dist < -0.5 && x <= 0.0;
                 let inner_right = right_dist < -0.5 && x >= 0.0;
 
@@ -321,8 +326,8 @@ mod tests {
         let base = Vector3::new(0, 0, 0);
         let positions = generate_arch_positions(
             base,
-            4,
-            5,
+            6,
+            8,
             1,
             ArchStyle::Pointed,
             ArchOrientation::FacingZ,
@@ -330,6 +335,29 @@ mod tests {
         );
 
         assert!(!positions.is_empty());
+
+        // Gothic arch should have a pointed apex - blocks near top should narrow
+        let max_y = positions.iter().map(|p| p.y).max().unwrap();
+        let top_blocks: Vec<_> = positions.iter().filter(|p| p.y == max_y).collect();
+        let second_row: Vec<_> = positions.iter().filter(|p| p.y == max_y - 1).collect();
+
+        // Top row should be narrower than the row below (pointed shape)
+        // At the very top it should be 1-2 blocks wide (the apex)
+        assert!(
+            top_blocks.len() <= second_row.len(),
+            "Top row ({} blocks) should be narrower or equal to row below ({} blocks)",
+            top_blocks.len(),
+            second_row.len()
+        );
+
+        // The apex should be near x=0 (center)
+        let apex_x_avg: f64 =
+            top_blocks.iter().map(|p| p.x as f64).sum::<f64>() / top_blocks.len() as f64;
+        assert!(
+            apex_x_avg.abs() < 1.5,
+            "Apex should be near center, got avg x={}",
+            apex_x_avg
+        );
     }
 
     #[test]
