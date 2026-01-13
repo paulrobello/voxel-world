@@ -101,7 +101,7 @@ pub fn generate_arch_positions(
 
             // Check if this point is part of the arch curve
             let in_arch = is_point_in_arch(x, y, half_width, height as f64, style);
-            let in_inner = if hollow && thickness > 1 {
+            let in_inner = if hollow {
                 // For hollow, check if point is inside the inner curve (1 block inward)
                 is_point_in_arch_inner(x, y, half_width, height as f64, style)
             } else {
@@ -134,135 +134,140 @@ pub fn generate_arch_positions(
     positions
 }
 
-/// Check if a point (x, y) is part of the arch shape.
+/// Check if a point (x, y) is part of the arch shape (solid wall).
 /// x is horizontal offset from center, y is height from base.
+/// Returns true for all blocks that form the arch wall (not the opening).
 fn is_point_in_arch(x: f64, y: f64, half_width: f64, height: f64, style: ArchStyle) -> bool {
-    // The arch curve defines the top boundary
-    // Below the curve and above the base, we need to determine if the point is
-    // on the arch wall (not in the opening)
+    // Wall thickness - how thick the arch wall is (in blocks)
+    let wall_thickness = 1.5;
 
     match style {
         ArchStyle::Semicircle => {
             // Semicircle: curve is a half-ellipse with width and height
-            // The arch opening is below the curve
-            // Points are part of the arch if they're on the curve line (the arch itself)
-
-            // For a semicircle arch, the curve equation is:
-            // (x/half_width)^2 + (y/height)^2 = 1 (for the outer curve at y >= 0)
-
-            // Check if point is on the arch curve (within 1 block of the ellipse)
             let x_norm = x / half_width;
             let y_norm = y / height;
             let dist_sq = x_norm * x_norm + y_norm * y_norm;
 
-            // Point is part of arch if it's on the curve (between inner and outer)
-            // or if it's the vertical sides below spring line (y = 0 to where curve starts)
             if y < 0.5 {
-                // Below spring line - this is the vertical portion (jambs)
-                x.abs() >= half_width - 0.5 && x.abs() <= half_width + 0.5
+                // Below spring line - vertical jambs
+                // Include blocks from inner edge to outer edge of jamb
+                let inner_edge = half_width - wall_thickness;
+                x.abs() >= inner_edge - 0.5 && x.abs() <= half_width + 0.5
             } else {
-                // On the curved portion
-                (0.7..=1.3).contains(&dist_sq)
+                // Curved portion - include blocks between inner and outer curves
+                // Inner curve: smaller ellipse, outer curve: the main ellipse
+                let inner_scale = 1.0 - (wall_thickness / half_width.max(height));
+                let inner_dist_sq = inner_scale * inner_scale;
+                // Block is part of wall if between inner and outer curves
+                dist_sq >= inner_dist_sq - 0.3 && dist_sq <= 1.3
             }
         }
         ArchStyle::Pointed => {
             // Pointed arch: two circular arcs meeting at apex
-            // Each arc originates from outside the arch width
             let apex_y = height;
+            let arc_radius = (half_width * half_width + height * height) / (2.0 * height);
+            let center_offset = arc_radius - height;
 
             if y < 0.5 {
-                // Vertical jambs
-                x.abs() >= half_width - 0.5 && x.abs() <= half_width + 0.5
+                // Vertical jambs with wall thickness
+                let inner_edge = half_width - wall_thickness;
+                x.abs() >= inner_edge - 0.5 && x.abs() <= half_width + 0.5
             } else {
-                // The pointed arch uses two arcs with centers offset outward
-                // Arc radius is typically height (or can be computed from geometry)
-                let arc_radius = (half_width * half_width + height * height) / (2.0 * height);
-                let center_offset = arc_radius - height;
-
-                // Left arc center is at (-half_width, center_offset)
-                // Right arc center is at (half_width, center_offset)
+                // Curved portion - check distance from both arc centers
                 let left_dist =
                     ((x + half_width).powi(2) + (y - center_offset).powi(2)).sqrt() - arc_radius;
                 let right_dist =
                     ((x - half_width).powi(2) + (y - center_offset).powi(2)).sqrt() - arc_radius;
 
-                // Point is on arch if it's close to either arc and on the correct side
-                let on_left_arc = left_dist.abs() < 0.7 && x <= 0.0 && y >= 0.0 && y <= apex_y;
-                let on_right_arc = right_dist.abs() < 0.7 && x >= 0.0 && y >= 0.0 && y <= apex_y;
+                // Block is on arch wall if within wall_thickness of either arc
+                let on_left_wall =
+                    left_dist >= -wall_thickness && left_dist <= 0.5 && x <= 0.5 && y <= apex_y;
+                let on_right_wall =
+                    right_dist >= -wall_thickness && right_dist <= 0.5 && x >= -0.5 && y <= apex_y;
 
-                on_left_arc || on_right_arc
+                on_left_wall || on_right_wall
             }
         }
         ArchStyle::Segmental => {
-            // Segmental arch: flattened arc (larger radius than semicircle)
-            // The arc is shallower - compute radius from chord (width) and rise (height)
-            // For a segmental arch: radius = (width^2 / 8*height) + (height/2)
+            // Segmental arch: flattened arc
             let full_width = half_width * 2.0;
             let arc_radius = (full_width * full_width) / (8.0 * height) + height / 2.0;
-            let center_y = height - arc_radius; // Center is below the apex
+            let center_y = height - arc_radius;
 
             if y < 0.5 {
-                // Vertical jambs
-                x.abs() >= half_width - 0.5 && x.abs() <= half_width + 0.5
+                // Vertical jambs with wall thickness
+                let inner_edge = half_width - wall_thickness;
+                x.abs() >= inner_edge - 0.5 && x.abs() <= half_width + 0.5
             } else {
-                // Check distance from arc center
+                // Curved portion - check distance from arc
                 let dist = (x.powi(2) + (y - center_y).powi(2)).sqrt();
-                let on_arc = (dist - arc_radius).abs() < 0.7;
+                let dist_from_arc = dist - arc_radius;
 
-                // Must be in the correct region (above center, within width)
-                on_arc && y >= center_y.max(0.0) && x.abs() <= half_width + 0.5
+                // Block is on wall if within wall_thickness of arc
+                let on_wall = dist_from_arc >= -wall_thickness && dist_from_arc <= 0.5;
+
+                on_wall && y >= center_y.max(0.0) && x.abs() <= half_width + 0.5
             }
         }
     }
 }
 
-/// Check if a point is inside the inner curve (for hollow arches).
+/// Check if a point is on the inner portion of the wall (for hollow arches).
+/// Returns true if the point should be excluded when hollow mode is enabled.
 fn is_point_in_arch_inner(x: f64, y: f64, half_width: f64, height: f64, style: ArchStyle) -> bool {
-    // Inner curve is 1 block inward from outer
-    let inner_half_width = (half_width - 1.0).max(0.5);
-    let inner_height = (height - 1.0).max(0.5);
+    // For hollow mode, we want to keep only the outermost layer of blocks
+    // So "inner" means anything that's not on the outer edge
 
     match style {
         ArchStyle::Semicircle => {
+            let x_norm = x / half_width;
+            let y_norm = y / height;
+            let dist_sq = x_norm * x_norm + y_norm * y_norm;
+
             if y < 0.5 {
-                // Inner jambs
-                x.abs() < inner_half_width - 0.5
+                // For jambs, only keep the outermost column
+                // Inner = anything not at the outer edge
+                x.abs() < half_width - 0.5
             } else {
-                let x_norm = x / inner_half_width;
-                let y_norm = y / inner_height;
-                let dist_sq = x_norm * x_norm + y_norm * y_norm;
-                dist_sq < 0.7
+                // For curve, only keep blocks near the outer ellipse
+                // Inner = anything not close to dist_sq = 1.0
+                dist_sq < 0.7 // Inner part of the wall
             }
         }
         ArchStyle::Pointed => {
+            let arc_radius = (half_width * half_width + height * height) / (2.0 * height);
+            let center_offset = arc_radius - height;
+
             if y < 0.5 {
-                x.abs() < inner_half_width - 0.5
+                // Inner jamb - not at outer edge
+                x.abs() < half_width - 0.5
             } else {
-                let arc_radius = (inner_half_width * inner_half_width
-                    + inner_height * inner_height)
-                    / (2.0 * inner_height);
-                let center_offset = arc_radius - inner_height;
+                // For pointed arch, check if we're on the inner part of the wall
+                let left_dist =
+                    ((x + half_width).powi(2) + (y - center_offset).powi(2)).sqrt() - arc_radius;
+                let right_dist =
+                    ((x - half_width).powi(2) + (y - center_offset).powi(2)).sqrt() - arc_radius;
 
-                let left_dist = ((x + inner_half_width).powi(2) + (y - center_offset).powi(2))
-                    .sqrt()
-                    - arc_radius;
-                let right_dist = ((x - inner_half_width).powi(2) + (y - center_offset).powi(2))
-                    .sqrt()
-                    - arc_radius;
+                // Inner = not on the outer edge (dist < -0.5 means inside the arc)
+                let inner_left = left_dist < -0.5 && x <= 0.0;
+                let inner_right = right_dist < -0.5 && x >= 0.0;
 
-                (left_dist > 0.3 || x > 0.0) && (right_dist > 0.3 || x < 0.0)
+                inner_left || inner_right
             }
         }
         ArchStyle::Segmental => {
-            let full_width = inner_half_width * 2.0;
-            let arc_radius = (full_width * full_width) / (8.0 * inner_height) + inner_height / 2.0;
-            let center_y = inner_height - arc_radius;
+            let full_width = half_width * 2.0;
+            let arc_radius = (full_width * full_width) / (8.0 * height) + height / 2.0;
+            let center_y = height - arc_radius;
 
             if y < 0.5 {
-                x.abs() < inner_half_width - 0.5
+                // Inner jamb - not at outer edge
+                x.abs() < half_width - 0.5
             } else {
+                // Inner = inside the outer arc
                 let dist = (x.powi(2) + (y - center_y).powi(2)).sqrt();
-                dist > arc_radius + 0.3
+                let dist_from_arc = dist - arc_radius;
+                dist_from_arc < -0.5 // Inside the arc
             }
         }
     }
@@ -418,6 +423,38 @@ mod tests {
 
         // Hollow should have fewer or equal blocks
         assert!(hollow.len() <= solid.len());
+    }
+
+    #[test]
+    fn test_hollow_arch_thickness_one() {
+        let base = Vector3::new(0, 0, 0);
+        // Test that hollow works even with thickness=1
+        let solid = generate_arch_positions(
+            base,
+            8,
+            5,
+            1,
+            ArchStyle::Semicircle,
+            ArchOrientation::FacingZ,
+            false,
+        );
+        let hollow = generate_arch_positions(
+            base,
+            8,
+            5,
+            1,
+            ArchStyle::Semicircle,
+            ArchOrientation::FacingZ,
+            true,
+        );
+
+        // Hollow should have fewer blocks than solid
+        assert!(
+            hollow.len() < solid.len(),
+            "Hollow ({}) should be less than solid ({})",
+            hollow.len(),
+            solid.len()
+        );
     }
 
     #[test]
