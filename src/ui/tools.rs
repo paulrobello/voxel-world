@@ -98,7 +98,7 @@ impl ActiveTool {
             ActiveTool::Sphere => "🔵",      // Blue circle
             ActiveTool::Cube => "📦",        // Box/package
             ActiveTool::Bridge => "📍",      // Pin/marker for line endpoints
-            ActiveTool::Cylinder => "🔶",    // Orange diamond for cylinder
+            ActiveTool::Cylinder => "⚪",    // White circle (cylinder cross-section)
             ActiveTool::Wall => "🏠",        // House for walls
             ActiveTool::Floor => "⬛",       // Black square for floor
             ActiveTool::Replace => "🔄",     // Arrows for replace/swap
