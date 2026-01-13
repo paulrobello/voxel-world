@@ -584,6 +584,16 @@ impl App {
             }
         }
 
+        // Update floor tool preview from raycast (only when start position is set)
+        if self.ui.floor_tool.active && self.ui.floor_tool.start_position.is_some() {
+            if let Some(hit) = self.ui.current_hit {
+                let target = get_place_position(&hit);
+                self.ui.floor_tool.update_preview(target);
+            } else {
+                self.ui.floor_tool.clear_preview();
+            }
+        }
+
         // Handle template placement with right-click
         // Check if mouse was released (clear reclick flag)
         if self.ui.place_needs_reclick && !self.input.mouse_held(MouseButton::Right) {
@@ -732,6 +742,29 @@ impl App {
                     // First click - set start position
                     self.ui.wall_tool.start_position = Some(target);
                     println!("Wall start: ({}, {}, {})", target.x, target.y, target.z);
+                }
+                self.ui.place_needs_reclick = true;
+                return; // Skip block placement
+            }
+        }
+
+        // Handle floor tool with right-click (two-click workflow)
+        if self.input.focused
+            && self.ui.floor_tool.active
+            && self.input.mouse_pressed(MouseButton::Right)
+            && !self.ui.place_needs_reclick
+        {
+            if let Some(hit) = self.ui.current_hit {
+                let target = get_place_position(&hit);
+
+                if self.ui.floor_tool.start_position.is_some() {
+                    // Second click - place the floor and clear start
+                    self.place_floor();
+                    self.ui.floor_tool.cancel(); // Clear start position for next floor
+                } else {
+                    // First click - set start position
+                    self.ui.floor_tool.start_position = Some(target);
+                    println!("Floor start: ({}, {}, {})", target.x, target.y, target.z);
                 }
                 self.ui.place_needs_reclick = true;
                 return; // Skip block placement

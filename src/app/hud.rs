@@ -85,6 +85,7 @@ pub fn render_hud(
             bridge_tool: &mut ui.bridge_tool,
             cylinder_tool: &mut ui.cylinder_tool,
             wall_tool: &mut ui.wall_tool,
+            floor_tool: &mut ui.floor_tool,
         },
     );
 
@@ -190,6 +191,18 @@ pub fn render_hud(
             if ui.wall_tool.active {
                 ui.tools_palette.open = false;
                 // Don't request cursor grab - wall tool UI needs mouse interaction
+            }
+        }
+        ToolAction::ToggleFloorTool => {
+            ui.floor_tool.active = !ui.floor_tool.active;
+            println!(
+                "Floor Tool: {}",
+                if ui.floor_tool.active { "ON" } else { "OFF" }
+            );
+            // Close tools palette but DON'T grab cursor - let user adjust settings first
+            if ui.floor_tool.active {
+                ui.tools_palette.open = false;
+                // Don't request cursor grab - floor tool UI needs mouse interaction
             }
         }
         ToolAction::None => {}
