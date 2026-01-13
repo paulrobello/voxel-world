@@ -92,6 +92,7 @@ pub fn render_hud(
             stairs_tool: &mut ui.stairs_tool,
             arch_tool: &mut ui.arch_tool,
             cone_tool: &mut ui.cone_tool,
+            clone_tool: &mut ui.clone_tool,
         },
     );
 
@@ -281,6 +282,18 @@ pub fn render_hud(
             if ui.cone_tool.active {
                 ui.tools_palette.open = false;
                 // Don't request cursor grab - cone tool UI needs mouse interaction
+            }
+        }
+        ToolAction::ToggleCloneTool => {
+            ui.clone_tool.active = !ui.clone_tool.active;
+            println!(
+                "Clone/Array Tool: {}",
+                if ui.clone_tool.active { "ON" } else { "OFF" }
+            );
+            // Close tools palette but DON'T grab cursor - let user adjust settings first
+            if ui.clone_tool.active {
+                ui.tools_palette.open = false;
+                // Don't request cursor grab - clone tool UI needs mouse interaction
             }
         }
         ToolAction::None => {}

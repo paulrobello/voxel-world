@@ -648,6 +648,20 @@ impl App {
             }
         }
 
+        // Handle clone tool preview and execution requests
+        if self.ui.clone_tool.active {
+            // Update preview when selection or settings change
+            self.ui
+                .clone_tool
+                .update_preview(&self.ui.template_selection, &self.sim.world);
+
+            // Execute clone if requested
+            if self.ui.clone_tool.execute_requested {
+                self.ui.clone_tool.execute_requested = false;
+                self.execute_clone();
+            }
+        }
+
         // Handle template placement with right-click
         // Check if mouse was released (clear reclick flag)
         if self.ui.place_needs_reclick && !self.input.mouse_held(MouseButton::Right) {

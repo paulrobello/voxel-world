@@ -1861,6 +1861,163 @@ impl App {
         // Don't deactivate tool - allow placing multiple cones
     }
 
+    /// Execute clone operation: copy blocks from selection to cloned positions.
+    pub fn execute_clone(&mut self) {
+        let clone_tool = &self.ui.clone_tool;
+        if !clone_tool.active {
+            return;
+        }
+
+        let selection = &self.ui.template_selection;
+        if selection.pos1.is_none() || selection.pos2.is_none() {
+            return;
+        }
+
+        let (min, max) = selection.bounds().unwrap();
+        let selection_size = Vector3::new(
+            (max.x - min.x + 1).abs(),
+            (max.y - min.y + 1).abs(),
+            (max.z - min.z + 1).abs(),
+        );
+
+        // Calculate clone origins
+        let origins = crate::shape_tools::clone::calculate_clone_origins(
+            selection_size,
+            clone_tool.mode,
+            clone_tool.axis,
+            clone_tool.count,
+            clone_tool.spacing,
+            clone_tool.grid_count_x,
+            clone_tool.grid_count_z,
+            clone_tool.grid_spacing_x,
+            clone_tool.grid_spacing_z,
+        );
+
+        // Skip the first origin (it's the original at 0,0,0)
+        let clone_origins: Vec<_> = origins.into_iter().skip(1).collect();
+        if clone_origins.is_empty() {
+            println!("Clone: No copies to make (count=1)");
+            return;
+        }
+
+        // Collect source blocks with their types and metadata
+        // (position, block_type, tint_index, paint_data)
+        #[allow(clippy::type_complexity)]
+        let mut source_blocks: Vec<(
+            Vector3<i32>,
+            BlockType,
+            Option<u8>,
+            Option<crate::chunk::BlockPaintData>,
+        )> = Vec::new();
+        if let Some(iter) = selection.iter_positions() {
+            for pos in iter {
+                let block = self.sim.world.get_block(pos);
+                if let Some(block_type) = block {
+                    if block_type == BlockType::Air {
+                        continue;
+                    }
+                    let tint = self.sim.world.get_tint_index(pos);
+                    let paint = self.sim.world.get_paint_data(pos);
+                    source_blocks.push((pos, block_type, tint, paint));
+                }
+            }
+        }
+
+        if source_blocks.is_empty() {
+            println!("Clone: No blocks in selection to clone");
+            return;
+        }
+
+        // Place cloned blocks at each origin offset
+        let mut placed_count = 0;
+        for origin in &clone_origins {
+            for (source_pos, block_type, tint, paint) in &source_blocks {
+                let target_pos = source_pos + origin;
+
+                // Skip if out of Y bounds
+                if target_pos.y < 0 || target_pos.y >= TEXTURE_SIZE_Y as i32 {
+                    continue;
+                }
+
+                match *block_type {
+                    BlockType::TintedGlass => {
+                        let tint_idx: u8 = tint.unwrap_or(0);
+                        self.sim.world.set_tinted_glass_block(target_pos, tint_idx);
+                    }
+                    BlockType::Crystal => {
+                        let tint_idx: u8 = tint.unwrap_or(0);
+                        self.sim.world.set_crystal_block(target_pos, tint_idx);
+                    }
+                    BlockType::Painted => {
+                        if let Some(p) = paint {
+                            self.sim
+                                .world
+                                .set_painted_block(target_pos, p.texture_idx, p.tint_idx);
+                        } else {
+                            self.sim.world.set_painted_block(target_pos, 0, 0);
+                        }
+                    }
+                    BlockType::Water => {
+                        let water_type = self
+                            .sim
+                            .world
+                            .get_water_type(*source_pos)
+                            .unwrap_or(WaterType::Ocean);
+                        self.sim.water_grid.place_source(target_pos, water_type);
+                        self.sim.world.set_water_block(target_pos, water_type);
+                    }
+                    BlockType::Lava => {
+                        self.sim.lava_grid.place_source(target_pos);
+                        self.sim.world.set_block(target_pos, BlockType::Lava);
+                    }
+                    BlockType::Model => {
+                        // Clone model blocks with their metadata
+                        if let Some(model_data) = self.sim.world.get_model_data(*source_pos) {
+                            self.sim.world.set_model_block(
+                                target_pos,
+                                model_data.model_id,
+                                model_data.rotation,
+                                model_data.waterlogged,
+                            );
+                        }
+                    }
+                    BlockType::Air => {
+                        // Skip air blocks
+                        continue;
+                    }
+                    _ => {
+                        self.sim.world.set_block(target_pos, *block_type);
+                    }
+                }
+                placed_count += 1;
+            }
+        }
+
+        // Invalidate minimap cache for affected area
+        self.sim.world.invalidate_minimap_cache(min.x, min.z);
+        self.sim.world.invalidate_minimap_cache(max.x, max.z);
+        // Also invalidate cache for cloned regions
+        for origin in &clone_origins {
+            self.sim
+                .world
+                .invalidate_minimap_cache(min.x + origin.x, min.z + origin.z);
+            self.sim
+                .world
+                .invalidate_minimap_cache(max.x + origin.x, max.z + origin.z);
+        }
+
+        let mode_name = self.ui.clone_tool.mode.name();
+        println!(
+            "Cloned {} blocks in {} mode ({} copies)",
+            placed_count,
+            mode_name,
+            clone_origins.len()
+        );
+
+        // Clear preview after cloning
+        self.ui.clone_tool.clear_preview();
+    }
+
     /// Execute block replacement within the current selection.
     pub fn execute_replace(&mut self) {
         let replace = &self.ui.replace_tool;

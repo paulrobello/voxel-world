@@ -35,6 +35,7 @@ pub enum ToolAction {
     ToggleStairsTool,
     ToggleArchTool,
     ToggleConeTool,
+    ToggleCloneTool,
 }
 
 /// Which tool is currently active/highlighted in the palette.
@@ -58,6 +59,7 @@ pub enum ActiveTool {
     Stairs,
     Arch,
     Cone,
+    Clone,
 }
 
 impl ActiveTool {
@@ -81,6 +83,7 @@ impl ActiveTool {
             ActiveTool::Stairs => "Stairs",
             ActiveTool::Arch => "Arch",
             ActiveTool::Cone => "Cone/Pyramid",
+            ActiveTool::Clone => "Clone/Array",
         }
     }
 
@@ -104,6 +107,7 @@ impl ActiveTool {
             ActiveTool::Stairs => "📶",      // Step pattern
             ActiveTool::Arch => "∩",         // Arch shape
             ActiveTool::Cone => "△",         // Triangle for cone/pyramid
+            ActiveTool::Clone => "⧉",        // Grid pattern for clone/array
         }
     }
 
@@ -127,6 +131,7 @@ impl ActiveTool {
             ActiveTool::Stairs => "",    // No dedicated hotkey, button only
             ActiveTool::Arch => "",      // No dedicated hotkey, button only
             ActiveTool::Cone => "",      // No dedicated hotkey, button only
+            ActiveTool::Clone => "",     // No dedicated hotkey, button only
         }
     }
 
@@ -150,6 +155,7 @@ impl ActiveTool {
             ActiveTool::Stairs => "Build staircases between two points",
             ActiveTool::Arch => "Create architectural arches and doorways",
             ActiveTool::Cone => "Place cones or pyramids",
+            ActiveTool::Clone => "Clone selection in patterns (linear/grid)",
         }
     }
 }
@@ -293,6 +299,7 @@ impl ToolsPaletteUI {
         stairs_tool_active: bool,
         arch_tool_active: bool,
         cone_tool_active: bool,
+        clone_tool_active: bool,
         stencil_opacity: f32,
         stencil_render_mode: StencilRenderMode,
     ) -> ToolsPaletteResult {
@@ -339,6 +346,8 @@ impl ToolsPaletteUI {
             ActiveTool::Arch
         } else if cone_tool_active {
             ActiveTool::Cone
+        } else if clone_tool_active {
+            ActiveTool::Clone
         } else {
             ActiveTool::None
         };
@@ -376,6 +385,7 @@ impl ToolsPaletteUI {
                         ActiveTool::Stairs,
                         ActiveTool::Arch,
                         ActiveTool::Cone,
+                        ActiveTool::Clone,
                         ActiveTool::Bridge,
                     ];
 
@@ -400,6 +410,7 @@ impl ToolsPaletteUI {
                                 ActiveTool::Stairs => ToolAction::ToggleStairsTool,
                                 ActiveTool::Arch => ToolAction::ToggleArchTool,
                                 ActiveTool::Cone => ToolAction::ToggleConeTool,
+                                ActiveTool::Clone => ToolAction::ToggleCloneTool,
                                 ActiveTool::Bridge => ToolAction::ToggleBridgeTool,
                                 ActiveTool::None => ToolAction::None,
                             };
@@ -631,6 +642,15 @@ impl ToolsPaletteUI {
                 // Cone tool has its own settings window (ConeToolUI)
                 ui.label(
                     egui::RichText::new("Cone settings in separate window")
+                        .color(egui::Color32::from_gray(140))
+                        .size(11.0)
+                        .italics(),
+                );
+            }
+            ActiveTool::Clone => {
+                // Clone tool has its own settings window (CloneToolUI)
+                ui.label(
+                    egui::RichText::new("Clone settings in separate window")
                         .color(egui::Color32::from_gray(140))
                         .size(11.0)
                         .italics(),

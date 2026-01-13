@@ -6,6 +6,7 @@
 pub mod arch;
 pub mod bridge;
 pub mod circle;
+pub mod clone;
 pub mod cone;
 pub mod cube;
 pub mod cylinder;
@@ -1335,6 +1336,153 @@ impl ConeToolState {
             } else {
                 self.preview_positions = all_positions;
             }
+        }
+    }
+}
+
+// ============================================================================
+// CloneToolState
+// ============================================================================
+
+/// State for the clone/array placement tool.
+#[derive(Clone, Debug)]
+pub struct CloneToolState {
+    /// Whether the clone tool is currently active.
+    pub active: bool,
+    /// Clone mode (Linear or Grid).
+    pub mode: clone::CloneMode,
+    /// Primary axis for linear mode.
+    pub axis: clone::CloneAxis,
+    /// Number of copies for linear mode (includes original).
+    pub count: i32,
+    /// Spacing between copies for linear mode.
+    pub spacing: i32,
+    /// Number of copies along X for grid mode.
+    pub grid_count_x: i32,
+    /// Number of copies along Z for grid mode.
+    pub grid_count_z: i32,
+    /// Spacing along X for grid mode.
+    pub grid_spacing_x: i32,
+    /// Spacing along Z for grid mode.
+    pub grid_spacing_z: i32,
+    /// Cached preview positions for GPU upload.
+    pub preview_positions: Vec<Vector3<i32>>,
+    /// Total block count for the clone operation.
+    pub total_blocks: usize,
+    /// Number of copies (origins) in the preview.
+    pub copy_count: usize,
+    /// Whether the preview was truncated due to exceeding buffer limit.
+    pub preview_truncated: bool,
+    /// Flag: user requested to execute the clone.
+    pub execute_requested: bool,
+}
+
+impl Default for CloneToolState {
+    fn default() -> Self {
+        Self {
+            active: false,
+            mode: clone::CloneMode::Linear,
+            axis: clone::CloneAxis::X,
+            count: 3,
+            spacing: 1,
+            grid_count_x: 3,
+            grid_count_z: 3,
+            grid_spacing_x: 1,
+            grid_spacing_z: 1,
+            preview_positions: Vec::new(),
+            total_blocks: 0,
+            copy_count: 0,
+            preview_truncated: false,
+            execute_requested: false,
+        }
+    }
+}
+
+impl CloneToolState {
+    /// Clear the preview.
+    pub fn clear_preview(&mut self) {
+        self.preview_positions.clear();
+        self.total_blocks = 0;
+        self.copy_count = 0;
+        self.preview_truncated = false;
+    }
+
+    /// Deactivate the tool and reset state.
+    #[allow(dead_code)]
+    pub fn deactivate(&mut self) {
+        self.active = false;
+        self.clear_preview();
+    }
+
+    /// Update the clone preview based on the current selection.
+    ///
+    /// # Arguments
+    /// * `selection` - Current template selection defining source region
+    pub fn update_preview(
+        &mut self,
+        selection: &crate::templates::TemplateSelection,
+        world: &crate::world::World,
+    ) {
+        use crate::gpu_resources::MAX_STENCIL_BLOCKS;
+
+        if selection.pos1.is_none() || selection.pos2.is_none() {
+            self.clear_preview();
+            return;
+        }
+
+        let (min, max) = selection.bounds().unwrap();
+        let selection_size = Vector3::new(
+            (max.x - min.x + 1).abs(),
+            (max.y - min.y + 1).abs(),
+            (max.z - min.z + 1).abs(),
+        );
+
+        // Calculate clone origins
+        let origins = clone::calculate_clone_origins(
+            selection_size,
+            self.mode,
+            self.axis,
+            self.count,
+            self.spacing,
+            self.grid_count_x,
+            self.grid_count_z,
+            self.grid_spacing_x,
+            self.grid_spacing_z,
+        );
+
+        self.copy_count = origins.len();
+
+        // Collect source positions from selection
+        let source_positions: Vec<Vector3<i32>> = match selection.iter_positions() {
+            Some(iter) => iter
+                .filter(|pos| {
+                    let block = world.get_block(*pos);
+                    block != Some(crate::chunk::BlockType::Air)
+                })
+                .collect(),
+            None => {
+                self.clear_preview();
+                return;
+            }
+        };
+
+        if source_positions.is_empty() {
+            self.clear_preview();
+            return;
+        }
+
+        // Generate all cloned positions
+        let all_positions = clone::generate_cloned_positions(&source_positions, &origins);
+
+        // Track total count and truncation status
+        self.total_blocks = all_positions.len();
+        self.preview_truncated = all_positions.len() > MAX_STENCIL_BLOCKS;
+
+        // Truncate for preview
+        if all_positions.len() > MAX_STENCIL_BLOCKS {
+            self.preview_positions = all_positions[..MAX_STENCIL_BLOCKS].to_vec();
+        } else {
+            self.preview_positions = all_positions;
         }
     }
 }
