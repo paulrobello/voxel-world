@@ -681,6 +681,13 @@ fn render_icon(
         laser_color_r: 1.0,
         laser_color_g: 0.2,
         laser_color_b: 0.2,
+        // Default sky colors
+        sky_zenith_r: 0.25,
+        sky_zenith_g: 0.45,
+        sky_zenith_b: 0.85,
+        sky_horizon_r: 0.6,
+        sky_horizon_g: 0.75,
+        sky_horizon_b: 0.95,
     };
 
     // Render

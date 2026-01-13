@@ -442,6 +442,7 @@ float getSkyExposure(vec3 origin) {
 
 // Light animation modes are defined in common.glsl:
 // LIGHT_MODE_STEADY, LIGHT_MODE_PULSE, LIGHT_MODE_FLICKER, etc.
+// Animation factors are now pre-computed on CPU to avoid expensive sin() calls per-pixel.
 
 // Point light accumulation
 vec3 calculatePointLights(vec3 worldPos, vec3 normal) {
@@ -452,11 +453,8 @@ vec3 calculatePointLights(vec3 worldPos, vec3 normal) {
         vec3 lightPos = light.pos_radius.xyz;
         float lightRadius = light.pos_radius.w;
         vec3 lightColor = light.color.rgb;
-        float encodedIntensity = light.color.a;
-
-        // Decode mode and intensity: mode = floor(value), intensity = fract(value) * 2
-        uint mode = uint(floor(encodedIntensity));
-        float intensity = fract(encodedIntensity) * 2.0;
+        float intensity = light.color.a;
+        float animationFactor = light.animation.w;  // Pre-computed on CPU
 
         vec3 toLight = lightPos - worldPos;
         float distance = length(toLight);
@@ -469,20 +467,8 @@ vec3 calculatePointLights(vec3 worldPos, vec3 normal) {
         float diffuse = max(0.0, dot(normal, lightDir));
         float ambient = 0.15;
 
-        vec3 lightContrib = lightColor * intensity * attenuation * (diffuse + ambient);
-
-        // Apply animation based on mode
-        if (mode == LIGHT_MODE_PULSE) {
-            // Slow, gentle breathing effect
-            float pulse = 0.92 + 0.08 * sin(pc.animation_time * 1.5 + float(i) * 2.1);
-            lightContrib *= pulse;
-        } else if (mode == LIGHT_MODE_FLICKER) {
-            // Fast, erratic torch flicker
-            float flicker = 0.95 + 0.05 * sin(pc.animation_time * 15.0 + float(i) * 7.3);
-            flicker *= 0.97 + 0.03 * sin(pc.animation_time * 23.0 + float(i) * 11.1);
-            lightContrib *= flicker;
-        }
-        // Mode 0 (STEADY): no animation applied
+        // Apply pre-computed animation factor directly (no per-pixel sin() calls)
+        vec3 lightContrib = lightColor * intensity * attenuation * (diffuse + ambient) * animationFactor;
 
         totalLight += lightContrib;
     }

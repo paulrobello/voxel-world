@@ -1,7 +1,15 @@
-// Day sky colors
-const vec3 DAY_SKY_HORIZON = vec3(0.6, 0.75, 0.95);   // Light blue at horizon
-const vec3 DAY_SKY_ZENITH = vec3(0.25, 0.45, 0.85);   // Deeper blue overhead
+// Day sky colors (defaults, can be overridden by push constants)
+const vec3 DEFAULT_DAY_SKY_HORIZON = vec3(0.6, 0.75, 0.95);   // Light blue at horizon
+const vec3 DEFAULT_DAY_SKY_ZENITH = vec3(0.25, 0.45, 0.85);   // Deeper blue overhead
 const vec3 DAY_SKY_GROUND = vec3(0.4, 0.45, 0.5);     // Gray-blue below horizon
+
+// Get day sky colors from push constants
+vec3 getDaySkyZenith() {
+    return vec3(pc.sky_zenith_r, pc.sky_zenith_g, pc.sky_zenith_b);
+}
+vec3 getDaySkyHorizon() {
+    return vec3(pc.sky_horizon_r, pc.sky_horizon_g, pc.sky_horizon_b);
+}
 
 // Sunrise/sunset sky colors
 const vec3 SUNSET_HORIZON = vec3(1.0, 0.5, 0.2);      // Orange at horizon
@@ -176,9 +184,11 @@ vec3 getSkyColorEx(vec3 rayDir, bool underwaterView) {
     vec3 sunDir = getSunDirection(time);
     vec3 moonDir = getMoonDirection(time);
 
-    // Interpolate sky colors based on time
-    vec3 horizonColor = mix(NIGHT_SKY_HORIZON, DAY_SKY_HORIZON, daylight);
-    vec3 zenithColor = mix(NIGHT_SKY_ZENITH, DAY_SKY_ZENITH, daylight);
+    // Interpolate sky colors based on time (using push constants for day colors)
+    vec3 daySkyHorizon = getDaySkyHorizon();
+    vec3 daySkyZenith = getDaySkyZenith();
+    vec3 horizonColor = mix(NIGHT_SKY_HORIZON, daySkyHorizon, daylight);
+    vec3 zenithColor = mix(NIGHT_SKY_ZENITH, daySkyZenith, daylight);
     vec3 groundColor = mix(NIGHT_SKY_GROUND, DAY_SKY_GROUND, daylight);
 
     // Blend in sunset colors

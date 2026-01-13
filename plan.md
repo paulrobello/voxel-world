@@ -928,6 +928,26 @@ Escape                      # Cancel tool
 
 ## Done Recently
 
+- **Lighting System Optimization & Sky Colors** (2026-01-12): ✅ COMPLETE
+  - **Pre-computed Animation Factors**: Moved expensive sin() calculations from per-pixel shader to CPU-side pre-computation, reducing GPU load for glowing blocks
+  - **All 10 Light Modes Implemented**: Previously only Steady, Pulse, Flicker worked. Now all modes functional:
+    - Steady: Constant brightness
+    - Pulse: Slow sine wave pulsing
+    - Flicker: Rapid torch-like flickering
+    - Candle: Gentle random flicker simulating candlelight
+    - Strobe: Sharp on/off blinking effect
+    - Breathe: Slow cosine-based fade in/out with natural easing (~8 second cycle)
+    - Sparkle: Random per-light twinkling with bright flashes
+    - Wave: Offset sine waves creating wave patterns across lights
+    - WarmUp: Gradual ramp up to full brightness over 3 seconds
+    - Arc: Random intense flashes like electrical arcing
+  - **Customizable Sky Colors**: New Settings panel controls for day sky colors
+    - Zenith color picker (overhead sky, default deep blue)
+    - Horizon color picker (default light blue)
+    - Reset to Default button
+    - GPU push constants for real-time shader updates
+  - **Breathe Mode Fix**: Changed from raw sine wave to cosine-based curve for smooth easing at peaks/troughs, eliminating stutter at cycle transitions
+
 - **Phase 16.6: Shape Tools** (2026-01-12): ✅ COMPLETE
   - **Sphere Tool**: Configurable radius (1-50), hollow/dome modes, Center/Base placement
   - **Cube Tool**: Configurable size per axis (X, Y, Z), hollow/dome modes, Center/Base placement
@@ -1061,4 +1081,4 @@ Escape                      # Cancel tool
 ---
 
 *Last Updated: 2026-01-12*
-*Plan Version: 3.0 - Shape Tools (Sphere, Cube, Bridge) for World Building*
+*Plan Version: 3.1 - Lighting Optimization, All Light Modes, Sky Color Settings*

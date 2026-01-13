@@ -182,8 +182,10 @@ pub fn load_sprite_icons(gui: &mut Gui) -> SpriteIcons {
         // Tree variants
         (BlockType::PineLog, "block_pinelog.png"),
         (BlockType::WillowLog, "block_willowlog.png"),
+        (BlockType::BirchLog, "block_birchlog.png"),
         (BlockType::PineLeaves, "block_pineleaves.png"),
         (BlockType::WillowLeaves, "block_willowleaves.png"),
+        (BlockType::BirchLeaves, "block_birchleaves.png"),
         // Terrain blocks
         (BlockType::Mud, "block_mud.png"),
         (BlockType::Sandstone, "block_sandstone.png"),
@@ -381,6 +383,13 @@ pub struct PushConstants {
     pub laser_color_r: f32,
     pub laser_color_g: f32,
     pub laser_color_b: f32,
+    // Sky colors (day)
+    pub sky_zenith_r: f32,
+    pub sky_zenith_g: f32,
+    pub sky_zenith_b: f32,
+    pub sky_horizon_r: f32,
+    pub sky_horizon_g: f32,
+    pub sky_horizon_b: f32,
 }
 
 pub fn get_swapchain_images(
@@ -811,8 +820,10 @@ pub const MAX_LIGHTS: usize = 256;
 pub struct GpuLight {
     /// Position XYZ + radius W
     pub pos_radius: [f32; 4],
-    /// Color RGB + intensity A
+    /// Color RGB + intensity A (intensity is raw value, mode is in animation.x)
     pub color_intensity: [f32; 4],
+    /// Animation: x = mode (as float), y = reserved, z = reserved, w = pre-computed animation factor
+    pub animation: [f32; 4],
 }
 
 /// Creates a storage buffer and descriptor set for point light data.

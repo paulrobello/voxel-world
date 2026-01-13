@@ -44,6 +44,7 @@ impl App {
             self.sim.texture_origin,
             &self.sim.model_registry,
             self.sim.world_extent,
+            self.sim.animation_time,
         );
         let light_count = gpu_lights.len() as u32;
 
@@ -925,6 +926,12 @@ impl App {
             laser_color_r: self.ui.tools_palette.settings.measurement.laser_color[0],
             laser_color_g: self.ui.tools_palette.settings.measurement.laser_color[1],
             laser_color_b: self.ui.tools_palette.settings.measurement.laser_color[2],
+            sky_zenith_r: self.sim.atmosphere.sky_color_zenith[0],
+            sky_zenith_g: self.sim.atmosphere.sky_color_zenith[1],
+            sky_zenith_b: self.sim.atmosphere.sky_color_zenith[2],
+            sky_horizon_r: self.sim.atmosphere.sky_color_horizon[0],
+            sky_horizon_g: self.sim.atmosphere.sky_color_horizon[1],
+            sky_horizon_b: self.sim.atmosphere.sky_color_horizon[2],
         };
 
         let mut builder = AutoCommandBufferBuilder::primary(

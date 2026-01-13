@@ -227,6 +227,13 @@ layout(push_constant) uniform PushConstants {
     float laser_color_r;
     float laser_color_g;
     float laser_color_b;
+    // Sky colors (day)
+    float sky_zenith_r;
+    float sky_zenith_g;
+    float sky_zenith_b;
+    float sky_horizon_r;
+    float sky_horizon_g;
+    float sky_horizon_b;
 } pc;
 
 // Particles (set 3)
@@ -274,7 +281,8 @@ layout(set = 3, binding = 4) readonly buffer StencilBlockBuffer {
 // Point lights (set 4)
 struct PointLight {
     vec4 pos_radius;   // xyz = position, w = radius
-    vec4 color;        // rgb = color, a = intensity
+    vec4 color;        // rgb = color, a = intensity (raw value)
+    vec4 animation;    // x = mode, y = reserved, z = reserved, w = pre-computed animation factor
 };
 layout(set = 4, binding = 0) readonly buffer LightBuffer {
     PointLight lights[];

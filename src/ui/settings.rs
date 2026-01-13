@@ -231,6 +231,28 @@ impl SettingsUI {
                                     .text("Overlay Scale"),
                             );
                         });
+
+                        // Sky color settings in collapsible section
+                        ui.collapsing("Sky Colors", |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label("Zenith (overhead):");
+                                egui::color_picker::color_edit_button_rgb(
+                                    ui,
+                                    &mut atmosphere.sky_color_zenith,
+                                );
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label("Horizon:");
+                                egui::color_picker::color_edit_button_rgb(
+                                    ui,
+                                    &mut atmosphere.sky_color_horizon,
+                                );
+                            });
+                            if ui.button("Reset to Default").clicked() {
+                                atmosphere.sky_color_zenith = [0.25, 0.45, 0.85];
+                                atmosphere.sky_color_horizon = [0.6, 0.75, 0.95];
+                            }
+                        });
                         if ui
                             .add(
                                 egui::Slider::new(&mut settings.max_ray_steps, 128..=1024)
