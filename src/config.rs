@@ -49,7 +49,7 @@ pub struct Args {
     #[arg(long, short = 'v')]
     pub view_distance: Option<i32>,
 
-    /// Seed for terrain generation (default: 98765)
+    /// Seed for terrain generation (default: 314159)
     #[arg(long, short = 'S')]
     pub seed: Option<u32>,
 

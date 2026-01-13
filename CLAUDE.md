@@ -13,8 +13,8 @@ make fmt            # Format code
 make lint           # Run clippy linter
 make checkall       # Format, lint, and test (run after making changes)
 make sprite-gen     # Generate palette/hotbar sprites
-make new-flat       # Reset and create flat world (seed 98765)
-make new-normal     # Reset and create normal world (seed 98765)
+make new-flat       # Reset and create flat world (seed 314159)
+make new-normal     # Reset and create normal world (seed 314159)
 ```
 
 The Makefile sets `DYLD_LIBRARY_PATH` and `VK_ICD_FILENAMES` for macOS MoltenVK.
