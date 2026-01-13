@@ -574,6 +574,16 @@ impl App {
             }
         }
 
+        // Update wall tool preview from raycast (only when start position is set)
+        if self.ui.wall_tool.active && self.ui.wall_tool.start_position.is_some() {
+            if let Some(hit) = self.ui.current_hit {
+                let target = get_place_position(&hit);
+                self.ui.wall_tool.update_preview(target);
+            } else {
+                self.ui.wall_tool.clear_preview();
+            }
+        }
+
         // Handle template placement with right-click
         // Check if mouse was released (clear reclick flag)
         if self.ui.place_needs_reclick && !self.input.mouse_held(MouseButton::Right) {
@@ -699,6 +709,29 @@ impl App {
                     // First click - set start position
                     self.ui.bridge_tool.start_position = Some(target);
                     println!("Bridge start: ({}, {}, {})", target.x, target.y, target.z);
+                }
+                self.ui.place_needs_reclick = true;
+                return; // Skip block placement
+            }
+        }
+
+        // Handle wall tool with right-click (two-click workflow)
+        if self.input.focused
+            && self.ui.wall_tool.active
+            && self.input.mouse_pressed(MouseButton::Right)
+            && !self.ui.place_needs_reclick
+        {
+            if let Some(hit) = self.ui.current_hit {
+                let target = get_place_position(&hit);
+
+                if self.ui.wall_tool.start_position.is_some() {
+                    // Second click - place the wall and clear start
+                    self.place_wall();
+                    self.ui.wall_tool.cancel(); // Clear start position for next wall
+                } else {
+                    // First click - set start position
+                    self.ui.wall_tool.start_position = Some(target);
+                    println!("Wall start: ({}, {}, {})", target.x, target.y, target.z);
                 }
                 self.ui.place_needs_reclick = true;
                 return; // Skip block placement

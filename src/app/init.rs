@@ -568,6 +568,7 @@ impl App {
             cube_tool: crate::shape_tools::CubeToolState::default(),
             bridge_tool: crate::shape_tools::BridgeToolState::default(),
             cylinder_tool: crate::shape_tools::CylinderToolState::default(),
+            wall_tool: crate::shape_tools::WallToolState::default(),
         };
 
         let input = InputState {

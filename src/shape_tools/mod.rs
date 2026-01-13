@@ -7,6 +7,7 @@ pub mod bridge;
 pub mod cube;
 pub mod cylinder;
 pub mod sphere;
+pub mod wall;
 
 use nalgebra::Vector3;
 
@@ -452,6 +453,132 @@ impl CylinderToolState {
             } else {
                 self.preview_positions = all_positions;
             }
+        }
+    }
+}
+
+/// State for the wall placement tool (two-click workflow).
+#[derive(Clone, Debug)]
+pub struct WallToolState {
+    /// Whether the wall tool is currently active.
+    pub active: bool,
+    /// Starting corner position (set on first right-click).
+    pub start_position: Option<Vector3<i32>>,
+    /// Wall thickness in blocks (1-5).
+    pub thickness: i32,
+    /// Whether to use manual height mode.
+    pub use_manual_height: bool,
+    /// Manual height value for UI slider.
+    pub height_value: i32,
+    /// Cached preview positions for GPU upload.
+    pub preview_positions: Vec<Vector3<i32>>,
+    /// Current end position for preview (crosshair target).
+    pub preview_end: Option<Vector3<i32>>,
+    /// Total block count for the wall.
+    pub total_blocks: usize,
+    /// Whether the preview was truncated due to exceeding buffer limit.
+    pub preview_truncated: bool,
+    /// Cached thickness for detecting changes.
+    cached_thickness: i32,
+    /// Cached manual height for detecting changes.
+    cached_manual_height: Option<i32>,
+}
+
+impl Default for WallToolState {
+    fn default() -> Self {
+        Self {
+            active: false,
+            start_position: None,
+            thickness: 1,
+            use_manual_height: false,
+            height_value: 5,
+            preview_positions: Vec::new(),
+            preview_end: None,
+            total_blocks: 0,
+            preview_truncated: false,
+            cached_thickness: 1,
+            cached_manual_height: None,
+        }
+    }
+}
+
+impl WallToolState {
+    /// Get the effective manual height based on UI toggle.
+    pub fn effective_manual_height(&self) -> Option<i32> {
+        if self.use_manual_height {
+            Some(self.height_value)
+        } else {
+            None
+        }
+    }
+
+    /// Clear the preview state.
+    pub fn clear_preview(&mut self) {
+        self.preview_positions.clear();
+        self.preview_end = None;
+        self.total_blocks = 0;
+        self.preview_truncated = false;
+    }
+
+    /// Cancel the wall (clear start position and preview).
+    pub fn cancel(&mut self) {
+        self.start_position = None;
+        self.clear_preview();
+    }
+
+    /// Deactivate the tool and clear all state.
+    pub fn deactivate(&mut self) {
+        self.active = false;
+        self.start_position = None;
+        self.clear_preview();
+    }
+
+    /// Check if settings have changed since last preview generation.
+    fn settings_changed(&self) -> bool {
+        self.thickness != self.cached_thickness
+            || self.effective_manual_height() != self.cached_manual_height
+    }
+
+    /// Update cached settings after regenerating preview.
+    fn update_cache(&mut self) {
+        self.cached_thickness = self.thickness;
+        self.cached_manual_height = self.effective_manual_height();
+    }
+
+    /// Update the wall preview from start to the given target position.
+    ///
+    /// Only generates preview if start_position is set.
+    pub fn update_preview(&mut self, target: Vector3<i32>) {
+        use crate::gpu_resources::MAX_STENCIL_BLOCKS;
+
+        if let Some(start) = self.start_position {
+            // Check if regeneration needed
+            let needs_regen = self.preview_end != Some(target) || self.settings_changed();
+
+            if needs_regen {
+                self.preview_end = Some(target);
+                self.update_cache();
+
+                let all_positions = wall::generate_wall_positions(
+                    start,
+                    target,
+                    self.thickness,
+                    self.effective_manual_height(),
+                );
+
+                // Track total count and truncation status
+                self.total_blocks = all_positions.len();
+                self.preview_truncated = all_positions.len() > MAX_STENCIL_BLOCKS;
+
+                // Truncate for preview (full list used for actual placement)
+                if all_positions.len() > MAX_STENCIL_BLOCKS {
+                    self.preview_positions = all_positions[..MAX_STENCIL_BLOCKS].to_vec();
+                } else {
+                    self.preview_positions = all_positions;
+                }
+            }
+        } else {
+            self.clear_preview();
         }
     }
 }

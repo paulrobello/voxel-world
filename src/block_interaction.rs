@@ -1403,6 +1403,87 @@ impl App {
 
         // Don't deactivate tool - allow placing multiple cylinders
     }
+
+    /// Place a wall using the current wall tool settings and hotbar selection.
+    pub fn place_wall(&mut self) {
+        let wall = &self.ui.wall_tool;
+        if !wall.active || wall.start_position.is_none() || wall.preview_end.is_none() {
+            return;
+        }
+
+        // Get block type and metadata from hotbar
+        let block_type = self.ui.hotbar_blocks[self.ui.hotbar_index];
+        let hotbar_idx = self.ui.hotbar_index;
+        let tint_index = self.ui.hotbar_tint_indices[hotbar_idx];
+        let paint_texture = self.ui.hotbar_paint_textures[hotbar_idx];
+
+        // Regenerate full positions (preview may be truncated)
+        let start = wall.start_position.unwrap();
+        let end = wall.preview_end.unwrap();
+        let positions = crate::shape_tools::wall::generate_wall_positions(
+            start,
+            end,
+            wall.thickness,
+            wall.effective_manual_height(),
+        );
+
+        // Place blocks
+        let mut placed_count = 0;
+        for pos in &positions {
+            // Skip if out of Y bounds (X/Z are infinite)
+            if pos.y < 0 || pos.y >= TEXTURE_SIZE_Y as i32 {
+                continue;
+            }
+
+            match block_type {
+                BlockType::TintedGlass => {
+                    self.sim.world.set_tinted_glass_block(*pos, tint_index);
+                }
+                BlockType::Crystal => {
+                    self.sim.world.set_crystal_block(*pos, tint_index);
+                }
+                BlockType::Painted => {
+                    self.sim
+                        .world
+                        .set_painted_block(*pos, paint_texture, tint_index);
+                }
+                BlockType::Water => {
+                    let water_type = WaterType::from_u8(tint_index);
+                    self.sim.water_grid.place_source(*pos, water_type);
+                    self.sim.world.set_water_block(*pos, water_type);
+                }
+                BlockType::Lava => {
+                    self.sim.lava_grid.place_source(*pos);
+                    self.sim.world.set_block(*pos, BlockType::Lava);
+                }
+                BlockType::Model | BlockType::Air => {
+                    // Skip model and air blocks - don't make sense for wall fill
+                    continue;
+                }
+                _ => {
+                    self.sim.world.set_block(*pos, block_type);
+                }
+            }
+            placed_count += 1;
+        }
+
+        // Invalidate minimap cache for affected area
+        self.sim.world.invalidate_minimap_cache(start.x, start.z);
+        self.sim.world.invalidate_minimap_cache(end.x, end.z);
+
+        let (length, height, thickness) = crate::shape_tools::wall::calculate_dimensions(
+            start,
+            end,
+            self.ui.wall_tool.thickness,
+            self.ui.wall_tool.effective_manual_height(),
+        );
+        println!(
+            "Placed wall ({} blocks, {}L × {}H × {}T)",
+            placed_count, length, height, thickness
+        );
+
+        // Don't deactivate tool - allow placing multiple walls
+    }
 }
 
 /// Determines if a stair should be placed inverted based on hit information.

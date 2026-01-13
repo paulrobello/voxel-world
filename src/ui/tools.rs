@@ -27,6 +27,7 @@ pub enum ToolAction {
     ToggleCubeTool,
     ToggleBridgeTool,
     ToggleCylinderTool,
+    ToggleWallTool,
 }
 
 /// Which tool is currently active/highlighted in the palette.
@@ -42,6 +43,7 @@ pub enum ActiveTool {
     Cube,
     Bridge,
     Cylinder,
+    Wall,
 }
 
 impl ActiveTool {
@@ -57,6 +59,7 @@ impl ActiveTool {
             ActiveTool::Cube => "Cube",
             ActiveTool::Bridge => "Bridge",
             ActiveTool::Cylinder => "Cylinder",
+            ActiveTool::Wall => "Wall",
         }
     }
 
@@ -72,6 +75,7 @@ impl ActiveTool {
             ActiveTool::Cube => "🟦",        // Blue square
             ActiveTool::Bridge => "📍",      // Pin/marker for line endpoints
             ActiveTool::Cylinder => "⬤",     // Filled circle for column/cylinder
+            ActiveTool::Wall => "▮",         // Vertical rectangle for walls
         }
     }
 
@@ -87,6 +91,7 @@ impl ActiveTool {
             ActiveTool::Cube => "",      // No dedicated hotkey, button only
             ActiveTool::Bridge => "",    // No dedicated hotkey, button only
             ActiveTool::Cylinder => "",  // No dedicated hotkey, button only
+            ActiveTool::Wall => "",      // No dedicated hotkey, button only
         }
     }
 
@@ -102,6 +107,7 @@ impl ActiveTool {
             ActiveTool::Cube => "Place solid or hollow cubes/boxes",
             ActiveTool::Bridge => "Draw line between two points",
             ActiveTool::Cylinder => "Place solid or hollow cylinders",
+            ActiveTool::Wall => "Build walls with two-click corners",
         }
     }
 }
@@ -237,6 +243,7 @@ impl ToolsPaletteUI {
         cube_tool_active: bool,
         bridge_tool_active: bool,
         cylinder_tool_active: bool,
+        wall_tool_active: bool,
         stencil_opacity: f32,
         stencil_render_mode: StencilRenderMode,
     ) -> ToolsPaletteResult {
@@ -267,6 +274,8 @@ impl ToolsPaletteUI {
             ActiveTool::Bridge
         } else if cylinder_tool_active {
             ActiveTool::Cylinder
+        } else if wall_tool_active {
+            ActiveTool::Wall
         } else {
             ActiveTool::None
         };
@@ -296,6 +305,7 @@ impl ToolsPaletteUI {
                         ActiveTool::Sphere,
                         ActiveTool::Cube,
                         ActiveTool::Cylinder,
+                        ActiveTool::Wall,
                         ActiveTool::Bridge,
                     ];
 
@@ -312,6 +322,7 @@ impl ToolsPaletteUI {
                                 ActiveTool::Sphere => ToolAction::ToggleSphereTool,
                                 ActiveTool::Cube => ToolAction::ToggleCubeTool,
                                 ActiveTool::Cylinder => ToolAction::ToggleCylinderTool,
+                                ActiveTool::Wall => ToolAction::ToggleWallTool,
                                 ActiveTool::Bridge => ToolAction::ToggleBridgeTool,
                                 ActiveTool::None => ToolAction::None,
                             };
@@ -471,6 +482,15 @@ impl ToolsPaletteUI {
                 // Cylinder tool has its own settings window (CylinderToolUI)
                 ui.label(
                     egui::RichText::new("Cylinder settings in separate window")
+                        .color(egui::Color32::from_gray(140))
+                        .size(11.0)
+                        .italics(),
+                );
+            }
+            ActiveTool::Wall => {
+                // Wall tool has its own settings window (WallToolUI)
+                ui.label(
+                    egui::RichText::new("Wall settings in separate window")
                         .color(egui::Color32::from_gray(140))
                         .size(11.0)
                         .italics(),

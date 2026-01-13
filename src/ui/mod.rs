@@ -38,6 +38,7 @@ pub mod sphere_tool;
 pub mod stats;
 pub mod time;
 pub mod tools;
+pub mod wall_tool;
 
 use bridge_tool::BridgeToolUI;
 use console::ConsoleUI;
@@ -51,6 +52,7 @@ use sphere_tool::SphereToolUI;
 use stats::StatsUI;
 pub use tools::ToolAction;
 use tools::{ToolsPaletteState, ToolsPaletteUI};
+use wall_tool::WallToolUI;
 
 /// Water/lava simulation stats for debug display.
 #[derive(Debug, Clone, Copy, Default)]
@@ -120,6 +122,7 @@ pub struct HudInputs<'a> {
     pub cube_tool: &'a mut crate::shape_tools::CubeToolState,
     pub bridge_tool: &'a mut crate::shape_tools::BridgeToolState,
     pub cylinder_tool: &'a mut crate::shape_tools::CylinderToolState,
+    pub wall_tool: &'a mut crate::shape_tools::WallToolState,
 }
 
 pub struct HUDRenderer;
@@ -184,6 +187,7 @@ impl HUDRenderer {
             cube_tool,
             bridge_tool,
             cylinder_tool,
+            wall_tool,
         } = input;
         let mut scale_changed = false;
         let mut editor_action = EditorAction::None;
@@ -255,6 +259,7 @@ impl HUDRenderer {
                 cube_tool.active,
                 bridge_tool.active,
                 cylinder_tool.active,
+                wall_tool.active,
                 stencil_manager.global_opacity,
                 stencil_manager.render_mode,
             );
@@ -280,6 +285,9 @@ impl HUDRenderer {
 
             // Cylinder tool settings window
             CylinderToolUI::draw(&ctx, cylinder_tool);
+
+            // Wall tool settings window
+            WallToolUI::draw(&ctx, wall_tool);
 
             // Crosshair (hide when editor or console is open)
             if !editor.active && !console.active {
