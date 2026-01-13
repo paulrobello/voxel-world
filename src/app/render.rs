@@ -710,6 +710,113 @@ impl App {
                 }
             }
 
+            // Add mirror plane visualization
+            if self.ui.mirror_tool.active
+                && self.ui.mirror_tool.plane_set
+                && self.ui.mirror_tool.show_plane
+            {
+                use crate::shape_tools::mirror::MirrorAxis;
+
+                let plane_pos = self.ui.mirror_tool.plane_position;
+                let plane_color_id = 2u32; // Magenta for mirror plane
+                let plane_size = 16i32; // Size of plane visualization
+
+                // Generate plane grid based on axis
+                match self.ui.mirror_tool.axis {
+                    MirrorAxis::X => {
+                        // Plane perpendicular to Z at z = plane_z
+                        for dx in -plane_size..=plane_size {
+                            for dy in 0..=plane_size {
+                                if total_blocks >= gpu_resources::MAX_STENCIL_BLOCKS {
+                                    break;
+                                }
+                                let world_pos =
+                                    Vector3::new(plane_pos.x + dx, plane_pos.y + dy, plane_pos.z);
+                                let tex_pos = world_to_tex(world_pos);
+                                write[total_blocks] = gpu_resources::GpuStencilBlock {
+                                    position: [
+                                        tex_pos.0 as f32,
+                                        tex_pos.1 as f32,
+                                        tex_pos.2 as f32,
+                                        plane_color_id as f32,
+                                    ],
+                                };
+                                total_blocks += 1;
+                            }
+                        }
+                    }
+                    MirrorAxis::Z => {
+                        // Plane perpendicular to X at x = plane_x
+                        for dz in -plane_size..=plane_size {
+                            for dy in 0..=plane_size {
+                                if total_blocks >= gpu_resources::MAX_STENCIL_BLOCKS {
+                                    break;
+                                }
+                                let world_pos =
+                                    Vector3::new(plane_pos.x, plane_pos.y + dy, plane_pos.z + dz);
+                                let tex_pos = world_to_tex(world_pos);
+                                write[total_blocks] = gpu_resources::GpuStencilBlock {
+                                    position: [
+                                        tex_pos.0 as f32,
+                                        tex_pos.1 as f32,
+                                        tex_pos.2 as f32,
+                                        plane_color_id as f32,
+                                    ],
+                                };
+                                total_blocks += 1;
+                            }
+                        }
+                    }
+                    MirrorAxis::Both => {
+                        // Show both planes (cross pattern)
+                        // X-axis plane (perpendicular to Z)
+                        for dx in -plane_size..=plane_size {
+                            for dy in 0..=plane_size {
+                                if total_blocks >= gpu_resources::MAX_STENCIL_BLOCKS {
+                                    break;
+                                }
+                                let world_pos =
+                                    Vector3::new(plane_pos.x + dx, plane_pos.y + dy, plane_pos.z);
+                                let tex_pos = world_to_tex(world_pos);
+                                write[total_blocks] = gpu_resources::GpuStencilBlock {
+                                    position: [
+                                        tex_pos.0 as f32,
+                                        tex_pos.1 as f32,
+                                        tex_pos.2 as f32,
+                                        plane_color_id as f32,
+                                    ],
+                                };
+                                total_blocks += 1;
+                            }
+                        }
+                        // Z-axis plane (perpendicular to X)
+                        for dz in -plane_size..=plane_size {
+                            for dy in 0..=plane_size {
+                                if total_blocks >= gpu_resources::MAX_STENCIL_BLOCKS {
+                                    break;
+                                }
+                                // Skip center column (already rendered by X plane)
+                                if dz == 0 {
+                                    continue;
+                                }
+                                let world_pos =
+                                    Vector3::new(plane_pos.x, plane_pos.y + dy, plane_pos.z + dz);
+                                let tex_pos = world_to_tex(world_pos);
+                                write[total_blocks] = gpu_resources::GpuStencilBlock {
+                                    position: [
+                                        tex_pos.0 as f32,
+                                        tex_pos.1 as f32,
+                                        tex_pos.2 as f32,
+                                        plane_color_id as f32,
+                                    ],
+                                };
+                                total_blocks += 1;
+                            }
+                        }
+                    }
+                }
+            }
+
             (
                 total_blocks as u32,
                 self.ui.stencil_manager.global_opacity,

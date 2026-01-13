@@ -923,9 +923,10 @@ impl App {
             println!("Mirror axis: {}", self.ui.mirror_tool.axis.name());
         }
 
-        // Handle mirror tool plane setting with right-click
+        // Handle mirror tool plane setting with right-click (only when plane not yet set)
         if self.input.focused
             && self.ui.mirror_tool.active
+            && !self.ui.mirror_tool.plane_set
             && self.input.mouse_pressed(MouseButton::Right)
             && !self.ui.place_needs_reclick
         {
