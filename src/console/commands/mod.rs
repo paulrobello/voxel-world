@@ -117,13 +117,17 @@ pub fn help() -> CommandResult {
     List all saved positions for the current world.
 
   waterdebug, wd
-    Show water/lava simulation debug info.
+    Show water/lava simulation debug info (includes profiling if enabled).
 
   waterforce, wf
     Force ALL water cells to become active (unstick water).
 
   wateranalyze, wa
     Analyze water flow at player position (debug).
+
+  waterprofile, wp [on|off]
+    Enable/disable water simulation performance profiling.
+    Shows timing breakdown in waterdebug output.
 
   clear
     Clear console output

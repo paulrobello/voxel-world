@@ -73,6 +73,8 @@ pub enum CommandResult {
     ForceWaterActive,
     /// Analyze water flow at player position.
     WaterAnalyze,
+    /// Enable/disable water simulation profiling.
+    WaterProfile(bool),
     /// Enable/disable biome debug visualization.
     SetBiomeDebug(bool),
     /// Load template for placement.
@@ -230,6 +232,8 @@ pub struct ConsoleState {
     pub pending_force_water_active: bool,
     /// Pending water analyze request.
     pub pending_water_analyze: bool,
+    /// Pending water profiling toggle (Some(true/false) if changed).
+    pub pending_water_profile: Option<bool>,
     /// Pending biome debug toggle (Some(true/false) if changed).
     pub pending_biome_debug: Option<bool>,
     /// Pending template to be loaded for placement.
@@ -284,6 +288,7 @@ impl ConsoleState {
             pending_fluid_debug: false,
             pending_force_water_active: false,
             pending_water_analyze: false,
+            pending_water_profile: None,
             pending_biome_debug: None,
             pending_template_load: None,
             pending_stencil_load: None,
@@ -422,6 +427,11 @@ impl ConsoleState {
                 name: "wateranalyze",
                 aliases: &["wa"],
                 params: &[],
+            },
+            CommandSignature {
+                name: "waterprofile",
+                aliases: &["wp"],
+                params: &[ParamType::Text], // on/off
             },
             CommandSignature {
                 name: "biome_debug",
@@ -757,18 +767,42 @@ impl ConsoleState {
         &mut self,
         water_cells: usize,
         water_active: usize,
+        water_dirty: usize,
+        water_stats: &crate::water::WaterSimStats,
         lava_cells: usize,
         lava_active: usize,
     ) {
         self.info("=== Fluid Simulation Debug ===");
         self.info(format!(
-            "Water: {} cells, {} active",
-            water_cells, water_active
+            "Water: {} cells, {} active, {} dirty",
+            water_cells, water_active, water_dirty
         ));
         self.info(format!(
             "Lava: {} cells, {} active",
             lava_cells, lava_active
         ));
+
+        // Show water performance stats if profiling is enabled
+        if water_stats.profiling_enabled && water_stats.last_cells_processed > 0 {
+            self.info("--- Water Performance ---");
+            self.info(format!(
+                "Last tick: {:.2}ms ({} cells, {} flowed, {} deactivated)",
+                water_stats.last_tick_duration.as_secs_f64() * 1000.0,
+                water_stats.last_cells_processed,
+                water_stats.last_cells_flowed,
+                water_stats.last_cells_deactivated
+            ));
+            self.info(format!(
+                "  Sort: {:.2}ms, Flow: {:.2}ms, Apply: {:.2}ms",
+                water_stats.last_sort_duration.as_secs_f64() * 1000.0,
+                water_stats.last_flow_duration.as_secs_f64() * 1000.0,
+                water_stats.last_apply_duration.as_secs_f64() * 1000.0
+            ));
+            self.info(format!("  {:.2} µs/cell", water_stats.us_per_cell()));
+        } else if !water_stats.profiling_enabled {
+            self.info("Water profiling disabled. Use /waterprofile on to enable.");
+        }
+
         if water_active == 0 && water_cells > 0 {
             self.warning("Water cells exist but none are active - water is stable/stuck");
         }
@@ -959,6 +993,13 @@ impl ConsoleState {
                 // Signal that caller should analyze water at player position
                 self.pending_water_analyze = true;
             }
+            CommandResult::WaterProfile(enabled) => {
+                self.success(format!(
+                    "Water profiling: {}",
+                    if enabled { "ON" } else { "OFF" }
+                ));
+                self.pending_water_profile = Some(enabled);
+            }
             CommandResult::SetBiomeDebug(enabled) => {
                 self.success(format!(
                     "Biome debug visualization: {}",
@@ -1090,6 +1131,18 @@ impl ConsoleState {
             "waterdebug" | "wd" => CommandResult::FluidDebug,
             "waterforce" | "wf" => CommandResult::ForceWaterActive,
             "wateranalyze" | "wa" => CommandResult::WaterAnalyze,
+            "waterprofile" | "wp" => {
+                if let Some(arg) = args.first() {
+                    match arg.to_lowercase().as_str() {
+                        "on" | "true" | "1" => CommandResult::WaterProfile(true),
+                        "off" | "false" | "0" => CommandResult::WaterProfile(false),
+                        _ => CommandResult::Error("Usage: waterprofile [on|off]".to_string()),
+                    }
+                } else {
+                    // Default to ON when no argument provided
+                    CommandResult::WaterProfile(true)
+                }
+            }
             "biome_debug" | "bd" => {
                 if let Some(arg) = args.first() {
                     match arg.to_lowercase().as_str() {

@@ -290,6 +290,8 @@ impl ConsoleUI {
                                 console.output_fluid_debug(
                                     fluid_stats.water_cells,
                                     fluid_stats.water_active,
+                                    fluid_stats.water_dirty,
+                                    &water_grid.stats,
                                     fluid_stats.lava_cells,
                                     fluid_stats.lava_active,
                                 );

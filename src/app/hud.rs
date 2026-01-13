@@ -24,6 +24,7 @@ pub fn render_hud(
     let fluid_stats = FluidStats {
         water_cells: sim.water_grid.cell_count(),
         water_active: sim.water_grid.active_count(),
+        water_dirty: sim.water_grid.dirty_count(),
         lava_cells: sim.lava_grid.cell_count(),
         lava_active: sim.lava_grid.active_count(),
     };

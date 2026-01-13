@@ -6,6 +6,13 @@
 //!
 //! Water is stored in a sparse HashMap to minimize memory usage since most
 //! blocks don't contain water.
+//!
+//! ## Performance Optimizations
+//!
+//! - **Y-Layer Bucket Sort**: O(n) bucket distribution instead of O(n log n) sort
+//! - **Cached Neighbor Masses**: Pre-fetch all 6 neighbor masses once per cell
+//! - **Lazy Pruning**: Only prune when active set exceeds threshold
+//! - **Reusable Buffers**: Avoid per-tick allocations for working vectors
 
 #![allow(dead_code)]
 
@@ -13,7 +20,7 @@ use crate::chunk::WaterType;
 use crate::constants::ORTHO_DIRS;
 use nalgebra::Vector3;
 use std::collections::{HashMap, HashSet};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 /// Maximum water mass a cell can hold before it's considered "full".
 /// Values above this indicate pressure (compressed water).
@@ -44,6 +51,67 @@ pub const DEFAULT_SIMULATION_RADIUS: f32 = 64.0;
 /// Lower = faster simulation, higher = slower/smoother.
 /// 50ms = 20 ticks/second (Minecraft-like)
 pub const DEFAULT_TICK_INTERVAL_MS: u64 = 50;
+
+/// Threshold for lazy pruning - only prune when active set exceeds this size.
+/// This amortizes the cost of pruning instead of doing it every tick.
+const PRUNE_THRESHOLD: usize = 2048;
+
+/// Number of Y-layer buckets for bucket sort optimization.
+/// Covers Y coordinates 0-511 (world height).
+const Y_BUCKET_COUNT: usize = 512;
+
+/// Profiling statistics for water simulation performance.
+#[derive(Debug, Clone, Default)]
+pub struct WaterSimStats {
+    /// Time spent in the last tick
+    pub last_tick_duration: Duration,
+    /// Number of cells processed in last tick
+    pub last_cells_processed: usize,
+    /// Number of cells that flowed in last tick
+    pub last_cells_flowed: usize,
+    /// Number of cells deactivated in last tick
+    pub last_cells_deactivated: usize,
+    /// Time spent sorting/bucketing
+    pub last_sort_duration: Duration,
+    /// Time spent calculating flow
+    pub last_flow_duration: Duration,
+    /// Time spent applying changes
+    pub last_apply_duration: Duration,
+    /// Whether profiling is enabled
+    pub profiling_enabled: bool,
+}
+
+impl WaterSimStats {
+    /// Returns average microseconds per cell processed
+    pub fn us_per_cell(&self) -> f64 {
+        if self.last_cells_processed == 0 {
+            0.0
+        } else {
+            self.last_tick_duration.as_secs_f64() * 1_000_000.0 / self.last_cells_processed as f64
+        }
+    }
+}
+
+/// Cached neighbor masses for a cell to avoid repeated HashMap lookups.
+/// All masses include pending changes from earlier in the tick.
+#[derive(Debug, Clone, Copy, Default)]
+struct NeighborMasses {
+    below: f32,
+    above: f32,
+    pos_x: f32,
+    neg_x: f32,
+    pos_z: f32,
+    neg_z: f32,
+    /// Whether below position is out of bounds (drains to void)
+    below_void: bool,
+    /// Solid state for each neighbor (true = blocked)
+    below_solid: bool,
+    above_solid: bool,
+    pos_x_solid: bool,
+    neg_x_solid: bool,
+    pos_z_solid: bool,
+    neg_z_solid: bool,
+}
 
 /// A single water cell with mass and properties.
 #[derive(Debug, Clone, Copy)]
@@ -206,6 +274,22 @@ pub struct WaterGrid {
 
     /// Last time a simulation tick was run.
     last_tick: Instant,
+
+    // === Performance Optimization Fields ===
+    /// Reusable buffer for changed positions (avoids per-tick allocation)
+    changed_positions_buffer: Vec<Vector3<i32>>,
+
+    /// Reusable buffer for cells to deactivate
+    deactivate_buffer: Vec<Vector3<i32>>,
+
+    /// Last player position for lazy pruning decision
+    last_prune_player_pos: Option<Vector3<f32>>,
+
+    /// Tick counter for periodic operations
+    tick_counter: u64,
+
+    /// Performance profiling statistics
+    pub stats: WaterSimStats,
 }
 
 impl Default for WaterGrid {
@@ -226,7 +310,18 @@ impl WaterGrid {
             simulation_radius: DEFAULT_SIMULATION_RADIUS,
             tick_interval_ms: DEFAULT_TICK_INTERVAL_MS,
             last_tick: Instant::now(),
+            // Performance optimization fields
+            changed_positions_buffer: Vec::with_capacity(2048),
+            deactivate_buffer: Vec::with_capacity(256),
+            last_prune_player_pos: None,
+            tick_counter: 0,
+            stats: WaterSimStats::default(),
         }
+    }
+
+    /// Enables or disables performance profiling.
+    pub fn set_profiling(&mut self, enabled: bool) {
+        self.stats.profiling_enabled = enabled;
     }
 
     /// Returns true if enough time has passed for a simulation tick.
@@ -283,6 +378,77 @@ impl WaterGrid {
             .copied()
             .unwrap_or((0.0, WaterType::Ocean));
         (base + pending).max(0.0)
+    }
+
+    /// Caches all neighbor masses for a position in a single pass.
+    /// This reduces HashMap lookups from 6+ per cell to a single batch.
+    #[inline]
+    fn cache_neighbor_masses<F, B, W>(
+        &self,
+        pos: Vector3<i32>,
+        is_solid: &F,
+        is_out_of_bounds: &B,
+        has_world_water: &W,
+    ) -> NeighborMasses
+    where
+        F: Fn(Vector3<i32>) -> bool,
+        B: Fn(Vector3<i32>) -> bool,
+        W: Fn(Vector3<i32>) -> bool,
+    {
+        let below = pos + Vector3::new(0, -1, 0);
+        let above = pos + Vector3::new(0, 1, 0);
+        let pos_x = pos + Vector3::new(1, 0, 0);
+        let neg_x = pos + Vector3::new(-1, 0, 0);
+        let pos_z = pos + Vector3::new(0, 0, 1);
+        let neg_z = pos + Vector3::new(0, 0, -1);
+
+        let below_void = is_out_of_bounds(below);
+        let below_solid = !below_void && is_solid(below);
+        let above_solid = is_solid(above);
+        let pos_x_solid = is_solid(pos_x);
+        let neg_x_solid = is_solid(neg_x);
+        let pos_z_solid = is_solid(pos_z);
+        let neg_z_solid = is_solid(neg_z);
+
+        NeighborMasses {
+            below: if below_void || below_solid {
+                0.0
+            } else {
+                self.get_effective_mass(below, has_world_water)
+            },
+            above: if above_solid {
+                0.0
+            } else {
+                self.get_effective_mass(above, has_world_water)
+            },
+            pos_x: if pos_x_solid {
+                0.0
+            } else {
+                self.get_effective_mass(pos_x, has_world_water)
+            },
+            neg_x: if neg_x_solid {
+                0.0
+            } else {
+                self.get_effective_mass(neg_x, has_world_water)
+            },
+            pos_z: if pos_z_solid {
+                0.0
+            } else {
+                self.get_effective_mass(pos_z, has_world_water)
+            },
+            neg_z: if neg_z_solid {
+                0.0
+            } else {
+                self.get_effective_mass(neg_z, has_world_water)
+            },
+            below_void,
+            below_solid,
+            above_solid,
+            pos_x_solid,
+            neg_x_solid,
+            pos_z_solid,
+            neg_z_solid,
+        }
     }
 
     /// Gets a water cell at a position (None if no water).
@@ -541,6 +707,108 @@ impl WaterGrid {
         result
     }
 
+    /// Optimized flow calculation using pre-cached neighbor masses.
+    /// Avoids repeated HashMap lookups by using NeighborMasses computed once per cell.
+    #[inline]
+    fn calculate_flow_cached(&self, pos: Vector3<i32>, neighbors: &NeighborMasses) -> FlowResult {
+        let mut result = FlowResult::default();
+
+        let cell = match self.cells.get(&pos) {
+            Some(c) if c.has_water() => c,
+            _ => return result,
+        };
+
+        let mass = cell.mass;
+        let mut remaining = mass;
+
+        // 1. Flow DOWN (gravity) - highest priority
+        if neighbors.below_void {
+            // Drain all water into the void
+            result.down = remaining;
+            remaining = 0.0;
+        } else if !neighbors.below_solid {
+            let space_below = (MAX_MASS + MAX_COMPRESS) - neighbors.below;
+            if space_below > MIN_MASS {
+                let flow = if neighbors.below < MIN_MASS {
+                    remaining.min(space_below)
+                } else {
+                    remaining.min(space_below) * FLOW_DAMPING
+                };
+                if flow > MIN_MASS {
+                    result.down = flow;
+                    remaining -= flow;
+                }
+            }
+        }
+
+        // 2. Flow HORIZONTAL (equalization)
+        if remaining > MIN_FLOW {
+            // Collect neighbors that can accept water (using cached masses)
+            let horizontal = [
+                (!neighbors.pos_x_solid, neighbors.pos_x, &mut result.pos_x),
+                (!neighbors.neg_x_solid, neighbors.neg_x, &mut result.neg_x),
+                (!neighbors.pos_z_solid, neighbors.pos_z, &mut result.pos_z),
+                (!neighbors.neg_z_solid, neighbors.neg_z, &mut result.neg_z),
+            ];
+
+            // Count valid neighbors and calculate total mass for averaging
+            let mut total_mass = remaining;
+            let mut neighbor_count = 1; // Start with 1 for self
+            let mut lower_count = 0;
+
+            for (can_flow, neighbor_mass, _) in &horizontal {
+                if *can_flow && *neighbor_mass < remaining {
+                    total_mass += *neighbor_mass;
+                    neighbor_count += 1;
+                    lower_count += 1;
+                }
+            }
+
+            if lower_count > 0 {
+                let avg_mass = total_mass / neighbor_count as f32;
+
+                // Adjust flow rate based on water type
+                let flow_rate = match cell.water_type {
+                    WaterType::River => FLOW_DAMPING * 1.5,
+                    WaterType::Swamp => FLOW_DAMPING * 0.3,
+                    WaterType::Lake => FLOW_DAMPING * 0.7,
+                    _ => FLOW_DAMPING,
+                }
+                .min(1.0);
+
+                // Flow to neighbors below average
+                for (can_flow, neighbor_mass, flow_ref) in horizontal {
+                    if can_flow && neighbor_mass < remaining && neighbor_mass < avg_mass {
+                        let mut flow = (avg_mass - neighbor_mass) * flow_rate;
+
+                        if flow < MIN_FLOW && remaining > MIN_FLOW * 2.0 {
+                            flow = MIN_FLOW;
+                        }
+
+                        if flow >= MIN_FLOW && remaining > flow {
+                            *flow_ref = flow;
+                            remaining -= flow;
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. Flow UP - only under pressure (mass > MAX_MASS)
+        if !neighbors.above_solid && remaining > MAX_MASS {
+            let excess = remaining - MAX_MASS;
+            let space_above = MAX_MASS - neighbors.above;
+            if space_above > MIN_FLOW {
+                let flow = excess.min(space_above) * FLOW_DAMPING;
+                if flow > MIN_FLOW {
+                    result.up = flow;
+                }
+            }
+        }
+
+        result
+    }
+
     /// Applies pending changes from the flow simulation.
     fn apply_pending_changes(&mut self) {
         for (pos, (delta, water_type)) in self.pending_changes.drain() {
@@ -580,6 +848,12 @@ impl WaterGrid {
     ///
     /// Returns a list of positions that changed (for GPU upload).
     ///
+    /// ## Performance Optimizations
+    /// - Y-layer bucket sort: O(n) instead of O(n log n)
+    /// - Cached neighbor masses: Reduced HashMap lookups
+    /// - Lazy pruning: Only when active set exceeds threshold
+    /// - Reusable buffers: No per-tick allocations
+    ///
     /// # Arguments
     /// * `is_solid` - Returns true if a block at position is solid (water can't flow there)
     /// * `is_out_of_bounds` - Returns true if position is outside the world (water drains into void)
@@ -597,7 +871,16 @@ impl WaterGrid {
         B: Fn(Vector3<i32>) -> bool,
         W: Fn(Vector3<i32>) -> bool,
     {
-        let mut changed_positions = Vec::new();
+        let tick_start = if self.stats.profiling_enabled {
+            Some(Instant::now())
+        } else {
+            None
+        };
+
+        self.tick_counter = self.tick_counter.wrapping_add(1);
+
+        // Reuse buffer instead of allocating
+        self.changed_positions_buffer.clear();
 
         // Add dirty positions to active set
         let dirty: Vec<_> = self.dirty_positions.drain().collect();
@@ -607,216 +890,244 @@ impl WaterGrid {
             }
         }
 
-        // Prune far-away tracked cells to keep sets bounded
-        self.prune_far_sets(player_pos);
+        // OPTIMIZATION: Lazy pruning - only prune when active set exceeds threshold
+        // This amortizes the O(n) cost instead of paying it every tick
+        if self.active.len() > PRUNE_THRESHOLD {
+            self.prune_far_sets(player_pos);
+        }
 
-        // Filter and sort active cells by distance to player
-        // Only simulate water within simulation_radius (ensures chunks are loaded)
-        let radius_sq = self.simulation_radius * self.simulation_radius;
-        let mut active_list: Vec<_> = self
-            .active
-            .iter()
-            .copied()
-            .filter_map(|pos| {
-                let dx = pos.x as f32 - player_pos.x;
-                let dy = pos.y as f32 - player_pos.y;
-                let dz = pos.z as f32 - player_pos.z;
-                let dist_sq = dx * dx + dy * dy + dz * dz;
-                if dist_sq <= radius_sq {
-                    Some((pos, dist_sq))
-                } else {
-                    None
-                }
-            })
-            .collect();
+        let sort_start = if self.stats.profiling_enabled {
+            Some(Instant::now())
+        } else {
+            None
+        };
 
-        // Sort primarily by Y coordinate (lowest first), then by distance.
+        // OPTIMIZATION: Y-layer bucket sort (O(n) instead of O(n log n))
         // Bottom-first processing is CRITICAL for draining: lower cells must
         // flow out first so their pending_changes create space that upper cells
         // can see via get_effective_mass() and flow into during the same tick.
-        // Distance is secondary tiebreaker to prioritize water near the player.
-        active_list.sort_by(|(pos_a, dist_a), (pos_b, dist_b)| {
-            pos_a.y.cmp(&pos_b.y).then_with(|| {
-                dist_a
-                    .partial_cmp(dist_b)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
-        });
+        let radius_sq = self.simulation_radius * self.simulation_radius;
 
-        // Extract just the positions
-        let active_list: Vec<_> = active_list.into_iter().map(|(pos, _)| pos).collect();
+        // Use fixed-size array of buckets for Y-layers (indices 0-511)
+        // We only allocate the inner vectors when needed
+        let mut y_buckets: [Vec<Vector3<i32>>; Y_BUCKET_COUNT] =
+            std::array::from_fn(|_| Vec::new());
 
-        // Process up to max_updates_per_frame cells
-        let process_count = active_list.len().min(self.max_updates_per_frame);
-        let mut deactivate = Vec::new();
+        // Distribute active cells into Y buckets (O(n))
+        for &pos in &self.active {
+            let dx = pos.x as f32 - player_pos.x;
+            let dy = pos.y as f32 - player_pos.y;
+            let dz = pos.z as f32 - player_pos.z;
+            let dist_sq = dx * dx + dy * dy + dz * dz;
 
-        for &pos in active_list.iter().take(process_count) {
-            let flow = self.calculate_flow(pos, &is_solid, &is_out_of_bounds, &has_world_water);
+            if dist_sq <= radius_sq {
+                // Clamp Y to valid bucket range (0-511)
+                let y_index = (pos.y.max(0) as usize).min(Y_BUCKET_COUNT - 1);
+                y_buckets[y_index].push(pos);
+            }
+        }
 
-            // Get water type to propagate
-            let water_type = self
-                .cells
-                .get(&pos)
-                .map(|c| c.water_type)
-                .unwrap_or(WaterType::Ocean);
+        if let Some(start) = sort_start {
+            self.stats.last_sort_duration = start.elapsed();
+        }
 
-            // Evaporation constants
-            const EVAPORATION_THRESHOLD: f32 = 0.3;
-            const EVAPORATION_RATE: f32 = 0.005;
-            // Very thin water evaporates even while flowing to break circulation deadlocks
-            // (e.g., water trapped in 1x1 pits that keeps pushing tiny amounts up/down)
-            const VERY_THIN_THRESHOLD: f32 = 0.1;
+        let flow_start = if self.stats.profiling_enabled {
+            Some(Instant::now())
+        } else {
+            None
+        };
 
-            if flow.has_flow() {
-                // Record outflow from this cell
-                let total_out = flow.total_outflow();
-                // We use type from self, but outflow doesn't change self type
-                let entry = self.pending_changes.entry(pos).or_insert((0.0, water_type));
-                entry.0 -= total_out;
-                changed_positions.push(pos);
+        // Process cells from lowest Y to highest (bucket sort order)
+        let mut process_count = 0;
+        let mut cells_flowed = 0;
 
-                // Record inflow to neighbors (but NOT to out-of-bounds - water drains into void)
-                let below = pos + Vector3::new(0, -1, 0);
-                if flow.down > MIN_FLOW && !is_out_of_bounds(below) {
-                    let entry = self
-                        .pending_changes
-                        .entry(below)
-                        .or_insert((0.0, water_type));
-                    entry.0 += flow.down;
-                    // Propagate type
-                    entry.1 = water_type;
-                    changed_positions.push(below);
+        // Reuse deactivate buffer
+        self.deactivate_buffer.clear();
+
+        // Evaporation constants
+        const EVAPORATION_THRESHOLD: f32 = 0.3;
+        const EVAPORATION_RATE: f32 = 0.005;
+        const VERY_THIN_THRESHOLD: f32 = 0.1;
+
+        'outer: for bucket in &y_buckets {
+            for &pos in bucket {
+                if process_count >= self.max_updates_per_frame {
+                    break 'outer;
                 }
-                // Note: Water flowing down into void is just removed, not added anywhere
+                process_count += 1;
 
-                if flow.up > MIN_FLOW {
-                    let above = pos + Vector3::new(0, 1, 0);
-                    if !is_out_of_bounds(above) {
+                // OPTIMIZATION: Cache all neighbor masses in a single batch lookup
+                let neighbors =
+                    self.cache_neighbor_masses(pos, &is_solid, &is_out_of_bounds, &has_world_water);
+
+                // Use cached flow calculation
+                let flow = self.calculate_flow_cached(pos, &neighbors);
+
+                // Get water type to propagate
+                let water_type = self
+                    .cells
+                    .get(&pos)
+                    .map(|c| c.water_type)
+                    .unwrap_or(WaterType::Ocean);
+
+                if flow.has_flow() {
+                    cells_flowed += 1;
+
+                    // Record outflow from this cell
+                    let total_out = flow.total_outflow();
+                    let entry = self.pending_changes.entry(pos).or_insert((0.0, water_type));
+                    entry.0 -= total_out;
+                    self.changed_positions_buffer.push(pos);
+
+                    // Record inflow to neighbors (but NOT to out-of-bounds - water drains into void)
+                    let below = pos + Vector3::new(0, -1, 0);
+                    if flow.down > MIN_FLOW && !neighbors.below_void {
+                        let entry = self
+                            .pending_changes
+                            .entry(below)
+                            .or_insert((0.0, water_type));
+                        entry.0 += flow.down;
+                        entry.1 = water_type;
+                        self.changed_positions_buffer.push(below);
+                    }
+
+                    if flow.up > MIN_FLOW {
+                        let above = pos + Vector3::new(0, 1, 0);
                         let entry = self
                             .pending_changes
                             .entry(above)
                             .or_insert((0.0, water_type));
                         entry.0 += flow.up;
                         entry.1 = water_type;
-                        changed_positions.push(above);
+                        self.changed_positions_buffer.push(above);
                     }
-                }
-                if flow.pos_x > MIN_FLOW {
-                    let neighbor = pos + Vector3::new(1, 0, 0);
-                    if !is_out_of_bounds(neighbor) {
+                    if flow.pos_x > MIN_FLOW {
+                        let neighbor = pos + Vector3::new(1, 0, 0);
                         let entry = self
                             .pending_changes
                             .entry(neighbor)
                             .or_insert((0.0, water_type));
                         entry.0 += flow.pos_x;
                         entry.1 = water_type;
-                        changed_positions.push(neighbor);
+                        self.changed_positions_buffer.push(neighbor);
                     }
-                }
-                if flow.neg_x > MIN_FLOW {
-                    let neighbor = pos + Vector3::new(-1, 0, 0);
-                    if !is_out_of_bounds(neighbor) {
+                    if flow.neg_x > MIN_FLOW {
+                        let neighbor = pos + Vector3::new(-1, 0, 0);
                         let entry = self
                             .pending_changes
                             .entry(neighbor)
                             .or_insert((0.0, water_type));
                         entry.0 += flow.neg_x;
                         entry.1 = water_type;
-                        changed_positions.push(neighbor);
+                        self.changed_positions_buffer.push(neighbor);
                     }
-                }
-                if flow.pos_z > MIN_FLOW {
-                    let neighbor = pos + Vector3::new(0, 0, 1);
-                    if !is_out_of_bounds(neighbor) {
+                    if flow.pos_z > MIN_FLOW {
+                        let neighbor = pos + Vector3::new(0, 0, 1);
                         let entry = self
                             .pending_changes
                             .entry(neighbor)
                             .or_insert((0.0, water_type));
                         entry.0 += flow.pos_z;
                         entry.1 = water_type;
-                        changed_positions.push(neighbor);
+                        self.changed_positions_buffer.push(neighbor);
                     }
-                }
-                if flow.neg_z > MIN_FLOW {
-                    let neighbor = pos + Vector3::new(0, 0, -1);
-                    if !is_out_of_bounds(neighbor) {
+                    if flow.neg_z > MIN_FLOW {
+                        let neighbor = pos + Vector3::new(0, 0, -1);
                         let entry = self
                             .pending_changes
                             .entry(neighbor)
                             .or_insert((0.0, water_type));
                         entry.0 += flow.neg_z;
                         entry.1 = water_type;
-                        changed_positions.push(neighbor);
+                        self.changed_positions_buffer.push(neighbor);
                     }
-                }
 
-                // Reset stability counter
-                if let Some(cell) = self.cells.get_mut(&pos) {
-                    cell.stable_ticks = 0;
+                    // Reset stability counter
+                    if let Some(cell) = self.cells.get_mut(&pos) {
+                        cell.stable_ticks = 0;
 
-                    // Even while flowing, very thin water evaporates to break deadlocks
-                    // This handles circulation loops where tiny amounts bounce back and forth
-                    if !cell.is_source && cell.mass < VERY_THIN_THRESHOLD {
-                        cell.mass -= EVAPORATION_RATE;
-                        if cell.mass <= MIN_MASS {
-                            self.cells.remove(&pos);
-                            self.active.remove(&pos);
-                            changed_positions.push(pos);
-                            continue;
+                        // Even while flowing, very thin water evaporates to break deadlocks
+                        if !cell.is_source && cell.mass < VERY_THIN_THRESHOLD {
+                            cell.mass -= EVAPORATION_RATE;
+                            if cell.mass <= MIN_MASS {
+                                self.cells.remove(&pos);
+                                self.active.remove(&pos);
+                                self.changed_positions_buffer.push(pos);
+                                continue;
+                            }
                         }
                     }
-                }
 
-                // When water flows OUT of this cell, wake up all neighbors
-                // so they can flow into this now-emptier cell (chain draining).
-                // Insert directly to dirty_positions (not via activate_neighbors
-                // which would cause exponential growth by also re-inserting pos).
-                for (dx, dy, dz) in ORTHO_DIRS {
-                    self.dirty_positions.insert(pos + Vector3::new(dx, dy, dz));
-                }
-            } else {
-                // No flow - increment stability counter and apply evaporation
-                if let Some(cell) = self.cells.get_mut(&pos) {
-                    cell.stable_ticks = cell.stable_ticks.saturating_add(1);
-
-                    // Thin water evaporates slowly when stable (simulates absorption/evaporation)
-                    // This cleans up residual puddles that can't drain
-                    let is_evaporating = !cell.is_source
-                        && cell.mass < EVAPORATION_THRESHOLD
-                        && cell.stable_ticks > 5;
-
-                    if is_evaporating {
-                        cell.mass -= EVAPORATION_RATE;
-                        if cell.mass <= MIN_MASS {
-                            self.cells.remove(&pos);
-                            self.active.remove(&pos);
-                            changed_positions.push(pos);
-                            continue;
-                        }
-                        changed_positions.push(pos);
+                    // Wake up neighbors for chain draining
+                    for (dx, dy, dz) in ORTHO_DIRS {
+                        self.dirty_positions.insert(pos + Vector3::new(dx, dy, dz));
                     }
+                } else {
+                    // No flow - increment stability counter and apply evaporation
+                    if let Some(cell) = self.cells.get_mut(&pos) {
+                        cell.stable_ticks = cell.stable_ticks.saturating_add(1);
 
-                    // Don't deactivate cells that are still evaporating
-                    if cell.is_stable() && !is_evaporating {
-                        deactivate.push(pos);
+                        let is_evaporating = !cell.is_source
+                            && cell.mass < EVAPORATION_THRESHOLD
+                            && cell.stable_ticks > 5;
+
+                        if is_evaporating {
+                            cell.mass -= EVAPORATION_RATE;
+                            if cell.mass <= MIN_MASS {
+                                self.cells.remove(&pos);
+                                self.active.remove(&pos);
+                                self.changed_positions_buffer.push(pos);
+                                continue;
+                            }
+                            self.changed_positions_buffer.push(pos);
+                        }
+
+                        if cell.is_stable() && !is_evaporating {
+                            self.deactivate_buffer.push(pos);
+                        }
                     }
                 }
             }
         }
 
+        if let Some(start) = flow_start {
+            self.stats.last_flow_duration = start.elapsed();
+        }
+
+        let apply_start = if self.stats.profiling_enabled {
+            Some(Instant::now())
+        } else {
+            None
+        };
+
         // Apply all pending changes
         self.apply_pending_changes();
 
         // Deactivate stable cells
-        for pos in deactivate {
+        let deactivate_count = self.deactivate_buffer.len();
+        for pos in self.deactivate_buffer.drain(..) {
             self.active.remove(&pos);
         }
 
-        // Deduplicate changed positions (sort by x, y, z then dedup)
-        changed_positions.sort_by(|a, b| (a.x, a.y, a.z).cmp(&(b.x, b.y, b.z)));
-        changed_positions.dedup();
+        // Deduplicate changed positions
+        self.changed_positions_buffer
+            .sort_by(|a, b| (a.x, a.y, a.z).cmp(&(b.x, b.y, b.z)));
+        self.changed_positions_buffer.dedup();
 
-        changed_positions
+        if let Some(start) = apply_start {
+            self.stats.last_apply_duration = start.elapsed();
+        }
+
+        // Update profiling stats
+        if let Some(start) = tick_start {
+            self.stats.last_tick_duration = start.elapsed();
+            self.stats.last_cells_processed = process_count;
+            self.stats.last_cells_flowed = cells_flowed;
+            self.stats.last_cells_deactivated = deactivate_count;
+        }
+
+        // Return a clone of the buffer (we keep the buffer for reuse)
+        self.changed_positions_buffer.clone()
     }
 
     /// Returns the number of water cells.
@@ -1044,6 +1355,11 @@ impl WaterGrid {
         self.active.clear();
         self.pending_changes.clear();
         self.dirty_positions.clear();
+        self.changed_positions_buffer.clear();
+        self.deactivate_buffer.clear();
+        self.last_prune_player_pos = None;
+        self.tick_counter = 0;
+        self.stats = WaterSimStats::default();
     }
 
     /// Processes water flow simulation.

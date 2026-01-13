@@ -242,6 +242,11 @@ impl App {
             self.ui.settings.show_biome_debug = enabled;
         }
 
+        // Handle pending water profiling toggle
+        if let Some(enabled) = self.ui.console.pending_water_profile.take() {
+            self.sim.water_grid.set_profiling(enabled);
+        }
+
         // Handle pending force water active from console
         if self.ui.console.pending_force_water_active {
             let count = self.sim.water_grid.force_all_active();

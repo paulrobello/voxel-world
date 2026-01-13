@@ -76,6 +76,8 @@ pub struct FluidStats {
     pub water_cells: usize,
     /// Active (potentially flowing) water cells.
     pub water_active: usize,
+    /// Dirty (pending update) water cells.
+    pub water_dirty: usize,
     /// Total lava cells in grid.
     pub lava_cells: usize,
     /// Active (potentially flowing) lava cells.

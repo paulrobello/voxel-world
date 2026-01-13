@@ -930,6 +930,14 @@ Escape                      # Cancel tool
 
 ## Done Recently
 
+- **Water Simulation Performance Tuning** (2026-01-13): ✅ COMPLETE
+  - **Y-Layer Bucket Sort**: Replaced O(n log n) sort with O(n) bucket distribution using 512 Y-layer buckets
+  - **Cached Neighbor Masses**: Batch HashMap lookups for 6 neighbors into single NeighborMasses struct
+  - **Lazy Pruning**: Only prune inactive cells when active set exceeds 2048 threshold (PRUNE_THRESHOLD)
+  - **Reusable Vector Buffers**: Pre-allocated changed_positions_buffer and deactivate_buffer to avoid per-tick allocations
+  - **Performance Profiling**: New WaterSimStats struct with timing breakdowns for sort, flow, and apply phases
+  - **Console Commands**: `/waterprofile [on|off]` (aliases: `wp`) to enable/disable profiling stats in waterdebug output
+
 - **Phase 17: Extended Building Tools** (2026-01-13): ✅ IN PROGRESS
   - **Arch Tool Bug Fix** (17.1.4): ✅ COMPLETE
     - Fixed Gothic pointed arch geometry (arcs now centered at opposite base corners)
