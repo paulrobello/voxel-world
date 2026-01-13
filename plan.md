@@ -930,7 +930,23 @@ Escape                      # Cancel tool
 
 ## Done Recently
 
-- **Phase 17: Extended Building Tools** (2026-01-12): ✅ PARTIAL
+- **Phase 17: Extended Building Tools** (2026-01-13): ✅ IN PROGRESS
+  - **Arch Tool Bug Fix** (17.1.4): ✅ COMPLETE
+    - Fixed Gothic pointed arch geometry (arcs now centered at opposite base corners)
+    - Semicircle and Segmental styles unchanged (already working)
+  - **Mirror Tool** (17.4.2): ✅ COMPLETE
+    - Activate via Tools Palette (↔ icon)
+    - Right-click to set mirror plane position
+    - Axis selection: X (east-west), Z (north-south), Both (4-way symmetry)
+    - Magenta holographic plane visualization (via stencil buffer)
+    - Mirrored block placement and breaking
+    - Axis toggle via UI buttons (replaced dropdown for better UX)
+    - Show/hide plane toggle and clear plane button
+  - **Replace Tool Enhancement** (17.4.1): ✅ COMPLETE
+    - Added "Clear Selection" button to UI
+  - **Tools Palette Icon Fixes** (17.5.1): ✅ COMPLETE
+    - Fixed empty box icons by using universally-supported emojis
+    - Cylinder: ⚪, Wall: 🏠, Floor: ⬛, Mirror: ↔, Cube: 📦
   - **Cone/Pyramid Tool** (17.1.3): ✅ COMPLETE
     - Activate via Tools Palette (△ icon)
     - Mode toggle: Cone (circular base) or Pyramid (square base)
@@ -1128,5 +1144,5 @@ Escape                      # Cancel tool
 
 ---
 
-*Last Updated: 2026-01-12*
-*Plan Version: 3.3 - Phase 17 Extended Building Tools (Cone/Pyramid, Clone/Array)*
+*Last Updated: 2026-01-13*
+*Plan Version: 3.4 - Phase 17 Extended Building Tools (Mirror Tool, Arch Fix, Icon Fixes)*
