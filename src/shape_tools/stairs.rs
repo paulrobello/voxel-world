@@ -67,24 +67,44 @@ pub fn generate_stair_positions(
     let going_up = height_diff > 0;
     let (lower, _upper) = if going_up { (start, end) } else { (end, start) };
 
-    // Generate each step
+    // Generate each step - fill in all blocks from this step to the next
     for step in 0..step_count {
-        // Calculate position along the path
-        let progress = step as f64 * run_per_step;
-        let base_x = lower.x as f64 + dir_x * progress;
-        let base_z = lower.z as f64 + dir_z * progress;
+        // Calculate start and end positions along the path for this step
+        let progress_start = step as f64 * run_per_step;
+        let progress_end = (step + 1) as f64 * run_per_step;
         let base_y = lower.y + step;
 
-        // Add blocks for the width
-        let half_width = (width - 1) as f64 / 2.0;
-        for w in 0..width {
-            let offset = w as f64 - half_width;
-            let block_x = (base_x + perp_x * offset).round() as i32;
-            let block_z = (base_z + perp_z * offset).round() as i32;
-            let block_pos = Vector3::new(block_x, base_y, block_z);
+        // Calculate how many blocks we need to place along the travel direction
+        let blocks_in_run = (run_per_step.ceil() as i32).max(1);
 
-            if !positions.contains(&block_pos) {
-                positions.push(block_pos);
+        // Place blocks along the entire run of this step
+        for r in 0..=blocks_in_run {
+            let t = if blocks_in_run > 0 {
+                r as f64 / blocks_in_run as f64
+            } else {
+                0.0
+            };
+            let progress = progress_start + t * (progress_end - progress_start);
+
+            // Don't go past the total horizontal distance
+            if progress > horizontal_dist {
+                break;
+            }
+
+            let base_x = lower.x as f64 + dir_x * progress;
+            let base_z = lower.z as f64 + dir_z * progress;
+
+            // Add blocks for the width
+            let half_width = (width - 1) as f64 / 2.0;
+            for w in 0..width {
+                let offset = w as f64 - half_width;
+                let block_x = (base_x + perp_x * offset).round() as i32;
+                let block_z = (base_z + perp_z * offset).round() as i32;
+                let block_pos = Vector3::new(block_x, base_y, block_z);
+
+                if !positions.contains(&block_pos) {
+                    positions.push(block_pos);
+                }
             }
         }
     }
@@ -118,8 +138,8 @@ mod tests {
         let end = Vector3::new(5, 5, 0);
         let positions = generate_stair_positions(start, end, 1);
 
-        // 5 steps high, 1 wide = 5 blocks
-        assert_eq!(positions.len(), 5);
+        // 5 steps high, each step has 2 blocks (fills horizontal run)
+        assert_eq!(positions.len(), 10);
 
         // Check that Y coordinates are 0, 1, 2, 3, 4
         for i in 0..5 {
@@ -133,8 +153,8 @@ mod tests {
         let end = Vector3::new(3, 3, 0);
         let positions = generate_stair_positions(start, end, 3);
 
-        // 3 steps high, 3 wide = 9 blocks
-        assert_eq!(positions.len(), 9);
+        // 3 steps high, each step has 2 blocks in run, 3 wide = 18 blocks
+        assert_eq!(positions.len(), 18);
     }
 
     #[test]
@@ -143,8 +163,8 @@ mod tests {
         let end = Vector3::new(5, 0, 0);
         let positions = generate_stair_positions(start, end, 1);
 
-        // Should still generate 5 steps
-        assert_eq!(positions.len(), 5);
+        // 5 steps, each with 2 blocks = 10 blocks
+        assert_eq!(positions.len(), 10);
     }
 
     #[test]
@@ -153,8 +173,8 @@ mod tests {
         let end = Vector3::new(4, 4, 4);
         let positions = generate_stair_positions(start, end, 1);
 
-        // 4 steps
-        assert_eq!(positions.len(), 4);
+        // 4 steps, diagonal run fills 2 blocks per step
+        assert_eq!(positions.len(), 8);
     }
 
     #[test]

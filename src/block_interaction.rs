@@ -460,6 +460,16 @@ impl App {
             || self.ui.sphere_tool.active
             || self.ui.cube_tool.active
             || self.ui.bridge_tool.active
+            || self.ui.cylinder_tool.active
+            || self.ui.wall_tool.active
+            || self.ui.floor_tool.active
+            || self.ui.replace_tool.active
+            || self.ui.circle_tool.active
+            || self.ui.mirror_tool.active
+            || self.ui.stairs_tool.active
+            || self.ui.arch_tool.active
+            || self.ui.cone_tool.active
+            || self.ui.clone_tool.active
         {
             return;
         }
