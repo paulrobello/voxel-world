@@ -1598,7 +1598,9 @@ impl App {
         let paint_texture = self.ui.hotbar_paint_textures[hotbar_idx];
 
         // Regenerate full positions (preview may be truncated)
-        let center = circle.preview_center.unwrap();
+        // Apply placement mode adjustment to get the actual center
+        let raw_center = circle.preview_center.unwrap();
+        let center = circle.adjust_center_for_placement(raw_center);
         let positions = crate::shape_tools::circle::generate_circle_positions(
             center,
             circle.radius_a,
