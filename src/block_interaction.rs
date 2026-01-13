@@ -1662,6 +1662,75 @@ impl App {
         // Don't deactivate tool - allow placing multiple circles
     }
 
+    /// Place stairs using the current stairs tool settings and hotbar selection.
+    pub fn place_stairs(&mut self) {
+        let stairs = &self.ui.stairs_tool;
+        if !stairs.active || stairs.start_pos.is_none() || stairs.preview_positions.is_empty() {
+            return;
+        }
+
+        // Get block type and metadata from hotbar
+        let block_type = self.ui.hotbar_blocks[self.ui.hotbar_index];
+        let hotbar_idx = self.ui.hotbar_index;
+        let tint_index = self.ui.hotbar_tint_indices[hotbar_idx];
+        let paint_texture = self.ui.hotbar_paint_textures[hotbar_idx];
+
+        // Use preview positions (already generated with current target)
+        let positions = self.ui.stairs_tool.preview_positions.clone();
+
+        // Place blocks
+        let mut placed_count = 0;
+        for pos in &positions {
+            // Skip if out of Y bounds (X/Z are infinite)
+            if pos.y < 0 || pos.y >= TEXTURE_SIZE_Y as i32 {
+                continue;
+            }
+
+            match block_type {
+                BlockType::TintedGlass => {
+                    self.sim.world.set_tinted_glass_block(*pos, tint_index);
+                }
+                BlockType::Crystal => {
+                    self.sim.world.set_crystal_block(*pos, tint_index);
+                }
+                BlockType::Painted => {
+                    self.sim
+                        .world
+                        .set_painted_block(*pos, paint_texture, tint_index);
+                }
+                BlockType::Model | BlockType::Air => {
+                    // Skip model and air blocks - don't make sense for stairs fill
+                    continue;
+                }
+                _ => {
+                    self.sim.world.set_block(*pos, block_type);
+                }
+            }
+            placed_count += 1;
+        }
+
+        // Invalidate minimap cache for affected area
+        if let Some(first_pos) = positions.first() {
+            self.sim
+                .world
+                .invalidate_minimap_cache(first_pos.x, first_pos.z);
+        }
+        if let Some(last_pos) = positions.last() {
+            self.sim
+                .world
+                .invalidate_minimap_cache(last_pos.x, last_pos.z);
+        }
+
+        let step_count = self.ui.stairs_tool.step_count;
+        let width = self.ui.stairs_tool.width;
+        println!(
+            "Placed stairs ({} blocks, {} steps × {} wide)",
+            placed_count, step_count, width
+        );
+
+        // Don't deactivate tool - allow placing multiple staircases
+    }
+
     /// Execute block replacement within the current selection.
     pub fn execute_replace(&mut self) {
         let replace = &self.ui.replace_tool;

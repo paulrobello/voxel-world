@@ -11,7 +11,7 @@ use crate::hud::Minimap;
 use crate::raycast::RaycastHit;
 use crate::shape_tools::{
     BridgeToolState, CircleToolState, CubeToolState, CylinderToolState, FloorToolState,
-    MirrorToolState, ReplaceToolState, SphereToolState, WallToolState,
+    MirrorToolState, ReplaceToolState, SphereToolState, StairsToolState, WallToolState,
 };
 use crate::templates::{TemplateLibrary, TemplatePlacement, TemplateSelection, TemplateUi};
 use crate::ui::tools::ToolsPaletteState;
@@ -143,4 +143,7 @@ pub struct UiState {
 
     /// Mirror/symmetry tool state.
     pub mirror_tool: MirrorToolState,
+
+    /// Stairs generator tool state.
+    pub stairs_tool: StairsToolState,
 }

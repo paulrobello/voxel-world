@@ -604,6 +604,16 @@ impl App {
             }
         }
 
+        // Update stairs tool preview from raycast (only when start position is set)
+        if self.ui.stairs_tool.active && self.ui.stairs_tool.start_pos.is_some() {
+            if let Some(hit) = self.ui.current_hit {
+                let target = get_place_position(&hit);
+                self.ui.stairs_tool.update_preview(target);
+            } else {
+                self.ui.stairs_tool.clear_preview();
+            }
+        }
+
         // Handle replace tool preview and execution requests
         if self.ui.replace_tool.active {
             if self.ui.replace_tool.preview_requested {
@@ -805,6 +815,29 @@ impl App {
             self.place_circle();
             self.ui.place_needs_reclick = true;
             return; // Skip block placement
+        }
+
+        // Handle stairs tool with right-click (two-click workflow)
+        if self.input.focused
+            && self.ui.stairs_tool.active
+            && self.input.mouse_pressed(MouseButton::Right)
+            && !self.ui.place_needs_reclick
+        {
+            if let Some(hit) = self.ui.current_hit {
+                let target = get_place_position(&hit);
+
+                if self.ui.stairs_tool.start_pos.is_some() {
+                    // Second click - place the stairs and clear start
+                    self.place_stairs();
+                    self.ui.stairs_tool.reset(); // Clear start position for next staircase
+                } else {
+                    // First click - set start position
+                    self.ui.stairs_tool.start_pos = Some(target);
+                    println!("Stairs start: ({}, {}, {})", target.x, target.y, target.z);
+                }
+                self.ui.place_needs_reclick = true;
+                return; // Skip block placement
+            }
         }
 
         // Handle mirror tool axis cycling with Tab key

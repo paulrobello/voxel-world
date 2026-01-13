@@ -11,6 +11,7 @@ pub mod floor;
 pub mod mirror;
 pub mod replace;
 pub mod sphere;
+pub mod stairs;
 pub mod wall;
 
 use nalgebra::Vector3;
@@ -1020,5 +1021,95 @@ impl MirrorToolState {
             return positions.to_vec();
         }
         mirror::get_all_mirrored_positions(positions, self.plane_position, self.axis)
+    }
+}
+
+// ============================================================================
+// StairsToolState
+// ============================================================================
+
+/// State for the stairs/staircase generator tool.
+#[derive(Clone, Debug)]
+pub struct StairsToolState {
+    /// Whether the stairs tool is currently active.
+    pub active: bool,
+    /// Starting position (first click).
+    pub start_pos: Option<Vector3<i32>>,
+    /// Staircase width in blocks (1-5).
+    pub width: i32,
+    /// Cached preview positions for GPU upload.
+    pub preview_positions: Vec<Vector3<i32>>,
+    /// Total block count for the full staircase.
+    pub total_blocks: usize,
+    /// Whether the preview was truncated due to exceeding buffer limit.
+    pub preview_truncated: bool,
+    /// Height difference (steps).
+    pub step_count: i32,
+    /// Horizontal distance.
+    pub horizontal_dist: i32,
+}
+
+impl Default for StairsToolState {
+    fn default() -> Self {
+        Self {
+            active: false,
+            start_pos: None,
+            width: 1,
+            preview_positions: Vec::new(),
+            total_blocks: 0,
+            preview_truncated: false,
+            step_count: 0,
+            horizontal_dist: 0,
+        }
+    }
+}
+
+impl StairsToolState {
+    /// Clear the preview and start position.
+    pub fn clear_preview(&mut self) {
+        self.preview_positions.clear();
+        self.total_blocks = 0;
+        self.preview_truncated = false;
+        self.step_count = 0;
+        self.horizontal_dist = 0;
+    }
+
+    /// Reset to initial state (clear start position and preview).
+    pub fn reset(&mut self) {
+        self.start_pos = None;
+        self.clear_preview();
+    }
+
+    /// Deactivate the tool and reset state.
+    #[allow(dead_code)]
+    pub fn deactivate(&mut self) {
+        self.active = false;
+        self.reset();
+    }
+
+    /// Update the stairs preview given the current target position.
+    pub fn update_preview(&mut self, target: Vector3<i32>) {
+        use crate::gpu_resources::MAX_STENCIL_BLOCKS;
+
+        if let Some(start) = self.start_pos {
+            let (height, horizontal, _steps) = stairs::calculate_dimensions(start, target);
+            self.step_count = height;
+            self.horizontal_dist = horizontal;
+
+            let all_positions = stairs::generate_stair_positions(start, target, self.width);
+
+            // Track total count and truncation status
+            self.total_blocks = all_positions.len();
+            self.preview_truncated = all_positions.len() > MAX_STENCIL_BLOCKS;
+
+            // Truncate for preview
+            if all_positions.len() > MAX_STENCIL_BLOCKS {
+                self.preview_positions = all_positions[..MAX_STENCIL_BLOCKS].to_vec();
+            } else {
+                self.preview_positions = all_positions;
+            }
+        } else {
+            self.clear_preview();
+        }
     }
 }

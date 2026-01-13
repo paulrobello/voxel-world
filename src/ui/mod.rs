@@ -39,6 +39,7 @@ pub mod palette;
 pub mod replace_tool;
 pub mod settings;
 pub mod sphere_tool;
+pub mod stairs_tool;
 pub mod stats;
 pub mod time;
 pub mod tools;
@@ -56,6 +57,7 @@ use palette::PaletteUI;
 use replace_tool::ReplaceToolUI;
 use settings::SettingsUI;
 use sphere_tool::SphereToolUI;
+use stairs_tool::StairsToolUI;
 use stats::StatsUI;
 pub use tools::ToolAction;
 use tools::{ToolsPaletteState, ToolsPaletteUI};
@@ -134,6 +136,7 @@ pub struct HudInputs<'a> {
     pub replace_tool: &'a mut crate::shape_tools::ReplaceToolState,
     pub circle_tool: &'a mut crate::shape_tools::CircleToolState,
     pub mirror_tool: &'a mut crate::shape_tools::MirrorToolState,
+    pub stairs_tool: &'a mut crate::shape_tools::StairsToolState,
 }
 
 pub struct HUDRenderer;
@@ -203,6 +206,7 @@ impl HUDRenderer {
             replace_tool,
             circle_tool,
             mirror_tool,
+            stairs_tool,
         } = input;
         let mut scale_changed = false;
         let mut editor_action = EditorAction::None;
@@ -279,6 +283,7 @@ impl HUDRenderer {
                 replace_tool.active,
                 circle_tool.active,
                 mirror_tool.active,
+                stairs_tool.active,
                 stencil_manager.global_opacity,
                 stencil_manager.render_mode,
             );
@@ -319,6 +324,9 @@ impl HUDRenderer {
 
             // Mirror tool settings window
             MirrorToolUI::draw(&ctx, mirror_tool);
+
+            // Stairs tool settings window
+            StairsToolUI::draw(&ctx, stairs_tool);
 
             // Crosshair (hide when editor or console is open)
             if !editor.active && !console.active {

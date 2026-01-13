@@ -610,6 +610,46 @@ impl App {
                 }
             }
 
+            // Add blocks from stairs tool preview
+            if self.ui.stairs_tool.active {
+                // Show start marker (magenta) if set but preview is empty
+                if let Some(start) = self.ui.stairs_tool.start_pos {
+                    if self.ui.stairs_tool.preview_positions.is_empty() {
+                        let start_color_id = 2u32; // Magenta for start marker
+                        if total_blocks < gpu_resources::MAX_STENCIL_BLOCKS {
+                            let tex_pos = world_to_tex(start);
+                            write[total_blocks] = gpu_resources::GpuStencilBlock {
+                                position: [
+                                    tex_pos.0 as f32,
+                                    tex_pos.1 as f32,
+                                    tex_pos.2 as f32,
+                                    start_color_id as f32,
+                                ],
+                            };
+                            total_blocks += 1;
+                        }
+                    }
+                }
+
+                // Render preview positions
+                let preview_color_id = 1u32; // Green for stairs preview
+                for world_pos in &self.ui.stairs_tool.preview_positions {
+                    if total_blocks >= gpu_resources::MAX_STENCIL_BLOCKS {
+                        break;
+                    }
+                    let tex_pos = world_to_tex(*world_pos);
+                    write[total_blocks] = gpu_resources::GpuStencilBlock {
+                        position: [
+                            tex_pos.0 as f32,
+                            tex_pos.1 as f32,
+                            tex_pos.2 as f32,
+                            preview_color_id as f32,
+                        ],
+                    };
+                    total_blocks += 1;
+                }
+            }
+
             (
                 total_blocks as u32,
                 self.ui.stencil_manager.global_opacity,

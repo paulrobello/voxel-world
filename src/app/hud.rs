@@ -89,6 +89,7 @@ pub fn render_hud(
             replace_tool: &mut ui.replace_tool,
             circle_tool: &mut ui.circle_tool,
             mirror_tool: &mut ui.mirror_tool,
+            stairs_tool: &mut ui.stairs_tool,
         },
     );
 
@@ -242,6 +243,18 @@ pub fn render_hud(
             if ui.mirror_tool.active {
                 ui.tools_palette.open = false;
                 // Don't request cursor grab - mirror tool UI needs mouse interaction
+            }
+        }
+        ToolAction::ToggleStairsTool => {
+            ui.stairs_tool.active = !ui.stairs_tool.active;
+            println!(
+                "Stairs Tool: {}",
+                if ui.stairs_tool.active { "ON" } else { "OFF" }
+            );
+            // Close tools palette but DON'T grab cursor - let user adjust settings first
+            if ui.stairs_tool.active {
+                ui.tools_palette.open = false;
+                // Don't request cursor grab - stairs tool UI needs mouse interaction
             }
         }
         ToolAction::None => {}
