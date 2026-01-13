@@ -253,12 +253,16 @@ impl ChunkLoader {
         self.in_flight.remove(&position);
     }
 
-    /// Clears all pending requests.
+    /// Clears all pending requests and drains any completed results.
     ///
-    /// Note: Workers may still process some requests, but results will be ignored.
-    #[allow(dead_code)]
+    /// This is called during texture origin shifts to ensure no stale chunks
+    /// are processed with the wrong coordinate system.
     pub fn clear_pending(&mut self) {
         self.in_flight.clear();
+        // Drain the result channel to discard any stale completed chunks.
+        // These were generated for the old origin and could cause artifacts
+        // if processed with the new origin.
+        while self.result_rx.try_recv().is_ok() {}
     }
 }
 
