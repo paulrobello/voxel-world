@@ -10,9 +10,9 @@ use crate::editor::EditorState;
 use crate::hud::Minimap;
 use crate::raycast::RaycastHit;
 use crate::shape_tools::{
-    ArchToolState, BridgeToolState, CircleToolState, CubeToolState, CylinderToolState,
-    FloorToolState, MirrorToolState, ReplaceToolState, SphereToolState, StairsToolState,
-    WallToolState,
+    ArchToolState, BridgeToolState, CircleToolState, ConeToolState, CubeToolState,
+    CylinderToolState, FloorToolState, MirrorToolState, ReplaceToolState, SphereToolState,
+    StairsToolState, WallToolState,
 };
 use crate::templates::{TemplateLibrary, TemplatePlacement, TemplateSelection, TemplateUi};
 use crate::ui::tools::ToolsPaletteState;
@@ -150,4 +150,7 @@ pub struct UiState {
 
     /// Arch placement tool state.
     pub arch_tool: ArchToolState,
+
+    /// Cone/pyramid placement tool state.
+    pub cone_tool: ConeToolState,
 }

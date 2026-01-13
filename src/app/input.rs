@@ -624,6 +624,16 @@ impl App {
             }
         }
 
+        // Update cone tool preview from raycast
+        if self.ui.cone_tool.active {
+            if let Some(hit) = self.ui.current_hit {
+                let target = get_place_position(&hit);
+                self.ui.cone_tool.update_preview(target);
+            } else {
+                self.ui.cone_tool.clear_preview();
+            }
+        }
+
         // Handle replace tool preview and execution requests
         if self.ui.replace_tool.active {
             if self.ui.replace_tool.preview_requested {
@@ -858,6 +868,18 @@ impl App {
             && !self.ui.place_needs_reclick
         {
             self.place_arch();
+            self.ui.place_needs_reclick = true;
+            return; // Skip block placement
+        }
+
+        // Handle cone/pyramid placement with right-click
+        if self.input.focused
+            && self.ui.cone_tool.active
+            && !self.ui.cone_tool.preview_positions.is_empty()
+            && self.input.mouse_pressed(MouseButton::Right)
+            && !self.ui.place_needs_reclick
+        {
+            self.place_cone();
             self.ui.place_needs_reclick = true;
             return; // Skip block placement
         }

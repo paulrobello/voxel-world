@@ -575,6 +575,7 @@ impl App {
             mirror_tool: crate::shape_tools::MirrorToolState::default(),
             stairs_tool: crate::shape_tools::StairsToolState::default(),
             arch_tool: crate::shape_tools::ArchToolState::default(),
+            cone_tool: crate::shape_tools::ConeToolState::default(),
         };
 
         let input = InputState {

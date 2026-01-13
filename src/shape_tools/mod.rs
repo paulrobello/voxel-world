@@ -6,6 +6,7 @@
 pub mod arch;
 pub mod bridge;
 pub mod circle;
+pub mod cone;
 pub mod cube;
 pub mod cylinder;
 pub mod floor;
@@ -1205,6 +1206,135 @@ impl ArchToolState {
             self.preview_positions = all_positions[..MAX_STENCIL_BLOCKS].to_vec();
         } else {
             self.preview_positions = all_positions;
+        }
+    }
+}
+
+// ============================================================================
+// ConeToolState
+// ============================================================================
+
+/// State for the cone/pyramid placement tool.
+#[derive(Clone, Debug)]
+pub struct ConeToolState {
+    /// Whether the cone tool is currently active.
+    pub active: bool,
+    /// Base size (radius for cone, half-side for pyramid).
+    pub base_size: i32,
+    /// Height from base to apex.
+    pub height: i32,
+    /// Shape type (Cone or Pyramid).
+    pub shape: cone::ConeShape,
+    /// Whether to create a hollow shell.
+    pub hollow: bool,
+    /// Whether to invert (point down instead of up).
+    pub inverted: bool,
+    /// Cached preview positions for GPU upload.
+    pub preview_positions: Vec<Vector3<i32>>,
+    /// Current preview base center position.
+    pub preview_center: Option<Vector3<i32>>,
+    /// Total block count for the full shape.
+    pub total_blocks: usize,
+    /// Whether the preview was truncated due to exceeding buffer limit.
+    pub preview_truncated: bool,
+    /// Cached base_size for detecting changes.
+    cached_base_size: i32,
+    /// Cached height for detecting changes.
+    cached_height: i32,
+    /// Cached shape for detecting changes.
+    cached_shape: cone::ConeShape,
+    /// Cached hollow for detecting changes.
+    cached_hollow: bool,
+    /// Cached inverted for detecting changes.
+    cached_inverted: bool,
+}
+
+impl Default for ConeToolState {
+    fn default() -> Self {
+        Self {
+            active: false,
+            base_size: 5,
+            height: 8,
+            shape: cone::ConeShape::Cone,
+            hollow: false,
+            inverted: false,
+            preview_positions: Vec::new(),
+            preview_center: None,
+            total_blocks: 0,
+            preview_truncated: false,
+            cached_base_size: 5,
+            cached_height: 8,
+            cached_shape: cone::ConeShape::Cone,
+            cached_hollow: false,
+            cached_inverted: false,
+        }
+    }
+}
+
+impl ConeToolState {
+    /// Clear the preview.
+    pub fn clear_preview(&mut self) {
+        self.preview_positions.clear();
+        self.preview_center = None;
+        self.total_blocks = 0;
+        self.preview_truncated = false;
+    }
+
+    /// Deactivate the tool and reset state.
+    #[allow(dead_code)]
+    pub fn deactivate(&mut self) {
+        self.active = false;
+        self.clear_preview();
+    }
+
+    /// Check if settings have changed since last preview generation.
+    fn settings_changed(&self) -> bool {
+        self.base_size != self.cached_base_size
+            || self.height != self.cached_height
+            || self.shape != self.cached_shape
+            || self.hollow != self.cached_hollow
+            || self.inverted != self.cached_inverted
+    }
+
+    /// Update cached settings after regenerating preview.
+    fn update_cache(&mut self) {
+        self.cached_base_size = self.base_size;
+        self.cached_height = self.height;
+        self.cached_shape = self.shape;
+        self.cached_hollow = self.hollow;
+        self.cached_inverted = self.inverted;
+    }
+
+    /// Update the cone preview at the given base center position.
+    pub fn update_preview(&mut self, base_center: Vector3<i32>) {
+        use crate::gpu_resources::MAX_STENCIL_BLOCKS;
+
+        // Check if regeneration needed
+        let needs_regen = self.preview_center != Some(base_center) || self.settings_changed();
+
+        if needs_regen {
+            self.preview_center = Some(base_center);
+            self.update_cache();
+
+            let all_positions = cone::generate_cone_positions(
+                base_center,
+                self.base_size,
+                self.height,
+                self.shape,
+                self.hollow,
+                self.inverted,
+            );
+
+            // Track total count and truncation status
+            self.total_blocks = all_positions.len();
+            self.preview_truncated = all_positions.len() > MAX_STENCIL_BLOCKS;
+
+            // Truncate for preview
+            if all_positions.len() > MAX_STENCIL_BLOCKS {
+                self.preview_positions = all_positions[..MAX_STENCIL_BLOCKS].to_vec();
+            } else {
+                self.preview_positions = all_positions;
+            }
         }
     }
 }

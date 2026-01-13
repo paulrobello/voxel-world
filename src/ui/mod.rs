@@ -28,6 +28,7 @@ use nalgebra::Vector3;
 pub mod arch_tool;
 pub mod bridge_tool;
 pub mod circle_tool;
+pub mod cone_tool;
 pub mod console;
 pub mod cube_tool;
 pub mod cylinder_tool;
@@ -48,6 +49,7 @@ pub mod wall_tool;
 
 use arch_tool::ArchToolUI;
 use bridge_tool::BridgeToolUI;
+use cone_tool::ConeToolUI;
 use console::ConsoleUI;
 use cube_tool::CubeToolUI;
 use cylinder_tool::CylinderToolUI;
@@ -140,6 +142,7 @@ pub struct HudInputs<'a> {
     pub mirror_tool: &'a mut crate::shape_tools::MirrorToolState,
     pub stairs_tool: &'a mut crate::shape_tools::StairsToolState,
     pub arch_tool: &'a mut crate::shape_tools::ArchToolState,
+    pub cone_tool: &'a mut crate::shape_tools::ConeToolState,
 }
 
 pub struct HUDRenderer;
@@ -211,6 +214,7 @@ impl HUDRenderer {
             mirror_tool,
             stairs_tool,
             arch_tool,
+            cone_tool,
         } = input;
         let mut scale_changed = false;
         let mut editor_action = EditorAction::None;
@@ -289,6 +293,7 @@ impl HUDRenderer {
                 mirror_tool.active,
                 stairs_tool.active,
                 arch_tool.active,
+                cone_tool.active,
                 stencil_manager.global_opacity,
                 stencil_manager.render_mode,
             );
@@ -335,6 +340,9 @@ impl HUDRenderer {
 
             // Arch tool settings window
             ArchToolUI::draw(&ctx, arch_tool);
+
+            // Cone tool settings window
+            ConeToolUI::draw(&ctx, cone_tool);
 
             // Crosshair (hide when editor or console is open)
             if !editor.active && !console.active {

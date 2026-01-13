@@ -91,6 +91,7 @@ pub fn render_hud(
             mirror_tool: &mut ui.mirror_tool,
             stairs_tool: &mut ui.stairs_tool,
             arch_tool: &mut ui.arch_tool,
+            cone_tool: &mut ui.cone_tool,
         },
     );
 
@@ -268,6 +269,18 @@ pub fn render_hud(
             if ui.arch_tool.active {
                 ui.tools_palette.open = false;
                 // Don't request cursor grab - arch tool UI needs mouse interaction
+            }
+        }
+        ToolAction::ToggleConeTool => {
+            ui.cone_tool.active = !ui.cone_tool.active;
+            println!(
+                "Cone/Pyramid Tool: {}",
+                if ui.cone_tool.active { "ON" } else { "OFF" }
+            );
+            // Close tools palette but DON'T grab cursor - let user adjust settings first
+            if ui.cone_tool.active {
+                ui.tools_palette.open = false;
+                // Don't request cursor grab - cone tool UI needs mouse interaction
             }
         }
         ToolAction::None => {}
