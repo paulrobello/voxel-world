@@ -26,6 +26,7 @@ pub enum ToolAction {
     ToggleSphereTool,
     ToggleCubeTool,
     ToggleBridgeTool,
+    ToggleCylinderTool,
 }
 
 /// Which tool is currently active/highlighted in the palette.
@@ -40,6 +41,7 @@ pub enum ActiveTool {
     Sphere,
     Cube,
     Bridge,
+    Cylinder,
 }
 
 impl ActiveTool {
@@ -54,6 +56,7 @@ impl ActiveTool {
             ActiveTool::Sphere => "Sphere",
             ActiveTool::Cube => "Cube",
             ActiveTool::Bridge => "Bridge",
+            ActiveTool::Cylinder => "Cylinder",
         }
     }
 
@@ -68,6 +71,7 @@ impl ActiveTool {
             ActiveTool::Sphere => "🔵",      // Blue circle
             ActiveTool::Cube => "🟦",        // Blue square
             ActiveTool::Bridge => "📍",      // Pin/marker for line endpoints
+            ActiveTool::Cylinder => "⬤",     // Filled circle for column/cylinder
         }
     }
 
@@ -82,6 +86,7 @@ impl ActiveTool {
             ActiveTool::Sphere => "",    // No dedicated hotkey, button only
             ActiveTool::Cube => "",      // No dedicated hotkey, button only
             ActiveTool::Bridge => "",    // No dedicated hotkey, button only
+            ActiveTool::Cylinder => "",  // No dedicated hotkey, button only
         }
     }
 
@@ -96,6 +101,7 @@ impl ActiveTool {
             ActiveTool::Sphere => "Place solid or hollow spheres",
             ActiveTool::Cube => "Place solid or hollow cubes/boxes",
             ActiveTool::Bridge => "Draw line between two points",
+            ActiveTool::Cylinder => "Place solid or hollow cylinders",
         }
     }
 }
@@ -230,6 +236,7 @@ impl ToolsPaletteUI {
         sphere_tool_active: bool,
         cube_tool_active: bool,
         bridge_tool_active: bool,
+        cylinder_tool_active: bool,
         stencil_opacity: f32,
         stencil_render_mode: StencilRenderMode,
     ) -> ToolsPaletteResult {
@@ -258,6 +265,8 @@ impl ToolsPaletteUI {
             ActiveTool::Cube
         } else if bridge_tool_active {
             ActiveTool::Bridge
+        } else if cylinder_tool_active {
+            ActiveTool::Cylinder
         } else {
             ActiveTool::None
         };
@@ -286,6 +295,7 @@ impl ToolsPaletteUI {
                         ActiveTool::FloodFill,
                         ActiveTool::Sphere,
                         ActiveTool::Cube,
+                        ActiveTool::Cylinder,
                         ActiveTool::Bridge,
                     ];
 
@@ -301,6 +311,7 @@ impl ToolsPaletteUI {
                                 ActiveTool::FloodFill => ToolAction::ToggleFloodFill,
                                 ActiveTool::Sphere => ToolAction::ToggleSphereTool,
                                 ActiveTool::Cube => ToolAction::ToggleCubeTool,
+                                ActiveTool::Cylinder => ToolAction::ToggleCylinderTool,
                                 ActiveTool::Bridge => ToolAction::ToggleBridgeTool,
                                 ActiveTool::None => ToolAction::None,
                             };
@@ -451,6 +462,15 @@ impl ToolsPaletteUI {
                 // Bridge tool has its own status window (BridgeToolUI)
                 ui.label(
                     egui::RichText::new("Bridge status in separate window")
+                        .color(egui::Color32::from_gray(140))
+                        .size(11.0)
+                        .italics(),
+                );
+            }
+            ActiveTool::Cylinder => {
+                // Cylinder tool has its own settings window (CylinderToolUI)
+                ui.label(
+                    egui::RichText::new("Cylinder settings in separate window")
                         .color(egui::Color32::from_gray(140))
                         .size(11.0)
                         .italics(),

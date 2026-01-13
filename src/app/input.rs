@@ -544,6 +544,26 @@ impl App {
             }
         }
 
+        // Update cylinder tool preview from raycast
+        if self.ui.cylinder_tool.active {
+            if let Some(hit) = self.ui.current_hit {
+                // For Base mode, use hit block position (cylinder sits ON the block)
+                // For Center mode, use placement position (where block would be placed)
+                let target = if self.ui.cylinder_tool.placement_mode
+                    == crate::shape_tools::PlacementMode::Base
+                {
+                    // Base mode: cylinder bottom rests on top of hit block
+                    // So target is one above hit block (first air block)
+                    hit.block_pos + Vector3::new(0, 1, 0)
+                } else {
+                    get_place_position(&hit)
+                };
+                self.ui.cylinder_tool.update_preview(target);
+            } else {
+                self.ui.cylinder_tool.clear_preview();
+            }
+        }
+
         // Update bridge tool preview from raycast (only when start position is set)
         if self.ui.bridge_tool.active && self.ui.bridge_tool.start_position.is_some() {
             if let Some(hit) = self.ui.current_hit {
@@ -646,6 +666,18 @@ impl App {
             && !self.ui.place_needs_reclick
         {
             self.place_cube();
+            self.ui.place_needs_reclick = true;
+            return; // Skip block placement
+        }
+
+        // Handle cylinder placement with right-click
+        if self.input.focused
+            && self.ui.cylinder_tool.active
+            && !self.ui.cylinder_tool.preview_positions.is_empty()
+            && self.input.mouse_pressed(MouseButton::Right)
+            && !self.ui.place_needs_reclick
+        {
+            self.place_cylinder();
             self.ui.place_needs_reclick = true;
             return; // Skip block placement
         }

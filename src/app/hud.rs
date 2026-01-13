@@ -83,6 +83,7 @@ pub fn render_hud(
             sphere_tool: &mut ui.sphere_tool,
             cube_tool: &mut ui.cube_tool,
             bridge_tool: &mut ui.bridge_tool,
+            cylinder_tool: &mut ui.cylinder_tool,
         },
     );
 
@@ -164,6 +165,18 @@ pub fn render_hud(
             if ui.bridge_tool.active {
                 ui.tools_palette.open = false;
                 ui.request_cursor_grab = true;
+            }
+        }
+        ToolAction::ToggleCylinderTool => {
+            ui.cylinder_tool.active = !ui.cylinder_tool.active;
+            println!(
+                "Cylinder Tool: {}",
+                if ui.cylinder_tool.active { "ON" } else { "OFF" }
+            );
+            // Close tools palette but DON'T grab cursor - let user adjust settings first
+            if ui.cylinder_tool.active {
+                ui.tools_palette.open = false;
+                // Don't request cursor grab - cylinder tool UI needs mouse interaction
             }
         }
         ToolAction::None => {}

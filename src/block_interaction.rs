@@ -1312,6 +1312,97 @@ impl App {
 
         // Don't deactivate tool - allow placing multiple bridges
     }
+
+    /// Place a cylinder using the current cylinder tool settings and hotbar selection.
+    pub fn place_cylinder(&mut self) {
+        let cylinder = &self.ui.cylinder_tool;
+        if !cylinder.active || cylinder.preview_center.is_none() {
+            return;
+        }
+
+        // Get block type and metadata from hotbar
+        let block_type = self.ui.hotbar_blocks[self.ui.hotbar_index];
+        let hotbar_idx = self.ui.hotbar_index;
+        let tint_index = self.ui.hotbar_tint_indices[hotbar_idx];
+        let paint_texture = self.ui.hotbar_paint_textures[hotbar_idx];
+
+        // Regenerate full positions (preview may be truncated)
+        let center = cylinder.preview_center.unwrap();
+        let positions = crate::shape_tools::cylinder::generate_cylinder_positions(
+            center,
+            cylinder.radius,
+            cylinder.height,
+            cylinder.hollow,
+            cylinder.axis,
+        );
+
+        // Place blocks
+        let mut placed_count = 0;
+        for pos in &positions {
+            // Skip if out of Y bounds (X/Z are infinite)
+            if pos.y < 0 || pos.y >= TEXTURE_SIZE_Y as i32 {
+                continue;
+            }
+
+            match block_type {
+                BlockType::TintedGlass => {
+                    self.sim.world.set_tinted_glass_block(*pos, tint_index);
+                }
+                BlockType::Crystal => {
+                    self.sim.world.set_crystal_block(*pos, tint_index);
+                }
+                BlockType::Painted => {
+                    self.sim
+                        .world
+                        .set_painted_block(*pos, paint_texture, tint_index);
+                }
+                BlockType::Water => {
+                    let water_type = WaterType::from_u8(tint_index);
+                    self.sim.water_grid.place_source(*pos, water_type);
+                    self.sim.world.set_water_block(*pos, water_type);
+                }
+                BlockType::Lava => {
+                    self.sim.lava_grid.place_source(*pos);
+                    self.sim.world.set_block(*pos, BlockType::Lava);
+                }
+                BlockType::Model | BlockType::Air => {
+                    // Skip model and air blocks - don't make sense for cylinder fill
+                    continue;
+                }
+                _ => {
+                    self.sim.world.set_block(*pos, block_type);
+                }
+            }
+            placed_count += 1;
+        }
+
+        // Invalidate minimap cache for affected area
+        if let Some(first_pos) = positions.first() {
+            self.sim
+                .world
+                .invalidate_minimap_cache(first_pos.x, first_pos.z);
+        }
+
+        let axis_name = match self.ui.cylinder_tool.axis {
+            crate::shape_tools::cylinder::CylinderAxis::Y => "vertical",
+            crate::shape_tools::cylinder::CylinderAxis::X => "X-axis",
+            crate::shape_tools::cylinder::CylinderAxis::Z => "Z-axis",
+        };
+        println!(
+            "Placed {} {} cylinder ({} blocks, radius {}, height {})",
+            if self.ui.cylinder_tool.hollow {
+                "hollow"
+            } else {
+                "solid"
+            },
+            axis_name,
+            placed_count,
+            self.ui.cylinder_tool.radius,
+            self.ui.cylinder_tool.height
+        );
+
+        // Don't deactivate tool - allow placing multiple cylinders
+    }
 }
 
 /// Determines if a stair should be placed inverted based on hit information.

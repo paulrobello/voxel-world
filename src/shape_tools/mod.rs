@@ -1,10 +1,11 @@
 //! Shape tools for placing geometric shapes in the world.
 //!
-//! This module provides tools for placing spheres, cubes, bridges, and other shapes
+//! This module provides tools for placing spheres, cubes, cylinders, bridges, and other shapes
 //! with holographic previews and configurable parameters.
 
 pub mod bridge;
 pub mod cube;
+pub mod cylinder;
 pub mod sphere;
 
 use nalgebra::Vector3;
@@ -318,6 +319,139 @@ impl BridgeToolState {
             }
         } else {
             self.clear_preview();
+        }
+    }
+}
+
+/// State for the cylinder placement tool.
+#[derive(Clone, Debug)]
+pub struct CylinderToolState {
+    /// Whether the cylinder tool is currently active.
+    pub active: bool,
+    /// Cylinder radius in blocks (1-50).
+    pub radius: i32,
+    /// Cylinder height/length in blocks (1-100).
+    pub height: i32,
+    /// Whether to create a hollow tube instead of solid cylinder.
+    pub hollow: bool,
+    /// Axis orientation (Y=vertical, X/Z=horizontal).
+    pub axis: cylinder::CylinderAxis,
+    /// Placement mode (center or base).
+    pub placement_mode: PlacementMode,
+    /// Cached preview positions for GPU upload.
+    pub preview_positions: Vec<Vector3<i32>>,
+    /// Current preview center position (if targeting a block).
+    pub preview_center: Option<Vector3<i32>>,
+    /// Total block count for the full cylinder (may differ from preview if truncated).
+    pub total_blocks: usize,
+    /// Whether the preview was truncated due to exceeding buffer limit.
+    pub preview_truncated: bool,
+    /// Cached radius for detecting when to regenerate preview.
+    cached_radius: i32,
+    /// Cached height for detecting when to regenerate preview.
+    cached_height: i32,
+    /// Cached hollow setting for detecting when to regenerate preview.
+    cached_hollow: bool,
+    /// Cached axis for detecting when to regenerate preview.
+    cached_axis: cylinder::CylinderAxis,
+    /// Cached placement mode for detecting when to regenerate preview.
+    cached_placement_mode: PlacementMode,
+}
+
+impl Default for CylinderToolState {
+    fn default() -> Self {
+        Self {
+            active: false,
+            radius: 3,
+            height: 10,
+            hollow: false,
+            axis: cylinder::CylinderAxis::Y,
+            placement_mode: PlacementMode::Base,
+            preview_positions: Vec::new(),
+            preview_center: None,
+            total_blocks: 0,
+            preview_truncated: false,
+            cached_radius: 3,
+            cached_height: 10,
+            cached_hollow: false,
+            cached_axis: cylinder::CylinderAxis::Y,
+            cached_placement_mode: PlacementMode::Base,
+        }
+    }
+}
+
+impl CylinderToolState {
+    /// Check if settings have changed since last preview generation.
+    pub fn settings_changed(&self) -> bool {
+        self.radius != self.cached_radius
+            || self.height != self.cached_height
+            || self.hollow != self.cached_hollow
+            || self.axis != self.cached_axis
+            || self.placement_mode != self.cached_placement_mode
+    }
+
+    /// Update cached settings after regenerating preview.
+    pub fn update_cache(&mut self) {
+        self.cached_radius = self.radius;
+        self.cached_height = self.height;
+        self.cached_hollow = self.hollow;
+        self.cached_axis = self.axis;
+        self.cached_placement_mode = self.placement_mode;
+    }
+
+    /// Clear the preview state.
+    pub fn clear_preview(&mut self) {
+        self.preview_positions.clear();
+        self.preview_center = None;
+        self.preview_truncated = false;
+        self.total_blocks = 0;
+    }
+
+    /// Deactivate the tool and clear preview.
+    pub fn deactivate(&mut self) {
+        self.active = false;
+        self.clear_preview();
+    }
+
+    /// Update the cylinder preview at the given target position.
+    ///
+    /// Regenerates preview positions when target or settings change.
+    pub fn update_preview(&mut self, target: Vector3<i32>) {
+        use crate::gpu_resources::MAX_STENCIL_BLOCKS;
+
+        let center = cylinder::calculate_center(
+            target,
+            self.radius,
+            self.height,
+            self.axis,
+            self.placement_mode,
+        );
+
+        // Only regenerate if center or settings changed
+        let needs_regen = self.preview_center != Some(center) || self.settings_changed();
+
+        if needs_regen {
+            self.preview_center = Some(center);
+            self.update_cache();
+
+            let all_positions = cylinder::generate_cylinder_positions(
+                center,
+                self.radius,
+                self.height,
+                self.hollow,
+                self.axis,
+            );
+
+            // Track total count and truncation status
+            self.total_blocks = all_positions.len();
+            self.preview_truncated = all_positions.len() > MAX_STENCIL_BLOCKS;
+
+            // Truncate for preview (full list used for actual placement)
+            if all_positions.len() > MAX_STENCIL_BLOCKS {
+                self.preview_positions = all_positions[..MAX_STENCIL_BLOCKS].to_vec();
+            } else {
+                self.preview_positions = all_positions;
+            }
         }
     }
 }

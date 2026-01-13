@@ -28,6 +28,7 @@ use nalgebra::Vector3;
 pub mod bridge_tool;
 pub mod console;
 pub mod cube_tool;
+pub mod cylinder_tool;
 pub mod helpers;
 pub mod hotbar;
 pub mod minimap;
@@ -41,6 +42,7 @@ pub mod tools;
 use bridge_tool::BridgeToolUI;
 use console::ConsoleUI;
 use cube_tool::CubeToolUI;
+use cylinder_tool::CylinderToolUI;
 use hotbar::HotbarUI;
 use minimap::MinimapUI;
 use palette::PaletteUI;
@@ -117,6 +119,7 @@ pub struct HudInputs<'a> {
     pub sphere_tool: &'a mut crate::shape_tools::SphereToolState,
     pub cube_tool: &'a mut crate::shape_tools::CubeToolState,
     pub bridge_tool: &'a mut crate::shape_tools::BridgeToolState,
+    pub cylinder_tool: &'a mut crate::shape_tools::CylinderToolState,
 }
 
 pub struct HUDRenderer;
@@ -180,6 +183,7 @@ impl HUDRenderer {
             sphere_tool,
             cube_tool,
             bridge_tool,
+            cylinder_tool,
         } = input;
         let mut scale_changed = false;
         let mut editor_action = EditorAction::None;
@@ -250,6 +254,7 @@ impl HUDRenderer {
                 sphere_tool.active,
                 cube_tool.active,
                 bridge_tool.active,
+                cylinder_tool.active,
                 stencil_manager.global_opacity,
                 stencil_manager.render_mode,
             );
@@ -272,6 +277,9 @@ impl HUDRenderer {
 
             // Bridge tool status window
             BridgeToolUI::draw(&ctx, bridge_tool);
+
+            // Cylinder tool settings window
+            CylinderToolUI::draw(&ctx, cylinder_tool);
 
             // Crosshair (hide when editor or console is open)
             if !editor.active && !console.active {
