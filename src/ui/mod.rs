@@ -34,6 +34,7 @@ pub mod floor_tool;
 pub mod helpers;
 pub mod hotbar;
 pub mod minimap;
+pub mod mirror_tool;
 pub mod palette;
 pub mod replace_tool;
 pub mod settings;
@@ -50,6 +51,7 @@ use cylinder_tool::CylinderToolUI;
 use floor_tool::FloorToolUI;
 use hotbar::HotbarUI;
 use minimap::MinimapUI;
+use mirror_tool::MirrorToolUI;
 use palette::PaletteUI;
 use replace_tool::ReplaceToolUI;
 use settings::SettingsUI;
@@ -131,6 +133,7 @@ pub struct HudInputs<'a> {
     pub floor_tool: &'a mut crate::shape_tools::FloorToolState,
     pub replace_tool: &'a mut crate::shape_tools::ReplaceToolState,
     pub circle_tool: &'a mut crate::shape_tools::CircleToolState,
+    pub mirror_tool: &'a mut crate::shape_tools::MirrorToolState,
 }
 
 pub struct HUDRenderer;
@@ -199,6 +202,7 @@ impl HUDRenderer {
             floor_tool,
             replace_tool,
             circle_tool,
+            mirror_tool,
         } = input;
         let mut scale_changed = false;
         let mut editor_action = EditorAction::None;
@@ -274,6 +278,7 @@ impl HUDRenderer {
                 floor_tool.active,
                 replace_tool.active,
                 circle_tool.active,
+                mirror_tool.active,
                 stencil_manager.global_opacity,
                 stencil_manager.render_mode,
             );
@@ -311,6 +316,9 @@ impl HUDRenderer {
 
             // Circle tool settings window
             circle_tool::CircleToolUI::draw(&ctx, circle_tool);
+
+            // Mirror tool settings window
+            MirrorToolUI::draw(&ctx, mirror_tool);
 
             // Crosshair (hide when editor or console is open)
             if !editor.active && !console.active {

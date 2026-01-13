@@ -8,6 +8,7 @@ pub mod circle;
 pub mod cube;
 pub mod cylinder;
 pub mod floor;
+pub mod mirror;
 pub mod replace;
 pub mod sphere;
 pub mod wall;
@@ -942,5 +943,82 @@ impl CircleToolState {
                 self.preview_positions = all_positions;
             }
         }
+    }
+}
+
+// ============================================================================
+// MirrorToolState
+// ============================================================================
+
+/// State for the mirror/symmetry tool.
+#[derive(Clone, Debug)]
+pub struct MirrorToolState {
+    /// Whether mirror mode is currently active.
+    pub active: bool,
+    /// Position that defines the mirror plane.
+    pub plane_position: Vector3<i32>,
+    /// Which axis/axes to mirror across.
+    pub axis: mirror::MirrorAxis,
+    /// Whether to show the mirror plane visual indicator.
+    pub show_plane: bool,
+    /// Whether a plane position has been set.
+    pub plane_set: bool,
+}
+
+impl Default for MirrorToolState {
+    fn default() -> Self {
+        Self {
+            active: false,
+            plane_position: Vector3::new(0, 0, 0),
+            axis: mirror::MirrorAxis::X,
+            show_plane: true,
+            plane_set: false,
+        }
+    }
+}
+
+impl MirrorToolState {
+    /// Set the mirror plane position.
+    pub fn set_plane(&mut self, position: Vector3<i32>) {
+        self.plane_position = position;
+        self.plane_set = true;
+    }
+
+    /// Clear the mirror plane.
+    pub fn clear_plane(&mut self) {
+        self.plane_set = false;
+    }
+
+    /// Deactivate the tool and reset state.
+    #[allow(dead_code)]
+    pub fn deactivate(&mut self) {
+        self.active = false;
+        self.plane_set = false;
+    }
+
+    /// Cycle to the next axis.
+    pub fn cycle_axis(&mut self) {
+        self.axis = match self.axis {
+            mirror::MirrorAxis::X => mirror::MirrorAxis::Z,
+            mirror::MirrorAxis::Z => mirror::MirrorAxis::Both,
+            mirror::MirrorAxis::Both => mirror::MirrorAxis::X,
+        };
+    }
+
+    /// Get mirrored positions for a single position.
+    pub fn mirror_position(&self, pos: Vector3<i32>) -> Vec<Vector3<i32>> {
+        if !self.active || !self.plane_set {
+            return vec![pos];
+        }
+        mirror::get_mirrored_positions(pos, self.plane_position, self.axis)
+    }
+
+    /// Get mirrored positions for multiple positions.
+    #[allow(dead_code)]
+    pub fn mirror_positions(&self, positions: &[Vector3<i32>]) -> Vec<Vector3<i32>> {
+        if !self.active || !self.plane_set {
+            return positions.to_vec();
+        }
+        mirror::get_all_mirrored_positions(positions, self.plane_position, self.axis)
     }
 }

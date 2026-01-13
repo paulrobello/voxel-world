@@ -807,6 +807,31 @@ impl App {
             return; // Skip block placement
         }
 
+        // Handle mirror tool axis cycling with Tab key
+        if self.input.focused && self.ui.mirror_tool.active && self.input.key_pressed(KeyCode::Tab)
+        {
+            self.ui.mirror_tool.cycle_axis();
+            println!("Mirror axis: {}", self.ui.mirror_tool.axis.name());
+        }
+
+        // Handle mirror tool plane setting with right-click
+        if self.input.focused
+            && self.ui.mirror_tool.active
+            && self.input.mouse_pressed(MouseButton::Right)
+            && !self.ui.place_needs_reclick
+        {
+            if let Some(hit) = self.ui.current_hit {
+                let target = get_place_position(&hit);
+                self.ui.mirror_tool.set_plane(target);
+                println!(
+                    "Mirror plane set at ({}, {}, {})",
+                    target.x, target.y, target.z
+                );
+            }
+            self.ui.place_needs_reclick = true;
+            return; // Skip block placement
+        }
+
         // Handle flood fill with right-click
         if self.input.focused
             && self.ui.flood_fill_active

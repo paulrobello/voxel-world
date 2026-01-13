@@ -31,6 +31,7 @@ pub enum ToolAction {
     ToggleFloorTool,
     ToggleReplaceTool,
     ToggleCircleTool,
+    ToggleMirrorTool,
 }
 
 /// Which tool is currently active/highlighted in the palette.
@@ -50,6 +51,7 @@ pub enum ActiveTool {
     Floor,
     Replace,
     Circle,
+    Mirror,
 }
 
 impl ActiveTool {
@@ -69,6 +71,7 @@ impl ActiveTool {
             ActiveTool::Floor => "Floor",
             ActiveTool::Replace => "Replace",
             ActiveTool::Circle => "Circle",
+            ActiveTool::Mirror => "Mirror",
         }
     }
 
@@ -88,6 +91,7 @@ impl ActiveTool {
             ActiveTool::Floor => "▬",        // Horizontal rectangle for floors
             ActiveTool::Replace => "↔",      // Swap/exchange symbol for replace
             ActiveTool::Circle => "◯",       // Circle outline
+            ActiveTool::Mirror => "⟷",       // Symmetric reflection arrows
         }
     }
 
@@ -107,6 +111,7 @@ impl ActiveTool {
             ActiveTool::Floor => "",     // No dedicated hotkey, button only
             ActiveTool::Replace => "",   // No dedicated hotkey, button only
             ActiveTool::Circle => "",    // No dedicated hotkey, button only
+            ActiveTool::Mirror => "",    // No dedicated hotkey, button only
         }
     }
 
@@ -126,6 +131,7 @@ impl ActiveTool {
             ActiveTool::Floor => "Build floors with two-click corners",
             ActiveTool::Replace => "Find and replace blocks in selection",
             ActiveTool::Circle => "Place circles or ellipses",
+            ActiveTool::Mirror => "Mirror block placements symmetrically",
         }
     }
 }
@@ -265,6 +271,7 @@ impl ToolsPaletteUI {
         floor_tool_active: bool,
         replace_tool_active: bool,
         circle_tool_active: bool,
+        mirror_tool_active: bool,
         stencil_opacity: f32,
         stencil_render_mode: StencilRenderMode,
     ) -> ToolsPaletteResult {
@@ -303,6 +310,8 @@ impl ToolsPaletteUI {
             ActiveTool::Replace
         } else if circle_tool_active {
             ActiveTool::Circle
+        } else if mirror_tool_active {
+            ActiveTool::Mirror
         } else {
             ActiveTool::None
         };
@@ -336,6 +345,7 @@ impl ToolsPaletteUI {
                         ActiveTool::Wall,
                         ActiveTool::Floor,
                         ActiveTool::Replace,
+                        ActiveTool::Mirror,
                         ActiveTool::Bridge,
                     ];
 
@@ -356,6 +366,7 @@ impl ToolsPaletteUI {
                                 ActiveTool::Floor => ToolAction::ToggleFloorTool,
                                 ActiveTool::Replace => ToolAction::ToggleReplaceTool,
                                 ActiveTool::Circle => ToolAction::ToggleCircleTool,
+                                ActiveTool::Mirror => ToolAction::ToggleMirrorTool,
                                 ActiveTool::Bridge => ToolAction::ToggleBridgeTool,
                                 ActiveTool::None => ToolAction::None,
                             };
@@ -551,6 +562,15 @@ impl ToolsPaletteUI {
                 // Circle tool has its own settings window (CircleToolUI)
                 ui.label(
                     egui::RichText::new("Circle settings in separate window")
+                        .color(egui::Color32::from_gray(140))
+                        .size(11.0)
+                        .italics(),
+                );
+            }
+            ActiveTool::Mirror => {
+                // Mirror tool has its own settings window (MirrorToolUI)
+                ui.label(
+                    egui::RichText::new("Mirror settings in separate window")
                         .color(egui::Color32::from_gray(140))
                         .size(11.0)
                         .italics(),

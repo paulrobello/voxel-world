@@ -599,6 +599,15 @@ impl App {
                 self.ui.last_place_pos != Some(constrained_pos) && self.ui.place_cooldown <= 0.0;
 
             if can_place_new && self.place_block_at(constrained_pos) {
+                // Place at mirrored positions if mirror tool is active
+                if self.ui.mirror_tool.active && self.ui.mirror_tool.plane_set {
+                    let mirrored_positions = self.ui.mirror_tool.mirror_position(constrained_pos);
+                    // Skip first position (it's the original we already placed)
+                    for mirrored_pos in mirrored_positions.into_iter().skip(1) {
+                        self.place_block_at(mirrored_pos);
+                    }
+                }
+
                 // Only advance state when we actually placed a block
                 self.ui.last_place_pos = Some(constrained_pos);
                 self.ui.place_cooldown = self.ui.settings.place_cooldown_duration;

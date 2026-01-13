@@ -88,6 +88,7 @@ pub fn render_hud(
             floor_tool: &mut ui.floor_tool,
             replace_tool: &mut ui.replace_tool,
             circle_tool: &mut ui.circle_tool,
+            mirror_tool: &mut ui.mirror_tool,
         },
     );
 
@@ -229,6 +230,18 @@ pub fn render_hud(
             if ui.circle_tool.active {
                 ui.tools_palette.open = false;
                 // Don't request cursor grab - circle tool UI needs mouse interaction
+            }
+        }
+        ToolAction::ToggleMirrorTool => {
+            ui.mirror_tool.active = !ui.mirror_tool.active;
+            println!(
+                "Mirror Tool: {}",
+                if ui.mirror_tool.active { "ON" } else { "OFF" }
+            );
+            // Close tools palette but DON'T grab cursor - let user adjust settings first
+            if ui.mirror_tool.active {
+                ui.tools_palette.open = false;
+                // Don't request cursor grab - mirror tool UI needs mouse interaction
             }
         }
         ToolAction::None => {}
