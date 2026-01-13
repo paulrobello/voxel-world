@@ -533,6 +533,12 @@ impl App {
             return;
         }
 
+        // Skip block placement if mirror tool is active but plane not set yet
+        // (right-click should set the plane, not place a block)
+        if self.ui.mirror_tool.active && !self.ui.mirror_tool.plane_set {
+            return;
+        }
+
         // Decrease cooldown
         if self.ui.place_cooldown > 0.0 {
             self.ui.place_cooldown -= delta_time;
