@@ -36,6 +36,43 @@ impl App {
             self.ui.frames_since_last_second = 0;
             self.ui.last_second = now;
 
+            // Update smoothed FPS (exponential moving average, alpha=0.15 for stability)
+            let alpha = 0.15;
+            self.ui.smoothed_fps =
+                self.ui.smoothed_fps * (1.0 - alpha) + self.ui.fps as f32 * alpha;
+
+            // Dynamic render scale adjustment
+            if self.ui.settings.dynamic_render_scale {
+                let target = self.ui.settings.dynamic_render_scale_target_fps;
+                let min_scale = self.ui.settings.dynamic_render_scale_min;
+                let max_scale = self.ui.settings.dynamic_render_scale_max;
+                let current_scale = self.ui.settings.render_scale;
+
+                // Use deadband of ±5% of target FPS to prevent oscillation
+                let deadband = target * 0.05;
+                let fps_error = self.ui.smoothed_fps - target;
+
+                // Only adjust if outside the deadband
+                if fps_error.abs() > deadband {
+                    // Adjustment rate: larger adjustments when further from target
+                    // Base rate of 0.02 per second, scaled by error magnitude
+                    let adjustment_rate = 0.02 * (fps_error.abs() / target).min(0.5);
+
+                    let new_scale = if fps_error < -deadband {
+                        // FPS too low, decrease render scale
+                        (current_scale - adjustment_rate).max(min_scale)
+                    } else {
+                        // FPS too high, increase render scale
+                        (current_scale + adjustment_rate).min(max_scale)
+                    };
+
+                    if (new_scale - current_scale).abs() > 0.001 {
+                        self.ui.settings.render_scale = new_scale;
+                        self.ui.pending_scale_change = true;
+                    }
+                }
+            }
+
             print_stats(&mut self.ui, &mut self.sim, self.args.verbose);
 
             // Auto-profile state machine: toggle features every 5 seconds

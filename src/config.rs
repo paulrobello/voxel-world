@@ -125,6 +125,14 @@ pub struct Settings {
     pub max_ray_steps: u32,
     pub shadow_max_steps: u32,
     pub render_scale: f32,
+    /// Enable dynamic render scale based on FPS
+    pub dynamic_render_scale: bool,
+    /// Minimum render scale when dynamic is enabled
+    pub dynamic_render_scale_min: f32,
+    /// Maximum render scale when dynamic is enabled
+    pub dynamic_render_scale_max: f32,
+    /// Target FPS for dynamic render scale
+    pub dynamic_render_scale_target_fps: f32,
     pub water_simulation_enabled: bool,
     pub instant_break: bool,
     pub instant_place: bool,
@@ -164,6 +172,10 @@ impl Default for Settings {
             max_ray_steps: 256,
             shadow_max_steps: 128,
             render_scale: 1.0,
+            dynamic_render_scale: false,
+            dynamic_render_scale_min: 0.5,
+            dynamic_render_scale_max: 1.0,
+            dynamic_render_scale_target_fps: 60.0,
             water_simulation_enabled: true,
             instant_break: true,
             instant_place: true,

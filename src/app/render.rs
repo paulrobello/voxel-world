@@ -191,7 +191,8 @@ impl App {
         // Get atlas texture id before borrowing gui
         let _atlas_texture_id = rcx.atlas_texture_id;
 
-        if render_hud(
+        // Check if scale changed from dynamic render scale or UI
+        let scale_changed_from_ui = render_hud(
             rcx,
             &mut self.ui,
             &mut self.sim,
@@ -199,7 +200,11 @@ impl App {
             minimap_image,
             camera_yaw,
             player_world_pos,
-        ) {
+        );
+        let scale_changed_from_dynamic = self.ui.pending_scale_change;
+        self.ui.pending_scale_change = false;
+
+        if scale_changed_from_ui || scale_changed_from_dynamic {
             let window_extent: [u32; 2] = rcx.window.inner_size().into();
             let render_extent = [
                 (window_extent[0] as f32 * self.ui.settings.render_scale) as u32,

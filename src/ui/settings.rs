@@ -158,6 +158,36 @@ impl SettingsUI {
                             scale_changed = true;
                         }
 
+                        // Dynamic render scale settings
+                        ui.collapsing("Dynamic Render Scale", |ui| {
+                            ui.checkbox(&mut settings.dynamic_render_scale, "Enable dynamic scaling")
+                                .on_hover_text("Automatically adjust render scale based on FPS");
+
+                            ui.add_enabled(
+                                settings.dynamic_render_scale,
+                                egui::Slider::new(&mut settings.dynamic_render_scale_target_fps, 30.0..=120.0)
+                                    .text("Target FPS")
+                                    .suffix(" fps"),
+                            );
+
+                            ui.add_enabled(
+                                settings.dynamic_render_scale,
+                                egui::Slider::new(&mut settings.dynamic_render_scale_min, 0.25..=1.0)
+                                    .text("Min Scale"),
+                            );
+
+                            ui.add_enabled(
+                                settings.dynamic_render_scale,
+                                egui::Slider::new(&mut settings.dynamic_render_scale_max, 0.5..=1.5)
+                                    .text("Max Scale"),
+                            );
+
+                            // Ensure min <= max
+                            if settings.dynamic_render_scale_min > settings.dynamic_render_scale_max {
+                                settings.dynamic_render_scale_min = settings.dynamic_render_scale_max;
+                            }
+                        });
+
                         ui.separator();
 
                         // Day/night cycle controls

@@ -69,6 +69,10 @@ pub struct UiState {
     pub last_second: Instant,
     pub frames_since_last_second: u32,
     pub fps: u32,
+    /// Smoothed FPS for dynamic render scale (exponential moving average)
+    pub smoothed_fps: f32,
+    /// Flag set when dynamic render scale changes (triggers render target recreation)
+    pub pending_scale_change: bool,
     pub total_frames: u64,
     pub screenshot_taken: bool,
 

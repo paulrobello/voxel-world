@@ -533,6 +533,8 @@ impl App {
             last_second: Instant::now(),
             frames_since_last_second: 0,
             fps: 0,
+            smoothed_fps: 60.0, // Start at reasonable default
+            pending_scale_change: false,
             total_frames: 0,
             screenshot_taken: false,
             editor: EditorState::new(),
