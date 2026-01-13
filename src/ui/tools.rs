@@ -33,6 +33,7 @@ pub enum ToolAction {
     ToggleCircleTool,
     ToggleMirrorTool,
     ToggleStairsTool,
+    ToggleArchTool,
 }
 
 /// Which tool is currently active/highlighted in the palette.
@@ -54,6 +55,7 @@ pub enum ActiveTool {
     Circle,
     Mirror,
     Stairs,
+    Arch,
 }
 
 impl ActiveTool {
@@ -75,6 +77,7 @@ impl ActiveTool {
             ActiveTool::Circle => "Circle",
             ActiveTool::Mirror => "Mirror",
             ActiveTool::Stairs => "Stairs",
+            ActiveTool::Arch => "Arch",
         }
     }
 
@@ -96,6 +99,7 @@ impl ActiveTool {
             ActiveTool::Circle => "◯",       // Circle outline
             ActiveTool::Mirror => "⟷",       // Symmetric reflection arrows
             ActiveTool::Stairs => "📶",      // Step pattern
+            ActiveTool::Arch => "∩",         // Arch shape
         }
     }
 
@@ -117,6 +121,7 @@ impl ActiveTool {
             ActiveTool::Circle => "",    // No dedicated hotkey, button only
             ActiveTool::Mirror => "",    // No dedicated hotkey, button only
             ActiveTool::Stairs => "",    // No dedicated hotkey, button only
+            ActiveTool::Arch => "",      // No dedicated hotkey, button only
         }
     }
 
@@ -138,6 +143,7 @@ impl ActiveTool {
             ActiveTool::Circle => "Place circles or ellipses",
             ActiveTool::Mirror => "Mirror block placements symmetrically",
             ActiveTool::Stairs => "Build staircases between two points",
+            ActiveTool::Arch => "Create architectural arches and doorways",
         }
     }
 }
@@ -279,6 +285,7 @@ impl ToolsPaletteUI {
         circle_tool_active: bool,
         mirror_tool_active: bool,
         stairs_tool_active: bool,
+        arch_tool_active: bool,
         stencil_opacity: f32,
         stencil_render_mode: StencilRenderMode,
     ) -> ToolsPaletteResult {
@@ -321,6 +328,8 @@ impl ToolsPaletteUI {
             ActiveTool::Mirror
         } else if stairs_tool_active {
             ActiveTool::Stairs
+        } else if arch_tool_active {
+            ActiveTool::Arch
         } else {
             ActiveTool::None
         };
@@ -356,6 +365,7 @@ impl ToolsPaletteUI {
                         ActiveTool::Replace,
                         ActiveTool::Mirror,
                         ActiveTool::Stairs,
+                        ActiveTool::Arch,
                         ActiveTool::Bridge,
                     ];
 
@@ -378,6 +388,7 @@ impl ToolsPaletteUI {
                                 ActiveTool::Circle => ToolAction::ToggleCircleTool,
                                 ActiveTool::Mirror => ToolAction::ToggleMirrorTool,
                                 ActiveTool::Stairs => ToolAction::ToggleStairsTool,
+                                ActiveTool::Arch => ToolAction::ToggleArchTool,
                                 ActiveTool::Bridge => ToolAction::ToggleBridgeTool,
                                 ActiveTool::None => ToolAction::None,
                             };
@@ -591,6 +602,15 @@ impl ToolsPaletteUI {
                 // Stairs tool has its own settings window (StairsToolUI)
                 ui.label(
                     egui::RichText::new("Stairs settings in separate window")
+                        .color(egui::Color32::from_gray(140))
+                        .size(11.0)
+                        .italics(),
+                );
+            }
+            ActiveTool::Arch => {
+                // Arch tool has its own settings window (ArchToolUI)
+                ui.label(
+                    egui::RichText::new("Arch settings in separate window")
                         .color(egui::Color32::from_gray(140))
                         .size(11.0)
                         .italics(),

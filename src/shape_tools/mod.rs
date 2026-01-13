@@ -3,6 +3,7 @@
 //! This module provides tools for placing spheres, cubes, cylinders, bridges, and other shapes
 //! with holographic previews and configurable parameters.
 
+pub mod arch;
 pub mod bridge;
 pub mod circle;
 pub mod cube;
@@ -1110,6 +1111,100 @@ impl StairsToolState {
             }
         } else {
             self.clear_preview();
+        }
+    }
+}
+
+// ============================================================================
+// ArchToolState
+// ============================================================================
+
+/// State for the arch placement tool.
+#[derive(Clone, Debug)]
+pub struct ArchToolState {
+    /// Whether the arch tool is currently active.
+    pub active: bool,
+    /// Width of the arch opening (2-50 blocks).
+    pub width: i32,
+    /// Height of the arch from base to apex (1-50 blocks).
+    pub height: i32,
+    /// Thickness/depth of the arch (1-10 blocks).
+    pub thickness: i32,
+    /// Arch curve style.
+    pub style: arch::ArchStyle,
+    /// Arch orientation (which direction it faces).
+    pub orientation: arch::ArchOrientation,
+    /// Whether to create a hollow arch (passageway).
+    pub hollow: bool,
+    /// Cached preview positions for GPU upload.
+    pub preview_positions: Vec<Vector3<i32>>,
+    /// Current preview base position (if targeting a block).
+    pub preview_center: Option<Vector3<i32>>,
+    /// Total block count for the full arch.
+    pub total_blocks: usize,
+    /// Whether the preview was truncated due to exceeding buffer limit.
+    pub preview_truncated: bool,
+}
+
+impl Default for ArchToolState {
+    fn default() -> Self {
+        Self {
+            active: false,
+            width: 4,
+            height: 3,
+            thickness: 1,
+            style: arch::ArchStyle::Semicircle,
+            orientation: arch::ArchOrientation::FacingZ,
+            hollow: false,
+            preview_positions: Vec::new(),
+            preview_center: None,
+            total_blocks: 0,
+            preview_truncated: false,
+        }
+    }
+}
+
+impl ArchToolState {
+    /// Clear the preview.
+    pub fn clear_preview(&mut self) {
+        self.preview_positions.clear();
+        self.preview_center = None;
+        self.total_blocks = 0;
+        self.preview_truncated = false;
+    }
+
+    /// Deactivate the tool and reset state.
+    #[allow(dead_code)]
+    pub fn deactivate(&mut self) {
+        self.active = false;
+        self.clear_preview();
+    }
+
+    /// Update the arch preview at the given base center position.
+    pub fn update_preview(&mut self, base_center: Vector3<i32>) {
+        use crate::gpu_resources::MAX_STENCIL_BLOCKS;
+
+        self.preview_center = Some(base_center);
+
+        let all_positions = arch::generate_arch_positions(
+            base_center,
+            self.width,
+            self.height,
+            self.thickness,
+            self.style,
+            self.orientation,
+            self.hollow,
+        );
+
+        // Track total count and truncation status
+        self.total_blocks = all_positions.len();
+        self.preview_truncated = all_positions.len() > MAX_STENCIL_BLOCKS;
+
+        // Truncate for preview
+        if all_positions.len() > MAX_STENCIL_BLOCKS {
+            self.preview_positions = all_positions[..MAX_STENCIL_BLOCKS].to_vec();
+        } else {
+            self.preview_positions = all_positions;
         }
     }
 }

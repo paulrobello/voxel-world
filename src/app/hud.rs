@@ -90,6 +90,7 @@ pub fn render_hud(
             circle_tool: &mut ui.circle_tool,
             mirror_tool: &mut ui.mirror_tool,
             stairs_tool: &mut ui.stairs_tool,
+            arch_tool: &mut ui.arch_tool,
         },
     );
 
@@ -255,6 +256,18 @@ pub fn render_hud(
             if ui.stairs_tool.active {
                 ui.tools_palette.open = false;
                 // Don't request cursor grab - stairs tool UI needs mouse interaction
+            }
+        }
+        ToolAction::ToggleArchTool => {
+            ui.arch_tool.active = !ui.arch_tool.active;
+            println!(
+                "Arch Tool: {}",
+                if ui.arch_tool.active { "ON" } else { "OFF" }
+            );
+            // Close tools palette but DON'T grab cursor - let user adjust settings first
+            if ui.arch_tool.active {
+                ui.tools_palette.open = false;
+                // Don't request cursor grab - arch tool UI needs mouse interaction
             }
         }
         ToolAction::None => {}

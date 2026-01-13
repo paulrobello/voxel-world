@@ -1731,6 +1731,71 @@ impl App {
         // Don't deactivate tool - allow placing multiple staircases
     }
 
+    /// Place an arch using the current arch tool settings and hotbar selection.
+    pub fn place_arch(&mut self) {
+        let arch = &self.ui.arch_tool;
+        if !arch.active || arch.preview_positions.is_empty() {
+            return;
+        }
+
+        // Get block type and metadata from hotbar
+        let block_type = self.ui.hotbar_blocks[self.ui.hotbar_index];
+        let hotbar_idx = self.ui.hotbar_index;
+        let tint_index = self.ui.hotbar_tint_indices[hotbar_idx];
+        let paint_texture = self.ui.hotbar_paint_textures[hotbar_idx];
+
+        // Use preview positions (already generated with current settings)
+        let positions = self.ui.arch_tool.preview_positions.clone();
+
+        // Place blocks
+        let mut placed_count = 0;
+        for pos in &positions {
+            // Skip if out of Y bounds (X/Z are infinite)
+            if pos.y < 0 || pos.y >= TEXTURE_SIZE_Y as i32 {
+                continue;
+            }
+
+            match block_type {
+                BlockType::TintedGlass => {
+                    self.sim.world.set_tinted_glass_block(*pos, tint_index);
+                }
+                BlockType::Crystal => {
+                    self.sim.world.set_crystal_block(*pos, tint_index);
+                }
+                BlockType::Painted => {
+                    self.sim
+                        .world
+                        .set_painted_block(*pos, paint_texture, tint_index);
+                }
+                BlockType::Model | BlockType::Air => {
+                    // Skip model and air blocks - don't make sense for arch fill
+                    continue;
+                }
+                _ => {
+                    self.sim.world.set_block(*pos, block_type);
+                }
+            }
+            placed_count += 1;
+        }
+
+        // Invalidate minimap cache for affected area
+        if let Some(first_pos) = positions.first() {
+            self.sim
+                .world
+                .invalidate_minimap_cache(first_pos.x, first_pos.z);
+        }
+
+        let width = self.ui.arch_tool.width;
+        let height = self.ui.arch_tool.height;
+        let style_name = self.ui.arch_tool.style.name();
+        println!(
+            "Placed {} arch ({} blocks, {}W × {}H)",
+            style_name, placed_count, width, height
+        );
+
+        // Don't deactivate tool - allow placing multiple arches
+    }
+
     /// Execute block replacement within the current selection.
     pub fn execute_replace(&mut self) {
         let replace = &self.ui.replace_tool;

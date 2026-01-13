@@ -25,6 +25,7 @@ use crate::utils::ChunkStats;
 use egui_winit_vulkano::egui;
 use nalgebra::Vector3;
 
+pub mod arch_tool;
 pub mod bridge_tool;
 pub mod circle_tool;
 pub mod console;
@@ -45,6 +46,7 @@ pub mod time;
 pub mod tools;
 pub mod wall_tool;
 
+use arch_tool::ArchToolUI;
 use bridge_tool::BridgeToolUI;
 use console::ConsoleUI;
 use cube_tool::CubeToolUI;
@@ -137,6 +139,7 @@ pub struct HudInputs<'a> {
     pub circle_tool: &'a mut crate::shape_tools::CircleToolState,
     pub mirror_tool: &'a mut crate::shape_tools::MirrorToolState,
     pub stairs_tool: &'a mut crate::shape_tools::StairsToolState,
+    pub arch_tool: &'a mut crate::shape_tools::ArchToolState,
 }
 
 pub struct HUDRenderer;
@@ -207,6 +210,7 @@ impl HUDRenderer {
             circle_tool,
             mirror_tool,
             stairs_tool,
+            arch_tool,
         } = input;
         let mut scale_changed = false;
         let mut editor_action = EditorAction::None;
@@ -284,6 +288,7 @@ impl HUDRenderer {
                 circle_tool.active,
                 mirror_tool.active,
                 stairs_tool.active,
+                arch_tool.active,
                 stencil_manager.global_opacity,
                 stencil_manager.render_mode,
             );
@@ -327,6 +332,9 @@ impl HUDRenderer {
 
             // Stairs tool settings window
             StairsToolUI::draw(&ctx, stairs_tool);
+
+            // Arch tool settings window
+            ArchToolUI::draw(&ctx, arch_tool);
 
             // Crosshair (hide when editor or console is open)
             if !editor.active && !console.active {

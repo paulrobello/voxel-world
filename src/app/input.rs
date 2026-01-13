@@ -614,6 +614,16 @@ impl App {
             }
         }
 
+        // Update arch tool preview from raycast
+        if self.ui.arch_tool.active {
+            if let Some(hit) = self.ui.current_hit {
+                let target = get_place_position(&hit);
+                self.ui.arch_tool.update_preview(target);
+            } else {
+                self.ui.arch_tool.clear_preview();
+            }
+        }
+
         // Handle replace tool preview and execution requests
         if self.ui.replace_tool.active {
             if self.ui.replace_tool.preview_requested {
@@ -838,6 +848,18 @@ impl App {
                 self.ui.place_needs_reclick = true;
                 return; // Skip block placement
             }
+        }
+
+        // Handle arch placement with right-click
+        if self.input.focused
+            && self.ui.arch_tool.active
+            && !self.ui.arch_tool.preview_positions.is_empty()
+            && self.input.mouse_pressed(MouseButton::Right)
+            && !self.ui.place_needs_reclick
+        {
+            self.place_arch();
+            self.ui.place_needs_reclick = true;
+            return; // Skip block placement
         }
 
         // Handle mirror tool axis cycling with Tab key
