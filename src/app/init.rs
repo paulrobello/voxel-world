@@ -6,7 +6,7 @@ use crate::atmosphere;
 use crate::block_update::BlockUpdateQueue;
 use crate::chunk::CHUNK_SIZE;
 use crate::chunk_loader::ChunkLoader;
-use crate::config::{Args, INITIAL_WINDOW_RESOLUTION};
+use crate::config::{Args, INITIAL_WINDOW_RESOLUTION, WorldGenType};
 use crate::console::ConsoleState;
 use crate::constants::{
     DEFAULT_TIME_OF_DAY, LOAD_DISTANCE, LOADED_CHUNKS_X, LOADED_CHUNKS_Z, TEXTURE_SIZE_X,
@@ -313,7 +313,9 @@ impl App {
             Vector3::new(safe_x as f64, spawn_y as f64 + 1.0, safe_z as f64)
         };
 
-        let mut player = Player::new(spawn_pos, texture_origin, world_extent, args.fly_mode);
+        // Flat worlds default to fly mode for easier building
+        let fly_mode = args.fly_mode || world_gen == WorldGenType::Flat;
+        let mut player = Player::new(spawn_pos, texture_origin, world_extent, fly_mode);
         player.auto_jump = true;
 
         // Restore rotation if available
