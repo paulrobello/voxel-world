@@ -964,6 +964,18 @@ impl App {
             return; // Skip block placement
         }
 
+        // Handle stairs tool cancellation with left-click
+        if self.input.focused
+            && self.ui.stairs_tool.active
+            && self.ui.stairs_tool.start_pos.is_some()
+            && self.input.mouse_pressed(MouseButton::Left)
+        {
+            self.ui.stairs_tool.reset();
+            println!("Stairs placement cancelled");
+            self.ui.skip_break_until_release = true; // Don't start breaking
+            return;
+        }
+
         // Block breaking (hold to break) - must be after raycast update
         // Skip if in template or stencil placement mode
         if self.input.focused
