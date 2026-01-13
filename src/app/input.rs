@@ -594,6 +594,16 @@ impl App {
             }
         }
 
+        // Update circle tool preview from raycast
+        if self.ui.circle_tool.active {
+            if let Some(hit) = self.ui.current_hit {
+                let target = get_place_position(&hit);
+                self.ui.circle_tool.update_preview(target);
+            } else {
+                self.ui.circle_tool.clear_preview();
+            }
+        }
+
         // Handle replace tool preview and execution requests
         if self.ui.replace_tool.active {
             if self.ui.replace_tool.preview_requested {
@@ -783,6 +793,18 @@ impl App {
                 self.ui.place_needs_reclick = true;
                 return; // Skip block placement
             }
+        }
+
+        // Handle circle placement with right-click
+        if self.input.focused
+            && self.ui.circle_tool.active
+            && !self.ui.circle_tool.preview_positions.is_empty()
+            && self.input.mouse_pressed(MouseButton::Right)
+            && !self.ui.place_needs_reclick
+        {
+            self.place_circle();
+            self.ui.place_needs_reclick = true;
+            return; // Skip block placement
         }
 
         // Handle flood fill with right-click

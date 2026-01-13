@@ -30,6 +30,7 @@ pub enum ToolAction {
     ToggleWallTool,
     ToggleFloorTool,
     ToggleReplaceTool,
+    ToggleCircleTool,
 }
 
 /// Which tool is currently active/highlighted in the palette.
@@ -48,6 +49,7 @@ pub enum ActiveTool {
     Wall,
     Floor,
     Replace,
+    Circle,
 }
 
 impl ActiveTool {
@@ -66,6 +68,7 @@ impl ActiveTool {
             ActiveTool::Wall => "Wall",
             ActiveTool::Floor => "Floor",
             ActiveTool::Replace => "Replace",
+            ActiveTool::Circle => "Circle",
         }
     }
 
@@ -84,6 +87,7 @@ impl ActiveTool {
             ActiveTool::Wall => "▮",         // Vertical rectangle for walls
             ActiveTool::Floor => "▬",        // Horizontal rectangle for floors
             ActiveTool::Replace => "↔",      // Swap/exchange symbol for replace
+            ActiveTool::Circle => "◯",       // Circle outline
         }
     }
 
@@ -102,6 +106,7 @@ impl ActiveTool {
             ActiveTool::Wall => "",      // No dedicated hotkey, button only
             ActiveTool::Floor => "",     // No dedicated hotkey, button only
             ActiveTool::Replace => "",   // No dedicated hotkey, button only
+            ActiveTool::Circle => "",    // No dedicated hotkey, button only
         }
     }
 
@@ -120,6 +125,7 @@ impl ActiveTool {
             ActiveTool::Wall => "Build walls with two-click corners",
             ActiveTool::Floor => "Build floors with two-click corners",
             ActiveTool::Replace => "Find and replace blocks in selection",
+            ActiveTool::Circle => "Place circles or ellipses",
         }
     }
 }
@@ -258,6 +264,7 @@ impl ToolsPaletteUI {
         wall_tool_active: bool,
         floor_tool_active: bool,
         replace_tool_active: bool,
+        circle_tool_active: bool,
         stencil_opacity: f32,
         stencil_render_mode: StencilRenderMode,
     ) -> ToolsPaletteResult {
@@ -294,6 +301,8 @@ impl ToolsPaletteUI {
             ActiveTool::Floor
         } else if replace_tool_active {
             ActiveTool::Replace
+        } else if circle_tool_active {
+            ActiveTool::Circle
         } else {
             ActiveTool::None
         };
@@ -322,6 +331,7 @@ impl ToolsPaletteUI {
                         ActiveTool::FloodFill,
                         ActiveTool::Sphere,
                         ActiveTool::Cube,
+                        ActiveTool::Circle,
                         ActiveTool::Cylinder,
                         ActiveTool::Wall,
                         ActiveTool::Floor,
@@ -345,6 +355,7 @@ impl ToolsPaletteUI {
                                 ActiveTool::Wall => ToolAction::ToggleWallTool,
                                 ActiveTool::Floor => ToolAction::ToggleFloorTool,
                                 ActiveTool::Replace => ToolAction::ToggleReplaceTool,
+                                ActiveTool::Circle => ToolAction::ToggleCircleTool,
                                 ActiveTool::Bridge => ToolAction::ToggleBridgeTool,
                                 ActiveTool::None => ToolAction::None,
                             };
@@ -531,6 +542,15 @@ impl ToolsPaletteUI {
                 // Replace tool has its own settings window (ReplaceToolUI)
                 ui.label(
                     egui::RichText::new("Replace settings in separate window")
+                        .color(egui::Color32::from_gray(140))
+                        .size(11.0)
+                        .italics(),
+                );
+            }
+            ActiveTool::Circle => {
+                // Circle tool has its own settings window (CircleToolUI)
+                ui.label(
+                    egui::RichText::new("Circle settings in separate window")
                         .color(egui::Color32::from_gray(140))
                         .size(11.0)
                         .italics(),

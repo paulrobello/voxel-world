@@ -4,6 +4,7 @@
 //! with holographic previews and configurable parameters.
 
 pub mod bridge;
+pub mod circle;
 pub mod cube;
 pub mod cylinder;
 pub mod floor;
@@ -807,6 +808,139 @@ impl ReplaceToolState {
             self.preview_positions = all_positions[..MAX_STENCIL_BLOCKS].to_vec();
         } else {
             self.preview_positions = all_positions;
+        }
+    }
+}
+
+/// State for the circle/ellipse placement tool.
+#[derive(Clone, Debug)]
+pub struct CircleToolState {
+    /// Whether the circle tool is currently active.
+    pub active: bool,
+    /// Primary radius (X for XZ/XY, Y for YZ plane).
+    pub radius_a: i32,
+    /// Secondary radius (Z for XZ, Y for XY, Z for YZ plane).
+    pub radius_b: i32,
+    /// Whether to use ellipse mode (two independent radii).
+    pub ellipse_mode: bool,
+    /// Whether to fill the interior (true) or outline only (false).
+    pub filled: bool,
+    /// Orientation plane for the circle.
+    pub plane: circle::CirclePlane,
+    /// Cached preview positions for GPU upload.
+    pub preview_positions: Vec<Vector3<i32>>,
+    /// Current preview center position (if targeting a block).
+    pub preview_center: Option<Vector3<i32>>,
+    /// Total block count for the shape.
+    pub total_blocks: usize,
+    /// Whether the preview was truncated due to exceeding buffer limit.
+    pub preview_truncated: bool,
+    /// Cached radius_a for detecting changes.
+    cached_radius_a: i32,
+    /// Cached radius_b for detecting changes.
+    cached_radius_b: i32,
+    /// Cached ellipse mode for detecting changes.
+    cached_ellipse_mode: bool,
+    /// Cached filled mode for detecting changes.
+    cached_filled: bool,
+    /// Cached plane for detecting changes.
+    cached_plane: circle::CirclePlane,
+}
+
+impl Default for CircleToolState {
+    fn default() -> Self {
+        Self {
+            active: false,
+            radius_a: 5,
+            radius_b: 5,
+            ellipse_mode: false,
+            filled: true,
+            plane: circle::CirclePlane::XZ,
+            preview_positions: Vec::new(),
+            preview_center: None,
+            total_blocks: 0,
+            preview_truncated: false,
+            cached_radius_a: 5,
+            cached_radius_b: 5,
+            cached_ellipse_mode: false,
+            cached_filled: true,
+            cached_plane: circle::CirclePlane::XZ,
+        }
+    }
+}
+
+impl CircleToolState {
+    /// Get the effective secondary radius (same as primary if not in ellipse mode).
+    pub fn effective_radius_b(&self) -> i32 {
+        if self.ellipse_mode {
+            self.radius_b
+        } else {
+            self.radius_a
+        }
+    }
+
+    /// Clear the preview state.
+    pub fn clear_preview(&mut self) {
+        self.preview_positions.clear();
+        self.preview_center = None;
+        self.total_blocks = 0;
+        self.preview_truncated = false;
+    }
+
+    /// Deactivate the tool and clear all state.
+    #[allow(dead_code)]
+    pub fn deactivate(&mut self) {
+        self.active = false;
+        self.clear_preview();
+    }
+
+    /// Check if settings have changed since last preview generation.
+    fn settings_changed(&self) -> bool {
+        self.radius_a != self.cached_radius_a
+            || self.effective_radius_b() != self.cached_radius_b
+            || self.ellipse_mode != self.cached_ellipse_mode
+            || self.filled != self.cached_filled
+            || self.plane != self.cached_plane
+    }
+
+    /// Update cached settings after regenerating preview.
+    fn update_cache(&mut self) {
+        self.cached_radius_a = self.radius_a;
+        self.cached_radius_b = self.effective_radius_b();
+        self.cached_ellipse_mode = self.ellipse_mode;
+        self.cached_filled = self.filled;
+        self.cached_plane = self.plane;
+    }
+
+    /// Update the circle preview centered on the given target position.
+    pub fn update_preview(&mut self, target: Vector3<i32>) {
+        use crate::gpu_resources::MAX_STENCIL_BLOCKS;
+
+        // Check if regeneration needed
+        let needs_regen = self.preview_center != Some(target) || self.settings_changed();
+
+        if needs_regen {
+            self.preview_center = Some(target);
+            self.update_cache();
+
+            let all_positions = circle::generate_circle_positions(
+                target,
+                self.radius_a,
+                self.effective_radius_b(),
+                self.plane,
+                self.filled,
+            );
+
+            // Track total count and truncation status
+            self.total_blocks = all_positions.len();
+            self.preview_truncated = all_positions.len() > MAX_STENCIL_BLOCKS;
+
+            // Truncate for preview (full list used for actual placement)
+            if all_positions.len() > MAX_STENCIL_BLOCKS {
+                self.preview_positions = all_positions[..MAX_STENCIL_BLOCKS].to_vec();
+            } else {
+                self.preview_positions = all_positions;
+            }
         }
     }
 }

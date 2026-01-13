@@ -87,6 +87,7 @@ pub fn render_hud(
             wall_tool: &mut ui.wall_tool,
             floor_tool: &mut ui.floor_tool,
             replace_tool: &mut ui.replace_tool,
+            circle_tool: &mut ui.circle_tool,
         },
     );
 
@@ -216,6 +217,18 @@ pub fn render_hud(
             if ui.replace_tool.active {
                 ui.tools_palette.open = false;
                 // Don't request cursor grab - replace tool UI needs mouse interaction
+            }
+        }
+        ToolAction::ToggleCircleTool => {
+            ui.circle_tool.active = !ui.circle_tool.active;
+            println!(
+                "Circle Tool: {}",
+                if ui.circle_tool.active { "ON" } else { "OFF" }
+            );
+            // Close tools palette but DON'T grab cursor - let user adjust settings first
+            if ui.circle_tool.active {
+                ui.tools_palette.open = false;
+                // Don't request cursor grab - circle tool UI needs mouse interaction
             }
         }
         ToolAction::None => {}

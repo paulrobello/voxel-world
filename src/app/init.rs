@@ -571,6 +571,7 @@ impl App {
             wall_tool: crate::shape_tools::WallToolState::default(),
             floor_tool: crate::shape_tools::FloorToolState::default(),
             replace_tool: crate::shape_tools::ReplaceToolState::default(),
+            circle_tool: crate::shape_tools::CircleToolState::default(),
         };
 
         let input = InputState {

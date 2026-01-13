@@ -26,6 +26,7 @@ use egui_winit_vulkano::egui;
 use nalgebra::Vector3;
 
 pub mod bridge_tool;
+pub mod circle_tool;
 pub mod console;
 pub mod cube_tool;
 pub mod cylinder_tool;
@@ -129,6 +130,7 @@ pub struct HudInputs<'a> {
     pub wall_tool: &'a mut crate::shape_tools::WallToolState,
     pub floor_tool: &'a mut crate::shape_tools::FloorToolState,
     pub replace_tool: &'a mut crate::shape_tools::ReplaceToolState,
+    pub circle_tool: &'a mut crate::shape_tools::CircleToolState,
 }
 
 pub struct HUDRenderer;
@@ -196,6 +198,7 @@ impl HUDRenderer {
             wall_tool,
             floor_tool,
             replace_tool,
+            circle_tool,
         } = input;
         let mut scale_changed = false;
         let mut editor_action = EditorAction::None;
@@ -270,6 +273,7 @@ impl HUDRenderer {
                 wall_tool.active,
                 floor_tool.active,
                 replace_tool.active,
+                circle_tool.active,
                 stencil_manager.global_opacity,
                 stencil_manager.render_mode,
             );
@@ -304,6 +308,9 @@ impl HUDRenderer {
 
             // Replace tool settings window
             ReplaceToolUI::draw(&ctx, replace_tool, template_selection);
+
+            // Circle tool settings window
+            circle_tool::CircleToolUI::draw(&ctx, circle_tool);
 
             // Crosshair (hide when editor or console is open)
             if !editor.active && !console.active {

@@ -10,8 +10,8 @@ use crate::editor::EditorState;
 use crate::hud::Minimap;
 use crate::raycast::RaycastHit;
 use crate::shape_tools::{
-    BridgeToolState, CubeToolState, CylinderToolState, FloorToolState, ReplaceToolState,
-    SphereToolState, WallToolState,
+    BridgeToolState, CircleToolState, CubeToolState, CylinderToolState, FloorToolState,
+    ReplaceToolState, SphereToolState, WallToolState,
 };
 use crate::templates::{TemplateLibrary, TemplatePlacement, TemplateSelection, TemplateUi};
 use crate::ui::tools::ToolsPaletteState;
@@ -137,4 +137,7 @@ pub struct UiState {
 
     /// Replace tool state.
     pub replace_tool: ReplaceToolState,
+
+    /// Circle/Ellipse tool state.
+    pub circle_tool: CircleToolState,
 }
