@@ -928,6 +928,22 @@ Escape                      # Cancel tool
 
 ## Done Recently
 
+- **Safe Spawn Point Finding** (2026-01-12): ✅ COMPLETE
+  - **Problem**: Players always spawned in rivers at origin (0,0) due to Perlin noise behavior
+  - **Solution**: New `find_safe_spawn()` function searches in expanding spiral pattern for dry land
+  - **Safety Checks**: Validates ground is solid (not water/lava) and block above is air
+  - **Fallback**: Returns origin with warning if no safe spawn found within max_radius (64 blocks)
+  - **Custom Spawns**: Manual spawn coordinates (`--spawn-x`, `--spawn-z`) bypass safe spawn search
+
+- **Auto-Profile Light Culling Integration** (2026-01-12): ✅ COMPLETE
+  - Added `LightCullRadius` feature to auto-profile state machine (tests 16 vs 128 blocks)
+  - Added `MaxActiveLights` feature to auto-profile state machine (tests 8 vs 256 lights)
+  - Updated CSV header and stats output for new light settings columns
+  - Profile results: MaxActiveLights has ~8 FPS impact, LightCullRadius has ~4 FPS impact
+
+- **Default Seed Change** (2026-01-12): ✅ COMPLETE
+  - Changed default seed from 12345678 to 98765 in config.rs, init.rs, and Makefile
+
 - **Light Culling Optimization** (2026-01-12): ✅ COMPLETE
   - **Distance-Based Culling**: Lights beyond `light_cull_radius` (default 64 blocks) are not sent to GPU
   - **Frustum-Aware Prioritization**: Lights in front of player are prioritized over lights behind
@@ -1089,4 +1105,4 @@ Escape                      # Cancel tool
 ---
 
 *Last Updated: 2026-01-12*
-*Plan Version: 3.1 - Lighting Optimization, All Light Modes, Sky Color Settings*
+*Plan Version: 3.2 - Light Culling, Auto-Profile Integration, Safe Spawn*
