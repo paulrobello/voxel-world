@@ -1,120 +1,79 @@
 //! River generation system.
 //!
-//! Uses Minecraft-style region boundary detection. Rivers form at the
-//! EXACT boundaries between quantized noise regions, creating naturally
-//! connected linear features.
+//! Uses elevation-based valley detection. Rivers form in natural valleys
+//! where terrain height is locally lower than surrounding areas, and flow
+//! toward lower elevations (sea level).
 //!
 //! ## Algorithm
-//! 1. Quantize noise into discrete "regions" (e.g., 4 region types)
-//! 2. Rivers form where a point's region differs from its neighbors
-//! 3. This creates continuous boundary lines, not scattered points
+//! 1. Sample terrain height in multiple directions around each point
+//! 2. Rivers form where local height is lower than neighbors (valley)
+//! 3. Valley depth determines river width
+//! 4. Rivers only form above sea level and flow downhill
 //!
 //! ## Key Design
-//! - Rivers have a FIXED water level (not per-column)
-//! - Terrain is carved DOWN to below the water level
-//! - Rivers only form where terrain is high enough above sea level
+//! - Rivers follow natural terrain contours
+//! - No artificial convergence points from noise artifacts
+//! - Valley detection creates realistic drainage patterns
 
 use crate::terrain_gen::BiomeType;
 use crate::world_gen::SEA_LEVEL;
-use noise::{NoiseFn, Perlin};
+use noise::{Fbm, MultiFractal, NoiseFn, Perlin};
 
 /// Maximum water level for rivers (caps how high river water can be).
-/// On high terrain, water is at this level. On lower terrain, water
-/// tracks the terrain height to avoid floating water.
 pub const MAX_RIVER_WATER_LEVEL: i32 = SEA_LEVEL + 8; // 83
 
 /// Minimum terrain height for rivers to form.
-/// Just above sea level - rivers can form on most land.
 const MIN_RIVER_TERRAIN: i32 = SEA_LEVEL + 1; // 76
 
-/// River generator using quantized region boundaries.
+/// River generator using elevation-based valley detection.
 #[derive(Clone)]
 pub struct RiverGenerator {
-    /// Region noise - quantized to create distinct regions
-    region_noise: Perlin,
-    /// Secondary noise for tributaries
-    tributary_noise: Perlin,
-    /// Noise for width/depth variation
-    variation_noise: Perlin,
-    /// Domain warping noise X - breaks up radial patterns
-    warp_noise_x: Perlin,
-    /// Domain warping noise Z - breaks up radial patterns
-    warp_noise_z: Perlin,
+    /// Height noise - matches terrain generator for valley detection
+    height_noise: Fbm<Perlin>,
+    /// Detail noise for width/depth variation
+    detail_noise: Perlin,
+    /// Meander noise - adds curves to rivers
+    meander_noise: Perlin,
+    /// River density noise - controls where rivers can form
+    density_noise: Perlin,
 }
-
-/// Primary warp strength (how much coordinates are offset)
-const WARP_STRENGTH_1: f64 = 400.0;
-/// Secondary warp strength (finer detail)
-const WARP_STRENGTH_2: f64 = 150.0;
-/// Tertiary warp strength (finest detail)
-const WARP_STRENGTH_3: f64 = 50.0;
-/// Primary warp scale (very large-scale curves)
-const WARP_SCALE_1: f64 = 0.0004;
-/// Secondary warp scale (medium curves)
-const WARP_SCALE_2: f64 = 0.0015;
-/// Tertiary warp scale (fine curves)
-const WARP_SCALE_3: f64 = 0.005;
 
 impl RiverGenerator {
     /// Creates a new river generator with the given seed.
     pub fn new(seed: u32) -> Self {
+        // Match terrain generator's height noise exactly
+        let height_noise = Fbm::<Perlin>::new(seed)
+            .set_octaves(4)
+            .set_frequency(0.003)
+            .set_lacunarity(2.0)
+            .set_persistence(0.5);
+
+        let detail_noise = Perlin::new(seed + 502);
+        let meander_noise = Perlin::new(seed + 600);
+        let density_noise = Perlin::new(seed + 601);
+
         Self {
-            region_noise: Perlin::new(seed + 500),
-            tributary_noise: Perlin::new(seed + 501),
-            variation_noise: Perlin::new(seed + 502),
-            warp_noise_x: Perlin::new(seed + 503),
-            warp_noise_z: Perlin::new(seed + 504),
+            height_noise,
+            detail_noise,
+            meander_noise,
+            density_noise,
         }
     }
 
-    /// Apply multi-octave domain warping to break up radial patterns.
-    /// Uses three octaves of noise at different scales plus asymmetric offsets
-    /// to prevent Perlin noise gradient convergence artifacts.
-    fn warp_coordinates(&self, x: f64, z: f64) -> (f64, f64) {
-        // Octave 1: Large-scale warping (biggest curves)
-        let warp1_x = self.warp_noise_x.get([x * WARP_SCALE_1, z * WARP_SCALE_1]) * WARP_STRENGTH_1;
-        let warp1_z = self.warp_noise_z.get([x * WARP_SCALE_1, z * WARP_SCALE_1]) * WARP_STRENGTH_1;
+    /// Get raw terrain height at a position (simplified, no biome blending).
+    fn get_terrain_height(&self, x: f64, z: f64) -> f64 {
+        // Base continental height from noise
+        let base = self.height_noise.get([x, z]);
 
-        // Octave 2: Medium-scale warping (with offset to break symmetry)
-        let warp2_x = self
-            .warp_noise_x
-            .get([x * WARP_SCALE_2 + 1000.0, z * WARP_SCALE_2 + 500.0])
-            * WARP_STRENGTH_2;
-        let warp2_z = self
-            .warp_noise_z
-            .get([x * WARP_SCALE_2 + 500.0, z * WARP_SCALE_2 + 1000.0])
-            * WARP_STRENGTH_2;
-
-        // Octave 3: Fine-scale warping (with different offset)
-        let warp3_x = self
-            .warp_noise_x
-            .get([x * WARP_SCALE_3 + 2500.0, z * WARP_SCALE_3 + 3500.0])
-            * WARP_STRENGTH_3;
-        let warp3_z = self
-            .warp_noise_z
-            .get([x * WARP_SCALE_3 + 3500.0, z * WARP_SCALE_3 + 2500.0])
-            * WARP_STRENGTH_3;
-
-        // Add asymmetric rotation component to further break radial patterns
-        // This rotates coordinates slightly based on position
-        let angle = (x * 0.0001 + z * 0.00007) * std::f64::consts::PI * 0.1;
-        let cos_a = angle.cos();
-        let sin_a = angle.sin();
-
-        let total_warp_x = warp1_x + warp2_x + warp3_x;
-        let total_warp_z = warp1_z + warp2_z + warp3_z;
-
-        // Apply rotation to the warp offset
-        let rotated_x = total_warp_x * cos_a - total_warp_z * sin_a;
-        let rotated_z = total_warp_x * sin_a + total_warp_z * cos_a;
-
-        (x + rotated_x, z + rotated_z)
+        // Simple height calculation - we just need relative heights for valley detection
+        // Base height around 90 with ±20 variation
+        90.0 + base * 25.0
     }
 
     /// Check if a position is within a river channel.
     ///
-    /// Rivers form at boundaries between quantized noise regions.
-    /// This creates naturally connected, linear river paths.
+    /// Rivers form in valleys - locations where terrain is locally lower
+    /// than surrounding areas.
     pub fn get_river_at(
         &self,
         world_x: i32,
@@ -135,144 +94,115 @@ impl RiverGenerator {
         let x = world_x as f64;
         let z = world_z as f64;
 
-        // Check for main river (large-scale region boundaries)
-        if let Some(info) = self.check_main_river(x, z, terrain_height, biome) {
+        // Check river density - not everywhere should have rivers
+        let density = self.density_noise.get([x * 0.0003, z * 0.0003]);
+        if density < -0.2 {
+            return None; // No rivers in this region
+        }
+
+        // Check for valley (main river or tributary)
+        if let Some(info) = self.check_valley_river(x, z, terrain_height, biome, true) {
             return Some(info);
         }
 
-        // Check for tributary (smaller-scale boundaries)
-        if let Some(info) = self.check_tributary(x, z, terrain_height, biome) {
-            return Some(info);
+        // Check for smaller tributary
+        if self.has_tributaries(biome) {
+            if let Some(info) = self.check_valley_river(x, z, terrain_height, biome, false) {
+                return Some(info);
+            }
         }
 
         None
     }
 
-    /// Check for main river at region boundary.
-    fn check_main_river(
+    /// Check if position is in a valley suitable for a river.
+    fn check_valley_river(
         &self,
         x: f64,
         z: f64,
         terrain_height: i32,
         biome: BiomeType,
+        is_main: bool,
     ) -> Option<RiverInfo> {
-        // Apply domain warping to break up radial patterns
-        let (wx, wz) = self.warp_coordinates(x, z);
+        // Sample distances for valley detection
+        let sample_dist = if is_main { 12.0 } else { 6.0 };
 
-        // Scale for very large regions (~800-1000 blocks across)
-        // Smaller scale = larger regions = fewer river boundaries
-        let scale = 0.00125;
+        // Get terrain heights at sample points
+        let center_h = self.get_terrain_height(x, z);
 
-        // Only 2 regions - creates sparse river network with single boundary lines
-        let num_regions = 2.0;
+        // Add meandering offset to sample positions
+        let meander_scale = if is_main { 0.002 } else { 0.004 };
+        let meander_strength = if is_main { 8.0 } else { 4.0 };
+        let mx = self
+            .meander_noise
+            .get([x * meander_scale, z * meander_scale])
+            * meander_strength;
+        let mz = self
+            .meander_noise
+            .get([x * meander_scale + 100.0, z * meander_scale])
+            * meander_strength;
 
-        // Quantize center point into a region (using warped coordinates)
-        let center_val = self.region_noise.get([wx * scale, wz * scale]);
-        let center_region = (center_val * num_regions).floor() as i32;
+        // Sample in 8 directions with meander offset
+        let samples = [
+            self.get_terrain_height(x + sample_dist + mx, z + mz),
+            self.get_terrain_height(x - sample_dist + mx, z + mz),
+            self.get_terrain_height(x + mx, z + sample_dist + mz),
+            self.get_terrain_height(x + mx, z - sample_dist + mz),
+            self.get_terrain_height(x + sample_dist * 0.7 + mx, z + sample_dist * 0.7 + mz),
+            self.get_terrain_height(x - sample_dist * 0.7 + mx, z + sample_dist * 0.7 + mz),
+            self.get_terrain_height(x + sample_dist * 0.7 + mx, z - sample_dist * 0.7 + mz),
+            self.get_terrain_height(x - sample_dist * 0.7 + mx, z - sample_dist * 0.7 + mz),
+        ];
 
-        // Check distance for boundary detection - wider = wider rivers
-        let river_half_width = self.get_river_half_width(x, z, biome, true);
+        // Calculate how much lower we are than neighbors
+        let avg_neighbor = samples.iter().sum::<f64>() / samples.len() as f64;
+        let min_neighbor = samples.iter().cloned().fold(f64::INFINITY, f64::min);
 
-        // Check if any neighbor is in a different region (using warped coordinates)
-        let at_boundary = self.is_at_region_boundary_warped(
-            x,
-            z,
-            scale,
-            center_region,
-            num_regions,
-            river_half_width,
-            &self.region_noise,
-        );
+        // Valley depth = how much lower center is than average neighbor
+        let valley_depth = avg_neighbor - center_h;
 
-        if !at_boundary {
+        // Threshold for valley detection
+        let depth_threshold = if is_main { 1.5 } else { 0.8 };
+
+        // Must be in a valley (lower than neighbors)
+        if valley_depth < depth_threshold {
             return None;
         }
 
-        // Calculate dynamic water level based on biome and terrain
-        // Coastal biomes (beach) use sea level so rivers flow into the ocean
-        // Inland biomes track terrain height, capped at MAX_RIVER_WATER_LEVEL
+        // Additional check: shouldn't be lower than ALL neighbors by too much
+        // (that would be a pit, not a river valley)
+        let depth_from_min = min_neighbor - center_h;
+        if depth_from_min > 8.0 {
+            return None; // Too deep, probably a pit not a river
+        }
+
+        // Calculate river width based on valley depth
+        let base_width = if is_main { 4.0 } else { 2.5 };
+        let width_variation = self.detail_noise.get([x * 0.01, z * 0.01]) * 0.3 + 0.85;
+        let biome_mult = self.get_biome_width_mult(biome);
+        let width =
+            base_width * biome_mult * width_variation * (valley_depth / depth_threshold).min(2.0);
+
+        // Calculate water level
         let water_level = if self.is_coastal_biome(biome) {
             SEA_LEVEL
         } else {
             (terrain_height - 1).min(MAX_RIVER_WATER_LEVEL)
         };
 
-        // Calculate carving depth - must carve below water level
-        // min_depth ensures carved terrain is at least 2 blocks below water surface
+        // Calculate carving depth
         let min_depth = (terrain_height - water_level + 2).max(3);
-        let variation = self.variation_noise.get([x * 0.02, z * 0.02]) * 0.3 + 0.85;
-        let depth = ((min_depth as f64) * variation)
+        let depth_variation = self.detail_noise.get([x * 0.02, z * 0.02]) * 0.3 + 0.85;
+        let depth = ((min_depth as f64) * depth_variation)
             .round()
             .max(min_depth as f64) as i32;
 
         Some(RiverInfo {
-            width: river_half_width * 2.0,
+            width,
             depth,
-            river_type: RiverType::MainRiver,
-            water_level,
-        })
-    }
-
-    /// Check for tributary at smaller region boundary.
-    fn check_tributary(
-        &self,
-        x: f64,
-        z: f64,
-        terrain_height: i32,
-        biome: BiomeType,
-    ) -> Option<RiverInfo> {
-        // Higher threshold for tributaries - only in wetter biomes
-        if !self.has_tributaries(biome) {
-            return None;
-        }
-
-        // Apply domain warping to break up radial patterns
-        let (wx, wz) = self.warp_coordinates(x, z);
-
-        // Scale for medium regions (~400-500 blocks across)
-        // Still larger than main rivers to avoid overlapping too much
-        let scale = 0.002;
-        let num_regions = 2.0;
-
-        let center_val = self.tributary_noise.get([wx * scale, wz * scale]);
-        let center_region = (center_val * num_regions).floor() as i32;
-
-        let river_half_width = self.get_river_half_width(x, z, biome, false);
-
-        let at_boundary = self.is_at_region_boundary_warped(
-            x,
-            z,
-            scale,
-            center_region,
-            num_regions,
-            river_half_width,
-            &self.tributary_noise,
-        );
-
-        if !at_boundary {
-            return None;
-        }
-
-        // Calculate dynamic water level for tributaries
-        // Coastal biomes use sea level, inland tracks terrain
-        let water_level = if self.is_coastal_biome(biome) {
-            SEA_LEVEL
-        } else {
-            (terrain_height - 1).min(MAX_RIVER_WATER_LEVEL)
-        };
-
-        // Calculate carving depth - must carve below water level
-        // Tributaries slightly shallower (+1 instead of +2)
-        let min_depth = (terrain_height - water_level + 1).max(2);
-        let variation = self.variation_noise.get([x * 0.03, z * 0.03]) * 0.3 + 0.85;
-        let depth = ((min_depth as f64) * variation)
-            .round()
-            .max(min_depth as f64) as i32;
-
-        Some(RiverInfo {
-            width: river_half_width * 2.0,
-            depth,
-            river_type: if terrain_height > 120 {
+            river_type: if is_main {
+                RiverType::MainRiver
+            } else if terrain_height > 120 {
                 RiverType::MountainStream
             } else {
                 RiverType::Tributary
@@ -281,80 +211,15 @@ impl RiverGenerator {
         })
     }
 
-    /// Check if position is at a region boundary by comparing with neighbors.
-    /// Uses domain warping to break up radial patterns in the noise.
-    #[allow(clippy::too_many_arguments)]
-    fn is_at_region_boundary_warped(
-        &self,
-        x: f64,
-        z: f64,
-        scale: f64,
-        center_region: i32,
-        num_regions: f64,
-        check_dist: f64,
-        noise: &Perlin,
-    ) -> bool {
-        // Check 4 cardinal directions
-        for (dx, dz) in &[(1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)] {
-            let nx = x + dx * check_dist;
-            let nz = z + dz * check_dist;
-            // Apply warping to neighbor coordinates too
-            let (wnx, wnz) = self.warp_coordinates(nx, nz);
-            let neighbor_val = noise.get([wnx * scale, wnz * scale]);
-            let neighbor_region = (neighbor_val * num_regions).floor() as i32;
-
-            if neighbor_region != center_region {
-                return true;
-            }
-        }
-        false
-    }
-
-    /// Check if position is at a region boundary (non-warped version for banks).
-    #[allow(clippy::too_many_arguments)]
-    fn is_at_region_boundary(
-        &self,
-        x: f64,
-        z: f64,
-        scale: f64,
-        center_region: i32,
-        num_regions: f64,
-        check_dist: f64,
-        noise: &Perlin,
-    ) -> bool {
-        // Check 4 cardinal directions
-        for (dx, dz) in &[(1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)] {
-            let nx = x + dx * check_dist;
-            let nz = z + dz * check_dist;
-            // Apply warping here too for consistency
-            let (wnx, wnz) = self.warp_coordinates(nx, nz);
-            let neighbor_val = noise.get([wnx * scale, wnz * scale]);
-            let neighbor_region = (neighbor_val * num_regions).floor() as i32;
-
-            if neighbor_region != center_region {
-                return true;
-            }
-        }
-        false
-    }
-
-    /// Get river half-width with variation.
-    fn get_river_half_width(&self, x: f64, z: f64, biome: BiomeType, is_main: bool) -> f64 {
-        let base = if is_main { 5.0 } else { 3.0 };
-
-        // Biome modifier
-        let biome_mult = match biome {
+    /// Get width multiplier for biome.
+    fn get_biome_width_mult(&self, biome: BiomeType) -> f64 {
+        match biome {
             BiomeType::Jungle => 1.3,
             BiomeType::Swamp => 1.2,
             BiomeType::Desert => 0.7,
             BiomeType::Mountains => 0.6,
             _ => 1.0,
-        };
-
-        // Add variation
-        let variation = self.variation_noise.get([x * 0.008, z * 0.008]) * 0.3 + 0.85;
-
-        base * biome_mult * variation
+        }
     }
 
     /// Check if rivers are enabled for this biome.
@@ -362,7 +227,6 @@ impl RiverGenerator {
         #[allow(deprecated)]
         match biome {
             BiomeType::Ocean => false,
-            // Beach: rivers flow through to meet the ocean
             BiomeType::Beach => true,
             BiomeType::LushCaves | BiomeType::DripstoneCaves | BiomeType::DeepDark => false,
             _ => true,
@@ -405,39 +269,23 @@ impl RiverGenerator {
 
         let x = world_x as f64;
         let z = world_z as f64;
-        // Apply domain warping for consistent river bank positions
-        let (wx, wz) = self.warp_coordinates(x, z);
-        let scale = 0.004;
-        let num_regions = 5.0;
 
-        let center_val = self.region_noise.get([wx * scale, wz * scale]);
-        let center_region = (center_val * num_regions).floor() as i32;
+        // Check if we're near a valley but not in it
+        let center_h = self.get_terrain_height(x, z);
 
-        // Bank is slightly wider than river - check at wider distance
-        let bank_dist = 8.0;
-        let river_dist = 5.0;
+        // Sample nearby for valley detection
+        let samples = [
+            self.get_terrain_height(x + 6.0, z),
+            self.get_terrain_height(x - 6.0, z),
+            self.get_terrain_height(x, z + 6.0),
+            self.get_terrain_height(x, z - 6.0),
+        ];
 
-        // Must be near boundary (bank) but not AT boundary (river)
-        let at_bank = self.is_at_region_boundary(
-            x,
-            z,
-            scale,
-            center_region,
-            num_regions,
-            bank_dist,
-            &self.region_noise,
-        );
-        let at_river = self.is_at_region_boundary(
-            x,
-            z,
-            scale,
-            center_region,
-            num_regions,
-            river_dist,
-            &self.region_noise,
-        );
+        let avg_neighbor = samples.iter().sum::<f64>() / samples.len() as f64;
+        let valley_depth = avg_neighbor - center_h;
 
-        at_bank && !at_river
+        // Bank is at edge of valley (slight depression but not deep enough for river)
+        valley_depth > 0.5 && valley_depth < 1.5
     }
 
     /// Get water type for rivers in a biome.
