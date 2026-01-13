@@ -36,7 +36,16 @@ pub struct RiverGenerator {
     tributary_noise: Perlin,
     /// Noise for width/depth variation
     variation_noise: Perlin,
+    /// Domain warping noise X - breaks up radial patterns
+    warp_noise_x: Perlin,
+    /// Domain warping noise Z - breaks up radial patterns
+    warp_noise_z: Perlin,
 }
+
+/// Strength of domain warping (how much coordinates are offset)
+const WARP_STRENGTH: f64 = 200.0;
+/// Scale of domain warping noise (larger = more gradual curves)
+const WARP_SCALE: f64 = 0.001;
 
 impl RiverGenerator {
     /// Creates a new river generator with the given seed.
@@ -45,7 +54,17 @@ impl RiverGenerator {
             region_noise: Perlin::new(seed + 500),
             tributary_noise: Perlin::new(seed + 501),
             variation_noise: Perlin::new(seed + 502),
+            warp_noise_x: Perlin::new(seed + 503),
+            warp_noise_z: Perlin::new(seed + 504),
         }
+    }
+
+    /// Apply domain warping to coordinates to break up radial patterns.
+    /// This offsets coordinates based on noise before sampling river noise.
+    fn warp_coordinates(&self, x: f64, z: f64) -> (f64, f64) {
+        let warp_x = self.warp_noise_x.get([x * WARP_SCALE, z * WARP_SCALE]) * WARP_STRENGTH;
+        let warp_z = self.warp_noise_z.get([x * WARP_SCALE, z * WARP_SCALE]) * WARP_STRENGTH;
+        (x + warp_x, z + warp_z)
     }
 
     /// Check if a position is within a river channel.
@@ -93,6 +112,9 @@ impl RiverGenerator {
         terrain_height: i32,
         biome: BiomeType,
     ) -> Option<RiverInfo> {
+        // Apply domain warping to break up radial patterns
+        let (wx, wz) = self.warp_coordinates(x, z);
+
         // Scale for very large regions (~800-1000 blocks across)
         // Smaller scale = larger regions = fewer river boundaries
         let scale = 0.00125;
@@ -100,15 +122,15 @@ impl RiverGenerator {
         // Only 2 regions - creates sparse river network with single boundary lines
         let num_regions = 2.0;
 
-        // Quantize center point into a region
-        let center_val = self.region_noise.get([x * scale, z * scale]);
+        // Quantize center point into a region (using warped coordinates)
+        let center_val = self.region_noise.get([wx * scale, wz * scale]);
         let center_region = (center_val * num_regions).floor() as i32;
 
         // Check distance for boundary detection - wider = wider rivers
         let river_half_width = self.get_river_half_width(x, z, biome, true);
 
-        // Check if any neighbor is in a different region
-        let at_boundary = self.is_at_region_boundary(
+        // Check if any neighbor is in a different region (using warped coordinates)
+        let at_boundary = self.is_at_region_boundary_warped(
             x,
             z,
             scale,
@@ -160,17 +182,20 @@ impl RiverGenerator {
             return None;
         }
 
+        // Apply domain warping to break up radial patterns
+        let (wx, wz) = self.warp_coordinates(x, z);
+
         // Scale for medium regions (~400-500 blocks across)
         // Still larger than main rivers to avoid overlapping too much
         let scale = 0.002;
         let num_regions = 2.0;
 
-        let center_val = self.tributary_noise.get([x * scale, z * scale]);
+        let center_val = self.tributary_noise.get([wx * scale, wz * scale]);
         let center_region = (center_val * num_regions).floor() as i32;
 
         let river_half_width = self.get_river_half_width(x, z, biome, false);
 
-        let at_boundary = self.is_at_region_boundary(
+        let at_boundary = self.is_at_region_boundary_warped(
             x,
             z,
             scale,
@@ -213,6 +238,35 @@ impl RiverGenerator {
     }
 
     /// Check if position is at a region boundary by comparing with neighbors.
+    /// Uses domain warping to break up radial patterns in the noise.
+    #[allow(clippy::too_many_arguments)]
+    fn is_at_region_boundary_warped(
+        &self,
+        x: f64,
+        z: f64,
+        scale: f64,
+        center_region: i32,
+        num_regions: f64,
+        check_dist: f64,
+        noise: &Perlin,
+    ) -> bool {
+        // Check 4 cardinal directions
+        for (dx, dz) in &[(1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)] {
+            let nx = x + dx * check_dist;
+            let nz = z + dz * check_dist;
+            // Apply warping to neighbor coordinates too
+            let (wnx, wnz) = self.warp_coordinates(nx, nz);
+            let neighbor_val = noise.get([wnx * scale, wnz * scale]);
+            let neighbor_region = (neighbor_val * num_regions).floor() as i32;
+
+            if neighbor_region != center_region {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Check if position is at a region boundary (non-warped version for banks).
     #[allow(clippy::too_many_arguments)]
     fn is_at_region_boundary(
         &self,
@@ -228,7 +282,9 @@ impl RiverGenerator {
         for (dx, dz) in &[(1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)] {
             let nx = x + dx * check_dist;
             let nz = z + dz * check_dist;
-            let neighbor_val = noise.get([nx * scale, nz * scale]);
+            // Apply warping here too for consistency
+            let (wnx, wnz) = self.warp_coordinates(nx, nz);
+            let neighbor_val = noise.get([wnx * scale, wnz * scale]);
             let neighbor_region = (neighbor_val * num_regions).floor() as i32;
 
             if neighbor_region != center_region {
@@ -305,10 +361,12 @@ impl RiverGenerator {
 
         let x = world_x as f64;
         let z = world_z as f64;
+        // Apply domain warping for consistent river bank positions
+        let (wx, wz) = self.warp_coordinates(x, z);
         let scale = 0.004;
         let num_regions = 5.0;
 
-        let center_val = self.region_noise.get([x * scale, z * scale]);
+        let center_val = self.region_noise.get([wx * scale, wz * scale]);
         let center_region = (center_val * num_regions).floor() as i32;
 
         // Bank is slightly wider than river - check at wider distance
