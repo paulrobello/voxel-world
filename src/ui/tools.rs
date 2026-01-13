@@ -94,20 +94,20 @@ impl ActiveTool {
             ActiveTool::Template => "📋",    // Blueprint/clipboard
             ActiveTool::Measurement => "📏", // Ruler
             ActiveTool::Stencil => "👻",     // Ghost block
-            ActiveTool::FloodFill => "🪣",   // Paint bucket
+            ActiveTool::FloodFill => "🎨",   // Paint palette
             ActiveTool::Sphere => "🔵",      // Blue circle
             ActiveTool::Cube => "🟦",        // Blue square
             ActiveTool::Bridge => "📍",      // Pin/marker for line endpoints
-            ActiveTool::Cylinder => "⬤",     // Filled circle for column/cylinder
-            ActiveTool::Wall => "▮",         // Vertical rectangle for walls
-            ActiveTool::Floor => "▬",        // Horizontal rectangle for floors
-            ActiveTool::Replace => "↔",      // Swap/exchange symbol for replace
-            ActiveTool::Circle => "◯",       // Circle outline
-            ActiveTool::Mirror => "⟷",       // Symmetric reflection arrows
+            ActiveTool::Cylinder => "🥫",    // Can/cylinder shape
+            ActiveTool::Wall => "🧱",        // Brick wall
+            ActiveTool::Floor => "🟫",       // Brown square for floor
+            ActiveTool::Replace => "🔄",     // Arrows for replace/swap
+            ActiveTool::Circle => "⭕",      // Circle emoji
+            ActiveTool::Mirror => "🪞",      // Mirror emoji
             ActiveTool::Stairs => "📶",      // Step pattern
-            ActiveTool::Arch => "∩",         // Arch shape
-            ActiveTool::Cone => "△",         // Triangle for cone/pyramid
-            ActiveTool::Clone => "⧉",        // Grid pattern for clone/array
+            ActiveTool::Arch => "🚪",        // Door for archway
+            ActiveTool::Cone => "🔺",        // Red triangle for cone
+            ActiveTool::Clone => "📑",       // Stacked documents for clone
         }
     }
 
