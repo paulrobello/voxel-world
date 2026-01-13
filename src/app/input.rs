@@ -964,16 +964,36 @@ impl App {
             return; // Skip block placement
         }
 
-        // Handle stairs tool cancellation with left-click
-        if self.input.focused
-            && self.ui.stairs_tool.active
-            && self.ui.stairs_tool.start_pos.is_some()
-            && self.input.mouse_pressed(MouseButton::Left)
-        {
-            self.ui.stairs_tool.reset();
-            println!("Stairs placement cancelled");
-            self.ui.skip_break_until_release = true; // Don't start breaking
-            return;
+        // Handle two-click tool cancellation with left-click
+        if self.input.focused && self.input.mouse_pressed(MouseButton::Left) {
+            // Bridge tool cancellation
+            if self.ui.bridge_tool.active && self.ui.bridge_tool.start_position.is_some() {
+                self.ui.bridge_tool.cancel();
+                println!("Bridge placement cancelled");
+                self.ui.skip_break_until_release = true;
+                return;
+            }
+            // Wall tool cancellation
+            if self.ui.wall_tool.active && self.ui.wall_tool.start_position.is_some() {
+                self.ui.wall_tool.cancel();
+                println!("Wall placement cancelled");
+                self.ui.skip_break_until_release = true;
+                return;
+            }
+            // Floor tool cancellation
+            if self.ui.floor_tool.active && self.ui.floor_tool.start_position.is_some() {
+                self.ui.floor_tool.cancel();
+                println!("Floor placement cancelled");
+                self.ui.skip_break_until_release = true;
+                return;
+            }
+            // Stairs tool cancellation
+            if self.ui.stairs_tool.active && self.ui.stairs_tool.start_pos.is_some() {
+                self.ui.stairs_tool.reset();
+                println!("Stairs placement cancelled");
+                self.ui.skip_break_until_release = true;
+                return;
+            }
         }
 
         // Block breaking (hold to break) - must be after raycast update
