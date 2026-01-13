@@ -43,7 +43,11 @@ impl ReplaceToolUI {
     ///
     /// Button clicks set flags in the state (preview_requested, execute_requested)
     /// which are processed by the input handler.
-    pub fn draw(ctx: &egui::Context, state: &mut ReplaceToolState, selection: &TemplateSelection) {
+    pub fn draw(
+        ctx: &egui::Context,
+        state: &mut ReplaceToolState,
+        selection: &mut TemplateSelection,
+    ) {
         if !state.active {
             return;
         }
@@ -151,10 +155,16 @@ impl ReplaceToolUI {
                 ui.separator();
                 ui.add_space(4.0);
 
-                // Cancel button
-                if ui.button("Cancel (Esc)").clicked() {
-                    state.deactivate();
-                }
+                // Buttons row
+                ui.horizontal(|ui| {
+                    if has_selection && ui.button("Clear Selection").clicked() {
+                        selection.clear();
+                        state.clear_preview();
+                    }
+                    if ui.button("Cancel (Esc)").clicked() {
+                        state.deactivate();
+                    }
+                });
 
                 ui.add_space(4.0);
                 ui.small("Replaces ALL matching blocks in selection");
