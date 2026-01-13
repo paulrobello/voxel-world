@@ -903,6 +903,8 @@ Escape                      # Cancel tool
 ```
 
 **Recently Added** (2026-01-12):
+- **Cone/Pyramid Tool**: Cone (circular) and Pyramid (square) shapes with hollow/inverted modes
+- **Clone/Array Tool**: Linear and Grid clone patterns with metadata preservation
 - Shape tools: Sphere, Cube, Bridge via Tools Palette
 - Holographic previews for all shape tools
 - Bridge tool with two-click workflow and 3D Bresenham algorithm
@@ -927,6 +929,28 @@ Escape                      # Cancel tool
 ---
 
 ## Done Recently
+
+- **Phase 17: Extended Building Tools** (2026-01-12): ✅ PARTIAL
+  - **Cone/Pyramid Tool** (17.1.3): ✅ COMPLETE
+    - Activate via Tools Palette (△ icon)
+    - Mode toggle: Cone (circular base) or Pyramid (square base)
+    - Configurable base size (1-50 blocks) and height (1-100 blocks)
+    - Hollow mode for shell-only shapes
+    - Inverted option (point down) for funnel/hopper shapes
+    - Holographic cyan preview via stencil buffer
+    - Right-click to place using selected hotbar block
+    - Supports all block types with metadata preservation
+  - **Clone/Array Tool** (17.4.3): ✅ COMPLETE
+    - Activate via Tools Palette (⧉ icon)
+    - Uses existing selection system (V key, pos1/pos2)
+    - Clone modes:
+      - Linear: Repeat N times along X, Y, or Z axis with configurable spacing
+      - Grid: Repeat NxM times in XZ plane with configurable spacing
+    - Green holographic preview shows all cloned positions
+    - Preserves all block metadata (tinted glass, painted blocks, water types, lava, models)
+    - Copy count display and total block count in settings window
+    - Preview truncation warning when >4096 blocks
+    - Click "Clone Blocks" button to execute
 
 - **Safe Spawn Point Finding** (2026-01-12): ✅ COMPLETE
   - **Problem**: Players always spawned in rivers at origin (0,0) due to Perlin noise behavior
@@ -1105,4 +1129,4 @@ Escape                      # Cancel tool
 ---
 
 *Last Updated: 2026-01-12*
-*Plan Version: 3.2 - Light Culling, Auto-Profile Integration, Safe Spawn*
+*Plan Version: 3.3 - Phase 17 Extended Building Tools (Cone/Pyramid, Clone/Array)*
