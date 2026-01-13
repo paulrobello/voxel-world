@@ -29,16 +29,15 @@ impl MirrorToolUI {
                 ui.heading("Symmetric Building");
                 ui.add_space(8.0);
 
-                // Axis selection dropdown
+                // Axis selection with buttons
+                ui.label("Mirror Axis:");
                 ui.horizontal(|ui| {
-                    ui.label("Axis:");
-                    egui::ComboBox::from_id_salt("mirror_axis")
-                        .selected_text(state.axis.name())
-                        .show_ui(ui, |ui| {
-                            for axis in MirrorAxis::all() {
-                                ui.selectable_value(&mut state.axis, *axis, axis.name());
-                            }
-                        });
+                    ui.selectable_value(&mut state.axis, MirrorAxis::X, "X (E-W)")
+                        .on_hover_text("Mirror across X axis (East-West symmetry)");
+                    ui.selectable_value(&mut state.axis, MirrorAxis::Z, "Z (N-S)")
+                        .on_hover_text("Mirror across Z axis (North-South symmetry)");
+                    ui.selectable_value(&mut state.axis, MirrorAxis::Both, "Both")
+                        .on_hover_text("Mirror across both axes (4-way symmetry)");
                 });
 
                 ui.add_space(8.0);
@@ -52,6 +51,7 @@ impl MirrorToolUI {
 
                 // Mirror plane status
                 if state.plane_set {
+                    ui.colored_label(egui::Color32::LIGHT_GREEN, "Mirror active");
                     ui.horizontal(|ui| {
                         ui.label("Plane at:");
                         ui.label(format!(
@@ -61,13 +61,16 @@ impl MirrorToolUI {
                     });
 
                     ui.add_space(4.0);
+                    ui.small("Place/break blocks to mirror them");
+
+                    ui.add_space(4.0);
 
                     if ui.button("Clear plane").clicked() {
                         state.clear_plane();
                     }
                 } else {
                     ui.colored_label(egui::Color32::YELLOW, "No plane set");
-                    ui.small("Right-click to set plane");
+                    ui.small("Right-click to set mirror plane");
                 }
 
                 ui.add_space(12.0);
@@ -84,11 +87,10 @@ impl MirrorToolUI {
                 // Instructions
                 ui.heading("Usage");
                 ui.add_space(4.0);
-                ui.small("1. Right-click to set mirror plane");
-                ui.small("2. Place blocks normally");
-                ui.small("3. Blocks are mirrored automatically");
-                ui.add_space(4.0);
-                ui.small("Tab: Cycle axis");
+                ui.small("1. Select mirror axis above");
+                ui.small("2. Right-click to set mirror plane");
+                ui.small("3. Place/break blocks normally");
+                ui.small("4. Actions are mirrored automatically");
             });
     }
 }

@@ -18,11 +18,6 @@ pub enum MirrorAxis {
 }
 
 impl MirrorAxis {
-    /// Get all available axis options.
-    pub fn all() -> &'static [MirrorAxis] {
-        &[MirrorAxis::X, MirrorAxis::Z, MirrorAxis::Both]
-    }
-
     /// Get display name for the axis.
     pub fn name(&self) -> &'static str {
         match self {

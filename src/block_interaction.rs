@@ -136,6 +136,65 @@ impl App {
                 }
                 self.sim.world.invalidate_minimap_cache(target.x, target.z);
 
+                // Break mirrored positions if mirror tool is active
+                if self.ui.mirror_tool.active && self.ui.mirror_tool.plane_set {
+                    let mirrored_positions = self.ui.mirror_tool.mirror_position(target);
+                    for mirrored_pos in mirrored_positions.into_iter().skip(1) {
+                        // Skip if out of bounds
+                        if mirrored_pos.y < 0 || mirrored_pos.y >= TEXTURE_SIZE_Y as i32 {
+                            continue;
+                        }
+                        // Get the block at mirrored position
+                        if let Some(mirrored_block) = self.sim.world.get_block(mirrored_pos) {
+                            if mirrored_block.break_time() > 0.0 {
+                                // Check if mirrored block is waterlogged model
+                                let mirrored_waterlogged = if mirrored_block == BlockType::Model {
+                                    self.sim
+                                        .world
+                                        .get_model_data(mirrored_pos)
+                                        .map(|d| d.waterlogged)
+                                        .unwrap_or(false)
+                                } else {
+                                    false
+                                };
+
+                                // Spawn particles for mirrored break
+                                let color = mirrored_block.color();
+                                let particle_color =
+                                    nalgebra::Vector3::new(color[0], color[1], color[2]);
+                                self.sim
+                                    .particles
+                                    .spawn_block_break(mirrored_pos.cast::<f32>(), particle_color);
+
+                                // Break the mirrored block
+                                if mirrored_waterlogged {
+                                    self.sim.world.set_block(mirrored_pos, BlockType::Water);
+                                } else {
+                                    self.sim.world.set_block(mirrored_pos, BlockType::Air);
+                                }
+                                self.sim
+                                    .world
+                                    .invalidate_minimap_cache(mirrored_pos.x, mirrored_pos.z);
+
+                                // Update connections for mirrored position
+                                self.sim.world.update_fence_connections(mirrored_pos);
+                                self.sim.world.update_window_connections(mirrored_pos);
+                                self.sim.world.update_adjacent_stair_shapes(mirrored_pos);
+
+                                // Notify water/lava grids
+                                self.sim.water_grid.on_block_removed(mirrored_pos);
+                                self.sim
+                                    .water_grid
+                                    .activate_adjacent_terrain_water(&self.sim.world, mirrored_pos);
+                                self.sim.lava_grid.on_block_removed(mirrored_pos);
+                                self.sim
+                                    .lava_grid
+                                    .activate_adjacent_terrain_lava(&self.sim.world, mirrored_pos);
+                            }
+                        }
+                    }
+                }
+
                 // Break other door half if present
                 if let Some(other_pos) = other_door_half {
                     if other_pos.y >= 0 && other_pos.y < TEXTURE_SIZE_Y as i32 {
@@ -452,6 +511,7 @@ impl App {
 
     pub fn update_block_placing(&mut self, delta_time: f32) {
         // Skip block placement if in template/stencil placement mode, selection mode, rangefinder, flood fill, or shape tools
+        // Note: mirror_tool is NOT in this list - it allows normal placement but mirrors the result
         if self.ui.active_placement.is_some()
             || self.ui.active_stencil_placement.is_some()
             || self.ui.template_selection.visual_mode
@@ -465,7 +525,6 @@ impl App {
             || self.ui.floor_tool.active
             || self.ui.replace_tool.active
             || self.ui.circle_tool.active
-            || self.ui.mirror_tool.active
             || self.ui.stairs_tool.active
             || self.ui.arch_tool.active
             || self.ui.cone_tool.active
