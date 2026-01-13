@@ -1,23 +1,23 @@
 //! River generation system.
 //!
-//! Uses elevation-based valley detection. Rivers form in natural valleys
-//! where terrain height is locally lower than surrounding areas, and flow
-//! toward lower elevations (sea level).
+//! Uses noise-based flow lines to create natural river paths.
+//! Rivers follow contour lines of a noise field, creating connected
+//! meandering paths without artificial convergence points.
 //!
 //! ## Algorithm
-//! 1. Sample terrain height in multiple directions around each point
-//! 2. Rivers form where local height is lower than neighbors (valley)
-//! 3. Valley depth determines river width
-//! 4. Rivers only form above sea level and flow downhill
+//! 1. Use 2D noise to define a "flow field"
+//! 2. Rivers form along specific contour values of the noise
+//! 3. Contour-following naturally creates connected, meandering paths
+//! 4. Multiple noise octaves prevent straight lines
 //!
 //! ## Key Design
-//! - Rivers follow natural terrain contours
-//! - No artificial convergence points from noise artifacts
-//! - Valley detection creates realistic drainage patterns
+//! - Rivers follow noise contours (like elevation contours on a map)
+//! - No convergence artifacts since contours don't converge
+//! - Density noise controls river frequency per region
 
 use crate::terrain_gen::BiomeType;
 use crate::world_gen::SEA_LEVEL;
-use noise::{Fbm, MultiFractal, NoiseFn, Perlin};
+use noise::{NoiseFn, Perlin, Simplex};
 
 /// Maximum water level for rivers (caps how high river water can be).
 pub const MAX_RIVER_WATER_LEVEL: i32 = SEA_LEVEL + 8; // 83
@@ -25,55 +25,52 @@ pub const MAX_RIVER_WATER_LEVEL: i32 = SEA_LEVEL + 8; // 83
 /// Minimum terrain height for rivers to form.
 const MIN_RIVER_TERRAIN: i32 = SEA_LEVEL + 1; // 76
 
-/// River generator using elevation-based valley detection.
+/// River generator using noise contour flow lines.
 #[derive(Clone)]
 pub struct RiverGenerator {
-    /// Height noise - matches terrain generator for valley detection
-    height_noise: Fbm<Perlin>,
+    /// Primary flow noise - rivers follow contours of this
+    flow_noise: Simplex,
+    /// Secondary flow noise for tributaries
+    tributary_noise: Simplex,
+    /// Meander noise - adds curves
+    meander_noise: Perlin,
     /// Detail noise for width/depth variation
     detail_noise: Perlin,
-    /// Meander noise - adds curves to rivers
-    meander_noise: Perlin,
-    /// River density noise - controls where rivers can form
+    /// Density noise - controls where rivers can form
     density_noise: Perlin,
 }
+
+/// Width of river channel detection (how close to contour = river)
+const MAIN_RIVER_WIDTH: f64 = 0.03;
+const TRIBUTARY_WIDTH: f64 = 0.02;
+
+/// Contour values where rivers form (multiple for river network)
+const MAIN_CONTOURS: [f64; 2] = [0.0, 0.5];
+const TRIBUTARY_CONTOURS: [f64; 3] = [0.25, -0.25, 0.75];
 
 impl RiverGenerator {
     /// Creates a new river generator with the given seed.
     pub fn new(seed: u32) -> Self {
-        // Match terrain generator's height noise exactly
-        let height_noise = Fbm::<Perlin>::new(seed)
-            .set_octaves(4)
-            .set_frequency(0.003)
-            .set_lacunarity(2.0)
-            .set_persistence(0.5);
-
-        let detail_noise = Perlin::new(seed + 502);
-        let meander_noise = Perlin::new(seed + 600);
-        let density_noise = Perlin::new(seed + 601);
+        // Use Simplex noise - smoother gradients, no grid artifacts
+        let flow_noise = Simplex::new(seed + 700);
+        let tributary_noise = Simplex::new(seed + 701);
+        let meander_noise = Perlin::new(seed + 702);
+        let detail_noise = Perlin::new(seed + 703);
+        let density_noise = Perlin::new(seed + 704);
 
         Self {
-            height_noise,
-            detail_noise,
+            flow_noise,
+            tributary_noise,
             meander_noise,
+            detail_noise,
             density_noise,
         }
     }
 
-    /// Get raw terrain height at a position (simplified, no biome blending).
-    fn get_terrain_height(&self, x: f64, z: f64) -> f64 {
-        // Base continental height from noise
-        let base = self.height_noise.get([x, z]);
-
-        // Simple height calculation - we just need relative heights for valley detection
-        // Base height around 90 with ±20 variation
-        90.0 + base * 25.0
-    }
-
     /// Check if a position is within a river channel.
     ///
-    /// Rivers form in valleys - locations where terrain is locally lower
-    /// than surrounding areas.
+    /// Rivers form along contour lines of a noise field, creating
+    /// naturally connected meandering paths.
     pub fn get_river_at(
         &self,
         world_x: i32,
@@ -95,19 +92,19 @@ impl RiverGenerator {
         let z = world_z as f64;
 
         // Check river density - not everywhere should have rivers
-        let density = self.density_noise.get([x * 0.0003, z * 0.0003]);
-        if density < -0.2 {
+        let density = self.density_noise.get([x * 0.0002, z * 0.0002]);
+        if density < -0.3 {
             return None; // No rivers in this region
         }
 
-        // Check for valley (main river or tributary)
-        if let Some(info) = self.check_valley_river(x, z, terrain_height, biome, true) {
+        // Check for main river (follows primary flow contours)
+        if let Some(info) = self.check_contour_river(x, z, terrain_height, biome, true) {
             return Some(info);
         }
 
-        // Check for smaller tributary
+        // Check for tributary (follows secondary contours)
         if self.has_tributaries(biome) {
-            if let Some(info) = self.check_valley_river(x, z, terrain_height, biome, false) {
+            if let Some(info) = self.check_contour_river(x, z, terrain_height, biome, false) {
                 return Some(info);
             }
         }
@@ -115,8 +112,8 @@ impl RiverGenerator {
         None
     }
 
-    /// Check if position is in a valley suitable for a river.
-    fn check_valley_river(
+    /// Check if position is on a river contour.
+    fn check_contour_river(
         &self,
         x: f64,
         z: f64,
@@ -124,64 +121,59 @@ impl RiverGenerator {
         biome: BiomeType,
         is_main: bool,
     ) -> Option<RiverInfo> {
-        // Sample distances for valley detection
-        let sample_dist = if is_main { 12.0 } else { 6.0 };
+        // Scale for noise sampling - larger = wider river spacing
+        let scale = if is_main { 0.0008 } else { 0.0015 };
+        let contour_width = if is_main {
+            MAIN_RIVER_WIDTH
+        } else {
+            TRIBUTARY_WIDTH
+        };
+        let contours = if is_main {
+            &MAIN_CONTOURS[..]
+        } else {
+            &TRIBUTARY_CONTOURS[..]
+        };
 
-        // Get terrain heights at sample points
-        let center_h = self.get_terrain_height(x, z);
-
-        // Add meandering offset to sample positions
-        let meander_scale = if is_main { 0.002 } else { 0.004 };
-        let meander_strength = if is_main { 8.0 } else { 4.0 };
+        // Add meandering offset
+        let meander_scale = if is_main { 0.003 } else { 0.005 };
+        let meander_strength = if is_main { 30.0 } else { 15.0 };
         let mx = self
             .meander_noise
             .get([x * meander_scale, z * meander_scale])
             * meander_strength;
         let mz = self
             .meander_noise
-            .get([x * meander_scale + 100.0, z * meander_scale])
+            .get([x * meander_scale + 500.0, z * meander_scale])
             * meander_strength;
 
-        // Sample in 8 directions with meander offset
-        let samples = [
-            self.get_terrain_height(x + sample_dist + mx, z + mz),
-            self.get_terrain_height(x - sample_dist + mx, z + mz),
-            self.get_terrain_height(x + mx, z + sample_dist + mz),
-            self.get_terrain_height(x + mx, z - sample_dist + mz),
-            self.get_terrain_height(x + sample_dist * 0.7 + mx, z + sample_dist * 0.7 + mz),
-            self.get_terrain_height(x - sample_dist * 0.7 + mx, z + sample_dist * 0.7 + mz),
-            self.get_terrain_height(x + sample_dist * 0.7 + mx, z - sample_dist * 0.7 + mz),
-            self.get_terrain_height(x - sample_dist * 0.7 + mx, z - sample_dist * 0.7 + mz),
-        ];
+        // Sample flow noise with meander offset
+        let noise = if is_main {
+            &self.flow_noise
+        } else {
+            &self.tributary_noise
+        };
+        let flow_value = noise.get([(x + mx) * scale, (z + mz) * scale]);
 
-        // Calculate how much lower we are than neighbors
-        let avg_neighbor = samples.iter().sum::<f64>() / samples.len() as f64;
-        let min_neighbor = samples.iter().cloned().fold(f64::INFINITY, f64::min);
+        // Check if we're close to any contour line
+        let mut best_distance = f64::MAX;
+        for &contour in contours {
+            let distance = (flow_value - contour).abs();
+            if distance < best_distance {
+                best_distance = distance;
+            }
+        }
 
-        // Valley depth = how much lower center is than average neighbor
-        let valley_depth = avg_neighbor - center_h;
-
-        // Threshold for valley detection
-        let depth_threshold = if is_main { 1.5 } else { 0.8 };
-
-        // Must be in a valley (lower than neighbors)
-        if valley_depth < depth_threshold {
+        // Not close enough to a contour = no river
+        if best_distance > contour_width {
             return None;
         }
 
-        // Additional check: shouldn't be lower than ALL neighbors by too much
-        // (that would be a pit, not a river valley)
-        let depth_from_min = min_neighbor - center_h;
-        if depth_from_min > 8.0 {
-            return None; // Too deep, probably a pit not a river
-        }
-
-        // Calculate river width based on valley depth
-        let base_width = if is_main { 4.0 } else { 2.5 };
-        let width_variation = self.detail_noise.get([x * 0.01, z * 0.01]) * 0.3 + 0.85;
+        // Calculate river width based on how close to contour center
+        let width_factor = 1.0 - (best_distance / contour_width);
+        let base_width = if is_main { 5.0 } else { 3.0 };
         let biome_mult = self.get_biome_width_mult(biome);
-        let width =
-            base_width * biome_mult * width_variation * (valley_depth / depth_threshold).min(2.0);
+        let width_variation = self.detail_noise.get([x * 0.01, z * 0.01]) * 0.3 + 0.85;
+        let width = base_width * biome_mult * width_variation * width_factor;
 
         // Calculate water level
         let water_level = if self.is_coastal_biome(biome) {
@@ -270,22 +262,23 @@ impl RiverGenerator {
         let x = world_x as f64;
         let z = world_z as f64;
 
-        // Check if we're near a valley but not in it
-        let center_h = self.get_terrain_height(x, z);
+        // Check if we're near a river contour but not on it
+        let scale = 0.0008;
+        let flow_value = self.flow_noise.get([x * scale, z * scale]);
 
-        // Sample nearby for valley detection
-        let samples = [
-            self.get_terrain_height(x + 6.0, z),
-            self.get_terrain_height(x - 6.0, z),
-            self.get_terrain_height(x, z + 6.0),
-            self.get_terrain_height(x, z - 6.0),
-        ];
+        // Bank is slightly wider than river
+        let bank_width = MAIN_RIVER_WIDTH * 2.0;
+        let river_width = MAIN_RIVER_WIDTH;
 
-        let avg_neighbor = samples.iter().sum::<f64>() / samples.len() as f64;
-        let valley_depth = avg_neighbor - center_h;
+        for &contour in &MAIN_CONTOURS {
+            let distance = (flow_value - contour).abs();
+            // On bank but not in river
+            if distance > river_width && distance < bank_width {
+                return true;
+            }
+        }
 
-        // Bank is at edge of valley (slight depression but not deep enough for river)
-        valley_depth > 0.5 && valley_depth < 1.5
+        false
     }
 
     /// Get water type for rivers in a biome.
@@ -422,5 +415,26 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_rivers_exist() {
+        let rivers = RiverGenerator::new(314159);
+
+        // Sample a large area - should find at least some rivers
+        let mut river_count = 0;
+        for x in (-1000..1000).step_by(10) {
+            for z in (-1000..1000).step_by(10) {
+                if rivers.get_river_at(x, z, 95, BiomeType::Plains).is_some() {
+                    river_count += 1;
+                }
+            }
+        }
+
+        assert!(
+            river_count > 100,
+            "Expected to find rivers in the world, found only {}",
+            river_count
+        );
     }
 }
