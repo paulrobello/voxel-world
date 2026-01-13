@@ -38,13 +38,23 @@ impl App {
             .sim
             .player
             .camera_world_pos(self.sim.world_extent, self.sim.texture_origin);
+        // Get camera direction for frustum-aware light prioritization
+        let camera_dir = self.sim.player.camera_direction();
+        let camera_dir_f32 = Vector3::new(
+            camera_dir.x as f32,
+            camera_dir.y as f32,
+            camera_dir.z as f32,
+        );
         let gpu_lights = self.sim.world.collect_torch_lights(
             self.sim.player.light_enabled,
             player_world_pos,
+            camera_dir_f32,
             self.sim.texture_origin,
             &self.sim.model_registry,
             self.sim.world_extent,
             self.sim.animation_time,
+            self.ui.settings.light_cull_radius,
+            self.ui.settings.max_active_lights as usize,
         );
         let light_count = gpu_lights.len() as u32;
 

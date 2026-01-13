@@ -472,6 +472,42 @@ impl SettingsUI {
                             });
                         });
 
+                        // Light culling settings (CPU-side optimization)
+                        ui.collapsing("Light Culling (CPU)", |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label("Cull Radius:");
+                                if ui
+                                    .add(
+                                        egui::Slider::new(&mut settings.light_cull_radius, 16.0..=128.0)
+                                            .suffix(" blocks"),
+                                    )
+                                    .on_hover_text("Lights beyond this distance are not sent to GPU")
+                                    .changed()
+                                {
+                                    println!(
+                                        "[LIGHTS] Cull radius: {:.0}",
+                                        settings.light_cull_radius
+                                    );
+                                }
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label("Max Active:");
+                                if ui
+                                    .add(
+                                        egui::Slider::new(&mut settings.max_active_lights, 8..=256)
+                                            .logarithmic(true),
+                                    )
+                                    .on_hover_text("Maximum lights sent to GPU per frame (closest prioritized)")
+                                    .changed()
+                                {
+                                    println!(
+                                        "[LIGHTS] Max active: {}",
+                                        settings.max_active_lights
+                                    );
+                                }
+                            });
+                        });
+
                         ui.separator();
 
                         // Gameplay options

@@ -115,6 +115,13 @@ pub struct Settings {
     pub lod_point_light_distance: f32,
     pub lod_model_distance: f32,
 
+    /// Maximum distance (in blocks) at which lights are collected for GPU processing.
+    /// Lights beyond this distance are culled on the CPU before being sent to the shader.
+    pub light_cull_radius: f32,
+    /// Maximum number of lights to send to the GPU per frame.
+    /// Lights are sorted by distance, so closest lights are prioritized.
+    pub max_active_lights: u32,
+
     pub max_ray_steps: u32,
     pub shadow_max_steps: u32,
     pub render_scale: f32,
@@ -150,6 +157,9 @@ impl Default for Settings {
             lod_shadow_distance: 64.0,
             lod_point_light_distance: 20.0,
             lod_model_distance: 64.0,
+
+            light_cull_radius: 64.0,
+            max_active_lights: 64,
 
             max_ray_steps: 256,
             shadow_max_steps: 128,

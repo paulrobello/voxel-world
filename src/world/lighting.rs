@@ -7,6 +7,22 @@ use crate::player::PLAYER_EYE_HEIGHT;
 use crate::sub_voxel::ModelRegistry;
 use nalgebra::Vector3;
 
+/// Candidate light data for sorting/culling before GPU upload.
+struct LightCandidate {
+    /// World position of the light
+    world_pos: Vector3<f32>,
+    /// Light radius (for rendering)
+    radius: f32,
+    /// Light color RGB
+    color: [f32; 3],
+    /// Light intensity
+    intensity: f32,
+    /// Animation mode
+    mode: u8,
+    /// Squared distance to player (for sorting)
+    distance_sq: f32,
+}
+
 /// Light animation modes (must match shader LIGHT_MODE_* constants)
 const LIGHT_MODE_STEADY: u8 = 0;
 const LIGHT_MODE_PULSE: u8 = 1;
@@ -136,39 +152,52 @@ impl World {
 
     /// Collects all light-emitting blocks (including model blocks like torches)
     /// and returns them as GPU light data with pre-computed animation factors.
+    ///
+    /// Uses distance-based culling and sorting for optimal performance:
+    /// - Lights beyond `cull_radius` are not sent to the GPU
+    /// - Lights are sorted by distance (closest first)
+    /// - Lights behind the player are deprioritized via frustum factor
+    /// - Only up to `max_lights` are sent to the GPU
+    #[allow(clippy::too_many_arguments)]
     pub fn collect_torch_lights(
         &self,
         player_light_enabled: bool,
         player_pos: Vector3<f64>,
+        camera_dir: Vector3<f32>,
         texture_origin: Vector3<i32>,
         model_registry: &ModelRegistry,
         _world_extent: [u32; 3],
         animation_time: f32,
+        cull_radius: f32,
+        max_lights: usize,
     ) -> Vec<GpuLight> {
-        let mut lights = Vec::new();
+        let player_pos_f32 = Vector3::new(
+            player_pos.x as f32,
+            player_pos.y as f32,
+            player_pos.z as f32,
+        );
+        let cull_radius_sq = cull_radius * cull_radius;
 
-        // Add player light if enabled (like holding a torch)
-        if player_light_enabled {
-            // Light is at player's hand/chest level, convert to texture coordinates for shader
-            let tex_x = (player_pos.x - texture_origin.x as f64) as f32;
-            let tex_y = (player_pos.y + PLAYER_EYE_HEIGHT * 0.7 - texture_origin.y as f64) as f32;
-            let tex_z = (player_pos.z - texture_origin.z as f64) as f32;
-
-            let mode = LIGHT_MODE_FLICKER;
-            let intensity = 1.5_f32;
-            let anim_factor = Self::compute_animation_factor(mode, animation_time, lights.len());
-
-            lights.push(GpuLight {
-                pos_radius: [tex_x, tex_y, tex_z, 12.0],
-                color_intensity: [1.0, 0.8, 0.5, intensity],
-                animation: [mode as f32, 0.0, 0.0, anim_factor],
-            });
-        }
+        // Collect all candidate lights with their world positions
+        let mut candidates: Vec<LightCandidate> = Vec::with_capacity(256);
 
         // Iterate over all loaded chunks
         for (chunk_pos, chunk) in self.chunks() {
             // Skip chunks that cannot contribute any light.
             if chunk.is_empty() && chunk.model_count() == 0 && chunk.light_block_count() == 0 {
+                continue;
+            }
+
+            // Early chunk-level distance check: skip entire chunk if too far
+            let chunk_center = Vector3::new(
+                chunk_pos.x as f32 * CHUNK_SIZE as f32 + CHUNK_SIZE as f32 * 0.5,
+                chunk_pos.y as f32 * CHUNK_SIZE as f32 + CHUNK_SIZE as f32 * 0.5,
+                chunk_pos.z as f32 * CHUNK_SIZE as f32 + CHUNK_SIZE as f32 * 0.5,
+            );
+            let chunk_dist_sq = (chunk_center - player_pos_f32).magnitude_squared();
+            // Add chunk diagonal to cull radius for conservative check
+            let chunk_max_dist = cull_radius + CHUNK_SIZE as f32 * 1.732; // sqrt(3) ≈ 1.732
+            if chunk_dist_sq > chunk_max_dist * chunk_max_dist {
                 continue;
             }
 
@@ -182,28 +211,30 @@ impl World {
                             let world_y = chunk_pos.y * CHUNK_SIZE as i32 + ly as i32;
                             let world_z = chunk_pos.z * CHUNK_SIZE as i32 + lz as i32;
 
-                            let tex_x = (world_x - texture_origin.x) as f32 + 0.5;
-                            let tex_y = (world_y - texture_origin.y) as f32 + 0.5;
-                            let tex_z = (world_z - texture_origin.z) as f32 + 0.5;
+                            let world_pos = Vector3::new(
+                                world_x as f32 + 0.5,
+                                world_y as f32 + 0.5,
+                                world_z as f32 + 0.5,
+                            );
+
+                            // Distance-based culling
+                            let distance_sq = (world_pos - player_pos_f32).magnitude_squared();
+                            if distance_sq > cull_radius_sq {
+                                continue;
+                            }
 
                             let r = emission.r as f32 / 255.0;
                             let g = emission.g as f32 / 255.0;
                             let b = emission.b as f32 / 255.0;
 
-                            let mode = LIGHT_MODE_FLICKER; // Torches use flicker mode
-                            let intensity = 1.2_f32;
-                            let anim_factor =
-                                Self::compute_animation_factor(mode, animation_time, lights.len());
-
-                            lights.push(GpuLight {
-                                pos_radius: [tex_x, tex_y, tex_z, 10.0],
-                                color_intensity: [r, g, b, intensity],
-                                animation: [mode as f32, 0.0, 0.0, anim_factor],
+                            candidates.push(LightCandidate {
+                                world_pos,
+                                radius: 10.0,
+                                color: [r, g, b],
+                                intensity: 1.2,
+                                mode: LIGHT_MODE_FLICKER,
+                                distance_sq,
                             });
-
-                            if lights.len() >= crate::gpu_resources::MAX_LIGHTS {
-                                return lights;
-                            }
                         }
                     }
                 }
@@ -232,25 +263,99 @@ impl World {
                         let world_y = chunk_pos.y * CHUNK_SIZE as i32 + ly as i32;
                         let world_z = chunk_pos.z * CHUNK_SIZE as i32 + lz as i32;
 
-                        let tex_x = (world_x - texture_origin.x) as f32 + 0.5;
-                        let tex_y = (world_y - texture_origin.y) as f32 + 0.5;
-                        let tex_z = (world_z - texture_origin.z) as f32 + 0.5;
+                        let world_pos = Vector3::new(
+                            world_x as f32 + 0.5,
+                            world_y as f32 + 0.5,
+                            world_z as f32 + 0.5,
+                        );
 
-                        let anim_factor =
-                            Self::compute_animation_factor(mode, animation_time, lights.len());
-
-                        lights.push(GpuLight {
-                            pos_radius: [tex_x, tex_y, tex_z, radius],
-                            color_intensity: [color[0], color[1], color[2], intensity],
-                            animation: [mode as f32, 0.0, 0.0, anim_factor],
-                        });
-
-                        if lights.len() >= crate::gpu_resources::MAX_LIGHTS {
-                            return lights;
+                        // Distance-based culling
+                        let distance_sq = (world_pos - player_pos_f32).magnitude_squared();
+                        if distance_sq > cull_radius_sq {
+                            continue;
                         }
+
+                        candidates.push(LightCandidate {
+                            world_pos,
+                            radius,
+                            color,
+                            intensity,
+                            mode,
+                            distance_sq,
+                        });
                     }
                 }
             }
+        }
+
+        // Apply frustum-aware sorting: lights behind player get deprioritized
+        // by multiplying their distance by a factor (lights in front = lower effective distance)
+        let camera_dir_normalized = if camera_dir.magnitude_squared() > 0.001 {
+            camera_dir.normalize()
+        } else {
+            Vector3::new(0.0, 0.0, -1.0)
+        };
+
+        candidates.sort_by(|a, b| {
+            // Calculate dot product with camera direction
+            let dir_a = (a.world_pos - player_pos_f32).normalize();
+            let dir_b = (b.world_pos - player_pos_f32).normalize();
+            let dot_a = dir_a.dot(&camera_dir_normalized);
+            let dot_b = dir_b.dot(&camera_dir_normalized);
+
+            // Frustum factor: 1.0 for lights directly in front, 2.0 for lights directly behind
+            // This deprioritizes lights behind the player without completely removing them
+            let frustum_factor_a = 1.5 - dot_a * 0.5; // Range: 1.0 (in front) to 2.0 (behind)
+            let frustum_factor_b = 1.5 - dot_b * 0.5;
+
+            let effective_dist_a = a.distance_sq * frustum_factor_a;
+            let effective_dist_b = b.distance_sq * frustum_factor_b;
+
+            effective_dist_a
+                .partial_cmp(&effective_dist_b)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        // Convert sorted candidates to GPU lights
+        let mut lights = Vec::with_capacity(max_lights.min(candidates.len()) + 1);
+
+        // Add player light first if enabled (always highest priority)
+        if player_light_enabled {
+            let tex_x = (player_pos.x - texture_origin.x as f64) as f32;
+            let tex_y = (player_pos.y + PLAYER_EYE_HEIGHT * 0.7 - texture_origin.y as f64) as f32;
+            let tex_z = (player_pos.z - texture_origin.z as f64) as f32;
+
+            let mode = LIGHT_MODE_FLICKER;
+            let intensity = 1.5_f32;
+            let anim_factor = Self::compute_animation_factor(mode, animation_time, 0);
+
+            lights.push(GpuLight {
+                pos_radius: [tex_x, tex_y, tex_z, 12.0],
+                color_intensity: [1.0, 0.8, 0.5, intensity],
+                animation: [mode as f32, 0.0, 0.0, anim_factor],
+            });
+        }
+
+        // Add sorted world lights up to max_lights
+        let remaining_capacity = max_lights.saturating_sub(lights.len());
+        for candidate in candidates.into_iter().take(remaining_capacity) {
+            let tex_x = candidate.world_pos.x - texture_origin.x as f32;
+            let tex_y = candidate.world_pos.y - texture_origin.y as f32;
+            let tex_z = candidate.world_pos.z - texture_origin.z as f32;
+
+            let anim_factor =
+                Self::compute_animation_factor(candidate.mode, animation_time, lights.len());
+
+            lights.push(GpuLight {
+                pos_radius: [tex_x, tex_y, tex_z, candidate.radius],
+                color_intensity: [
+                    candidate.color[0],
+                    candidate.color[1],
+                    candidate.color[2],
+                    candidate.intensity,
+                ],
+                animation: [candidate.mode as f32, 0.0, 0.0, anim_factor],
+            });
         }
 
         lights
