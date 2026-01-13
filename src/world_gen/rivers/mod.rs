@@ -42,10 +42,18 @@ pub struct RiverGenerator {
     warp_noise_z: Perlin,
 }
 
-/// Strength of domain warping (how much coordinates are offset)
-const WARP_STRENGTH: f64 = 200.0;
-/// Scale of domain warping noise (larger = more gradual curves)
-const WARP_SCALE: f64 = 0.001;
+/// Primary warp strength (how much coordinates are offset)
+const WARP_STRENGTH_1: f64 = 400.0;
+/// Secondary warp strength (finer detail)
+const WARP_STRENGTH_2: f64 = 150.0;
+/// Tertiary warp strength (finest detail)
+const WARP_STRENGTH_3: f64 = 50.0;
+/// Primary warp scale (very large-scale curves)
+const WARP_SCALE_1: f64 = 0.0004;
+/// Secondary warp scale (medium curves)
+const WARP_SCALE_2: f64 = 0.0015;
+/// Tertiary warp scale (fine curves)
+const WARP_SCALE_3: f64 = 0.005;
 
 impl RiverGenerator {
     /// Creates a new river generator with the given seed.
@@ -59,12 +67,48 @@ impl RiverGenerator {
         }
     }
 
-    /// Apply domain warping to coordinates to break up radial patterns.
-    /// This offsets coordinates based on noise before sampling river noise.
+    /// Apply multi-octave domain warping to break up radial patterns.
+    /// Uses three octaves of noise at different scales plus asymmetric offsets
+    /// to prevent Perlin noise gradient convergence artifacts.
     fn warp_coordinates(&self, x: f64, z: f64) -> (f64, f64) {
-        let warp_x = self.warp_noise_x.get([x * WARP_SCALE, z * WARP_SCALE]) * WARP_STRENGTH;
-        let warp_z = self.warp_noise_z.get([x * WARP_SCALE, z * WARP_SCALE]) * WARP_STRENGTH;
-        (x + warp_x, z + warp_z)
+        // Octave 1: Large-scale warping (biggest curves)
+        let warp1_x = self.warp_noise_x.get([x * WARP_SCALE_1, z * WARP_SCALE_1]) * WARP_STRENGTH_1;
+        let warp1_z = self.warp_noise_z.get([x * WARP_SCALE_1, z * WARP_SCALE_1]) * WARP_STRENGTH_1;
+
+        // Octave 2: Medium-scale warping (with offset to break symmetry)
+        let warp2_x = self
+            .warp_noise_x
+            .get([x * WARP_SCALE_2 + 1000.0, z * WARP_SCALE_2 + 500.0])
+            * WARP_STRENGTH_2;
+        let warp2_z = self
+            .warp_noise_z
+            .get([x * WARP_SCALE_2 + 500.0, z * WARP_SCALE_2 + 1000.0])
+            * WARP_STRENGTH_2;
+
+        // Octave 3: Fine-scale warping (with different offset)
+        let warp3_x = self
+            .warp_noise_x
+            .get([x * WARP_SCALE_3 + 2500.0, z * WARP_SCALE_3 + 3500.0])
+            * WARP_STRENGTH_3;
+        let warp3_z = self
+            .warp_noise_z
+            .get([x * WARP_SCALE_3 + 3500.0, z * WARP_SCALE_3 + 2500.0])
+            * WARP_STRENGTH_3;
+
+        // Add asymmetric rotation component to further break radial patterns
+        // This rotates coordinates slightly based on position
+        let angle = (x * 0.0001 + z * 0.00007) * std::f64::consts::PI * 0.1;
+        let cos_a = angle.cos();
+        let sin_a = angle.sin();
+
+        let total_warp_x = warp1_x + warp2_x + warp3_x;
+        let total_warp_z = warp1_z + warp2_z + warp3_z;
+
+        // Apply rotation to the warp offset
+        let rotated_x = total_warp_x * cos_a - total_warp_z * sin_a;
+        let rotated_z = total_warp_x * sin_a + total_warp_z * cos_a;
+
+        (x + rotated_x, z + rotated_z)
     }
 
     /// Check if a position is within a river channel.
