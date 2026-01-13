@@ -362,120 +362,132 @@ impl ToolsPaletteUI {
 
         egui::Window::new("Tools")
             .default_pos(egui::pos2(ctx.screen_rect().width() - 200.0, 100.0))
-            .default_size(egui::vec2(180.0, 380.0))
-            .resizable(false)
+            .default_size(egui::vec2(180.0, 400.0))
+            .resizable(true)
             .collapsible(true)
             .open(&mut window_open)
             .show(ctx, |ui| {
-                ui.vertical(|ui| {
-                    // Tool buttons
-                    let tools = [
-                        ActiveTool::Template,
-                        ActiveTool::Measurement,
-                        ActiveTool::Stencil,
-                        ActiveTool::FloodFill,
-                        ActiveTool::Sphere,
-                        ActiveTool::Cube,
-                        ActiveTool::Circle,
-                        ActiveTool::Cylinder,
-                        ActiveTool::Wall,
-                        ActiveTool::Floor,
-                        ActiveTool::Replace,
-                        ActiveTool::Mirror,
-                        ActiveTool::Stairs,
-                        ActiveTool::Arch,
-                        ActiveTool::Cone,
-                        ActiveTool::Clone,
-                        ActiveTool::Bridge,
-                    ];
+                // Tool buttons in a scrollable area
+                let tools = [
+                    ActiveTool::Template,
+                    ActiveTool::Measurement,
+                    ActiveTool::Stencil,
+                    ActiveTool::FloodFill,
+                    ActiveTool::Sphere,
+                    ActiveTool::Cube,
+                    ActiveTool::Circle,
+                    ActiveTool::Cylinder,
+                    ActiveTool::Wall,
+                    ActiveTool::Floor,
+                    ActiveTool::Replace,
+                    ActiveTool::Mirror,
+                    ActiveTool::Stairs,
+                    ActiveTool::Arch,
+                    ActiveTool::Cone,
+                    ActiveTool::Clone,
+                    ActiveTool::Bridge,
+                ];
 
-                    for tool in tools {
-                        let is_active = active_tool == tool;
-                        let response = Self::draw_tool_button(ui, tool, is_active);
+                // Calculate max height for scroll area (leave room for footer)
+                let available_height = ui.available_height() - 60.0;
+                let scroll_height = available_height.clamp(200.0, 400.0);
 
-                        if response.clicked() {
-                            result.action = match tool {
-                                ActiveTool::Template => ToolAction::ToggleTemplateBrowser,
-                                ActiveTool::Measurement => ToolAction::ToggleRangefinder,
-                                ActiveTool::Stencil => ToolAction::ToggleStencilBrowser,
-                                ActiveTool::FloodFill => ToolAction::ToggleFloodFill,
-                                ActiveTool::Sphere => ToolAction::ToggleSphereTool,
-                                ActiveTool::Cube => ToolAction::ToggleCubeTool,
-                                ActiveTool::Cylinder => ToolAction::ToggleCylinderTool,
-                                ActiveTool::Wall => ToolAction::ToggleWallTool,
-                                ActiveTool::Floor => ToolAction::ToggleFloorTool,
-                                ActiveTool::Replace => ToolAction::ToggleReplaceTool,
-                                ActiveTool::Circle => ToolAction::ToggleCircleTool,
-                                ActiveTool::Mirror => ToolAction::ToggleMirrorTool,
-                                ActiveTool::Stairs => ToolAction::ToggleStairsTool,
-                                ActiveTool::Arch => ToolAction::ToggleArchTool,
-                                ActiveTool::Cone => ToolAction::ToggleConeTool,
-                                ActiveTool::Clone => ToolAction::ToggleCloneTool,
-                                ActiveTool::Bridge => ToolAction::ToggleBridgeTool,
-                                ActiveTool::None => ToolAction::None,
-                            };
-                        }
+                egui::ScrollArea::vertical()
+                    .max_height(scroll_height)
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        for tool in tools {
+                            let is_active = active_tool == tool;
+                            let response = Self::draw_tool_button(ui, tool, is_active);
 
-                        // Tooltip on hover
-                        response.on_hover_ui(|ui| {
-                            ui.vertical(|ui| {
-                                ui.label(
-                                    egui::RichText::new(format!("{} {}", tool.icon(), tool.name()))
+                            if response.clicked() {
+                                result.action = match tool {
+                                    ActiveTool::Template => ToolAction::ToggleTemplateBrowser,
+                                    ActiveTool::Measurement => ToolAction::ToggleRangefinder,
+                                    ActiveTool::Stencil => ToolAction::ToggleStencilBrowser,
+                                    ActiveTool::FloodFill => ToolAction::ToggleFloodFill,
+                                    ActiveTool::Sphere => ToolAction::ToggleSphereTool,
+                                    ActiveTool::Cube => ToolAction::ToggleCubeTool,
+                                    ActiveTool::Cylinder => ToolAction::ToggleCylinderTool,
+                                    ActiveTool::Wall => ToolAction::ToggleWallTool,
+                                    ActiveTool::Floor => ToolAction::ToggleFloorTool,
+                                    ActiveTool::Replace => ToolAction::ToggleReplaceTool,
+                                    ActiveTool::Circle => ToolAction::ToggleCircleTool,
+                                    ActiveTool::Mirror => ToolAction::ToggleMirrorTool,
+                                    ActiveTool::Stairs => ToolAction::ToggleStairsTool,
+                                    ActiveTool::Arch => ToolAction::ToggleArchTool,
+                                    ActiveTool::Cone => ToolAction::ToggleConeTool,
+                                    ActiveTool::Clone => ToolAction::ToggleCloneTool,
+                                    ActiveTool::Bridge => ToolAction::ToggleBridgeTool,
+                                    ActiveTool::None => ToolAction::None,
+                                };
+                            }
+
+                            // Tooltip on hover
+                            response.on_hover_ui(|ui| {
+                                ui.vertical(|ui| {
+                                    ui.label(
+                                        egui::RichText::new(format!(
+                                            "{} {}",
+                                            tool.icon(),
+                                            tool.name()
+                                        ))
                                         .strong()
                                         .size(14.0),
-                                );
-                                ui.label(
-                                    egui::RichText::new(tool.description())
-                                        .color(egui::Color32::from_gray(180))
-                                        .size(12.0),
-                                );
-                                if !tool.hotkey().is_empty() {
-                                    ui.add_space(4.0);
+                                    );
                                     ui.label(
-                                        egui::RichText::new(format!("Hotkey: {}", tool.hotkey()))
+                                        egui::RichText::new(tool.description())
+                                            .color(egui::Color32::from_gray(180))
+                                            .size(12.0),
+                                    );
+                                    if !tool.hotkey().is_empty() {
+                                        ui.add_space(4.0);
+                                        ui.label(
+                                            egui::RichText::new(format!(
+                                                "Hotkey: {}",
+                                                tool.hotkey()
+                                            ))
                                             .color(egui::Color32::from_rgb(255, 255, 100))
                                             .size(11.0),
-                                    );
-                                }
+                                        );
+                                    }
+                                });
                             });
-                        });
-                    }
+                        }
+                    });
 
-                    ui.add_space(8.0);
-                    ui.separator();
-                    ui.add_space(4.0);
+                ui.add_space(8.0);
+                ui.separator();
+                ui.add_space(4.0);
 
-                    // Settings toggle header
-                    let settings_header = if show_settings {
-                        "▼ Settings"
-                    } else {
-                        "▶ Settings"
-                    };
-                    if ui
-                        .add(
-                            egui::Label::new(
-                                egui::RichText::new(settings_header)
-                                    .color(egui::Color32::from_gray(180))
-                                    .size(12.0),
-                            )
-                            .sense(egui::Sense::click()),
+                // Settings toggle header
+                let settings_header = if show_settings {
+                    "▼ Settings"
+                } else {
+                    "▶ Settings"
+                };
+                if ui
+                    .add(
+                        egui::Label::new(
+                            egui::RichText::new(settings_header)
+                                .color(egui::Color32::from_gray(180))
+                                .size(12.0),
                         )
-                        .clicked()
-                    {
-                        toggle_settings = true;
-                    }
+                        .sense(egui::Sense::click()),
+                    )
+                    .clicked()
+                {
+                    toggle_settings = true;
+                }
 
-                    ui.add_space(8.0);
-                    ui.separator();
-                    ui.add_space(4.0);
+                ui.add_space(4.0);
 
-                    // Help text
-                    ui.label(
-                        egui::RichText::new("Press T to toggle")
-                            .color(egui::Color32::from_gray(120))
-                            .size(11.0),
-                    );
-                });
+                // Help text
+                ui.label(
+                    egui::RichText::new("Press T to toggle")
+                        .color(egui::Color32::from_gray(120))
+                        .size(11.0),
+                );
             });
 
         // Update state after window closes
