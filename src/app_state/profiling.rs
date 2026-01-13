@@ -11,6 +11,8 @@ pub enum AutoProfileFeature {
     Shadows,               // Testing enable_shadows
     ModelShadows,          // Testing enable_model_shadows
     PointLights,           // Testing enable_point_lights
+    LightCullRadius,       // Testing light_cull_radius (16 vs 128)
+    MaxActiveLights,       // Testing max_active_lights (8 vs 256)
     Minimap,               // Testing show_minimap
     MinimapSkipDecorative, // Testing minimap.skip_decorative (ground clutter only, not leaves)
     HideGroundCover,       // Testing hide_ground_cover (skip vegetation in main view)
@@ -24,7 +26,9 @@ impl AutoProfileFeature {
             Self::AO => Self::Shadows,
             Self::Shadows => Self::ModelShadows,
             Self::ModelShadows => Self::PointLights,
-            Self::PointLights => Self::Minimap,
+            Self::PointLights => Self::LightCullRadius,
+            Self::LightCullRadius => Self::MaxActiveLights,
+            Self::MaxActiveLights => Self::Minimap,
             Self::Minimap => Self::MinimapSkipDecorative,
             Self::MinimapSkipDecorative => Self::HideGroundCover,
             Self::HideGroundCover => Self::Done,
@@ -39,6 +43,8 @@ impl AutoProfileFeature {
             Self::Shadows => "Shadows",
             Self::ModelShadows => "ModelShadows",
             Self::PointLights => "PointLights",
+            Self::LightCullRadius => "LightCullRadius",
+            Self::MaxActiveLights => "MaxActiveLights",
             Self::Minimap => "Minimap",
             Self::MinimapSkipDecorative => "MinimapSkipDecorative",
             Self::HideGroundCover => "HideGroundCover",

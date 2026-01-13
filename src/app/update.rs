@@ -61,7 +61,7 @@ impl App {
                         }
                         _ => {
                             if self.ui.auto_profile_feature_off {
-                                // Feature was OFF, turn it back ON
+                                // Feature was OFF/MIN, turn it back ON/MAX
                                 self.ui.auto_profile_feature_off = false;
                                 match self.ui.auto_profile_feature {
                                     AutoProfileFeature::AO => self.ui.settings.enable_ao = true,
@@ -74,6 +74,12 @@ impl App {
                                     AutoProfileFeature::PointLights => {
                                         self.ui.settings.enable_point_lights = true
                                     }
+                                    AutoProfileFeature::LightCullRadius => {
+                                        self.ui.settings.light_cull_radius = 128.0; // MAX
+                                    }
+                                    AutoProfileFeature::MaxActiveLights => {
+                                        self.ui.settings.max_active_lights = 256; // MAX
+                                    }
                                     AutoProfileFeature::Minimap => self.ui.show_minimap = true,
                                     AutoProfileFeature::MinimapSkipDecorative => {
                                         self.ui.minimap.skip_decorative = true;
@@ -85,12 +91,18 @@ impl App {
                                     }
                                     _ => {}
                                 }
+                                let state_name = match self.ui.auto_profile_feature {
+                                    AutoProfileFeature::LightCullRadius => "MAX (128)",
+                                    AutoProfileFeature::MaxActiveLights => "MAX (256)",
+                                    _ => "ON",
+                                };
                                 println!(
-                                    "[AUTO-PROFILE] Testing {}: ON",
-                                    self.ui.auto_profile_feature.name()
+                                    "[AUTO-PROFILE] Testing {}: {}",
+                                    self.ui.auto_profile_feature.name(),
+                                    state_name
                                 );
                             } else {
-                                // Feature was ON, move to next feature (OFF)
+                                // Feature was ON/MAX, move to next feature (OFF/MIN)
                                 self.ui.auto_profile_feature = self.ui.auto_profile_feature.next();
                                 self.ui.auto_profile_feature_off = true;
                                 match self.ui.auto_profile_feature {
@@ -103,6 +115,12 @@ impl App {
                                     }
                                     AutoProfileFeature::PointLights => {
                                         self.ui.settings.enable_point_lights = false
+                                    }
+                                    AutoProfileFeature::LightCullRadius => {
+                                        self.ui.settings.light_cull_radius = 16.0; // MIN
+                                    }
+                                    AutoProfileFeature::MaxActiveLights => {
+                                        self.ui.settings.max_active_lights = 8; // MIN
                                     }
                                     AutoProfileFeature::Minimap => self.ui.show_minimap = false,
                                     AutoProfileFeature::MinimapSkipDecorative => {
@@ -122,9 +140,15 @@ impl App {
                                     _ => {}
                                 }
                                 if self.ui.auto_profile_feature != AutoProfileFeature::Done {
+                                    let state_name = match self.ui.auto_profile_feature {
+                                        AutoProfileFeature::LightCullRadius => "MIN (16)",
+                                        AutoProfileFeature::MaxActiveLights => "MIN (8)",
+                                        _ => "OFF",
+                                    };
                                     println!(
-                                        "[AUTO-PROFILE] Testing {}: OFF",
-                                        self.ui.auto_profile_feature.name()
+                                        "[AUTO-PROFILE] Testing {}: {}",
+                                        self.ui.auto_profile_feature.name(),
+                                        state_name
                                     );
                                 }
                             }
