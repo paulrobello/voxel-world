@@ -36,7 +36,7 @@ use crate::user_prefs::{
 use crate::utils::{ChunkStats, Profiler};
 use crate::vulkan_context::VulkanContext;
 use crate::water::WaterGrid;
-use crate::world_init::{create_initial_world_with_seed, find_ground_level};
+use crate::world_init::{create_initial_world_with_seed, find_ground_level, find_safe_spawn};
 use crate::world_streaming::MetadataState;
 use clap::Parser;
 use nalgebra::{Vector3, vector};
@@ -287,7 +287,7 @@ impl App {
 
         let input = WinitInputHelper::new();
 
-        // Spawn at world origin (0, ground_level, 0) for infinite worlds
+        // Spawn at safe location (avoiding water/rivers)
         let spawn_pos = if let Some(ref player_data) = initial_player_data {
             Vector3::new(
                 player_data.position[0],
@@ -295,12 +295,22 @@ impl App {
                 player_data.position[2],
             )
         } else {
-            let spawn_y = find_ground_level(&world, spawn_block_x, spawn_block_z);
-            Vector3::new(
-                spawn_block_x as f64,
-                spawn_y as f64 + 1.0,
-                spawn_block_z as f64,
-            )
+            // If explicit spawn coords provided, use them; otherwise find safe spawn
+            let (safe_x, safe_z) = if args.spawn_x.is_some() || args.spawn_z.is_some() {
+                (spawn_block_x, spawn_block_z)
+            } else {
+                // Search for safe spawn (dry land) within 64 blocks of origin
+                let (x, z) = find_safe_spawn(&world, spawn_block_x, spawn_block_z, 64);
+                if x != spawn_block_x || z != spawn_block_z {
+                    println!(
+                        "[SPAWN] Found safe spawn at ({}, {}) instead of origin",
+                        x, z
+                    );
+                }
+                (x, z)
+            };
+            let spawn_y = find_ground_level(&world, safe_x, safe_z);
+            Vector3::new(safe_x as f64, spawn_y as f64 + 1.0, safe_z as f64)
         };
 
         let mut player = Player::new(spawn_pos, texture_origin, world_extent, args.fly_mode);
