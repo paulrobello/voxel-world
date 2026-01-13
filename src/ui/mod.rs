@@ -34,6 +34,7 @@ pub mod helpers;
 pub mod hotbar;
 pub mod minimap;
 pub mod palette;
+pub mod replace_tool;
 pub mod settings;
 pub mod sphere_tool;
 pub mod stats;
@@ -49,6 +50,7 @@ use floor_tool::FloorToolUI;
 use hotbar::HotbarUI;
 use minimap::MinimapUI;
 use palette::PaletteUI;
+use replace_tool::ReplaceToolUI;
 use settings::SettingsUI;
 use sphere_tool::SphereToolUI;
 use stats::StatsUI;
@@ -126,6 +128,7 @@ pub struct HudInputs<'a> {
     pub cylinder_tool: &'a mut crate::shape_tools::CylinderToolState,
     pub wall_tool: &'a mut crate::shape_tools::WallToolState,
     pub floor_tool: &'a mut crate::shape_tools::FloorToolState,
+    pub replace_tool: &'a mut crate::shape_tools::ReplaceToolState,
 }
 
 pub struct HUDRenderer;
@@ -192,6 +195,7 @@ impl HUDRenderer {
             cylinder_tool,
             wall_tool,
             floor_tool,
+            replace_tool,
         } = input;
         let mut scale_changed = false;
         let mut editor_action = EditorAction::None;
@@ -265,6 +269,7 @@ impl HUDRenderer {
                 cylinder_tool.active,
                 wall_tool.active,
                 floor_tool.active,
+                replace_tool.active,
                 stencil_manager.global_opacity,
                 stencil_manager.render_mode,
             );
@@ -296,6 +301,9 @@ impl HUDRenderer {
 
             // Floor tool settings window
             FloorToolUI::draw(&ctx, floor_tool);
+
+            // Replace tool settings window
+            ReplaceToolUI::draw(&ctx, replace_tool, template_selection);
 
             // Crosshair (hide when editor or console is open)
             if !editor.active && !console.active {

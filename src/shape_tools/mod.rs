@@ -7,6 +7,7 @@ pub mod bridge;
 pub mod cube;
 pub mod cylinder;
 pub mod floor;
+pub mod replace;
 pub mod sphere;
 pub mod wall;
 
@@ -689,6 +690,123 @@ impl FloorToolState {
             }
         } else {
             self.clear_preview();
+        }
+    }
+}
+
+/// State for the replace tool (uses selection system).
+#[derive(Clone, Debug)]
+pub struct ReplaceToolState {
+    /// Whether the replace tool is currently active.
+    pub active: bool,
+    /// Source block type to find.
+    pub source_block: crate::chunk::BlockType,
+    /// Target block type to replace with.
+    pub target_block: crate::chunk::BlockType,
+    /// Source tint index (for TintedGlass, Crystal, Painted).
+    pub source_tint: u8,
+    /// Target tint index (for TintedGlass, Crystal, Painted).
+    pub target_tint: u8,
+    /// Source paint texture (for Painted blocks).
+    pub source_texture: u8,
+    /// Target paint texture (for Painted blocks).
+    pub target_texture: u8,
+    /// Number of matching blocks found (for preview).
+    pub match_count: usize,
+    /// Cached preview positions for GPU upload (matching blocks).
+    pub preview_positions: Vec<Vector3<i32>>,
+    /// Whether the preview was truncated due to exceeding buffer limit.
+    pub preview_truncated: bool,
+    /// Flag: user requested to scan/preview matching blocks.
+    pub preview_requested: bool,
+    /// Flag: user requested to execute the replacement.
+    pub execute_requested: bool,
+}
+
+impl Default for ReplaceToolState {
+    fn default() -> Self {
+        Self {
+            active: false,
+            source_block: crate::chunk::BlockType::Stone,
+            target_block: crate::chunk::BlockType::Cobblestone,
+            source_tint: 0,
+            target_tint: 0,
+            source_texture: 0,
+            target_texture: 0,
+            match_count: 0,
+            preview_positions: Vec::new(),
+            preview_truncated: false,
+            preview_requested: false,
+            execute_requested: false,
+        }
+    }
+}
+
+impl ReplaceToolState {
+    /// Clear the preview state.
+    pub fn clear_preview(&mut self) {
+        self.preview_positions.clear();
+        self.match_count = 0;
+        self.preview_truncated = false;
+    }
+
+    /// Deactivate the tool and clear all state.
+    pub fn deactivate(&mut self) {
+        self.active = false;
+        self.clear_preview();
+    }
+
+    /// Get the source block identity for matching.
+    pub fn source_identity(&self) -> replace::BlockIdentity {
+        match self.source_block {
+            crate::chunk::BlockType::Painted => replace::BlockIdentity::Painted {
+                texture: self.source_texture,
+                tint: self.source_tint,
+            },
+            crate::chunk::BlockType::TintedGlass => replace::BlockIdentity::TintedGlass {
+                tint: self.source_tint,
+            },
+            crate::chunk::BlockType::Crystal => replace::BlockIdentity::Crystal {
+                tint: self.source_tint,
+            },
+            _ => replace::BlockIdentity::Type(self.source_block),
+        }
+    }
+
+    /// Update the preview by finding matching blocks in the selection.
+    ///
+    /// # Arguments
+    /// * `world` - World to search in
+    /// * `selection` - Current template selection
+    pub fn update_preview(
+        &mut self,
+        world: &crate::world::World,
+        selection: &crate::templates::TemplateSelection,
+    ) {
+        use crate::gpu_resources::MAX_STENCIL_BLOCKS;
+
+        if selection.pos1.is_none() || selection.pos2.is_none() {
+            self.clear_preview();
+            return;
+        }
+
+        let source_id = self.source_identity();
+        let all_positions =
+            replace::find_matching_blocks(world, selection, &source_id, MAX_STENCIL_BLOCKS + 1);
+
+        self.match_count = if all_positions.len() > MAX_STENCIL_BLOCKS {
+            // Count all matches (expensive but accurate)
+            replace::count_matching_blocks(world, selection, &source_id)
+        } else {
+            all_positions.len()
+        };
+
+        self.preview_truncated = all_positions.len() > MAX_STENCIL_BLOCKS;
+
+        if all_positions.len() > MAX_STENCIL_BLOCKS {
+            self.preview_positions = all_positions[..MAX_STENCIL_BLOCKS].to_vec();
+        } else {
+            self.preview_positions = all_positions;
         }
     }
 }

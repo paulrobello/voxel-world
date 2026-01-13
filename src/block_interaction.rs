@@ -1564,6 +1564,96 @@ impl App {
 
         // Don't deactivate tool - allow placing multiple floors
     }
+
+    /// Execute block replacement within the current selection.
+    pub fn execute_replace(&mut self) {
+        let replace = &self.ui.replace_tool;
+        if !replace.active {
+            return;
+        }
+
+        let selection = &self.ui.template_selection;
+        if selection.pos1.is_none() || selection.pos2.is_none() {
+            return;
+        }
+
+        let (min, max) = selection.bounds().unwrap();
+        let source_id = replace.source_identity();
+        let target_block = replace.target_block;
+        let target_tint = replace.target_tint;
+        let target_texture = replace.target_texture;
+
+        let mut replaced_count = 0;
+
+        for x in min.x..=max.x {
+            for y in min.y..=max.y {
+                for z in min.z..=max.z {
+                    let pos = nalgebra::Vector3::new(x, y, z);
+
+                    // Skip if out of Y bounds
+                    if y < 0 || y >= TEXTURE_SIZE_Y as i32 {
+                        continue;
+                    }
+
+                    if source_id.matches(&self.sim.world, pos) {
+                        // Replace the block
+                        match target_block {
+                            BlockType::TintedGlass => {
+                                self.sim.world.set_tinted_glass_block(pos, target_tint);
+                            }
+                            BlockType::Crystal => {
+                                self.sim.world.set_crystal_block(pos, target_tint);
+                            }
+                            BlockType::Painted => {
+                                self.sim
+                                    .world
+                                    .set_painted_block(pos, target_texture, target_tint);
+                            }
+                            BlockType::Water => {
+                                let water_type = WaterType::from_u8(target_tint);
+                                self.sim.water_grid.place_source(pos, water_type);
+                                self.sim.world.set_water_block(pos, water_type);
+                            }
+                            BlockType::Lava => {
+                                self.sim.lava_grid.place_source(pos);
+                                self.sim.world.set_block(pos, BlockType::Lava);
+                            }
+                            BlockType::Air => {
+                                // Removing blocks - need to handle water/lava
+                                let old_block = self.sim.world.get_block(pos);
+                                if old_block == Some(BlockType::Water) {
+                                    self.sim.water_grid.remove_source(pos);
+                                } else if old_block == Some(BlockType::Lava) {
+                                    self.sim.lava_grid.remove_source(pos);
+                                }
+                                self.sim.world.set_block(pos, BlockType::Air);
+                            }
+                            BlockType::Model => {
+                                // Skip model blocks - not supported for replacement
+                                continue;
+                            }
+                            _ => {
+                                self.sim.world.set_block(pos, target_block);
+                            }
+                        }
+                        replaced_count += 1;
+                    }
+                }
+            }
+        }
+
+        // Invalidate minimap cache for affected area
+        self.sim.world.invalidate_minimap_cache(min.x, min.z);
+        self.sim.world.invalidate_minimap_cache(max.x, max.z);
+
+        println!(
+            "Replaced {} blocks: {:?} -> {:?}",
+            replaced_count, self.ui.replace_tool.source_block, target_block
+        );
+
+        // Clear preview after replacement
+        self.ui.replace_tool.clear_preview();
+    }
 }
 
 /// Determines if a stair should be placed inverted based on hit information.

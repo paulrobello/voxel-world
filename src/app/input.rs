@@ -594,6 +594,20 @@ impl App {
             }
         }
 
+        // Handle replace tool preview and execution requests
+        if self.ui.replace_tool.active {
+            if self.ui.replace_tool.preview_requested {
+                self.ui.replace_tool.preview_requested = false;
+                self.ui
+                    .replace_tool
+                    .update_preview(&self.sim.world, &self.ui.template_selection);
+            }
+            if self.ui.replace_tool.execute_requested {
+                self.ui.replace_tool.execute_requested = false;
+                self.execute_replace();
+            }
+        }
+
         // Handle template placement with right-click
         // Check if mouse was released (clear reclick flag)
         if self.ui.place_needs_reclick && !self.input.mouse_held(MouseButton::Right) {

@@ -570,6 +570,7 @@ impl App {
             cylinder_tool: crate::shape_tools::CylinderToolState::default(),
             wall_tool: crate::shape_tools::WallToolState::default(),
             floor_tool: crate::shape_tools::FloorToolState::default(),
+            replace_tool: crate::shape_tools::ReplaceToolState::default(),
         };
 
         let input = InputState {

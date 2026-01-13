@@ -86,6 +86,7 @@ pub fn render_hud(
             cylinder_tool: &mut ui.cylinder_tool,
             wall_tool: &mut ui.wall_tool,
             floor_tool: &mut ui.floor_tool,
+            replace_tool: &mut ui.replace_tool,
         },
     );
 
@@ -203,6 +204,18 @@ pub fn render_hud(
             if ui.floor_tool.active {
                 ui.tools_palette.open = false;
                 // Don't request cursor grab - floor tool UI needs mouse interaction
+            }
+        }
+        ToolAction::ToggleReplaceTool => {
+            ui.replace_tool.active = !ui.replace_tool.active;
+            println!(
+                "Replace Tool: {}",
+                if ui.replace_tool.active { "ON" } else { "OFF" }
+            );
+            // Close tools palette but DON'T grab cursor - let user adjust settings first
+            if ui.replace_tool.active {
+                ui.tools_palette.open = false;
+                // Don't request cursor grab - replace tool UI needs mouse interaction
             }
         }
         ToolAction::None => {}

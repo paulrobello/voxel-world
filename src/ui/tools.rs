@@ -29,6 +29,7 @@ pub enum ToolAction {
     ToggleCylinderTool,
     ToggleWallTool,
     ToggleFloorTool,
+    ToggleReplaceTool,
 }
 
 /// Which tool is currently active/highlighted in the palette.
@@ -46,6 +47,7 @@ pub enum ActiveTool {
     Cylinder,
     Wall,
     Floor,
+    Replace,
 }
 
 impl ActiveTool {
@@ -63,6 +65,7 @@ impl ActiveTool {
             ActiveTool::Cylinder => "Cylinder",
             ActiveTool::Wall => "Wall",
             ActiveTool::Floor => "Floor",
+            ActiveTool::Replace => "Replace",
         }
     }
 
@@ -80,6 +83,7 @@ impl ActiveTool {
             ActiveTool::Cylinder => "⬤",     // Filled circle for column/cylinder
             ActiveTool::Wall => "▮",         // Vertical rectangle for walls
             ActiveTool::Floor => "▬",        // Horizontal rectangle for floors
+            ActiveTool::Replace => "↔",      // Swap/exchange symbol for replace
         }
     }
 
@@ -97,6 +101,7 @@ impl ActiveTool {
             ActiveTool::Cylinder => "",  // No dedicated hotkey, button only
             ActiveTool::Wall => "",      // No dedicated hotkey, button only
             ActiveTool::Floor => "",     // No dedicated hotkey, button only
+            ActiveTool::Replace => "",   // No dedicated hotkey, button only
         }
     }
 
@@ -114,6 +119,7 @@ impl ActiveTool {
             ActiveTool::Cylinder => "Place solid or hollow cylinders",
             ActiveTool::Wall => "Build walls with two-click corners",
             ActiveTool::Floor => "Build floors with two-click corners",
+            ActiveTool::Replace => "Find and replace blocks in selection",
         }
     }
 }
@@ -251,6 +257,7 @@ impl ToolsPaletteUI {
         cylinder_tool_active: bool,
         wall_tool_active: bool,
         floor_tool_active: bool,
+        replace_tool_active: bool,
         stencil_opacity: f32,
         stencil_render_mode: StencilRenderMode,
     ) -> ToolsPaletteResult {
@@ -285,6 +292,8 @@ impl ToolsPaletteUI {
             ActiveTool::Wall
         } else if floor_tool_active {
             ActiveTool::Floor
+        } else if replace_tool_active {
+            ActiveTool::Replace
         } else {
             ActiveTool::None
         };
@@ -316,6 +325,7 @@ impl ToolsPaletteUI {
                         ActiveTool::Cylinder,
                         ActiveTool::Wall,
                         ActiveTool::Floor,
+                        ActiveTool::Replace,
                         ActiveTool::Bridge,
                     ];
 
@@ -334,6 +344,7 @@ impl ToolsPaletteUI {
                                 ActiveTool::Cylinder => ToolAction::ToggleCylinderTool,
                                 ActiveTool::Wall => ToolAction::ToggleWallTool,
                                 ActiveTool::Floor => ToolAction::ToggleFloorTool,
+                                ActiveTool::Replace => ToolAction::ToggleReplaceTool,
                                 ActiveTool::Bridge => ToolAction::ToggleBridgeTool,
                                 ActiveTool::None => ToolAction::None,
                             };
@@ -511,6 +522,15 @@ impl ToolsPaletteUI {
                 // Floor tool has its own settings window (FloorToolUI)
                 ui.label(
                     egui::RichText::new("Floor settings in separate window")
+                        .color(egui::Color32::from_gray(140))
+                        .size(11.0)
+                        .italics(),
+                );
+            }
+            ActiveTool::Replace => {
+                // Replace tool has its own settings window (ReplaceToolUI)
+                ui.label(
+                    egui::RichText::new("Replace settings in separate window")
                         .color(egui::Color32::from_gray(140))
                         .size(11.0)
                         .italics(),
