@@ -877,11 +877,29 @@ impl App {
         // Handle arch placement with right-click
         if self.input.focused
             && self.ui.arch_tool.active
-            && !self.ui.arch_tool.preview_positions.is_empty()
             && self.input.mouse_pressed(MouseButton::Right)
             && !self.ui.place_needs_reclick
         {
-            self.place_arch();
+            if self.ui.arch_tool.two_click_mode {
+                // Two-click mode
+                if self.ui.arch_tool.start_position.is_none() {
+                    // Set start position
+                    if let Some(hit) = self.ui.current_hit {
+                        let target = get_place_position(&hit);
+                        self.ui.arch_tool.start_position = Some(target);
+                        println!("Arch start: ({}, {}, {})", target.x, target.y, target.z);
+                    }
+                } else if !self.ui.arch_tool.preview_positions.is_empty() {
+                    // Place the arch
+                    self.place_arch();
+                    self.ui.arch_tool.start_position = None;
+                }
+            } else {
+                // Single-click mode
+                if !self.ui.arch_tool.preview_positions.is_empty() {
+                    self.place_arch();
+                }
+            }
             self.ui.place_needs_reclick = true;
             return; // Skip block placement
         }
@@ -991,6 +1009,16 @@ impl App {
             if self.ui.stairs_tool.active && self.ui.stairs_tool.start_pos.is_some() {
                 self.ui.stairs_tool.reset();
                 println!("Stairs placement cancelled");
+                self.ui.skip_break_until_release = true;
+                return;
+            }
+            // Arch tool cancellation (two-click mode)
+            if self.ui.arch_tool.active
+                && self.ui.arch_tool.two_click_mode
+                && self.ui.arch_tool.start_position.is_some()
+            {
+                self.ui.arch_tool.cancel();
+                println!("Arch placement cancelled");
                 self.ui.skip_break_until_release = true;
                 return;
             }

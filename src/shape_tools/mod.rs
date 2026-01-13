@@ -832,6 +832,8 @@ pub struct CircleToolState {
     pub filled: bool,
     /// Orientation plane for the circle.
     pub plane: circle::CirclePlane,
+    /// Placement mode: Center or Base (for wall modes).
+    pub placement_mode: PlacementMode,
     /// Cached preview positions for GPU upload.
     pub preview_positions: Vec<Vector3<i32>>,
     /// Current preview center position (if targeting a block).
@@ -850,6 +852,8 @@ pub struct CircleToolState {
     cached_filled: bool,
     /// Cached plane for detecting changes.
     cached_plane: circle::CirclePlane,
+    /// Cached placement mode for detecting changes.
+    cached_placement_mode: PlacementMode,
 }
 
 impl Default for CircleToolState {
@@ -861,6 +865,7 @@ impl Default for CircleToolState {
             ellipse_mode: false,
             filled: true,
             plane: circle::CirclePlane::XZ,
+            placement_mode: PlacementMode::Center,
             preview_positions: Vec::new(),
             preview_center: None,
             total_blocks: 0,
@@ -870,6 +875,7 @@ impl Default for CircleToolState {
             cached_ellipse_mode: false,
             cached_filled: true,
             cached_plane: circle::CirclePlane::XZ,
+            cached_placement_mode: PlacementMode::Center,
         }
     }
 }
@@ -906,6 +912,7 @@ impl CircleToolState {
             || self.ellipse_mode != self.cached_ellipse_mode
             || self.filled != self.cached_filled
             || self.plane != self.cached_plane
+            || self.placement_mode != self.cached_placement_mode
     }
 
     /// Update cached settings after regenerating preview.
@@ -915,6 +922,15 @@ impl CircleToolState {
         self.cached_ellipse_mode = self.ellipse_mode;
         self.cached_filled = self.filled;
         self.cached_plane = self.plane;
+        self.cached_placement_mode = self.placement_mode;
+    }
+
+    /// Check if the current plane is a wall mode (vertical).
+    pub fn is_wall_mode(&self) -> bool {
+        matches!(
+            self.plane,
+            circle::CirclePlane::XY | circle::CirclePlane::YZ
+        )
     }
 
     /// Update the circle preview centered on the given target position.
@@ -928,8 +944,11 @@ impl CircleToolState {
             self.preview_center = Some(target);
             self.update_cache();
 
+            // Adjust center based on placement mode for wall planes
+            let adjusted_center = self.adjust_center_for_placement(target);
+
             let all_positions = circle::generate_circle_positions(
-                target,
+                adjusted_center,
                 self.radius_a,
                 self.effective_radius_b(),
                 self.plane,
@@ -946,6 +965,17 @@ impl CircleToolState {
             } else {
                 self.preview_positions = all_positions;
             }
+        }
+    }
+
+    /// Adjust the center position based on placement mode.
+    /// For wall modes with Base placement, offset the center up by the vertical radius.
+    pub fn adjust_center_for_placement(&self, target: Vector3<i32>) -> Vector3<i32> {
+        if self.placement_mode == PlacementMode::Base && self.is_wall_mode() {
+            // For wall modes, the vertical component is radius_b (Y in both XY and YZ planes)
+            Vector3::new(target.x, target.y + self.effective_radius_b(), target.z)
+        } else {
+            target
         }
     }
 }
@@ -1138,10 +1168,16 @@ pub struct ArchToolState {
     pub orientation: arch::ArchOrientation,
     /// Whether to create a hollow arch (passageway).
     pub hollow: bool,
+    /// Whether to use two-click mode (like bridge tool).
+    pub two_click_mode: bool,
+    /// Starting position for two-click mode (first jamb base).
+    pub start_position: Option<Vector3<i32>>,
     /// Cached preview positions for GPU upload.
     pub preview_positions: Vec<Vector3<i32>>,
     /// Current preview base position (if targeting a block).
     pub preview_center: Option<Vector3<i32>>,
+    /// Preview end position for two-click mode.
+    pub preview_end: Option<Vector3<i32>>,
     /// Total block count for the full arch.
     pub total_blocks: usize,
     /// Whether the preview was truncated due to exceeding buffer limit.
@@ -1158,8 +1194,11 @@ impl Default for ArchToolState {
             style: arch::ArchStyle::Semicircle,
             orientation: arch::ArchOrientation::FacingZ,
             hollow: false,
+            two_click_mode: false,
+            start_position: None,
             preview_positions: Vec::new(),
             preview_center: None,
+            preview_end: None,
             total_blocks: 0,
             preview_truncated: false,
         }
@@ -1171,43 +1210,133 @@ impl ArchToolState {
     pub fn clear_preview(&mut self) {
         self.preview_positions.clear();
         self.preview_center = None;
+        self.preview_end = None;
         self.total_blocks = 0;
         self.preview_truncated = false;
+    }
+
+    /// Cancel two-click mode (clear start position and preview).
+    pub fn cancel(&mut self) {
+        self.start_position = None;
+        self.clear_preview();
     }
 
     /// Deactivate the tool and reset state.
     #[allow(dead_code)]
     pub fn deactivate(&mut self) {
         self.active = false;
+        self.start_position = None;
         self.clear_preview();
     }
 
     /// Update the arch preview at the given base center position.
-    pub fn update_preview(&mut self, base_center: Vector3<i32>) {
+    /// In single-click mode, places arch centered at base_center.
+    /// In two-click mode, if start is set, calculates arch between start and target.
+    pub fn update_preview(&mut self, target: Vector3<i32>) {
         use crate::gpu_resources::MAX_STENCIL_BLOCKS;
 
-        self.preview_center = Some(base_center);
+        if self.two_click_mode {
+            if let Some(start) = self.start_position {
+                // Two-click mode: calculate arch between start and target
+                self.preview_end = Some(target);
 
-        let all_positions = arch::generate_arch_positions(
-            base_center,
-            self.width,
-            self.height,
-            self.thickness,
-            self.style,
-            self.orientation,
-            self.hollow,
-        );
+                // Calculate width from distance between points
+                let dx = (target.x - start.x).abs();
+                let dz = (target.z - start.z).abs();
 
-        // Track total count and truncation status
-        self.total_blocks = all_positions.len();
-        self.preview_truncated = all_positions.len() > MAX_STENCIL_BLOCKS;
+                // Determine orientation and width based on the axis with greater extent
+                let (calculated_width, orientation) = if dx >= dz {
+                    (dx.max(2), arch::ArchOrientation::FacingZ)
+                } else {
+                    (dz.max(2), arch::ArchOrientation::FacingX)
+                };
 
-        // Truncate for preview
-        if all_positions.len() > MAX_STENCIL_BLOCKS {
-            self.preview_positions = all_positions[..MAX_STENCIL_BLOCKS].to_vec();
+                // Calculate center between start and target
+                let center = Vector3::new(
+                    (start.x + target.x) / 2,
+                    start.y.min(target.y), // Use lower Y as base
+                    (start.z + target.z) / 2,
+                );
+
+                let all_positions = arch::generate_arch_positions(
+                    center,
+                    calculated_width,
+                    self.height,
+                    self.thickness,
+                    self.style,
+                    orientation,
+                    self.hollow,
+                );
+
+                // Track total count and truncation status
+                self.total_blocks = all_positions.len();
+                self.preview_truncated = all_positions.len() > MAX_STENCIL_BLOCKS;
+
+                // Truncate for preview
+                if all_positions.len() > MAX_STENCIL_BLOCKS {
+                    self.preview_positions = all_positions[..MAX_STENCIL_BLOCKS].to_vec();
+                } else {
+                    self.preview_positions = all_positions;
+                }
+            } else {
+                // No start set yet, just track target
+                self.preview_center = Some(target);
+                self.preview_positions.clear();
+                self.total_blocks = 0;
+            }
         } else {
-            self.preview_positions = all_positions;
+            // Single-click mode: place arch centered at target
+            self.preview_center = Some(target);
+
+            let all_positions = arch::generate_arch_positions(
+                target,
+                self.width,
+                self.height,
+                self.thickness,
+                self.style,
+                self.orientation,
+                self.hollow,
+            );
+
+            // Track total count and truncation status
+            self.total_blocks = all_positions.len();
+            self.preview_truncated = all_positions.len() > MAX_STENCIL_BLOCKS;
+
+            // Truncate for preview
+            if all_positions.len() > MAX_STENCIL_BLOCKS {
+                self.preview_positions = all_positions[..MAX_STENCIL_BLOCKS].to_vec();
+            } else {
+                self.preview_positions = all_positions;
+            }
         }
+    }
+
+    /// Get the calculated width for two-click mode.
+    pub fn calculated_width(&self) -> Option<i32> {
+        if self.two_click_mode {
+            if let (Some(start), Some(end)) = (self.start_position, self.preview_end) {
+                let dx = (end.x - start.x).abs();
+                let dz = (end.z - start.z).abs();
+                return Some(dx.max(dz).max(2));
+            }
+        }
+        None
+    }
+
+    /// Get the calculated orientation for two-click mode.
+    pub fn calculated_orientation(&self) -> Option<arch::ArchOrientation> {
+        if self.two_click_mode {
+            if let (Some(start), Some(end)) = (self.start_position, self.preview_end) {
+                let dx = (end.x - start.x).abs();
+                let dz = (end.z - start.z).abs();
+                return Some(if dx >= dz {
+                    arch::ArchOrientation::FacingZ
+                } else {
+                    arch::ArchOrientation::FacingX
+                });
+            }
+        }
+        None
     }
 }
 

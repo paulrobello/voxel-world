@@ -74,6 +74,13 @@ impl MirrorToolUI {
                 ui.separator();
                 ui.add_space(8.0);
 
+                // Cancel button
+                if ui.button("Cancel (Esc)").clicked() {
+                    state.deactivate();
+                }
+
+                ui.add_space(8.0);
+
                 // Instructions
                 ui.heading("Usage");
                 ui.add_space(4.0);

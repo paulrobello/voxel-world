@@ -6,6 +6,7 @@
 use egui_winit_vulkano::egui;
 
 use crate::shape_tools::CircleToolState;
+use crate::shape_tools::PlacementMode;
 use crate::shape_tools::circle::CirclePlane;
 
 /// Circle/Ellipse tool UI renderer.
@@ -91,6 +92,22 @@ impl CircleToolUI {
                         });
                 });
 
+                // Placement mode (only shown for wall modes)
+                if state.is_wall_mode() {
+                    ui.add_space(8.0);
+                    ui.label("Placement:");
+                    ui.horizontal(|ui| {
+                        ui.selectable_value(
+                            &mut state.placement_mode,
+                            PlacementMode::Center,
+                            "Center",
+                        )
+                        .on_hover_text("Circle center at target position");
+                        ui.selectable_value(&mut state.placement_mode, PlacementMode::Base, "Base")
+                            .on_hover_text("Circle bottom rests on target surface");
+                    });
+                }
+
                 ui.add_space(12.0);
                 ui.separator();
                 ui.add_space(8.0);
@@ -107,6 +124,13 @@ impl CircleToolUI {
                 }
 
                 ui.add_space(8.0);
+
+                // Cancel button
+                if ui.button("Cancel (Esc)").clicked() {
+                    state.deactivate();
+                }
+
+                ui.add_space(4.0);
                 ui.small("Right-click to place");
             });
     }

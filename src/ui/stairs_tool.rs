@@ -78,6 +78,18 @@ impl StairsToolUI {
                 ui.separator();
                 ui.add_space(8.0);
 
+                // Buttons
+                ui.horizontal(|ui| {
+                    if state.start_pos.is_some() && ui.button("Clear Start").clicked() {
+                        state.reset();
+                    }
+                    if ui.button("Cancel (Esc)").clicked() {
+                        state.deactivate();
+                    }
+                });
+
+                ui.add_space(8.0);
+
                 // Instructions
                 ui.heading("Usage");
                 ui.add_space(4.0);
