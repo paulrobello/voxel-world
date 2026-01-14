@@ -586,6 +586,7 @@ impl App {
             polygon_tool: crate::shape_tools::PolygonToolState::default(),
             bezier_tool: crate::shape_tools::BezierToolState::default(),
             pattern_fill: crate::shape_tools::PatternFillState::default(),
+            scatter_tool: crate::shape_tools::ScatterToolState::default(),
         };
 
         let input = InputState {

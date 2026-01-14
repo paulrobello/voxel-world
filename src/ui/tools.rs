@@ -41,6 +41,7 @@ pub enum ToolAction {
     TogglePolygonTool,
     ToggleBezierTool,
     TogglePatternFillTool,
+    ToggleScatterTool,
 }
 
 /// Which tool is currently active/highlighted in the palette.
@@ -70,6 +71,7 @@ pub enum ActiveTool {
     Polygon,
     Bezier,
     PatternFill,
+    Scatter,
 }
 
 impl ActiveTool {
@@ -99,6 +101,7 @@ impl ActiveTool {
             ActiveTool::Polygon => "Polygon",
             ActiveTool::Bezier => "Bezier Curve",
             ActiveTool::PatternFill => "Pattern Fill",
+            ActiveTool::Scatter => "Scatter Brush",
         }
     }
 
@@ -128,6 +131,7 @@ impl ActiveTool {
             ActiveTool::Polygon => "⬡",      // Hexagon for polygon
             ActiveTool::Bezier => "〰",      // Wavy dash for curve
             ActiveTool::PatternFill => "🔲", // Pattern grid
+            ActiveTool::Scatter => "🎨",     // Paint palette for scatter
         }
     }
 
@@ -157,6 +161,7 @@ impl ActiveTool {
             ActiveTool::Polygon => "",   // No dedicated hotkey, button only
             ActiveTool::Bezier => "",    // No dedicated hotkey, button only
             ActiveTool::PatternFill => "", // No dedicated hotkey, button only
+            ActiveTool::Scatter => "",   // No dedicated hotkey, button only
         }
     }
 
@@ -186,6 +191,7 @@ impl ActiveTool {
             ActiveTool::Polygon => "Place regular n-gons and prisms",
             ActiveTool::Bezier => "Draw smooth curves with control points",
             ActiveTool::PatternFill => "Fill selection with patterns",
+            ActiveTool::Scatter => "Paint scattered blocks with brush",
         }
     }
 }
@@ -335,6 +341,7 @@ impl ToolsPaletteUI {
         polygon_tool_active: bool,
         bezier_tool_active: bool,
         pattern_fill_active: bool,
+        scatter_tool_active: bool,
         stencil_opacity: f32,
         stencil_render_mode: StencilRenderMode,
     ) -> ToolsPaletteResult {
@@ -393,6 +400,8 @@ impl ToolsPaletteUI {
             ActiveTool::Bezier
         } else if pattern_fill_active {
             ActiveTool::PatternFill
+        } else if scatter_tool_active {
+            ActiveTool::Scatter
         } else {
             ActiveTool::None
         };
@@ -427,6 +436,7 @@ impl ToolsPaletteUI {
                     ActiveTool::Polygon,
                     ActiveTool::Bezier,
                     ActiveTool::PatternFill,
+                    ActiveTool::Scatter,
                     ActiveTool::Wall,
                     ActiveTool::Floor,
                     ActiveTool::Replace,
@@ -473,6 +483,7 @@ impl ToolsPaletteUI {
                                     ActiveTool::Polygon => ToolAction::TogglePolygonTool,
                                     ActiveTool::Bezier => ToolAction::ToggleBezierTool,
                                     ActiveTool::PatternFill => ToolAction::TogglePatternFillTool,
+                                    ActiveTool::Scatter => ToolAction::ToggleScatterTool,
                                     ActiveTool::Bridge => ToolAction::ToggleBridgeTool,
                                     ActiveTool::None => ToolAction::None,
                                 };
@@ -763,6 +774,15 @@ impl ToolsPaletteUI {
                 // Pattern fill has its own settings window (PatternToolUI)
                 ui.label(
                     egui::RichText::new("Pattern settings in separate window")
+                        .color(egui::Color32::from_gray(140))
+                        .size(11.0)
+                        .italics(),
+                );
+            }
+            ActiveTool::Scatter => {
+                // Scatter tool has its own settings window (ScatterToolUI)
+                ui.label(
+                    egui::RichText::new("Scatter settings in separate window")
                         .color(egui::Color32::from_gray(140))
                         .size(11.0)
                         .italics(),

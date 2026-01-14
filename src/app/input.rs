@@ -137,6 +137,14 @@ impl App {
             return true;
         }
 
+        // Cancel scatter tool
+        if self.input.key_pressed(KeyCode::Escape) && self.ui.scatter_tool.active {
+            println!("Scatter Brush Tool: OFF");
+            self.ui.scatter_tool.active = false;
+            self.ui.scatter_tool.stop_painting();
+            return true;
+        }
+
         // Handle escape to unfocus
         if self.input.key_pressed(KeyCode::Escape) && self.input.focused {
             self.input.focused = false;
@@ -894,6 +902,27 @@ impl App {
             self.apply_pattern_fill();
             self.ui.place_needs_reclick = true;
             return; // Skip block placement
+        }
+
+        // Handle scatter tool painting with right-click held
+        if self.input.focused && self.ui.scatter_tool.active {
+            if self.input.mouse_held(MouseButton::Right) {
+                // Start or continue painting
+                if !self.ui.scatter_tool.painting {
+                    self.ui.scatter_tool.start_painting();
+                }
+                // Apply scatter at current hit position
+                if let Some(hit) = &self.ui.current_hit {
+                    let place_pos = hit.block_pos + hit.normal;
+                    if self.ui.scatter_tool.should_paint_at(place_pos) {
+                        self.apply_scatter(place_pos);
+                    }
+                }
+                return; // Skip block placement
+            } else if self.ui.scatter_tool.painting {
+                // Stop painting when right-click released
+                self.ui.scatter_tool.stop_painting();
+            }
         }
 
         // Handle mirror tool axis cycling with Tab key

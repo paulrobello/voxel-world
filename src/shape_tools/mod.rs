@@ -17,6 +17,7 @@ pub mod mirror;
 pub mod pattern;
 pub mod polygon;
 pub mod replace;
+pub mod scatter;
 pub mod sphere;
 pub mod stairs;
 pub mod torus;
@@ -27,6 +28,7 @@ pub use bezier::BezierToolState;
 pub use helix::HelixToolState;
 pub use pattern::{PatternFillState, PatternType};
 pub use polygon::PolygonToolState;
+pub use scatter::ScatterToolState;
 pub use sphere::SphereToolState;
 pub use torus::TorusToolState;
 

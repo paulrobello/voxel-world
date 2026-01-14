@@ -103,6 +103,7 @@ pub fn render_hud(
             polygon_tool: &mut ui.polygon_tool,
             bezier_tool: &mut ui.bezier_tool,
             pattern_fill: &mut ui.pattern_fill,
+            scatter_tool: &mut ui.scatter_tool,
             has_selection,
         },
     );
@@ -365,6 +366,18 @@ pub fn render_hud(
             if ui.pattern_fill.active {
                 ui.tools_palette.open = false;
                 // Don't request cursor grab - pattern fill UI needs mouse interaction
+            }
+        }
+        ToolAction::ToggleScatterTool => {
+            ui.scatter_tool.active = !ui.scatter_tool.active;
+            println!(
+                "Scatter Brush Tool: {}",
+                if ui.scatter_tool.active { "ON" } else { "OFF" }
+            );
+            // Close tools palette and grab cursor when activating scatter mode
+            if ui.scatter_tool.active {
+                ui.tools_palette.open = false;
+                ui.request_cursor_grab = true;
             }
         }
         ToolAction::None => {}

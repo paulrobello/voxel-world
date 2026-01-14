@@ -1832,6 +1832,100 @@ impl App {
         // Don't deactivate tool - allow applying multiple patterns
     }
 
+    /// Apply scatter brush placement at the given center position.
+    ///
+    /// Places blocks in a circular brush area with configurable density and height variation.
+    pub fn apply_scatter(&mut self, center: nalgebra::Vector3<i32>) {
+        let scatter = &self.ui.scatter_tool;
+        if !scatter.active {
+            return;
+        }
+
+        // Get block from hotbar slot 0
+        let params = self.get_hotbar_placement_params();
+
+        // Generate scatter positions
+        let positions = if scatter.surface_only {
+            // For surface mode, generate positions at the center Y
+            crate::shape_tools::scatter::generate_scatter_positions(
+                center,
+                scatter.radius,
+                scatter.density,
+                scatter.seed(),
+            )
+        } else {
+            // With height variation
+            crate::shape_tools::scatter::generate_scatter_positions_with_height(
+                center,
+                scatter.radius,
+                scatter.density,
+                scatter.height_variation,
+                scatter.seed(),
+            )
+        };
+
+        // For surface-only mode, find actual surface positions
+        let final_positions: Vec<_> = if self.ui.scatter_tool.surface_only {
+            positions
+                .into_iter()
+                .filter_map(|pos| {
+                    // Raycast downward to find surface
+                    for dy in 0..20 {
+                        let check_pos = nalgebra::Vector3::new(pos.x, pos.y - dy, pos.z);
+                        if let Some(block) = self.sim.world.get_block(check_pos) {
+                            let is_air = block == BlockType::Air;
+                            let is_fluid = block == BlockType::Water || block == BlockType::Lava;
+                            if !is_air && !is_fluid {
+                                // Found solid block, place one above it
+                                let place_pos = nalgebra::Vector3::new(
+                                    check_pos.x,
+                                    check_pos.y + 1,
+                                    check_pos.z,
+                                );
+                                // Only place if position is air
+                                if let Some(above) = self.sim.world.get_block(place_pos) {
+                                    if above == BlockType::Air {
+                                        return Some(place_pos);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    None
+                })
+                .collect()
+        } else {
+            positions
+        };
+
+        if final_positions.is_empty() {
+            return;
+        }
+
+        // Place blocks
+        let placed_count = place_blocks_at_positions(
+            &final_positions,
+            params,
+            &mut self.sim.world,
+            &mut self.sim.water_grid,
+            &mut self.sim.lava_grid,
+        );
+
+        // Invalidate minimap cache
+        if let Some(first_pos) = final_positions.first() {
+            self.sim
+                .world
+                .invalidate_minimap_cache(first_pos.x, first_pos.z);
+        }
+
+        if placed_count > 0 {
+            println!(
+                "Scattered {} blocks (R={}, D={}%)",
+                placed_count, self.ui.scatter_tool.radius, self.ui.scatter_tool.density
+            );
+        }
+    }
+
     /// Execute clone operation: copy blocks from selection to cloned positions.
     pub fn execute_clone(&mut self) {
         let clone_tool = &self.ui.clone_tool;

@@ -44,6 +44,7 @@ pub mod palette;
 pub mod pattern_tool;
 pub mod polygon_tool;
 pub mod replace_tool;
+pub mod scatter_tool;
 pub mod settings;
 pub mod sphere_tool;
 pub mod stairs_tool;
@@ -70,6 +71,7 @@ use palette::PaletteUI;
 use pattern_tool::PatternToolUI;
 use polygon_tool::PolygonToolUI;
 use replace_tool::ReplaceToolUI;
+use scatter_tool::ScatterToolUI;
 use settings::SettingsUI;
 use sphere_tool::SphereToolUI;
 use stairs_tool::StairsToolUI;
@@ -163,6 +165,7 @@ pub struct HudInputs<'a> {
     pub polygon_tool: &'a mut crate::shape_tools::PolygonToolState,
     pub bezier_tool: &'a mut crate::shape_tools::BezierToolState,
     pub pattern_fill: &'a mut crate::shape_tools::PatternFillState,
+    pub scatter_tool: &'a mut crate::shape_tools::ScatterToolState,
     pub has_selection: bool,
 }
 
@@ -242,6 +245,7 @@ impl HUDRenderer {
             polygon_tool,
             bezier_tool,
             pattern_fill,
+            scatter_tool,
             has_selection,
         } = input;
         let mut scale_changed = false;
@@ -328,6 +332,7 @@ impl HUDRenderer {
                 polygon_tool.active,
                 bezier_tool.active,
                 pattern_fill.active,
+                scatter_tool.active,
                 stencil_manager.global_opacity,
                 stencil_manager.render_mode,
             );
@@ -395,6 +400,9 @@ impl HUDRenderer {
 
             // Pattern fill tool settings window
             PatternToolUI::draw(&ctx, pattern_fill, has_selection);
+
+            // Scatter tool settings window
+            ScatterToolUI::draw(&ctx, scatter_tool);
 
             // Crosshair (hide when editor or console is open)
             if !editor.active && !console.active {
