@@ -34,6 +34,7 @@ pub mod console;
 pub mod cube_tool;
 pub mod cylinder_tool;
 pub mod floor_tool;
+pub mod helix_tool;
 pub mod helpers;
 pub mod hotbar;
 pub mod minimap;
@@ -57,6 +58,7 @@ use console::ConsoleUI;
 use cube_tool::CubeToolUI;
 use cylinder_tool::CylinderToolUI;
 use floor_tool::FloorToolUI;
+use helix_tool::HelixToolUI;
 use hotbar::HotbarUI;
 use minimap::MinimapUI;
 use mirror_tool::MirrorToolUI;
@@ -151,6 +153,7 @@ pub struct HudInputs<'a> {
     pub cone_tool: &'a mut crate::shape_tools::ConeToolState,
     pub clone_tool: &'a mut crate::shape_tools::CloneToolState,
     pub torus_tool: &'a mut crate::shape_tools::TorusToolState,
+    pub helix_tool: &'a mut crate::shape_tools::HelixToolState,
 }
 
 pub struct HUDRenderer;
@@ -225,6 +228,7 @@ impl HUDRenderer {
             cone_tool,
             clone_tool,
             torus_tool,
+            helix_tool,
         } = input;
         let mut scale_changed = false;
         let mut editor_action = EditorAction::None;
@@ -306,6 +310,7 @@ impl HUDRenderer {
                 cone_tool.active,
                 clone_tool.active,
                 torus_tool.active,
+                helix_tool.active,
                 stencil_manager.global_opacity,
                 stencil_manager.render_mode,
             );
@@ -361,6 +366,9 @@ impl HUDRenderer {
 
             // Torus tool settings window
             TorusToolUI::draw(&ctx, torus_tool);
+
+            // Helix tool settings window
+            HelixToolUI::draw(&ctx, helix_tool);
 
             // Crosshair (hide when editor or console is open)
             if !editor.active && !console.active {

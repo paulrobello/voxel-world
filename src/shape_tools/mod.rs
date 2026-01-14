@@ -11,6 +11,7 @@ pub mod cone;
 pub mod cube;
 pub mod cylinder;
 pub mod floor;
+pub mod helix;
 pub mod mirror;
 pub mod replace;
 pub mod sphere;
@@ -19,6 +20,7 @@ pub mod torus;
 pub mod wall;
 
 // Re-export tool state structs from their respective modules
+pub use helix::HelixToolState;
 pub use sphere::SphereToolState;
 pub use torus::TorusToolState;
 

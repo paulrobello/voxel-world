@@ -95,6 +95,7 @@ pub fn render_hud(
             cone_tool: &mut ui.cone_tool,
             clone_tool: &mut ui.clone_tool,
             torus_tool: &mut ui.torus_tool,
+            helix_tool: &mut ui.helix_tool,
         },
     );
 
@@ -308,6 +309,18 @@ pub fn render_hud(
             if ui.torus_tool.active {
                 ui.tools_palette.open = false;
                 // Don't request cursor grab - torus tool UI needs mouse interaction
+            }
+        }
+        ToolAction::ToggleHelixTool => {
+            ui.helix_tool.active = !ui.helix_tool.active;
+            println!(
+                "Helix/Spiral Tool: {}",
+                if ui.helix_tool.active { "ON" } else { "OFF" }
+            );
+            // Close tools palette but DON'T grab cursor - let user adjust settings first
+            if ui.helix_tool.active {
+                ui.tools_palette.open = false;
+                // Don't request cursor grab - helix tool UI needs mouse interaction
             }
         }
         ToolAction::None => {}

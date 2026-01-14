@@ -108,6 +108,13 @@ impl App {
             return true;
         }
 
+        // Cancel helix tool
+        if self.input.key_pressed(KeyCode::Escape) && self.ui.helix_tool.active {
+            println!("Helix Tool: OFF");
+            self.ui.helix_tool.deactivate();
+            return true;
+        }
+
         // Handle escape to unfocus
         if self.input.key_pressed(KeyCode::Escape) && self.input.focused {
             self.input.focused = false;
@@ -781,6 +788,18 @@ impl App {
             && !self.ui.place_needs_reclick
         {
             self.place_torus();
+            self.ui.place_needs_reclick = true;
+            return; // Skip block placement
+        }
+
+        // Handle helix placement with right-click
+        if self.input.focused
+            && self.ui.helix_tool.active
+            && !self.ui.helix_tool.preview_positions.is_empty()
+            && self.input.mouse_pressed(MouseButton::Right)
+            && !self.ui.place_needs_reclick
+        {
+            self.place_helix();
             self.ui.place_needs_reclick = true;
             return; // Skip block placement
         }

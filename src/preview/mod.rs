@@ -134,6 +134,16 @@ pub fn update_all_tool_previews(ui: &mut UiState, world: &World) {
         }
     }
 
+    // Update helix tool preview
+    if ui.helix_tool.active {
+        if let Some(hit) = current_hit {
+            let target = get_place_position(&hit);
+            ui.helix_tool.update_preview(target);
+        } else {
+            ui.helix_tool.clear_preview();
+        }
+    }
+
     // Handle replace tool preview (requires world and selection)
     if ui.replace_tool.active && ui.replace_tool.preview_requested {
         ui.replace_tool.preview_requested = false;

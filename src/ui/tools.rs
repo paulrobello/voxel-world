@@ -37,6 +37,7 @@ pub enum ToolAction {
     ToggleConeTool,
     ToggleCloneTool,
     ToggleTorusTool,
+    ToggleHelixTool,
 }
 
 /// Which tool is currently active/highlighted in the palette.
@@ -62,6 +63,7 @@ pub enum ActiveTool {
     Cone,
     Clone,
     Torus,
+    Helix,
 }
 
 impl ActiveTool {
@@ -87,6 +89,7 @@ impl ActiveTool {
             ActiveTool::Cone => "Cone/Pyramid",
             ActiveTool::Clone => "Clone/Array",
             ActiveTool::Torus => "Torus/Ring",
+            ActiveTool::Helix => "Helix/Spiral",
         }
     }
 
@@ -112,6 +115,7 @@ impl ActiveTool {
             ActiveTool::Cone => "🔺",        // Red triangle for cone
             ActiveTool::Clone => "📑",       // Stacked documents for clone
             ActiveTool::Torus => "🍩",       // Donut for torus/ring
+            ActiveTool::Helix => "🌀",       // Spiral for helix
         }
     }
 
@@ -137,6 +141,7 @@ impl ActiveTool {
             ActiveTool::Cone => "",      // No dedicated hotkey, button only
             ActiveTool::Clone => "",     // No dedicated hotkey, button only
             ActiveTool::Torus => "",     // No dedicated hotkey, button only
+            ActiveTool::Helix => "",     // No dedicated hotkey, button only
         }
     }
 
@@ -162,6 +167,7 @@ impl ActiveTool {
             ActiveTool::Cone => "Place cones or pyramids",
             ActiveTool::Clone => "Clone selection in patterns (linear/grid)",
             ActiveTool::Torus => "Place rings or partial arcs",
+            ActiveTool::Helix => "Create spirals and corkscrews",
         }
     }
 }
@@ -307,6 +313,7 @@ impl ToolsPaletteUI {
         cone_tool_active: bool,
         clone_tool_active: bool,
         torus_tool_active: bool,
+        helix_tool_active: bool,
         stencil_opacity: f32,
         stencil_render_mode: StencilRenderMode,
     ) -> ToolsPaletteResult {
@@ -357,6 +364,8 @@ impl ToolsPaletteUI {
             ActiveTool::Clone
         } else if torus_tool_active {
             ActiveTool::Torus
+        } else if helix_tool_active {
+            ActiveTool::Helix
         } else {
             ActiveTool::None
         };
@@ -387,6 +396,7 @@ impl ToolsPaletteUI {
                     ActiveTool::Circle,
                     ActiveTool::Cylinder,
                     ActiveTool::Torus,
+                    ActiveTool::Helix,
                     ActiveTool::Wall,
                     ActiveTool::Floor,
                     ActiveTool::Replace,
@@ -429,6 +439,7 @@ impl ToolsPaletteUI {
                                     ActiveTool::Cone => ToolAction::ToggleConeTool,
                                     ActiveTool::Clone => ToolAction::ToggleCloneTool,
                                     ActiveTool::Torus => ToolAction::ToggleTorusTool,
+                                    ActiveTool::Helix => ToolAction::ToggleHelixTool,
                                     ActiveTool::Bridge => ToolAction::ToggleBridgeTool,
                                     ActiveTool::None => ToolAction::None,
                                 };
@@ -683,6 +694,15 @@ impl ToolsPaletteUI {
                 // Torus tool has its own settings window (TorusToolUI)
                 ui.label(
                     egui::RichText::new("Torus settings in separate window")
+                        .color(egui::Color32::from_gray(140))
+                        .size(11.0)
+                        .italics(),
+                );
+            }
+            ActiveTool::Helix => {
+                // Helix tool has its own settings window (HelixToolUI)
+                ui.label(
+                    egui::RichText::new("Helix settings in separate window")
                         .color(egui::Color32::from_gray(140))
                         .size(11.0)
                         .italics(),

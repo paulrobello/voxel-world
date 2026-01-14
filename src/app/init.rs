@@ -582,6 +582,7 @@ impl App {
             cone_tool: crate::shape_tools::ConeToolState::default(),
             clone_tool: crate::shape_tools::CloneToolState::default(),
             torus_tool: crate::shape_tools::TorusToolState::default(),
+            helix_tool: crate::shape_tools::HelixToolState::default(),
         };
 
         let input = InputState {
