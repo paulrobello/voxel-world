@@ -105,6 +105,7 @@ pub fn render_hud(
             pattern_fill: &mut ui.pattern_fill,
             scatter_tool: &mut ui.scatter_tool,
             hollow_tool: &mut ui.hollow_tool,
+            terrain_brush: &mut ui.terrain_brush,
             has_selection,
         },
     );
@@ -391,6 +392,18 @@ pub fn render_hud(
             if ui.hollow_tool.active {
                 ui.tools_palette.open = false;
                 // Don't request cursor grab - hollow tool UI needs mouse interaction
+            }
+        }
+        ToolAction::ToggleTerrainBrush => {
+            ui.terrain_brush.toggle();
+            println!(
+                "Terrain Brush: {}",
+                if ui.terrain_brush.active { "ON" } else { "OFF" }
+            );
+            // Close tools palette and grab cursor when activating
+            if ui.terrain_brush.active {
+                ui.tools_palette.open = false;
+                ui.request_cursor_grab = true;
             }
         }
         ToolAction::None => {}

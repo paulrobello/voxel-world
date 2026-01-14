@@ -13,7 +13,8 @@ use crate::shape_tools::{
     ArchToolState, BezierToolState, BridgeToolState, CircleToolState, CloneToolState,
     ConeToolState, CubeToolState, CylinderToolState, FloorToolState, HelixToolState,
     HollowToolState, MirrorToolState, PatternFillState, PolygonToolState, ReplaceToolState,
-    ScatterToolState, SphereToolState, StairsToolState, TorusToolState, WallToolState,
+    ScatterToolState, SphereToolState, StairsToolState, TerrainBrushState, TorusToolState,
+    WallToolState,
 };
 use crate::templates::{TemplateLibrary, TemplatePlacement, TemplateSelection, TemplateUi};
 use crate::ui::tools::ToolsPaletteState;
@@ -182,4 +183,7 @@ pub struct UiState {
 
     /// Hollow tool state.
     pub hollow_tool: HollowToolState,
+
+    /// Terrain brush tool state.
+    pub terrain_brush: TerrainBrushState,
 }

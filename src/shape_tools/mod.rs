@@ -21,6 +21,7 @@ pub mod replace;
 pub mod scatter;
 pub mod sphere;
 pub mod stairs;
+pub mod terrain_brush;
 pub mod torus;
 pub mod wall;
 
@@ -32,6 +33,7 @@ pub use pattern::{PatternFillState, PatternType};
 pub use polygon::PolygonToolState;
 pub use scatter::ScatterToolState;
 pub use sphere::SphereToolState;
+pub use terrain_brush::TerrainBrushState;
 pub use torus::TorusToolState;
 
 use nalgebra::Vector3;

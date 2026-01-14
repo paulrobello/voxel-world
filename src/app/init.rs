@@ -588,6 +588,7 @@ impl App {
             pattern_fill: crate::shape_tools::PatternFillState::default(),
             scatter_tool: crate::shape_tools::ScatterToolState::default(),
             hollow_tool: crate::shape_tools::HollowToolState::default(),
+            terrain_brush: crate::shape_tools::TerrainBrushState::default(),
         };
 
         let input = InputState {

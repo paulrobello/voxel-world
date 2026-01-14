@@ -153,6 +153,15 @@ impl App {
             return true;
         }
 
+        // Cancel terrain brush tool
+        if self.input.key_pressed(KeyCode::Escape) && self.ui.terrain_brush.active {
+            println!("Terrain Brush: OFF");
+            self.ui.terrain_brush.active = false;
+            self.ui.terrain_brush.stop_paint();
+            self.ui.terrain_brush.clear_preview();
+            return true;
+        }
+
         // Handle escape to unfocus
         if self.input.key_pressed(KeyCode::Escape) && self.input.focused {
             self.input.focused = false;
@@ -943,6 +952,24 @@ impl App {
             self.apply_hollow();
             self.ui.place_needs_reclick = true;
             return; // Skip block placement
+        }
+
+        // Handle terrain brush painting with right-click held
+        if self.input.focused && self.ui.terrain_brush.active {
+            if self.input.mouse_pressed(MouseButton::Right) {
+                self.ui.terrain_brush.start_paint();
+            }
+            if self.input.mouse_released(MouseButton::Right) {
+                self.ui.terrain_brush.stop_paint();
+            }
+            if self.ui.terrain_brush.painting && self.input.mouse_held(MouseButton::Right) {
+                if let Some(hit) = self.ui.current_hit {
+                    let center = get_place_position(&hit);
+                    if self.ui.terrain_brush.should_paint_at(center) {
+                        self.apply_terrain_brush(center);
+                    }
+                }
+            }
         }
 
         // Handle mirror tool axis cycling with Tab key

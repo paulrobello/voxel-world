@@ -190,6 +190,16 @@ pub fn update_all_tool_previews(ui: &mut UiState, world: &World) {
         ui.hollow_tool
             .update_preview(ui.template_selection.bounds());
     }
+
+    // Handle terrain brush preview (shows brush footprint at cursor)
+    if ui.terrain_brush.active {
+        if let Some(hit) = current_hit {
+            let target = get_place_position(&hit);
+            ui.terrain_brush.update_preview(target);
+        } else {
+            ui.terrain_brush.clear_preview();
+        }
+    }
 }
 
 /// Calculate target position for tools with PlacementMode.

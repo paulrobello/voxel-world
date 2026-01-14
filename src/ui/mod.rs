@@ -50,6 +50,7 @@ pub mod settings;
 pub mod sphere_tool;
 pub mod stairs_tool;
 pub mod stats;
+pub mod terrain_brush_tool;
 pub mod time;
 pub mod tools;
 pub mod torus_tool;
@@ -78,6 +79,7 @@ use settings::SettingsUI;
 use sphere_tool::SphereToolUI;
 use stairs_tool::StairsToolUI;
 use stats::StatsUI;
+use terrain_brush_tool::TerrainBrushToolUI;
 pub use tools::ToolAction;
 use tools::{ToolsPaletteState, ToolsPaletteUI};
 use torus_tool::TorusToolUI;
@@ -169,6 +171,7 @@ pub struct HudInputs<'a> {
     pub pattern_fill: &'a mut crate::shape_tools::PatternFillState,
     pub scatter_tool: &'a mut crate::shape_tools::ScatterToolState,
     pub hollow_tool: &'a mut crate::shape_tools::HollowToolState,
+    pub terrain_brush: &'a mut crate::shape_tools::TerrainBrushState,
     pub has_selection: bool,
 }
 
@@ -250,6 +253,7 @@ impl HUDRenderer {
             pattern_fill,
             scatter_tool,
             hollow_tool,
+            terrain_brush,
             has_selection,
         } = input;
         let mut scale_changed = false;
@@ -338,6 +342,7 @@ impl HUDRenderer {
                 pattern_fill.active,
                 scatter_tool.active,
                 hollow_tool.active,
+                terrain_brush.active,
                 stencil_manager.global_opacity,
                 stencil_manager.render_mode,
             );
@@ -411,6 +416,16 @@ impl HUDRenderer {
 
             // Hollow tool settings window
             HollowToolUI::draw(&ctx, hollow_tool, has_selection);
+
+            // Terrain brush tool settings window
+            if terrain_brush.active {
+                egui::Window::new("Terrain Brush")
+                    .collapsible(true)
+                    .resizable(false)
+                    .show(&ctx, |ui| {
+                        TerrainBrushToolUI::draw(ui, terrain_brush);
+                    });
+            }
 
             // Crosshair (hide when editor or console is open)
             if !editor.active && !console.active {

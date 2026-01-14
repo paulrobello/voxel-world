@@ -1972,6 +1972,152 @@ impl App {
         // Don't deactivate tool - allow applying to other selections
     }
 
+    /// Apply terrain brush at the given center position.
+    ///
+    /// Modifies terrain based on brush mode (raise, lower, smooth, flatten).
+    pub fn apply_terrain_brush(&mut self, center: nalgebra::Vector3<i32>) {
+        use crate::shape_tools::terrain_brush::{
+            TerrainBrushMode, calculate_flatten_positions, calculate_lower_positions,
+            calculate_raise_positions, calculate_smooth_positions,
+        };
+
+        let brush = &self.ui.terrain_brush;
+        if !brush.active {
+            return;
+        }
+
+        let radius = brush.radius;
+        let strength = brush.strength;
+        let mode = brush.mode;
+        let shape = brush.shape;
+        let target_y = brush.target_y;
+
+        // Gather terrain heights within brush radius
+        let mut heights = Vec::new();
+        let r2 = (radius * radius) as f32;
+        for dx in -radius..=radius {
+            for dz in -radius..=radius {
+                let include = match shape {
+                    crate::shape_tools::terrain_brush::BrushShape::Circle => {
+                        (dx * dx + dz * dz) as f32 <= r2
+                    }
+                    crate::shape_tools::terrain_brush::BrushShape::Square => true,
+                };
+                if include {
+                    let x = center.x + dx;
+                    let z = center.z + dz;
+                    // Find terrain height by scanning down
+                    if let Some(height) = self.find_terrain_height_at(x, z, center.y + 20) {
+                        heights.push((x, z, height));
+                    }
+                }
+            }
+        }
+
+        if heights.is_empty() {
+            return;
+        }
+
+        // Get block type from hotbar
+        let hotbar_block = self.ui.hotbar_blocks[self.ui.hotbar_index];
+        let block_type = if hotbar_block == BlockType::Air {
+            BlockType::Dirt // Default to dirt if air selected
+        } else {
+            hotbar_block
+        };
+
+        match mode {
+            TerrainBrushMode::Raise => {
+                let positions =
+                    calculate_raise_positions(center, radius, strength, shape, &heights);
+                for pos in positions {
+                    if let Some(existing) = self.sim.world.get_block(pos) {
+                        if existing == BlockType::Air
+                            || existing == BlockType::Water
+                            || existing == BlockType::Lava
+                        {
+                            self.sim.world.set_block(pos, block_type);
+                        }
+                    }
+                }
+            }
+            TerrainBrushMode::Lower => {
+                let positions =
+                    calculate_lower_positions(center, radius, strength, shape, &heights);
+                for pos in positions {
+                    if let Some(existing) = self.sim.world.get_block(pos) {
+                        if existing != BlockType::Air && existing != BlockType::Bedrock {
+                            // Clear water/lava cells if present
+                            self.sim.water_grid.remove_water(pos, 999.0);
+                            self.sim.lava_grid.remove_lava(pos, 999.0);
+                            self.sim.world.set_block(pos, BlockType::Air);
+                        }
+                    }
+                }
+            }
+            TerrainBrushMode::Smooth => {
+                let (to_add, to_remove) =
+                    calculate_smooth_positions(center, radius, shape, &heights);
+                // Remove blocks first
+                for pos in to_remove {
+                    if let Some(existing) = self.sim.world.get_block(pos) {
+                        if existing != BlockType::Air && existing != BlockType::Bedrock {
+                            self.sim.water_grid.remove_water(pos, 999.0);
+                            self.sim.lava_grid.remove_lava(pos, 999.0);
+                            self.sim.world.set_block(pos, BlockType::Air);
+                        }
+                    }
+                }
+                // Then add blocks
+                for pos in to_add {
+                    if let Some(existing) = self.sim.world.get_block(pos) {
+                        if existing == BlockType::Air {
+                            self.sim.world.set_block(pos, block_type);
+                        }
+                    }
+                }
+            }
+            TerrainBrushMode::Flatten => {
+                let (to_add, to_remove) =
+                    calculate_flatten_positions(center, radius, target_y, shape, &heights);
+                // Remove blocks first
+                for pos in to_remove {
+                    if let Some(existing) = self.sim.world.get_block(pos) {
+                        if existing != BlockType::Air && existing != BlockType::Bedrock {
+                            self.sim.water_grid.remove_water(pos, 999.0);
+                            self.sim.lava_grid.remove_lava(pos, 999.0);
+                            self.sim.world.set_block(pos, BlockType::Air);
+                        }
+                    }
+                }
+                // Then add blocks
+                for pos in to_add {
+                    if let Some(existing) = self.sim.world.get_block(pos) {
+                        if existing == BlockType::Air {
+                            self.sim.world.set_block(pos, block_type);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Invalidate minimap cache for affected area
+        self.sim.world.invalidate_minimap_cache(center.x, center.z);
+    }
+
+    /// Find the terrain height at a given XZ position.
+    fn find_terrain_height_at(&self, x: i32, z: i32, max_y: i32) -> Option<i32> {
+        for y in (0..=max_y).rev() {
+            if let Some(block) = self.sim.world.get_block(nalgebra::Vector3::new(x, y, z)) {
+                if block != BlockType::Air && block != BlockType::Water && block != BlockType::Lava
+                {
+                    return Some(y);
+                }
+            }
+        }
+        None
+    }
+
     /// Execute clone operation: copy blocks from selection to cloned positions.
     pub fn execute_clone(&mut self) {
         let clone_tool = &self.ui.clone_tool;

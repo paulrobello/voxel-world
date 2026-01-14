@@ -43,6 +43,7 @@ pub enum ToolAction {
     TogglePatternFillTool,
     ToggleScatterTool,
     ToggleHollowTool,
+    ToggleTerrainBrush,
 }
 
 /// Which tool is currently active/highlighted in the palette.
@@ -74,6 +75,7 @@ pub enum ActiveTool {
     PatternFill,
     Scatter,
     Hollow,
+    TerrainBrush,
 }
 
 impl ActiveTool {
@@ -105,6 +107,7 @@ impl ActiveTool {
             ActiveTool::PatternFill => "Pattern Fill",
             ActiveTool::Scatter => "Scatter Brush",
             ActiveTool::Hollow => "Hollow",
+            ActiveTool::TerrainBrush => "Terrain Brush",
         }
     }
 
@@ -136,6 +139,7 @@ impl ActiveTool {
             ActiveTool::PatternFill => "🔲", // Pattern grid
             ActiveTool::Scatter => "🎨",     // Paint palette for scatter
             ActiveTool::Hollow => "⬜",      // Empty square for hollow
+            ActiveTool::TerrainBrush => "⛰", // Mountain for terrain
         }
     }
 
@@ -167,6 +171,7 @@ impl ActiveTool {
             ActiveTool::PatternFill => "", // No dedicated hotkey, button only
             ActiveTool::Scatter => "",   // No dedicated hotkey, button only
             ActiveTool::Hollow => "",    // No dedicated hotkey, button only
+            ActiveTool::TerrainBrush => "", // No dedicated hotkey, button only
         }
     }
 
@@ -198,6 +203,7 @@ impl ActiveTool {
             ActiveTool::PatternFill => "Fill selection with patterns",
             ActiveTool::Scatter => "Paint scattered blocks with brush",
             ActiveTool::Hollow => "Remove interior blocks from selection",
+            ActiveTool::TerrainBrush => "Paint terrain modifications (raise/lower/smooth)",
         }
     }
 }
@@ -349,6 +355,7 @@ impl ToolsPaletteUI {
         pattern_fill_active: bool,
         scatter_tool_active: bool,
         hollow_tool_active: bool,
+        terrain_brush_active: bool,
         stencil_opacity: f32,
         stencil_render_mode: StencilRenderMode,
     ) -> ToolsPaletteResult {
@@ -411,6 +418,8 @@ impl ToolsPaletteUI {
             ActiveTool::Scatter
         } else if hollow_tool_active {
             ActiveTool::Hollow
+        } else if terrain_brush_active {
+            ActiveTool::TerrainBrush
         } else {
             ActiveTool::None
         };
@@ -447,6 +456,7 @@ impl ToolsPaletteUI {
                     ActiveTool::PatternFill,
                     ActiveTool::Scatter,
                     ActiveTool::Hollow,
+                    ActiveTool::TerrainBrush,
                     ActiveTool::Wall,
                     ActiveTool::Floor,
                     ActiveTool::Replace,
@@ -495,6 +505,7 @@ impl ToolsPaletteUI {
                                     ActiveTool::PatternFill => ToolAction::TogglePatternFillTool,
                                     ActiveTool::Scatter => ToolAction::ToggleScatterTool,
                                     ActiveTool::Hollow => ToolAction::ToggleHollowTool,
+                                    ActiveTool::TerrainBrush => ToolAction::ToggleTerrainBrush,
                                     ActiveTool::Bridge => ToolAction::ToggleBridgeTool,
                                     ActiveTool::None => ToolAction::None,
                                 };
@@ -803,6 +814,15 @@ impl ToolsPaletteUI {
                 // Hollow tool has its own settings window (HollowToolUI)
                 ui.label(
                     egui::RichText::new("Hollow settings in separate window")
+                        .color(egui::Color32::from_gray(140))
+                        .size(11.0)
+                        .italics(),
+                );
+            }
+            ActiveTool::TerrainBrush => {
+                // Terrain brush tool has its own settings window (TerrainBrushToolUI)
+                ui.label(
+                    egui::RichText::new("Terrain Brush settings in separate window")
                         .color(egui::Color32::from_gray(140))
                         .size(11.0)
                         .italics(),
