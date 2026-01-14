@@ -5,6 +5,7 @@
 
 use egui_winit_vulkano::egui;
 
+use crate::shape_tools::PlacementMode;
 use crate::shape_tools::torus::{TorusPlane, TorusToolState};
 
 /// UI for the torus placement tool.
@@ -80,6 +81,17 @@ impl TorusToolUI {
 
                 ui.add_space(8.0);
 
+                // Placement mode
+                ui.label("Placement Mode:");
+                ui.horizontal(|ui| {
+                    ui.selectable_value(&mut state.placement_mode, PlacementMode::Center, "Center")
+                        .on_hover_text("Torus centered at target");
+                    ui.selectable_value(&mut state.placement_mode, PlacementMode::Base, "Base")
+                        .on_hover_text("Torus bottom rests on target");
+                });
+
+                ui.add_space(8.0);
+
                 // Hollow checkbox
                 ui.checkbox(&mut state.hollow, "Hollow tube");
 
@@ -101,17 +113,9 @@ impl TorusToolUI {
 
                 ui.add_space(8.0);
 
-                // Cancel button
-                ui.horizontal(|ui| {
-                    if ui.button("Cancel (Esc)").clicked() {
-                        state.deactivate();
-                    }
-                });
-
-                ui.add_space(4.0);
-
                 // Instructions
                 ui.label("Right-click to place torus");
+                ui.label("Left-click to cancel");
                 ui.small("Uses selected hotbar block");
             });
     }

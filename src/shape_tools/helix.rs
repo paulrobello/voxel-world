@@ -212,7 +212,7 @@ pub fn generate_helix_positions(
     let h = height as f64;
     let t = turns as f64;
     let tube_r = tube_radius as f64;
-    let tube_r_sq = tube_r * tube_r;
+    let tube_r_sq = (tube_r + 0.5) * (tube_r + 0.5); // Add 0.5 for better voxel coverage
     let start_rad = (start_angle as f64).to_radians();
 
     // Direction multiplier
@@ -221,37 +221,54 @@ pub fn generate_helix_positions(
         HelixDirection::CounterClockwise => -1.0,
     };
 
-    // Bounding box for iteration
-    let outer_extent = radius + tube_radius;
-
     // Use a HashSet to avoid duplicates
     let mut visited = std::collections::HashSet::new();
 
-    // For each Y level, check which blocks are part of the helix
-    for dy in 0..height {
-        // Calculate the angle at this height
-        // At dy=0, angle = start_angle
-        // At dy=height, angle = start_angle + turns * 2PI
-        let progress = dy as f64 / h;
-        let angle = start_rad + dir_mult * progress * t * std::f64::consts::TAU;
+    // Calculate the number of sample points along the helix
+    // Use a fine sampling rate to ensure no gaps
+    let circumference = std::f64::consts::TAU * r * t;
+    let arc_length = (h * h + circumference * circumference).sqrt();
+    // Sample at most every 0.5 blocks along the arc to avoid gaps
+    let num_samples = ((arc_length / 0.5) as i32).max(height * 4);
 
-        // The center of the tube at this height
+    // Sample points along the helix and fill spheres around each point
+    for i in 0..=num_samples {
+        let progress = i as f64 / num_samples as f64;
+
+        // Parametric helix: x = r*cos(θ), y = (h-1)*progress, z = r*sin(θ)
+        // where θ goes from start_angle to start_angle + turns * 2π
+        // Y goes from 0 to height-1 to stay within valid block range
+        let angle = start_rad + dir_mult * progress * t * std::f64::consts::TAU;
         let tube_center_x = r * angle.cos();
+        let tube_center_y = (h - 1.0) * progress; // Height-1 so we stay in [0, height)
         let tube_center_z = r * angle.sin();
 
-        // Check all blocks around this tube center
-        for dx in -outer_extent..=outer_extent {
-            for dz in -outer_extent..=outer_extent {
-                let px = dx as f64;
-                let pz = dz as f64;
+        // Fill a sphere around this point on the helix path
+        for dx in -tube_radius..=tube_radius {
+            for dy in -tube_radius..=tube_radius {
+                for dz in -tube_radius..=tube_radius {
+                    let px = tube_center_x + dx as f64;
+                    let py = tube_center_y + dy as f64;
+                    let pz = tube_center_z + dz as f64;
 
-                // Distance from this point to the tube center at this height
-                let dist_sq = (px - tube_center_x).powi(2) + (pz - tube_center_z).powi(2);
+                    // Distance from this voxel center to the helix point
+                    let dist_sq = (px - tube_center_x).powi(2)
+                        + (py - tube_center_y).powi(2)
+                        + (pz - tube_center_z).powi(2);
 
-                if dist_sq <= tube_r_sq {
-                    let pos = Vector3::new(center.x + dx, center.y + dy, center.z + dz);
-                    if visited.insert((pos.x, pos.y, pos.z)) {
-                        positions.push(pos);
+                    if dist_sq <= tube_r_sq {
+                        let world_x = center.x + px.round() as i32;
+                        let world_y = center.y + py.round() as i32;
+                        let world_z = center.z + pz.round() as i32;
+
+                        // Clamp Y to valid height range
+                        if world_y < center.y || world_y >= center.y + height {
+                            continue;
+                        }
+
+                        if visited.insert((world_x, world_y, world_z)) {
+                            positions.push(Vector3::new(world_x, world_y, world_z));
+                        }
                     }
                 }
             }

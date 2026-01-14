@@ -102,17 +102,9 @@ impl PolygonToolUI {
 
                 ui.add_space(8.0);
 
-                // Cancel button
-                ui.horizontal(|ui| {
-                    if ui.button("Cancel (Esc)").clicked() {
-                        state.deactivate();
-                    }
-                });
-
-                ui.add_space(4.0);
-
                 // Instructions
                 ui.label("Right-click to place polygon");
+                ui.label("Left-click to cancel");
                 ui.small("Uses selected hotbar block");
             });
     }

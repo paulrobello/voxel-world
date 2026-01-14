@@ -101,67 +101,6 @@ impl App {
             return true;
         }
 
-        // Cancel torus tool
-        if self.input.key_pressed(KeyCode::Escape) && self.ui.torus_tool.active {
-            println!("Torus Tool: OFF");
-            self.ui.torus_tool.deactivate();
-            return true;
-        }
-
-        // Cancel helix tool
-        if self.input.key_pressed(KeyCode::Escape) && self.ui.helix_tool.active {
-            println!("Helix Tool: OFF");
-            self.ui.helix_tool.deactivate();
-            return true;
-        }
-
-        // Cancel polygon tool
-        if self.input.key_pressed(KeyCode::Escape) && self.ui.polygon_tool.active {
-            println!("Polygon Tool: OFF");
-            self.ui.polygon_tool.deactivate();
-            return true;
-        }
-
-        // Cancel bezier tool
-        if self.input.key_pressed(KeyCode::Escape) && self.ui.bezier_tool.active {
-            println!("Bezier Tool: OFF");
-            self.ui.bezier_tool.deactivate();
-            return true;
-        }
-
-        // Cancel pattern fill tool
-        if self.input.key_pressed(KeyCode::Escape) && self.ui.pattern_fill.active {
-            println!("Pattern Fill Tool: OFF");
-            self.ui.pattern_fill.active = false;
-            self.ui.pattern_fill.clear_preview();
-            return true;
-        }
-
-        // Cancel scatter tool
-        if self.input.key_pressed(KeyCode::Escape) && self.ui.scatter_tool.active {
-            println!("Scatter Brush Tool: OFF");
-            self.ui.scatter_tool.active = false;
-            self.ui.scatter_tool.stop_painting();
-            return true;
-        }
-
-        // Cancel hollow tool
-        if self.input.key_pressed(KeyCode::Escape) && self.ui.hollow_tool.active {
-            println!("Hollow Tool: OFF");
-            self.ui.hollow_tool.active = false;
-            self.ui.hollow_tool.clear_preview();
-            return true;
-        }
-
-        // Cancel terrain brush tool
-        if self.input.key_pressed(KeyCode::Escape) && self.ui.terrain_brush.active {
-            println!("Terrain Brush: OFF");
-            self.ui.terrain_brush.active = false;
-            self.ui.terrain_brush.stop_paint();
-            self.ui.terrain_brush.clear_preview();
-            return true;
-        }
-
         // Handle escape to unfocus
         if self.input.key_pressed(KeyCode::Escape) && self.input.focused {
             self.input.focused = false;
@@ -969,6 +908,7 @@ impl App {
                         self.apply_terrain_brush(center);
                     }
                 }
+                return; // Skip block placement
             }
         }
 
@@ -1076,6 +1016,69 @@ impl App {
             {
                 self.ui.arch_tool.cancel();
                 println!("Arch placement cancelled");
+                self.ui.skip_break_until_release = true;
+                return;
+            }
+
+            // Phase 18 new tools: left-click to cancel (instead of Escape)
+            // Torus tool cancellation
+            if self.ui.torus_tool.active {
+                println!("Torus Tool: OFF");
+                self.ui.torus_tool.deactivate();
+                self.ui.skip_break_until_release = true;
+                return;
+            }
+            // Helix tool cancellation
+            if self.ui.helix_tool.active {
+                println!("Helix Tool: OFF");
+                self.ui.helix_tool.deactivate();
+                self.ui.skip_break_until_release = true;
+                return;
+            }
+            // Polygon tool cancellation
+            if self.ui.polygon_tool.active {
+                println!("Polygon Tool: OFF");
+                self.ui.polygon_tool.deactivate();
+                self.ui.skip_break_until_release = true;
+                return;
+            }
+            // Bezier tool cancellation
+            if self.ui.bezier_tool.active {
+                println!("Bezier Tool: OFF");
+                self.ui.bezier_tool.deactivate();
+                self.ui.skip_break_until_release = true;
+                return;
+            }
+            // Pattern fill tool cancellation
+            if self.ui.pattern_fill.active {
+                println!("Pattern Fill Tool: OFF");
+                self.ui.pattern_fill.active = false;
+                self.ui.pattern_fill.clear_preview();
+                self.ui.skip_break_until_release = true;
+                return;
+            }
+            // Scatter tool cancellation
+            if self.ui.scatter_tool.active {
+                println!("Scatter Brush Tool: OFF");
+                self.ui.scatter_tool.active = false;
+                self.ui.scatter_tool.stop_painting();
+                self.ui.skip_break_until_release = true;
+                return;
+            }
+            // Hollow tool cancellation
+            if self.ui.hollow_tool.active {
+                println!("Hollow Tool: OFF");
+                self.ui.hollow_tool.active = false;
+                self.ui.hollow_tool.clear_preview();
+                self.ui.skip_break_until_release = true;
+                return;
+            }
+            // Terrain brush tool cancellation
+            if self.ui.terrain_brush.active {
+                println!("Terrain Brush: OFF");
+                self.ui.terrain_brush.active = false;
+                self.ui.terrain_brush.stop_paint();
+                self.ui.terrain_brush.clear_preview();
                 self.ui.skip_break_until_release = true;
                 return;
             }

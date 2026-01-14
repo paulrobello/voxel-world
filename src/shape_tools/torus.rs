@@ -6,6 +6,8 @@
 use crate::gpu_resources::MAX_STENCIL_BLOCKS;
 use nalgebra::Vector3;
 
+use super::PlacementMode;
+
 /// Orientation plane for the torus.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum TorusPlane {
@@ -64,6 +66,8 @@ pub struct TorusToolState {
     pub arc_angle: i32,
     /// Whether to create a hollow tube instead of solid.
     pub hollow: bool,
+    /// Placement mode (center or base).
+    pub placement_mode: PlacementMode,
     /// Cached preview positions for GPU upload.
     pub preview_positions: Vec<Vector3<i32>>,
     /// Current preview center position (if targeting a block).
@@ -78,6 +82,7 @@ pub struct TorusToolState {
     cached_plane: TorusPlane,
     cached_arc_angle: i32,
     cached_hollow: bool,
+    cached_placement_mode: PlacementMode,
 }
 
 impl Default for TorusToolState {
@@ -89,6 +94,7 @@ impl Default for TorusToolState {
             plane: TorusPlane::XZ,
             arc_angle: 360,
             hollow: false,
+            placement_mode: PlacementMode::Center,
             preview_positions: Vec::new(),
             preview_center: None,
             total_blocks: 0,
@@ -98,6 +104,7 @@ impl Default for TorusToolState {
             cached_plane: TorusPlane::XZ,
             cached_arc_angle: 360,
             cached_hollow: false,
+            cached_placement_mode: PlacementMode::Center,
         }
     }
 }
@@ -110,6 +117,7 @@ impl TorusToolState {
             || self.plane != self.cached_plane
             || self.arc_angle != self.cached_arc_angle
             || self.hollow != self.cached_hollow
+            || self.placement_mode != self.cached_placement_mode
     }
 
     /// Update cached settings after regenerating preview.
@@ -119,6 +127,7 @@ impl TorusToolState {
         self.cached_plane = self.plane;
         self.cached_arc_angle = self.arc_angle;
         self.cached_hollow = self.hollow;
+        self.cached_placement_mode = self.placement_mode;
     }
 
     /// Clear the preview state.
@@ -144,8 +153,12 @@ impl TorusToolState {
             self.preview_center = Some(target);
             self.update_cache();
 
+            // Calculate actual center based on placement mode
+            let center =
+                calculate_center(target, self.minor_radius, self.plane, self.placement_mode);
+
             let all_positions = generate_torus_positions(
-                target,
+                center,
                 self.major_radius,
                 self.minor_radius,
                 self.plane,
@@ -162,6 +175,39 @@ impl TorusToolState {
                 self.preview_positions = all_positions[..MAX_STENCIL_BLOCKS].to_vec();
             } else {
                 self.preview_positions = all_positions;
+            }
+        }
+    }
+}
+
+/// Calculate the actual center position based on placement mode.
+///
+/// In Center mode, the center is at the target position.
+/// In Base mode, the center is offset upward by the minor radius (for XZ plane)
+/// or appropriate offset for other planes.
+///
+/// # Arguments
+/// * `target` - The target/click position
+/// * `minor_radius` - The tube radius (used for offset in Base mode)
+/// * `plane` - The orientation plane
+/// * `mode` - Placement mode (Center or Base)
+///
+/// # Returns
+/// The actual center position for the torus.
+pub fn calculate_center(
+    target: Vector3<i32>,
+    minor_radius: i32,
+    plane: TorusPlane,
+    mode: PlacementMode,
+) -> Vector3<i32> {
+    match mode {
+        PlacementMode::Center => target,
+        PlacementMode::Base => {
+            // Offset so the bottom of the torus rests on the target
+            match plane {
+                TorusPlane::XZ => Vector3::new(target.x, target.y + minor_radius, target.z),
+                TorusPlane::XY => Vector3::new(target.x, target.y, target.z + minor_radius),
+                TorusPlane::YZ => Vector3::new(target.x + minor_radius, target.y, target.z),
             }
         }
     }

@@ -87,7 +87,7 @@ impl PatternToolUI {
                 }
 
                 ui.add_space(4.0);
-                ui.colored_label(egui::Color32::GRAY, "ESC to cancel");
+                ui.colored_label(egui::Color32::GRAY, "Left-click to cancel");
             });
     }
 }

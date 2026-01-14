@@ -126,13 +126,6 @@ impl BezierToolUI {
 
                 ui.add_space(4.0);
 
-                // Cancel button
-                if ui.button("Cancel (Esc)").clicked() {
-                    state.deactivate();
-                }
-
-                ui.add_space(4.0);
-
                 // Instructions
                 ui.label(
                     egui::RichText::new("Right-click to place points")
@@ -146,6 +139,11 @@ impl BezierToolUI {
                             .color(egui::Color32::from_rgb(100, 255, 100)),
                     );
                 }
+                ui.label(
+                    egui::RichText::new("Left-click to cancel")
+                        .size(11.0)
+                        .color(egui::Color32::from_gray(180)),
+                );
                 ui.small("Uses selected hotbar block");
             });
     }

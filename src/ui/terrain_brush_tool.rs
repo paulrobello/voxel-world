@@ -1,6 +1,6 @@
 //! UI for the terrain brush tool.
 
-use egui_winit_vulkano::egui::{Button, Color32, RichText, Slider, Ui};
+use egui_winit_vulkano::egui::{Color32, RichText, Slider, Ui};
 
 use crate::shape_tools::terrain_brush::{TerrainBrushMode, TerrainBrushState};
 
@@ -77,12 +77,7 @@ impl TerrainBrushToolUI {
 
         ui.add_space(4.0);
 
-        // Cancel button
-        if ui
-            .add_sized([120.0, 24.0], Button::new("Cancel (Esc)"))
-            .clicked()
-        {
-            state.toggle();
-        }
+        // Cancel instruction
+        ui.label(RichText::new("Left-click to cancel").color(Color32::GRAY));
     }
 }
