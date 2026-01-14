@@ -127,7 +127,7 @@ pub fn update_all_tool_previews(ui: &mut UiState, world: &World) {
     // Update torus tool preview
     if ui.torus_tool.active {
         if let Some(hit) = current_hit {
-            let target = get_place_position(&hit);
+            let target = calculate_placement_mode_target(&hit, ui.torus_tool.placement_mode);
             ui.torus_tool.update_preview(target);
         } else {
             ui.torus_tool.clear_preview();
