@@ -1603,6 +1603,46 @@ impl App {
         // Don't deactivate tool - allow placing multiple cones
     }
 
+    /// Place a torus (ring/donut) at the preview position.
+    pub fn place_torus(&mut self) {
+        let torus = &self.ui.torus_tool;
+        if !torus.active || torus.preview_positions.is_empty() {
+            return;
+        }
+
+        // Get block type and metadata from hotbar
+        let params = self.get_hotbar_placement_params();
+
+        // Use preview positions (already generated with current settings)
+        let positions = self.ui.torus_tool.preview_positions.clone();
+        let major_radius = self.ui.torus_tool.major_radius;
+        let minor_radius = self.ui.torus_tool.minor_radius;
+        let plane_name = self.ui.torus_tool.plane.name();
+
+        // Place blocks using shared helper
+        let placed_count = place_blocks_at_positions(
+            &positions,
+            params,
+            &mut self.sim.world,
+            &mut self.sim.water_grid,
+            &mut self.sim.lava_grid,
+        );
+
+        // Invalidate minimap cache for affected area
+        if let Some(first_pos) = positions.first() {
+            self.sim
+                .world
+                .invalidate_minimap_cache(first_pos.x, first_pos.z);
+        }
+
+        println!(
+            "Placed torus ({} blocks, R={}/{}, plane={})",
+            placed_count, major_radius, minor_radius, plane_name
+        );
+
+        // Don't deactivate tool - allow placing multiple tori
+    }
+
     /// Execute clone operation: copy blocks from selection to cloned positions.
     pub fn execute_clone(&mut self) {
         let clone_tool = &self.ui.clone_tool;

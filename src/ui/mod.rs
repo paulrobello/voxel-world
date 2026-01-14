@@ -46,6 +46,7 @@ pub mod stairs_tool;
 pub mod stats;
 pub mod time;
 pub mod tools;
+pub mod torus_tool;
 pub mod wall_tool;
 
 use arch_tool::ArchToolUI;
@@ -67,6 +68,7 @@ use stairs_tool::StairsToolUI;
 use stats::StatsUI;
 pub use tools::ToolAction;
 use tools::{ToolsPaletteState, ToolsPaletteUI};
+use torus_tool::TorusToolUI;
 use wall_tool::WallToolUI;
 
 /// Water/lava simulation stats for debug display.
@@ -148,6 +150,7 @@ pub struct HudInputs<'a> {
     pub arch_tool: &'a mut crate::shape_tools::ArchToolState,
     pub cone_tool: &'a mut crate::shape_tools::ConeToolState,
     pub clone_tool: &'a mut crate::shape_tools::CloneToolState,
+    pub torus_tool: &'a mut crate::shape_tools::TorusToolState,
 }
 
 pub struct HUDRenderer;
@@ -221,6 +224,7 @@ impl HUDRenderer {
             arch_tool,
             cone_tool,
             clone_tool,
+            torus_tool,
         } = input;
         let mut scale_changed = false;
         let mut editor_action = EditorAction::None;
@@ -301,6 +305,7 @@ impl HUDRenderer {
                 arch_tool.active,
                 cone_tool.active,
                 clone_tool.active,
+                torus_tool.active,
                 stencil_manager.global_opacity,
                 stencil_manager.render_mode,
             );
@@ -353,6 +358,9 @@ impl HUDRenderer {
 
             // Clone tool settings window
             CloneToolUI::draw(&ctx, clone_tool, template_selection);
+
+            // Torus tool settings window
+            TorusToolUI::draw(&ctx, torus_tool);
 
             // Crosshair (hide when editor or console is open)
             if !editor.active && !console.active {

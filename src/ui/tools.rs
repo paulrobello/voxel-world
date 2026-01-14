@@ -36,6 +36,7 @@ pub enum ToolAction {
     ToggleArchTool,
     ToggleConeTool,
     ToggleCloneTool,
+    ToggleTorusTool,
 }
 
 /// Which tool is currently active/highlighted in the palette.
@@ -60,6 +61,7 @@ pub enum ActiveTool {
     Arch,
     Cone,
     Clone,
+    Torus,
 }
 
 impl ActiveTool {
@@ -84,6 +86,7 @@ impl ActiveTool {
             ActiveTool::Arch => "Arch",
             ActiveTool::Cone => "Cone/Pyramid",
             ActiveTool::Clone => "Clone/Array",
+            ActiveTool::Torus => "Torus/Ring",
         }
     }
 
@@ -108,6 +111,7 @@ impl ActiveTool {
             ActiveTool::Arch => "🚪",        // Door for archway
             ActiveTool::Cone => "🔺",        // Red triangle for cone
             ActiveTool::Clone => "📑",       // Stacked documents for clone
+            ActiveTool::Torus => "🍩",       // Donut for torus/ring
         }
     }
 
@@ -132,6 +136,7 @@ impl ActiveTool {
             ActiveTool::Arch => "",      // No dedicated hotkey, button only
             ActiveTool::Cone => "",      // No dedicated hotkey, button only
             ActiveTool::Clone => "",     // No dedicated hotkey, button only
+            ActiveTool::Torus => "",     // No dedicated hotkey, button only
         }
     }
 
@@ -156,6 +161,7 @@ impl ActiveTool {
             ActiveTool::Arch => "Create architectural arches and doorways",
             ActiveTool::Cone => "Place cones or pyramids",
             ActiveTool::Clone => "Clone selection in patterns (linear/grid)",
+            ActiveTool::Torus => "Place rings or partial arcs",
         }
     }
 }
@@ -300,6 +306,7 @@ impl ToolsPaletteUI {
         arch_tool_active: bool,
         cone_tool_active: bool,
         clone_tool_active: bool,
+        torus_tool_active: bool,
         stencil_opacity: f32,
         stencil_render_mode: StencilRenderMode,
     ) -> ToolsPaletteResult {
@@ -348,6 +355,8 @@ impl ToolsPaletteUI {
             ActiveTool::Cone
         } else if clone_tool_active {
             ActiveTool::Clone
+        } else if torus_tool_active {
+            ActiveTool::Torus
         } else {
             ActiveTool::None
         };
@@ -377,6 +386,7 @@ impl ToolsPaletteUI {
                     ActiveTool::Cube,
                     ActiveTool::Circle,
                     ActiveTool::Cylinder,
+                    ActiveTool::Torus,
                     ActiveTool::Wall,
                     ActiveTool::Floor,
                     ActiveTool::Replace,
@@ -418,6 +428,7 @@ impl ToolsPaletteUI {
                                     ActiveTool::Arch => ToolAction::ToggleArchTool,
                                     ActiveTool::Cone => ToolAction::ToggleConeTool,
                                     ActiveTool::Clone => ToolAction::ToggleCloneTool,
+                                    ActiveTool::Torus => ToolAction::ToggleTorusTool,
                                     ActiveTool::Bridge => ToolAction::ToggleBridgeTool,
                                     ActiveTool::None => ToolAction::None,
                                 };
@@ -663,6 +674,15 @@ impl ToolsPaletteUI {
                 // Clone tool has its own settings window (CloneToolUI)
                 ui.label(
                     egui::RichText::new("Clone settings in separate window")
+                        .color(egui::Color32::from_gray(140))
+                        .size(11.0)
+                        .italics(),
+                );
+            }
+            ActiveTool::Torus => {
+                // Torus tool has its own settings window (TorusToolUI)
+                ui.label(
+                    egui::RichText::new("Torus settings in separate window")
                         .color(egui::Color32::from_gray(140))
                         .size(11.0)
                         .italics(),

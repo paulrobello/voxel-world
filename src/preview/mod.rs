@@ -124,6 +124,16 @@ pub fn update_all_tool_previews(ui: &mut UiState, world: &World) {
         }
     }
 
+    // Update torus tool preview
+    if ui.torus_tool.active {
+        if let Some(hit) = current_hit {
+            let target = get_place_position(&hit);
+            ui.torus_tool.update_preview(target);
+        } else {
+            ui.torus_tool.clear_preview();
+        }
+    }
+
     // Handle replace tool preview (requires world and selection)
     if ui.replace_tool.active && ui.replace_tool.preview_requested {
         ui.replace_tool.preview_requested = false;

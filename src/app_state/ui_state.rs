@@ -12,7 +12,7 @@ use crate::raycast::RaycastHit;
 use crate::shape_tools::{
     ArchToolState, BridgeToolState, CircleToolState, CloneToolState, ConeToolState, CubeToolState,
     CylinderToolState, FloorToolState, MirrorToolState, ReplaceToolState, SphereToolState,
-    StairsToolState, WallToolState,
+    StairsToolState, TorusToolState, WallToolState,
 };
 use crate::templates::{TemplateLibrary, TemplatePlacement, TemplateSelection, TemplateUi};
 use crate::ui::tools::ToolsPaletteState;
@@ -160,4 +160,7 @@ pub struct UiState {
 
     /// Clone/array placement tool state.
     pub clone_tool: CloneToolState,
+
+    /// Torus/ring placement tool state.
+    pub torus_tool: TorusToolState,
 }

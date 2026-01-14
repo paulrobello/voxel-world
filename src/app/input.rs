@@ -101,6 +101,13 @@ impl App {
             return true;
         }
 
+        // Cancel torus tool
+        if self.input.key_pressed(KeyCode::Escape) && self.ui.torus_tool.active {
+            println!("Torus Tool: OFF");
+            self.ui.torus_tool.deactivate();
+            return true;
+        }
+
         // Handle escape to unfocus
         if self.input.key_pressed(KeyCode::Escape) && self.input.focused {
             self.input.focused = false;
@@ -762,6 +769,18 @@ impl App {
             && !self.ui.place_needs_reclick
         {
             self.place_cone();
+            self.ui.place_needs_reclick = true;
+            return; // Skip block placement
+        }
+
+        // Handle torus placement with right-click
+        if self.input.focused
+            && self.ui.torus_tool.active
+            && !self.ui.torus_tool.preview_positions.is_empty()
+            && self.input.mouse_pressed(MouseButton::Right)
+            && !self.ui.place_needs_reclick
+        {
+            self.place_torus();
             self.ui.place_needs_reclick = true;
             return; // Skip block placement
         }

@@ -94,6 +94,7 @@ pub fn render_hud(
             arch_tool: &mut ui.arch_tool,
             cone_tool: &mut ui.cone_tool,
             clone_tool: &mut ui.clone_tool,
+            torus_tool: &mut ui.torus_tool,
         },
     );
 
@@ -295,6 +296,18 @@ pub fn render_hud(
             if ui.clone_tool.active {
                 ui.tools_palette.open = false;
                 // Don't request cursor grab - clone tool UI needs mouse interaction
+            }
+        }
+        ToolAction::ToggleTorusTool => {
+            ui.torus_tool.active = !ui.torus_tool.active;
+            println!(
+                "Torus/Ring Tool: {}",
+                if ui.torus_tool.active { "ON" } else { "OFF" }
+            );
+            // Close tools palette but DON'T grab cursor - let user adjust settings first
+            if ui.torus_tool.active {
+                ui.tools_palette.open = false;
+                // Don't request cursor grab - torus tool UI needs mouse interaction
             }
         }
         ToolAction::None => {}

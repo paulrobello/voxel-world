@@ -15,10 +15,12 @@ pub mod mirror;
 pub mod replace;
 pub mod sphere;
 pub mod stairs;
+pub mod torus;
 pub mod wall;
 
 // Re-export tool state structs from their respective modules
 pub use sphere::SphereToolState;
+pub use torus::TorusToolState;
 
 use nalgebra::Vector3;
 
