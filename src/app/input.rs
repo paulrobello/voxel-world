@@ -373,13 +373,25 @@ impl App {
         // Handle selection marker placement (takes priority in selection mode)
         if self.ui.template_selection.visual_mode && self.input.focused {
             if let Some(hit) = self.ui.current_hit {
-                // Use placement position (adjacent to hit face) instead of block position
-                let pos = get_place_position(&hit);
+                // Check if ctrl is held to select actual block vs adjacent position
+                let ctrl_held = self.input.key_held(KeyCode::ControlLeft)
+                    || self.input.key_held(KeyCode::ControlRight);
+
+                // Ctrl: select the actual block, otherwise select adjacent position
+                let pos = if ctrl_held {
+                    hit.block_pos
+                } else {
+                    get_place_position(&hit)
+                };
 
                 // Left-click sets pos1 (green marker)
                 if self.input.mouse_pressed(MouseButton::Left) {
                     self.ui.template_selection.set_pos1(pos);
-                    println!("Selection pos1 set to ({}, {}, {})", pos.x, pos.y, pos.z);
+                    let mode = if ctrl_held { "block" } else { "adjacent" };
+                    println!(
+                        "Selection pos1 set to ({}, {}, {}) [{}]",
+                        pos.x, pos.y, pos.z, mode
+                    );
                     if let Some((min, max)) = self.ui.template_selection.bounds() {
                         if let Some((w, h, d)) = self.ui.template_selection.dimensions() {
                             println!(
@@ -395,7 +407,11 @@ impl App {
                 // Right-click sets pos2 (blue marker)
                 if self.input.mouse_pressed(MouseButton::Right) {
                     self.ui.template_selection.set_pos2(pos);
-                    println!("Selection pos2 set to ({}, {}, {})", pos.x, pos.y, pos.z);
+                    let mode = if ctrl_held { "block" } else { "adjacent" };
+                    println!(
+                        "Selection pos2 set to ({}, {}, {}) [{}]",
+                        pos.x, pos.y, pos.z, mode
+                    );
                     if let Some((min, max)) = self.ui.template_selection.bounds() {
                         if let Some((w, h, d)) = self.ui.template_selection.dimensions() {
                             println!(

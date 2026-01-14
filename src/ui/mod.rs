@@ -591,7 +591,7 @@ impl HUDRenderer {
                             ui.add_space(4.0);
                             ui.label(
                                 egui::RichText::new(
-                                    "Left-click: Pos1 • Right-click: Pos2 • V: Exit",
+                                    "Left: Pos1 • Right: Pos2 • Ctrl: Select block • V: Exit",
                                 )
                                 .color(egui::Color32::from_rgb(255, 255, 100))
                                 .size(14.0),
