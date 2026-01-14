@@ -17,6 +17,9 @@ pub mod sphere;
 pub mod stairs;
 pub mod wall;
 
+// Re-export tool state structs from their respective modules
+pub use sphere::SphereToolState;
+
 use nalgebra::Vector3;
 
 /// Placement mode for shape tools.
@@ -27,120 +30,6 @@ pub enum PlacementMode {
     Center,
     /// Shape bottom rests on target surface (center offset by +size in Y).
     Base,
-}
-
-/// State for the sphere placement tool.
-#[derive(Clone, Debug)]
-pub struct SphereToolState {
-    /// Whether the sphere tool is currently active.
-    pub active: bool,
-    /// Sphere radius in blocks (1-50).
-    pub radius: i32,
-    /// Whether to create a hollow shell instead of solid sphere.
-    pub hollow: bool,
-    /// Whether to create only the top half (dome mode).
-    pub dome: bool,
-    /// Placement mode (center or base).
-    pub placement_mode: PlacementMode,
-    /// Cached preview positions for GPU upload.
-    pub preview_positions: Vec<Vector3<i32>>,
-    /// Current preview center position (if targeting a block).
-    pub preview_center: Option<Vector3<i32>>,
-    /// Total block count for the full sphere (may differ from preview if truncated).
-    pub total_blocks: usize,
-    /// Whether the preview was truncated due to exceeding buffer limit.
-    pub preview_truncated: bool,
-    /// Cached radius for detecting when to regenerate preview.
-    cached_radius: i32,
-    /// Cached hollow setting for detecting when to regenerate preview.
-    cached_hollow: bool,
-    /// Cached dome setting for detecting when to regenerate preview.
-    cached_dome: bool,
-    /// Cached placement mode for detecting when to regenerate preview.
-    cached_placement_mode: PlacementMode,
-}
-
-impl Default for SphereToolState {
-    fn default() -> Self {
-        Self {
-            active: false,
-            radius: 5,
-            hollow: false,
-            dome: false,
-            placement_mode: PlacementMode::Center,
-            preview_positions: Vec::new(),
-            preview_center: None,
-            total_blocks: 0,
-            preview_truncated: false,
-            cached_radius: 5,
-            cached_hollow: false,
-            cached_dome: false,
-            cached_placement_mode: PlacementMode::Center,
-        }
-    }
-}
-
-impl SphereToolState {
-    /// Check if settings have changed since last preview generation.
-    pub fn settings_changed(&self) -> bool {
-        self.radius != self.cached_radius
-            || self.hollow != self.cached_hollow
-            || self.dome != self.cached_dome
-            || self.placement_mode != self.cached_placement_mode
-    }
-
-    /// Update cached settings after regenerating preview.
-    pub fn update_cache(&mut self) {
-        self.cached_radius = self.radius;
-        self.cached_hollow = self.hollow;
-        self.cached_dome = self.dome;
-        self.cached_placement_mode = self.placement_mode;
-    }
-
-    /// Clear the preview state.
-    pub fn clear_preview(&mut self) {
-        self.preview_positions.clear();
-        self.preview_center = None;
-        self.preview_truncated = false;
-        self.total_blocks = 0;
-    }
-
-    /// Deactivate the tool and clear preview.
-    pub fn deactivate(&mut self) {
-        self.active = false;
-        self.clear_preview();
-    }
-
-    /// Update the sphere preview at the given target position.
-    ///
-    /// Regenerates preview positions when target or settings change.
-    pub fn update_preview(&mut self, target: Vector3<i32>) {
-        use crate::gpu_resources::MAX_STENCIL_BLOCKS;
-
-        let center = sphere::calculate_center(target, self.radius, self.placement_mode);
-
-        // Only regenerate if center or settings changed
-        let needs_regen = self.preview_center != Some(center) || self.settings_changed();
-
-        if needs_regen {
-            self.preview_center = Some(center);
-            self.update_cache();
-
-            let all_positions =
-                sphere::generate_sphere_positions(center, self.radius, self.hollow, self.dome);
-
-            // Track total count and truncation status
-            self.total_blocks = all_positions.len();
-            self.preview_truncated = all_positions.len() > MAX_STENCIL_BLOCKS;
-
-            // Truncate for preview (full list used for actual placement)
-            if all_positions.len() > MAX_STENCIL_BLOCKS {
-                self.preview_positions = all_positions[..MAX_STENCIL_BLOCKS].to_vec();
-            } else {
-                self.preview_positions = all_positions;
-            }
-        }
-    }
 }
 
 /// State for the cube placement tool.
