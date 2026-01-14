@@ -1769,6 +1769,69 @@ impl App {
         self.ui.bezier_tool.clear();
     }
 
+    /// Apply pattern fill to the selection.
+    ///
+    /// Uses hotbar slot 0 for Block A and slot 1 for Block B.
+    pub fn apply_pattern_fill(&mut self) {
+        let pattern = &self.ui.pattern_fill;
+        if !pattern.active || pattern.preview_a.is_empty() {
+            return;
+        }
+
+        // Get block types from hotbar slots 0 and 1
+        let block_a = self.ui.hotbar_blocks[0];
+        let tint_a = self.ui.hotbar_tint_indices[0];
+        let paint_tex_a = self.ui.hotbar_paint_textures[0];
+
+        let block_b = self.ui.hotbar_blocks[1];
+        let tint_b = self.ui.hotbar_tint_indices[1];
+        let paint_tex_b = self.ui.hotbar_paint_textures[1];
+
+        // Create params for each block type
+        let params_a = BlockPlacementParams::new(block_a, tint_a, paint_tex_a);
+        let params_b = BlockPlacementParams::new(block_b, tint_b, paint_tex_b);
+
+        // Clone positions before placement
+        let positions_a = self.ui.pattern_fill.preview_a.clone();
+        let positions_b = self.ui.pattern_fill.preview_b.clone();
+        let pattern_type = self.ui.pattern_fill.pattern_type;
+
+        // Place Block A positions
+        let placed_a = place_blocks_at_positions(
+            &positions_a,
+            params_a,
+            &mut self.sim.world,
+            &mut self.sim.water_grid,
+            &mut self.sim.lava_grid,
+        );
+
+        // Place Block B positions
+        let placed_b = place_blocks_at_positions(
+            &positions_b,
+            params_b,
+            &mut self.sim.world,
+            &mut self.sim.water_grid,
+            &mut self.sim.lava_grid,
+        );
+
+        // Invalidate minimap cache for affected area
+        if let Some(first_pos) = positions_a.first() {
+            self.sim
+                .world
+                .invalidate_minimap_cache(first_pos.x, first_pos.z);
+        }
+
+        println!(
+            "Applied {} pattern ({} + {} = {} blocks)",
+            pattern_type.name(),
+            placed_a,
+            placed_b,
+            placed_a + placed_b
+        );
+
+        // Don't deactivate tool - allow applying multiple patterns
+    }
+
     /// Execute clone operation: copy blocks from selection to cloned positions.
     pub fn execute_clone(&mut self) {
         let clone_tool = &self.ui.clone_tool;

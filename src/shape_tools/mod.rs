@@ -14,6 +14,7 @@ pub mod cylinder;
 pub mod floor;
 pub mod helix;
 pub mod mirror;
+pub mod pattern;
 pub mod polygon;
 pub mod replace;
 pub mod sphere;
@@ -24,6 +25,7 @@ pub mod wall;
 // Re-export tool state structs from their respective modules
 pub use bezier::BezierToolState;
 pub use helix::HelixToolState;
+pub use pattern::{PatternFillState, PatternType};
 pub use polygon::PolygonToolState;
 pub use sphere::SphereToolState;
 pub use torus::TorusToolState;

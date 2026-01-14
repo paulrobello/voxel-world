@@ -585,6 +585,7 @@ impl App {
             helix_tool: crate::shape_tools::HelixToolState::default(),
             polygon_tool: crate::shape_tools::PolygonToolState::default(),
             bezier_tool: crate::shape_tools::BezierToolState::default(),
+            pattern_fill: crate::shape_tools::PatternFillState::default(),
         };
 
         let input = InputState {

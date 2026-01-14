@@ -129,6 +129,14 @@ impl App {
             return true;
         }
 
+        // Cancel pattern fill tool
+        if self.input.key_pressed(KeyCode::Escape) && self.ui.pattern_fill.active {
+            println!("Pattern Fill Tool: OFF");
+            self.ui.pattern_fill.active = false;
+            self.ui.pattern_fill.clear_preview();
+            return true;
+        }
+
         // Handle escape to unfocus
         if self.input.key_pressed(KeyCode::Escape) && self.input.focused {
             self.input.focused = false;
@@ -873,6 +881,18 @@ impl App {
             && self.input.key_pressed(KeyCode::Enter)
         {
             self.place_bezier();
+            return; // Skip block placement
+        }
+
+        // Handle pattern fill with right-click
+        if self.input.focused
+            && self.ui.pattern_fill.active
+            && !self.ui.pattern_fill.preview_a.is_empty()
+            && self.input.mouse_pressed(MouseButton::Right)
+            && !self.ui.place_needs_reclick
+        {
+            self.apply_pattern_fill();
+            self.ui.place_needs_reclick = true;
             return; // Skip block placement
         }
 

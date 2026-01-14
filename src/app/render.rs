@@ -800,6 +800,41 @@ impl App {
                 }
             }
 
+            // Add blocks from pattern fill tool preview
+            if self.ui.pattern_fill.active {
+                // Block A uses cyan (0), Block B uses green (1)
+                for world_pos in &self.ui.pattern_fill.preview_a {
+                    if total_blocks >= gpu_resources::MAX_STENCIL_BLOCKS {
+                        break;
+                    }
+                    let tex_pos = world_to_tex(*world_pos);
+                    write[total_blocks] = gpu_resources::GpuStencilBlock {
+                        position: [
+                            tex_pos.0 as f32,
+                            tex_pos.1 as f32,
+                            tex_pos.2 as f32,
+                            0.0, // Cyan for Block A
+                        ],
+                    };
+                    total_blocks += 1;
+                }
+                for world_pos in &self.ui.pattern_fill.preview_b {
+                    if total_blocks >= gpu_resources::MAX_STENCIL_BLOCKS {
+                        break;
+                    }
+                    let tex_pos = world_to_tex(*world_pos);
+                    write[total_blocks] = gpu_resources::GpuStencilBlock {
+                        position: [
+                            tex_pos.0 as f32,
+                            tex_pos.1 as f32,
+                            tex_pos.2 as f32,
+                            1.0, // Green for Block B
+                        ],
+                    };
+                    total_blocks += 1;
+                }
+            }
+
             // Add mirror plane visualization
             if self.ui.mirror_tool.active
                 && self.ui.mirror_tool.plane_set

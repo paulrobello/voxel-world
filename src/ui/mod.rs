@@ -41,6 +41,7 @@ pub mod hotbar;
 pub mod minimap;
 pub mod mirror_tool;
 pub mod palette;
+pub mod pattern_tool;
 pub mod polygon_tool;
 pub mod replace_tool;
 pub mod settings;
@@ -66,6 +67,7 @@ use hotbar::HotbarUI;
 use minimap::MinimapUI;
 use mirror_tool::MirrorToolUI;
 use palette::PaletteUI;
+use pattern_tool::PatternToolUI;
 use polygon_tool::PolygonToolUI;
 use replace_tool::ReplaceToolUI;
 use settings::SettingsUI;
@@ -160,6 +162,8 @@ pub struct HudInputs<'a> {
     pub helix_tool: &'a mut crate::shape_tools::HelixToolState,
     pub polygon_tool: &'a mut crate::shape_tools::PolygonToolState,
     pub bezier_tool: &'a mut crate::shape_tools::BezierToolState,
+    pub pattern_fill: &'a mut crate::shape_tools::PatternFillState,
+    pub has_selection: bool,
 }
 
 pub struct HUDRenderer;
@@ -237,6 +241,8 @@ impl HUDRenderer {
             helix_tool,
             polygon_tool,
             bezier_tool,
+            pattern_fill,
+            has_selection,
         } = input;
         let mut scale_changed = false;
         let mut editor_action = EditorAction::None;
@@ -321,6 +327,7 @@ impl HUDRenderer {
                 helix_tool.active,
                 polygon_tool.active,
                 bezier_tool.active,
+                pattern_fill.active,
                 stencil_manager.global_opacity,
                 stencil_manager.render_mode,
             );
@@ -385,6 +392,9 @@ impl HUDRenderer {
 
             // Bezier tool settings window
             BezierToolUI::draw(&ctx, bezier_tool);
+
+            // Pattern fill tool settings window
+            PatternToolUI::draw(&ctx, pattern_fill, has_selection);
 
             // Crosshair (hide when editor or console is open)
             if !editor.active && !console.active {

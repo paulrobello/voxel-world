@@ -29,6 +29,10 @@ pub fn render_hud(
         lava_active: sim.lava_grid.active_count(),
     };
 
+    // Check if there's a valid selection for pattern fill
+    let has_selection =
+        ui.template_selection.pos1.is_some() && ui.template_selection.pos2.is_some();
+
     let (scale_changed, editor_action, tool_action) = HUDRenderer.render(
         &mut rcx.gui,
         HudInputs {
@@ -98,6 +102,8 @@ pub fn render_hud(
             helix_tool: &mut ui.helix_tool,
             polygon_tool: &mut ui.polygon_tool,
             bezier_tool: &mut ui.bezier_tool,
+            pattern_fill: &mut ui.pattern_fill,
+            has_selection,
         },
     );
 
@@ -347,6 +353,18 @@ pub fn render_hud(
             if ui.bezier_tool.active {
                 ui.tools_palette.open = false;
                 // Don't request cursor grab - bezier tool UI needs mouse interaction
+            }
+        }
+        ToolAction::TogglePatternFillTool => {
+            ui.pattern_fill.active = !ui.pattern_fill.active;
+            println!(
+                "Pattern Fill Tool: {}",
+                if ui.pattern_fill.active { "ON" } else { "OFF" }
+            );
+            // Close tools palette but DON'T grab cursor - tool uses selection
+            if ui.pattern_fill.active {
+                ui.tools_palette.open = false;
+                // Don't request cursor grab - pattern fill UI needs mouse interaction
             }
         }
         ToolAction::None => {}

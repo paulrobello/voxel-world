@@ -178,6 +178,12 @@ pub fn update_all_tool_previews(ui: &mut UiState, world: &World) {
     if ui.clone_tool.active {
         ui.clone_tool.update_preview(&ui.template_selection, world);
     }
+
+    // Handle pattern fill preview (uses selection bounds)
+    if ui.pattern_fill.active {
+        ui.pattern_fill
+            .update_preview(ui.template_selection.bounds());
+    }
 }
 
 /// Calculate target position for tools with PlacementMode.

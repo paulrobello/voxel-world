@@ -12,8 +12,8 @@ use crate::raycast::RaycastHit;
 use crate::shape_tools::{
     ArchToolState, BezierToolState, BridgeToolState, CircleToolState, CloneToolState,
     ConeToolState, CubeToolState, CylinderToolState, FloorToolState, HelixToolState,
-    MirrorToolState, PolygonToolState, ReplaceToolState, SphereToolState, StairsToolState,
-    TorusToolState, WallToolState,
+    MirrorToolState, PatternFillState, PolygonToolState, ReplaceToolState, SphereToolState,
+    StairsToolState, TorusToolState, WallToolState,
 };
 use crate::templates::{TemplateLibrary, TemplatePlacement, TemplateSelection, TemplateUi};
 use crate::ui::tools::ToolsPaletteState;
@@ -173,4 +173,7 @@ pub struct UiState {
 
     /// Bezier curve placement tool state.
     pub bezier_tool: BezierToolState,
+
+    /// Pattern fill tool state.
+    pub pattern_fill: PatternFillState,
 }
