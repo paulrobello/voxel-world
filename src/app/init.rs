@@ -587,6 +587,7 @@ impl App {
             bezier_tool: crate::shape_tools::BezierToolState::default(),
             pattern_fill: crate::shape_tools::PatternFillState::default(),
             scatter_tool: crate::shape_tools::ScatterToolState::default(),
+            hollow_tool: crate::shape_tools::HollowToolState::default(),
         };
 
         let input = InputState {

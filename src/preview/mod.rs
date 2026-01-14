@@ -184,6 +184,12 @@ pub fn update_all_tool_previews(ui: &mut UiState, world: &World) {
         ui.pattern_fill
             .update_preview(ui.template_selection.bounds());
     }
+
+    // Handle hollow tool preview (uses selection bounds)
+    if ui.hollow_tool.active {
+        ui.hollow_tool
+            .update_preview(ui.template_selection.bounds());
+    }
 }
 
 /// Calculate target position for tools with PlacementMode.

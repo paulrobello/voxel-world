@@ -37,6 +37,7 @@ pub mod cylinder_tool;
 pub mod floor_tool;
 pub mod helix_tool;
 pub mod helpers;
+pub mod hollow_tool;
 pub mod hotbar;
 pub mod minimap;
 pub mod mirror_tool;
@@ -64,6 +65,7 @@ use cube_tool::CubeToolUI;
 use cylinder_tool::CylinderToolUI;
 use floor_tool::FloorToolUI;
 use helix_tool::HelixToolUI;
+use hollow_tool::HollowToolUI;
 use hotbar::HotbarUI;
 use minimap::MinimapUI;
 use mirror_tool::MirrorToolUI;
@@ -166,6 +168,7 @@ pub struct HudInputs<'a> {
     pub bezier_tool: &'a mut crate::shape_tools::BezierToolState,
     pub pattern_fill: &'a mut crate::shape_tools::PatternFillState,
     pub scatter_tool: &'a mut crate::shape_tools::ScatterToolState,
+    pub hollow_tool: &'a mut crate::shape_tools::HollowToolState,
     pub has_selection: bool,
 }
 
@@ -246,6 +249,7 @@ impl HUDRenderer {
             bezier_tool,
             pattern_fill,
             scatter_tool,
+            hollow_tool,
             has_selection,
         } = input;
         let mut scale_changed = false;
@@ -333,6 +337,7 @@ impl HUDRenderer {
                 bezier_tool.active,
                 pattern_fill.active,
                 scatter_tool.active,
+                hollow_tool.active,
                 stencil_manager.global_opacity,
                 stencil_manager.render_mode,
             );
@@ -403,6 +408,9 @@ impl HUDRenderer {
 
             // Scatter tool settings window
             ScatterToolUI::draw(&ctx, scatter_tool);
+
+            // Hollow tool settings window
+            HollowToolUI::draw(&ctx, hollow_tool, has_selection);
 
             // Crosshair (hide when editor or console is open)
             if !editor.active && !console.active {

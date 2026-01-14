@@ -1926,6 +1926,52 @@ impl App {
         }
     }
 
+    /// Apply hollow operation to remove interior blocks from selection.
+    ///
+    /// Removes all blocks in the interior of the selection, leaving a shell
+    /// with the configured wall thickness.
+    pub fn apply_hollow(&mut self) {
+        let hollow = &self.ui.hollow_tool;
+        if !hollow.active || hollow.preview_positions.is_empty() {
+            return;
+        }
+
+        // Clone positions before mutating world
+        let positions = self.ui.hollow_tool.preview_positions.clone();
+        let thickness = self.ui.hollow_tool.thickness;
+
+        let mut removed = 0;
+        for pos in &positions {
+            if let Some(block) = self.sim.world.get_block(*pos) {
+                // Only remove non-air, non-fluid blocks
+                if block != BlockType::Air && block != BlockType::Water && block != BlockType::Lava
+                {
+                    // Clear water/lava cells if present
+                    self.sim.water_grid.remove_water(*pos, 999.0);
+                    self.sim.lava_grid.remove_lava(*pos, 999.0);
+
+                    // Remove the block (set to air)
+                    self.sim.world.set_block(*pos, BlockType::Air);
+                    removed += 1;
+                }
+            }
+        }
+
+        // Invalidate minimap cache for affected area
+        if let Some(first_pos) = positions.first() {
+            self.sim
+                .world
+                .invalidate_minimap_cache(first_pos.x, first_pos.z);
+        }
+
+        println!(
+            "Hollowed {} interior blocks (thickness={})",
+            removed, thickness
+        );
+
+        // Don't deactivate tool - allow applying to other selections
+    }
+
     /// Execute clone operation: copy blocks from selection to cloned positions.
     pub fn execute_clone(&mut self) {
         let clone_tool = &self.ui.clone_tool;

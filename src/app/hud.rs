@@ -104,6 +104,7 @@ pub fn render_hud(
             bezier_tool: &mut ui.bezier_tool,
             pattern_fill: &mut ui.pattern_fill,
             scatter_tool: &mut ui.scatter_tool,
+            hollow_tool: &mut ui.hollow_tool,
             has_selection,
         },
     );
@@ -378,6 +379,18 @@ pub fn render_hud(
             if ui.scatter_tool.active {
                 ui.tools_palette.open = false;
                 ui.request_cursor_grab = true;
+            }
+        }
+        ToolAction::ToggleHollowTool => {
+            ui.hollow_tool.active = !ui.hollow_tool.active;
+            println!(
+                "Hollow Tool: {}",
+                if ui.hollow_tool.active { "ON" } else { "OFF" }
+            );
+            // Close tools palette but DON'T grab cursor - tool uses selection
+            if ui.hollow_tool.active {
+                ui.tools_palette.open = false;
+                // Don't request cursor grab - hollow tool UI needs mouse interaction
             }
         }
         ToolAction::None => {}

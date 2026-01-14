@@ -12,8 +12,8 @@ use crate::raycast::RaycastHit;
 use crate::shape_tools::{
     ArchToolState, BezierToolState, BridgeToolState, CircleToolState, CloneToolState,
     ConeToolState, CubeToolState, CylinderToolState, FloorToolState, HelixToolState,
-    MirrorToolState, PatternFillState, PolygonToolState, ReplaceToolState, ScatterToolState,
-    SphereToolState, StairsToolState, TorusToolState, WallToolState,
+    HollowToolState, MirrorToolState, PatternFillState, PolygonToolState, ReplaceToolState,
+    ScatterToolState, SphereToolState, StairsToolState, TorusToolState, WallToolState,
 };
 use crate::templates::{TemplateLibrary, TemplatePlacement, TemplateSelection, TemplateUi};
 use crate::ui::tools::ToolsPaletteState;
@@ -179,4 +179,7 @@ pub struct UiState {
 
     /// Scatter brush tool state.
     pub scatter_tool: ScatterToolState,
+
+    /// Hollow tool state.
+    pub hollow_tool: HollowToolState,
 }

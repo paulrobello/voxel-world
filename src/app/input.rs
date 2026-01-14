@@ -145,6 +145,14 @@ impl App {
             return true;
         }
 
+        // Cancel hollow tool
+        if self.input.key_pressed(KeyCode::Escape) && self.ui.hollow_tool.active {
+            println!("Hollow Tool: OFF");
+            self.ui.hollow_tool.active = false;
+            self.ui.hollow_tool.clear_preview();
+            return true;
+        }
+
         // Handle escape to unfocus
         if self.input.key_pressed(KeyCode::Escape) && self.input.focused {
             self.input.focused = false;
@@ -923,6 +931,18 @@ impl App {
                 // Stop painting when right-click released
                 self.ui.scatter_tool.stop_painting();
             }
+        }
+
+        // Handle hollow tool with right-click
+        if self.input.focused
+            && self.ui.hollow_tool.active
+            && !self.ui.hollow_tool.preview_positions.is_empty()
+            && self.input.mouse_pressed(MouseButton::Right)
+            && !self.ui.place_needs_reclick
+        {
+            self.apply_hollow();
+            self.ui.place_needs_reclick = true;
+            return; // Skip block placement
         }
 
         // Handle mirror tool axis cycling with Tab key

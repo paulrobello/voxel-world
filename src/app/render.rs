@@ -835,6 +835,25 @@ impl App {
                 }
             }
 
+            // Add blocks from hollow tool preview (interior blocks to remove)
+            if self.ui.hollow_tool.active {
+                for world_pos in &self.ui.hollow_tool.preview_positions {
+                    if total_blocks >= gpu_resources::MAX_STENCIL_BLOCKS {
+                        break;
+                    }
+                    let tex_pos = world_to_tex(*world_pos);
+                    write[total_blocks] = gpu_resources::GpuStencilBlock {
+                        position: [
+                            tex_pos.0 as f32,
+                            tex_pos.1 as f32,
+                            tex_pos.2 as f32,
+                            3.0, // Red/orange for blocks to be removed
+                        ],
+                    };
+                    total_blocks += 1;
+                }
+            }
+
             // Add mirror plane visualization
             if self.ui.mirror_tool.active
                 && self.ui.mirror_tool.plane_set

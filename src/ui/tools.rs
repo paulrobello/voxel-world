@@ -42,6 +42,7 @@ pub enum ToolAction {
     ToggleBezierTool,
     TogglePatternFillTool,
     ToggleScatterTool,
+    ToggleHollowTool,
 }
 
 /// Which tool is currently active/highlighted in the palette.
@@ -72,6 +73,7 @@ pub enum ActiveTool {
     Bezier,
     PatternFill,
     Scatter,
+    Hollow,
 }
 
 impl ActiveTool {
@@ -102,6 +104,7 @@ impl ActiveTool {
             ActiveTool::Bezier => "Bezier Curve",
             ActiveTool::PatternFill => "Pattern Fill",
             ActiveTool::Scatter => "Scatter Brush",
+            ActiveTool::Hollow => "Hollow",
         }
     }
 
@@ -132,6 +135,7 @@ impl ActiveTool {
             ActiveTool::Bezier => "〰",      // Wavy dash for curve
             ActiveTool::PatternFill => "🔲", // Pattern grid
             ActiveTool::Scatter => "🎨",     // Paint palette for scatter
+            ActiveTool::Hollow => "⬜",      // Empty square for hollow
         }
     }
 
@@ -162,6 +166,7 @@ impl ActiveTool {
             ActiveTool::Bezier => "",    // No dedicated hotkey, button only
             ActiveTool::PatternFill => "", // No dedicated hotkey, button only
             ActiveTool::Scatter => "",   // No dedicated hotkey, button only
+            ActiveTool::Hollow => "",    // No dedicated hotkey, button only
         }
     }
 
@@ -192,6 +197,7 @@ impl ActiveTool {
             ActiveTool::Bezier => "Draw smooth curves with control points",
             ActiveTool::PatternFill => "Fill selection with patterns",
             ActiveTool::Scatter => "Paint scattered blocks with brush",
+            ActiveTool::Hollow => "Remove interior blocks from selection",
         }
     }
 }
@@ -342,6 +348,7 @@ impl ToolsPaletteUI {
         bezier_tool_active: bool,
         pattern_fill_active: bool,
         scatter_tool_active: bool,
+        hollow_tool_active: bool,
         stencil_opacity: f32,
         stencil_render_mode: StencilRenderMode,
     ) -> ToolsPaletteResult {
@@ -402,6 +409,8 @@ impl ToolsPaletteUI {
             ActiveTool::PatternFill
         } else if scatter_tool_active {
             ActiveTool::Scatter
+        } else if hollow_tool_active {
+            ActiveTool::Hollow
         } else {
             ActiveTool::None
         };
@@ -437,6 +446,7 @@ impl ToolsPaletteUI {
                     ActiveTool::Bezier,
                     ActiveTool::PatternFill,
                     ActiveTool::Scatter,
+                    ActiveTool::Hollow,
                     ActiveTool::Wall,
                     ActiveTool::Floor,
                     ActiveTool::Replace,
@@ -484,6 +494,7 @@ impl ToolsPaletteUI {
                                     ActiveTool::Bezier => ToolAction::ToggleBezierTool,
                                     ActiveTool::PatternFill => ToolAction::TogglePatternFillTool,
                                     ActiveTool::Scatter => ToolAction::ToggleScatterTool,
+                                    ActiveTool::Hollow => ToolAction::ToggleHollowTool,
                                     ActiveTool::Bridge => ToolAction::ToggleBridgeTool,
                                     ActiveTool::None => ToolAction::None,
                                 };
@@ -783,6 +794,15 @@ impl ToolsPaletteUI {
                 // Scatter tool has its own settings window (ScatterToolUI)
                 ui.label(
                     egui::RichText::new("Scatter settings in separate window")
+                        .color(egui::Color32::from_gray(140))
+                        .size(11.0)
+                        .italics(),
+                );
+            }
+            ActiveTool::Hollow => {
+                // Hollow tool has its own settings window (HollowToolUI)
+                ui.label(
+                    egui::RichText::new("Hollow settings in separate window")
                         .color(egui::Color32::from_gray(140))
                         .size(11.0)
                         .italics(),

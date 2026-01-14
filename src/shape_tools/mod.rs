@@ -13,6 +13,7 @@ pub mod cube;
 pub mod cylinder;
 pub mod floor;
 pub mod helix;
+pub mod hollow;
 pub mod mirror;
 pub mod pattern;
 pub mod polygon;
@@ -26,6 +27,7 @@ pub mod wall;
 // Re-export tool state structs from their respective modules
 pub use bezier::BezierToolState;
 pub use helix::HelixToolState;
+pub use hollow::HollowToolState;
 pub use pattern::{PatternFillState, PatternType};
 pub use polygon::PolygonToolState;
 pub use scatter::ScatterToolState;
