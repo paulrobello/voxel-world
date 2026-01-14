@@ -56,6 +56,7 @@ mod lava;
 mod particles;
 mod placement;
 mod player;
+mod preview;
 mod raycast;
 mod render_mode;
 mod shape_tools;

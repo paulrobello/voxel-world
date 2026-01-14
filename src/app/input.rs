@@ -1,5 +1,6 @@
 use super::App;
 use crate::chunk::BlockType;
+use crate::preview::update_all_tool_previews;
 use crate::raycast::get_place_position;
 use nalgebra::Vector3;
 use winit::event::MouseButton;
@@ -496,170 +497,19 @@ impl App {
             }
         }
 
-        // Update stencil placement position from raycast
-        if let Some(ref mut placement) = self.ui.active_stencil_placement {
-            if let Some(hit) = self.ui.current_hit {
-                let place_pos = get_place_position(&hit);
-                placement.update_position_from_raycast(place_pos);
-            }
+        // Update all shape tool previews from raycast
+        update_all_tool_previews(&mut self.ui, &self.sim.world);
+
+        // Handle replace tool execution requests
+        if self.ui.replace_tool.active && self.ui.replace_tool.execute_requested {
+            self.ui.replace_tool.execute_requested = false;
+            self.execute_replace();
         }
 
-        // Update sphere tool preview from raycast
-        if self.ui.sphere_tool.active {
-            if let Some(hit) = self.ui.current_hit {
-                // For Base mode, use hit block position (sphere sits ON the block)
-                // For Center mode, use placement position (where block would be placed)
-                let target = if self.ui.sphere_tool.placement_mode
-                    == crate::shape_tools::PlacementMode::Base
-                {
-                    // Base mode: sphere bottom rests on top of hit block
-                    // So target is one above hit block (first air block)
-                    hit.block_pos + Vector3::new(0, 1, 0)
-                } else {
-                    get_place_position(&hit)
-                };
-                self.ui.sphere_tool.update_preview(target);
-            } else {
-                self.ui.sphere_tool.clear_preview();
-            }
-        }
-
-        // Update cube tool preview from raycast
-        if self.ui.cube_tool.active {
-            if let Some(hit) = self.ui.current_hit {
-                // For Base mode, use hit block position (cube sits ON the block)
-                // For Center mode, use placement position (where block would be placed)
-                let target = if self.ui.cube_tool.placement_mode
-                    == crate::shape_tools::PlacementMode::Base
-                {
-                    // Base mode: cube bottom rests on top of hit block
-                    // So target is one above hit block (first air block)
-                    hit.block_pos + Vector3::new(0, 1, 0)
-                } else {
-                    get_place_position(&hit)
-                };
-                self.ui.cube_tool.update_preview(target);
-            } else {
-                self.ui.cube_tool.clear_preview();
-            }
-        }
-
-        // Update cylinder tool preview from raycast
-        if self.ui.cylinder_tool.active {
-            if let Some(hit) = self.ui.current_hit {
-                // For Base mode, use hit block position (cylinder sits ON the block)
-                // For Center mode, use placement position (where block would be placed)
-                let target = if self.ui.cylinder_tool.placement_mode
-                    == crate::shape_tools::PlacementMode::Base
-                {
-                    // Base mode: cylinder bottom rests on top of hit block
-                    // So target is one above hit block (first air block)
-                    hit.block_pos + Vector3::new(0, 1, 0)
-                } else {
-                    get_place_position(&hit)
-                };
-                self.ui.cylinder_tool.update_preview(target);
-            } else {
-                self.ui.cylinder_tool.clear_preview();
-            }
-        }
-
-        // Update bridge tool preview from raycast (only when start position is set)
-        if self.ui.bridge_tool.active && self.ui.bridge_tool.start_position.is_some() {
-            if let Some(hit) = self.ui.current_hit {
-                let target = get_place_position(&hit);
-                self.ui.bridge_tool.update_preview(target);
-            } else {
-                self.ui.bridge_tool.clear_preview();
-            }
-        }
-
-        // Update wall tool preview from raycast (only when start position is set)
-        if self.ui.wall_tool.active && self.ui.wall_tool.start_position.is_some() {
-            if let Some(hit) = self.ui.current_hit {
-                let target = get_place_position(&hit);
-                self.ui.wall_tool.update_preview(target);
-            } else {
-                self.ui.wall_tool.clear_preview();
-            }
-        }
-
-        // Update floor tool preview from raycast (only when start position is set)
-        if self.ui.floor_tool.active && self.ui.floor_tool.start_position.is_some() {
-            if let Some(hit) = self.ui.current_hit {
-                let target = get_place_position(&hit);
-                self.ui.floor_tool.update_preview(target);
-            } else {
-                self.ui.floor_tool.clear_preview();
-            }
-        }
-
-        // Update circle tool preview from raycast
-        if self.ui.circle_tool.active {
-            if let Some(hit) = self.ui.current_hit {
-                let target = get_place_position(&hit);
-                self.ui.circle_tool.update_preview(target);
-            } else {
-                self.ui.circle_tool.clear_preview();
-            }
-        }
-
-        // Update stairs tool preview from raycast (only when start position is set)
-        if self.ui.stairs_tool.active && self.ui.stairs_tool.start_pos.is_some() {
-            if let Some(hit) = self.ui.current_hit {
-                let target = get_place_position(&hit);
-                self.ui.stairs_tool.update_preview(target);
-            } else {
-                self.ui.stairs_tool.clear_preview();
-            }
-        }
-
-        // Update arch tool preview from raycast
-        if self.ui.arch_tool.active {
-            if let Some(hit) = self.ui.current_hit {
-                let target = get_place_position(&hit);
-                self.ui.arch_tool.update_preview(target);
-            } else {
-                self.ui.arch_tool.clear_preview();
-            }
-        }
-
-        // Update cone tool preview from raycast
-        if self.ui.cone_tool.active {
-            if let Some(hit) = self.ui.current_hit {
-                let target = get_place_position(&hit);
-                self.ui.cone_tool.update_preview(target);
-            } else {
-                self.ui.cone_tool.clear_preview();
-            }
-        }
-
-        // Handle replace tool preview and execution requests
-        if self.ui.replace_tool.active {
-            if self.ui.replace_tool.preview_requested {
-                self.ui.replace_tool.preview_requested = false;
-                self.ui
-                    .replace_tool
-                    .update_preview(&self.sim.world, &self.ui.template_selection);
-            }
-            if self.ui.replace_tool.execute_requested {
-                self.ui.replace_tool.execute_requested = false;
-                self.execute_replace();
-            }
-        }
-
-        // Handle clone tool preview and execution requests
-        if self.ui.clone_tool.active {
-            // Update preview when selection or settings change
-            self.ui
-                .clone_tool
-                .update_preview(&self.ui.template_selection, &self.sim.world);
-
-            // Execute clone if requested
-            if self.ui.clone_tool.execute_requested {
-                self.ui.clone_tool.execute_requested = false;
-                self.execute_clone();
-            }
+        // Handle clone tool execution requests
+        if self.ui.clone_tool.active && self.ui.clone_tool.execute_requested {
+            self.ui.clone_tool.execute_requested = false;
+            self.execute_clone();
         }
 
         // Handle template placement with right-click
