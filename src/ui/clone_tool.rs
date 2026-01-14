@@ -64,6 +64,9 @@ impl CloneToolUI {
                     CloneMode::Grid => {
                         Self::draw_grid_settings(ui, state);
                     }
+                    CloneMode::Grid3D => {
+                        Self::draw_grid3d_settings(ui, state);
+                    }
                 }
 
                 ui.add_space(8.0);
@@ -166,6 +169,55 @@ impl CloneToolUI {
         ui.horizontal(|ui| {
             ui.label("X spacing:");
             ui.add(egui::DragValue::new(&mut state.grid_spacing_x).range(0..=20));
+        });
+
+        ui.add_space(8.0);
+
+        // Z count
+        ui.horizontal(|ui| {
+            ui.label("Z copies:");
+            ui.add(egui::DragValue::new(&mut state.grid_count_z).range(1..=10));
+        });
+        ui.add(egui::Slider::new(&mut state.grid_count_z, 1..=10).show_value(false));
+
+        // Z spacing
+        ui.horizontal(|ui| {
+            ui.label("Z spacing:");
+            ui.add(egui::DragValue::new(&mut state.grid_spacing_z).range(0..=20));
+        });
+    }
+
+    /// Draw 3D grid clone mode settings.
+    fn draw_grid3d_settings(ui: &mut egui::Ui, state: &mut CloneToolState) {
+        ui.label(egui::RichText::new("3D Grid Mode (XYZ)").strong());
+        ui.add_space(4.0);
+
+        // X count
+        ui.horizontal(|ui| {
+            ui.label("X copies:");
+            ui.add(egui::DragValue::new(&mut state.grid_count_x).range(1..=10));
+        });
+        ui.add(egui::Slider::new(&mut state.grid_count_x, 1..=10).show_value(false));
+
+        // X spacing
+        ui.horizontal(|ui| {
+            ui.label("X spacing:");
+            ui.add(egui::DragValue::new(&mut state.grid_spacing_x).range(0..=20));
+        });
+
+        ui.add_space(8.0);
+
+        // Y count
+        ui.horizontal(|ui| {
+            ui.label("Y copies:");
+            ui.add(egui::DragValue::new(&mut state.grid_count_y).range(1..=10));
+        });
+        ui.add(egui::Slider::new(&mut state.grid_count_y, 1..=10).show_value(false));
+
+        // Y spacing
+        ui.horizontal(|ui| {
+            ui.label("Y spacing:");
+            ui.add(egui::DragValue::new(&mut state.grid_spacing_y).range(0..=20));
         });
 
         ui.add_space(8.0);

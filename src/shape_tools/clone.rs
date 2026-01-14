@@ -11,14 +11,16 @@ pub enum CloneMode {
     /// Repeat N times along a single axis with spacing.
     #[default]
     Linear,
-    /// Repeat NxM times in a 2D grid pattern.
+    /// Repeat NxM times in a 2D grid pattern (XZ plane).
     Grid,
+    /// Repeat NxMxP times in a 3D grid pattern (X, Y, Z).
+    Grid3D,
 }
 
 impl CloneMode {
     /// Get all available clone modes.
     pub fn all() -> &'static [CloneMode] {
-        &[CloneMode::Linear, CloneMode::Grid]
+        &[CloneMode::Linear, CloneMode::Grid, CloneMode::Grid3D]
     }
 
     /// Get display name for the mode.
@@ -26,6 +28,7 @@ impl CloneMode {
         match self {
             CloneMode::Linear => "Linear",
             CloneMode::Grid => "Grid (2D)",
+            CloneMode::Grid3D => "Grid (3D)",
         }
     }
 }
@@ -71,7 +74,7 @@ impl CloneAxis {
 ///
 /// # Arguments
 /// * `selection_size` - Size of the selection region (width, height, depth)
-/// * `mode` - Clone mode (Linear or Grid)
+/// * `mode` - Clone mode (Linear, Grid, or Grid3D)
 /// * `axis` - Primary axis for linear cloning
 /// * `count` - Number of copies for linear mode
 /// * `spacing` - Gap between copies (in addition to selection size)
@@ -79,6 +82,8 @@ impl CloneAxis {
 /// * `grid_count_z` - Number of copies along Z for grid mode
 /// * `grid_spacing_x` - Spacing along X for grid mode
 /// * `grid_spacing_z` - Spacing along Z for grid mode
+/// * `grid_count_y` - Number of copies along Y for 3D grid mode
+/// * `grid_spacing_y` - Spacing along Y for 3D grid mode
 ///
 /// # Returns
 /// Vector of origin offsets for each copy (relative to selection origin).
@@ -94,6 +99,8 @@ pub fn calculate_clone_origins(
     grid_count_z: i32,
     grid_spacing_x: i32,
     grid_spacing_z: i32,
+    grid_count_y: i32,
+    grid_spacing_y: i32,
 ) -> Vec<Vector3<i32>> {
     let mut origins = Vec::new();
 
@@ -120,6 +127,21 @@ pub fn calculate_clone_origins(
                 for z in 0..grid_count_z {
                     let offset = Vector3::new(stride_x * x, 0, stride_z * z);
                     origins.push(offset);
+                }
+            }
+        }
+        CloneMode::Grid3D => {
+            // 3D grid in XYZ
+            let stride_x = selection_size.x + grid_spacing_x;
+            let stride_y = selection_size.y + grid_spacing_y;
+            let stride_z = selection_size.z + grid_spacing_z;
+
+            for x in 0..grid_count_x {
+                for y in 0..grid_count_y {
+                    for z in 0..grid_count_z {
+                        let offset = Vector3::new(stride_x * x, stride_y * y, stride_z * z);
+                        origins.push(offset);
+                    }
                 }
             }
         }
@@ -174,6 +196,8 @@ mod tests {
             1,
             0,
             0,
+            1, // grid_count_y (ignored for linear)
+            0, // grid_spacing_y (ignored for linear)
         );
 
         assert_eq!(origins.len(), 3);
@@ -195,6 +219,8 @@ mod tests {
             1,
             0,
             0,
+            1, // grid_count_y (ignored for linear)
+            0, // grid_spacing_y (ignored for linear)
         );
 
         assert_eq!(origins.len(), 4);
@@ -217,6 +243,8 @@ mod tests {
             1,
             0,
             0,
+            1, // grid_count_y (ignored for linear)
+            0, // grid_spacing_y (ignored for linear)
         );
 
         assert_eq!(origins.len(), 2);
@@ -237,6 +265,8 @@ mod tests {
             2,            // 2 copies along Z
             1,            // spacing of 1 in X
             1,            // spacing of 1 in Z
+            1,            // grid_count_y (ignored for 2D grid)
+            0,            // grid_spacing_y (ignored for 2D grid)
         );
 
         // 3x2 = 6 copies total
@@ -247,6 +277,35 @@ mod tests {
         assert!(origins.contains(&Vector3::new(6, 0, 0))); // 2*3 = 6 (x stride = 2+1 = 3)
         assert!(origins.contains(&Vector3::new(0, 0, 3))); // z stride = 2+1 = 3
         assert!(origins.contains(&Vector3::new(6, 0, 3)));
+    }
+
+    #[test]
+    fn test_grid3d_clone() {
+        let size = Vector3::new(2, 2, 2);
+        let origins = calculate_clone_origins(
+            size,
+            CloneMode::Grid3D,
+            CloneAxis::X, // Ignored for grid3d
+            1,            // Ignored for grid3d
+            0,            // Ignored for grid3d
+            2,            // 2 copies along X
+            2,            // 2 copies along Z
+            1,            // spacing of 1 in X
+            1,            // spacing of 1 in Z
+            3,            // 3 copies along Y
+            0,            // spacing of 0 in Y
+        );
+
+        // 2x3x2 = 12 copies total
+        assert_eq!(origins.len(), 12);
+
+        // Check some key positions
+        assert!(origins.contains(&Vector3::new(0, 0, 0))); // Origin
+        assert!(origins.contains(&Vector3::new(3, 0, 0))); // x stride = 2+1 = 3
+        assert!(origins.contains(&Vector3::new(0, 2, 0))); // y stride = 2+0 = 2
+        assert!(origins.contains(&Vector3::new(0, 4, 0))); // 2nd Y level
+        assert!(origins.contains(&Vector3::new(0, 0, 3))); // z stride = 2+1 = 3
+        assert!(origins.contains(&Vector3::new(3, 4, 3))); // Far corner
     }
 
     #[test]
@@ -286,6 +345,8 @@ mod tests {
             1,
             0,
             0,
+            1, // grid_count_y (ignored for linear)
+            0, // grid_spacing_y (ignored for linear)
         );
 
         assert_eq!(origins.len(), 1);

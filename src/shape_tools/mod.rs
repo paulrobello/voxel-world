@@ -1383,7 +1383,7 @@ impl ConeToolState {
 pub struct CloneToolState {
     /// Whether the clone tool is currently active.
     pub active: bool,
-    /// Clone mode (Linear or Grid).
+    /// Clone mode (Linear, Grid, or Grid3D).
     pub mode: clone::CloneMode,
     /// Primary axis for linear mode.
     pub axis: clone::CloneAxis,
@@ -1395,10 +1395,14 @@ pub struct CloneToolState {
     pub grid_count_x: i32,
     /// Number of copies along Z for grid mode.
     pub grid_count_z: i32,
+    /// Number of copies along Y for 3D grid mode.
+    pub grid_count_y: i32,
     /// Spacing along X for grid mode.
     pub grid_spacing_x: i32,
     /// Spacing along Z for grid mode.
     pub grid_spacing_z: i32,
+    /// Spacing along Y for 3D grid mode.
+    pub grid_spacing_y: i32,
     /// Cached preview positions for GPU upload.
     pub preview_positions: Vec<Vector3<i32>>,
     /// Total block count for the clone operation.
@@ -1421,8 +1425,10 @@ impl Default for CloneToolState {
             spacing: 1,
             grid_count_x: 3,
             grid_count_z: 3,
+            grid_count_y: 3,
             grid_spacing_x: 1,
             grid_spacing_z: 1,
+            grid_spacing_y: 1,
             preview_positions: Vec::new(),
             total_blocks: 0,
             copy_count: 0,
@@ -1482,6 +1488,8 @@ impl CloneToolState {
             self.grid_count_z,
             self.grid_spacing_x,
             self.grid_spacing_z,
+            self.grid_count_y,
+            self.grid_spacing_y,
         );
 
         self.copy_count = origins.len();

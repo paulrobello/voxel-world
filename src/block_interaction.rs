@@ -2180,6 +2180,8 @@ impl App {
             clone_tool.grid_count_z,
             clone_tool.grid_spacing_x,
             clone_tool.grid_spacing_z,
+            clone_tool.grid_count_y,
+            clone_tool.grid_spacing_y,
         );
 
         // Skip the first origin (it's the original at 0,0,0)
