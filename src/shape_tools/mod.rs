@@ -4,6 +4,7 @@
 //! with holographic previews and configurable parameters.
 
 pub mod arch;
+pub mod bezier;
 pub mod bridge;
 pub mod circle;
 pub mod clone;
@@ -21,6 +22,7 @@ pub mod torus;
 pub mod wall;
 
 // Re-export tool state structs from their respective modules
+pub use bezier::BezierToolState;
 pub use helix::HelixToolState;
 pub use polygon::PolygonToolState;
 pub use sphere::SphereToolState;

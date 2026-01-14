@@ -122,6 +122,13 @@ impl App {
             return true;
         }
 
+        // Cancel bezier tool
+        if self.input.key_pressed(KeyCode::Escape) && self.ui.bezier_tool.active {
+            println!("Bezier Tool: OFF");
+            self.ui.bezier_tool.deactivate();
+            return true;
+        }
+
         // Handle escape to unfocus
         if self.input.key_pressed(KeyCode::Escape) && self.input.focused {
             self.input.focused = false;
@@ -820,6 +827,52 @@ impl App {
         {
             self.place_polygon();
             self.ui.place_needs_reclick = true;
+            return; // Skip block placement
+        }
+
+        // Handle bezier tool control point placement with right-click
+        if self.input.focused
+            && self.ui.bezier_tool.active
+            && self.ui.bezier_tool.can_add_point()
+            && self.input.mouse_pressed(MouseButton::Right)
+            && !self.ui.place_needs_reclick
+        {
+            if let Some(hit) = self.ui.current_hit {
+                let target = get_place_position(&hit);
+                self.ui.bezier_tool.add_control_point(target);
+                println!(
+                    "Bezier point {} placed at ({}, {}, {})",
+                    self.ui.bezier_tool.point_count(),
+                    target.x,
+                    target.y,
+                    target.z
+                );
+            }
+            self.ui.place_needs_reclick = true;
+            return; // Skip block placement
+        }
+
+        // Handle bezier tool undo point with Backspace
+        if self.input.focused
+            && self.ui.bezier_tool.active
+            && !self.ui.bezier_tool.control_points.is_empty()
+            && self.input.key_pressed(KeyCode::Backspace)
+        {
+            self.ui.bezier_tool.remove_last_point();
+            println!(
+                "Bezier point removed ({} remaining)",
+                self.ui.bezier_tool.point_count()
+            );
+        }
+
+        // Handle bezier tool confirm with Enter
+        if self.input.focused
+            && self.ui.bezier_tool.active
+            && self.ui.bezier_tool.has_curve()
+            && !self.ui.bezier_tool.preview_positions.is_empty()
+            && self.input.key_pressed(KeyCode::Enter)
+        {
+            self.place_bezier();
             return; // Skip block placement
         }
 

@@ -39,6 +39,7 @@ pub enum ToolAction {
     ToggleTorusTool,
     ToggleHelixTool,
     TogglePolygonTool,
+    ToggleBezierTool,
 }
 
 /// Which tool is currently active/highlighted in the palette.
@@ -66,6 +67,7 @@ pub enum ActiveTool {
     Torus,
     Helix,
     Polygon,
+    Bezier,
 }
 
 impl ActiveTool {
@@ -93,6 +95,7 @@ impl ActiveTool {
             ActiveTool::Torus => "Torus/Ring",
             ActiveTool::Helix => "Helix/Spiral",
             ActiveTool::Polygon => "Polygon",
+            ActiveTool::Bezier => "Bezier Curve",
         }
     }
 
@@ -120,6 +123,7 @@ impl ActiveTool {
             ActiveTool::Torus => "🍩",       // Donut for torus/ring
             ActiveTool::Helix => "🌀",       // Spiral for helix
             ActiveTool::Polygon => "⬡",      // Hexagon for polygon
+            ActiveTool::Bezier => "〰",      // Wavy dash for curve
         }
     }
 
@@ -147,6 +151,7 @@ impl ActiveTool {
             ActiveTool::Torus => "",     // No dedicated hotkey, button only
             ActiveTool::Helix => "",     // No dedicated hotkey, button only
             ActiveTool::Polygon => "",   // No dedicated hotkey, button only
+            ActiveTool::Bezier => "",    // No dedicated hotkey, button only
         }
     }
 
@@ -174,6 +179,7 @@ impl ActiveTool {
             ActiveTool::Torus => "Place rings or partial arcs",
             ActiveTool::Helix => "Create spirals and corkscrews",
             ActiveTool::Polygon => "Place regular n-gons and prisms",
+            ActiveTool::Bezier => "Draw smooth curves with control points",
         }
     }
 }
@@ -321,6 +327,7 @@ impl ToolsPaletteUI {
         torus_tool_active: bool,
         helix_tool_active: bool,
         polygon_tool_active: bool,
+        bezier_tool_active: bool,
         stencil_opacity: f32,
         stencil_render_mode: StencilRenderMode,
     ) -> ToolsPaletteResult {
@@ -375,6 +382,8 @@ impl ToolsPaletteUI {
             ActiveTool::Helix
         } else if polygon_tool_active {
             ActiveTool::Polygon
+        } else if bezier_tool_active {
+            ActiveTool::Bezier
         } else {
             ActiveTool::None
         };
@@ -407,6 +416,7 @@ impl ToolsPaletteUI {
                     ActiveTool::Torus,
                     ActiveTool::Helix,
                     ActiveTool::Polygon,
+                    ActiveTool::Bezier,
                     ActiveTool::Wall,
                     ActiveTool::Floor,
                     ActiveTool::Replace,
@@ -451,6 +461,7 @@ impl ToolsPaletteUI {
                                     ActiveTool::Torus => ToolAction::ToggleTorusTool,
                                     ActiveTool::Helix => ToolAction::ToggleHelixTool,
                                     ActiveTool::Polygon => ToolAction::TogglePolygonTool,
+                                    ActiveTool::Bezier => ToolAction::ToggleBezierTool,
                                     ActiveTool::Bridge => ToolAction::ToggleBridgeTool,
                                     ActiveTool::None => ToolAction::None,
                                 };
@@ -723,6 +734,15 @@ impl ToolsPaletteUI {
                 // Polygon tool has its own settings window (PolygonToolUI)
                 ui.label(
                     egui::RichText::new("Polygon settings in separate window")
+                        .color(egui::Color32::from_gray(140))
+                        .size(11.0)
+                        .italics(),
+                );
+            }
+            ActiveTool::Bezier => {
+                // Bezier tool has its own settings window (BezierToolUI)
+                ui.label(
+                    egui::RichText::new("Bezier settings in separate window")
                         .color(egui::Color32::from_gray(140))
                         .size(11.0)
                         .italics(),

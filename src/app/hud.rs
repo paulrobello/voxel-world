@@ -97,6 +97,7 @@ pub fn render_hud(
             torus_tool: &mut ui.torus_tool,
             helix_tool: &mut ui.helix_tool,
             polygon_tool: &mut ui.polygon_tool,
+            bezier_tool: &mut ui.bezier_tool,
         },
     );
 
@@ -334,6 +335,18 @@ pub fn render_hud(
             if ui.polygon_tool.active {
                 ui.tools_palette.open = false;
                 // Don't request cursor grab - polygon tool UI needs mouse interaction
+            }
+        }
+        ToolAction::ToggleBezierTool => {
+            ui.bezier_tool.active = !ui.bezier_tool.active;
+            println!(
+                "Bezier Tool: {}",
+                if ui.bezier_tool.active { "ON" } else { "OFF" }
+            );
+            // Close tools palette but DON'T grab cursor - let user place control points
+            if ui.bezier_tool.active {
+                ui.tools_palette.open = false;
+                // Don't request cursor grab - bezier tool UI needs mouse interaction
             }
         }
         ToolAction::None => {}

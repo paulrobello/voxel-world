@@ -26,6 +26,7 @@ use egui_winit_vulkano::egui;
 use nalgebra::Vector3;
 
 pub mod arch_tool;
+pub mod bezier_tool;
 pub mod bridge_tool;
 pub mod circle_tool;
 pub mod clone_tool;
@@ -52,6 +53,7 @@ pub mod torus_tool;
 pub mod wall_tool;
 
 use arch_tool::ArchToolUI;
+use bezier_tool::BezierToolUI;
 use bridge_tool::BridgeToolUI;
 use clone_tool::CloneToolUI;
 use cone_tool::ConeToolUI;
@@ -157,6 +159,7 @@ pub struct HudInputs<'a> {
     pub torus_tool: &'a mut crate::shape_tools::TorusToolState,
     pub helix_tool: &'a mut crate::shape_tools::HelixToolState,
     pub polygon_tool: &'a mut crate::shape_tools::PolygonToolState,
+    pub bezier_tool: &'a mut crate::shape_tools::BezierToolState,
 }
 
 pub struct HUDRenderer;
@@ -233,6 +236,7 @@ impl HUDRenderer {
             torus_tool,
             helix_tool,
             polygon_tool,
+            bezier_tool,
         } = input;
         let mut scale_changed = false;
         let mut editor_action = EditorAction::None;
@@ -316,6 +320,7 @@ impl HUDRenderer {
                 torus_tool.active,
                 helix_tool.active,
                 polygon_tool.active,
+                bezier_tool.active,
                 stencil_manager.global_opacity,
                 stencil_manager.render_mode,
             );
@@ -377,6 +382,9 @@ impl HUDRenderer {
 
             // Polygon tool settings window
             PolygonToolUI::draw(&ctx, polygon_tool);
+
+            // Bezier tool settings window
+            BezierToolUI::draw(&ctx, bezier_tool);
 
             // Crosshair (hide when editor or console is open)
             if !editor.active && !console.active {

@@ -760,6 +760,26 @@ impl App {
                 }
             }
 
+            // Add blocks from bezier tool preview
+            if self.ui.bezier_tool.active {
+                let preview_color_id = 0u32; // Cyan for bezier preview
+                for world_pos in &self.ui.bezier_tool.preview_positions {
+                    if total_blocks >= gpu_resources::MAX_STENCIL_BLOCKS {
+                        break;
+                    }
+                    let tex_pos = world_to_tex(*world_pos);
+                    write[total_blocks] = gpu_resources::GpuStencilBlock {
+                        position: [
+                            tex_pos.0 as f32,
+                            tex_pos.1 as f32,
+                            tex_pos.2 as f32,
+                            preview_color_id as f32,
+                        ],
+                    };
+                    total_blocks += 1;
+                }
+            }
+
             // Add blocks from clone tool preview
             if self.ui.clone_tool.active {
                 let preview_color_id = 1u32; // Green for clone preview (distinguishes from original)

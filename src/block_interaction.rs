@@ -1724,6 +1724,51 @@ impl App {
         // Don't deactivate tool - allow placing multiple polygons
     }
 
+    /// Place bezier curve at the preview positions.
+    pub fn place_bezier(&mut self) {
+        let bezier = &self.ui.bezier_tool;
+        if !bezier.active || bezier.preview_positions.is_empty() {
+            return;
+        }
+
+        // Get block type and metadata from hotbar
+        let params = self.get_hotbar_placement_params();
+
+        // Use preview positions (already generated with current settings)
+        let positions = self.ui.bezier_tool.preview_positions.clone();
+        let num_points = self.ui.bezier_tool.control_points.len();
+        let tube_radius = self.ui.bezier_tool.tube_radius;
+
+        // Place blocks using shared helper
+        let placed_count = place_blocks_at_positions(
+            &positions,
+            params,
+            &mut self.sim.world,
+            &mut self.sim.water_grid,
+            &mut self.sim.lava_grid,
+        );
+
+        // Invalidate minimap cache for affected area
+        if let Some(first_pos) = positions.first() {
+            self.sim
+                .world
+                .invalidate_minimap_cache(first_pos.x, first_pos.z);
+        }
+
+        let curve_type = if num_points == 3 {
+            "quadratic"
+        } else {
+            "cubic"
+        };
+        println!(
+            "Placed {} Bezier curve ({} blocks, {} control points, tube R={})",
+            curve_type, placed_count, num_points, tube_radius
+        );
+
+        // Clear control points for next curve, keep tool active
+        self.ui.bezier_tool.clear();
+    }
+
     /// Execute clone operation: copy blocks from selection to cloned positions.
     pub fn execute_clone(&mut self) {
         let clone_tool = &self.ui.clone_tool;

@@ -154,6 +154,19 @@ pub fn update_all_tool_previews(ui: &mut UiState, world: &World) {
         }
     }
 
+    // Update bezier tool preview (live cursor position)
+    if ui.bezier_tool.active {
+        if let Some(hit) = current_hit {
+            let target = get_place_position(&hit);
+            ui.bezier_tool.update_preview_with_cursor(target);
+        } else if ui.bezier_tool.has_curve() {
+            // Keep existing preview if we have a curve
+            ui.bezier_tool.regenerate_preview();
+        } else {
+            ui.bezier_tool.preview_positions.clear();
+        }
+    }
+
     // Handle replace tool preview (requires world and selection)
     if ui.replace_tool.active && ui.replace_tool.preview_requested {
         ui.replace_tool.preview_requested = false;
