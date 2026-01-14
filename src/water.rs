@@ -282,6 +282,9 @@ pub struct WaterGrid {
     /// Reusable buffer for cells to deactivate
     deactivate_buffer: Vec<Vector3<i32>>,
 
+    /// Reusable Y-layer buckets to avoid per-tick allocations
+    y_buckets: [Vec<Vector3<i32>>; Y_BUCKET_COUNT],
+
     /// Last player position for lazy pruning decision
     last_prune_player_pos: Option<Vector3<f32>>,
 
@@ -316,6 +319,7 @@ impl WaterGrid {
             last_prune_player_pos: None,
             tick_counter: 0,
             stats: WaterSimStats::default(),
+            y_buckets: std::array::from_fn(|_| Vec::new()),
         }
     }
 
@@ -601,12 +605,14 @@ impl WaterGrid {
         // Positions
         let below = pos + Vector3::new(0, -1, 0);
         let above = pos + Vector3::new(0, 1, 0);
-        let neighbors = [
-            (pos + Vector3::new(1, 0, 0), &mut result.pos_x),
-            (pos + Vector3::new(-1, 0, 0), &mut result.neg_x),
-            (pos + Vector3::new(0, 0, 1), &mut result.pos_z),
-            (pos + Vector3::new(0, 0, -1), &mut result.neg_z),
+        let neighbor_positions = [
+            pos + Vector3::new(1, 0, 0),
+            pos + Vector3::new(-1, 0, 0),
+            pos + Vector3::new(0, 0, 1),
+            pos + Vector3::new(0, 0, -1),
         ];
+        let mut neighbor_mass = [0.0f32; 4];
+        let mut neighbor_open = [false; 4];
 
         // 1. Flow DOWN (gravity) - highest priority
         // Special case: if below is out of bounds, water drains into void
@@ -637,24 +643,31 @@ impl WaterGrid {
 
         // 2. Flow HORIZONTAL (equalization)
         if remaining > MIN_FLOW {
-            // Find neighbors that can accept water
-            // Use effective mass to see pending changes from earlier this tick
-            let mut lower_neighbors: Vec<(Vector3<i32>, f32, &mut f32)> = Vec::new();
+            let flow_refs: [&mut f32; 4] = [
+                &mut result.pos_x,
+                &mut result.neg_x,
+                &mut result.pos_z,
+                &mut result.neg_z,
+            ];
 
-            for (neighbor_pos, flow_ref) in neighbors {
+            let mut lower_count = 0;
+            let mut total_mass = remaining;
+
+            for i in 0..4 {
+                let neighbor_pos = neighbor_positions[i];
                 if !is_solid(neighbor_pos) {
-                    let neighbor_mass = self.get_effective_mass(neighbor_pos, has_world_water);
-                    if neighbor_mass < remaining {
-                        lower_neighbors.push((neighbor_pos, neighbor_mass, flow_ref));
+                    let m = self.get_effective_mass(neighbor_pos, has_world_water);
+                    if m < remaining {
+                        neighbor_mass[i] = m;
+                        neighbor_open[i] = true;
+                        total_mass += m;
+                        lower_count += 1;
                     }
                 }
             }
 
-            if !lower_neighbors.is_empty() {
-                // Calculate target level (equalize water across cells)
-                let total_mass: f32 =
-                    remaining + lower_neighbors.iter().map(|(_, m, _)| *m).sum::<f32>();
-                let avg_mass = total_mass / (lower_neighbors.len() + 1) as f32;
+            if lower_count > 0 {
+                let avg_mass = total_mass / (lower_count + 1) as f32;
 
                 // Adjust flow rate based on water type
                 let flow_rate = match cell.water_type {
@@ -665,22 +678,20 @@ impl WaterGrid {
                 }
                 .min(1.0);
 
-                // Flow to neighbors below average
-                for (_, neighbor_mass, flow_ref) in lower_neighbors {
-                    if neighbor_mass < avg_mass {
-                        let mut flow = (avg_mass - neighbor_mass) * flow_rate;
+                for i in 0..4 {
+                    if neighbor_open[i]
+                        && neighbor_mass[i] < remaining
+                        && neighbor_mass[i] < avg_mass
+                    {
+                        let mut flow = (avg_mass - neighbor_mass[i]) * flow_rate;
 
-                        // CRITICAL FIX: Ensure minimum flow to maintain gradient propagation.
-                        // When equalization produces tiny flow values (< MIN_FLOW), we still
-                        // need to flow SOMETHING to prevent water from getting "stuck".
-                        // This is especially important for drain scenarios where mass
-                        // differences become very small but water should still drain.
+                        // Keep a minimum trickle to avoid stuck thin layers
                         if flow < MIN_FLOW && remaining > MIN_FLOW * 2.0 {
                             flow = MIN_FLOW;
                         }
 
                         if flow >= MIN_FLOW && remaining > flow {
-                            *flow_ref = flow;
+                            *flow_refs[i] = flow;
                             remaining -= flow;
                         }
                     }
@@ -908,10 +919,10 @@ impl WaterGrid {
         // can see via get_effective_mass() and flow into during the same tick.
         let radius_sq = self.simulation_radius * self.simulation_radius;
 
-        // Use fixed-size array of buckets for Y-layers (indices 0-511)
-        // We only allocate the inner vectors when needed
-        let mut y_buckets: [Vec<Vector3<i32>>; Y_BUCKET_COUNT] =
-            std::array::from_fn(|_| Vec::new());
+        // Reuse Y-layer buckets (indices 0-511)
+        for bucket in self.y_buckets.iter_mut() {
+            bucket.clear();
+        }
 
         // Distribute active cells into Y buckets (O(n))
         for &pos in &self.active {
@@ -923,7 +934,7 @@ impl WaterGrid {
             if dist_sq <= radius_sq {
                 // Clamp Y to valid bucket range (0-511)
                 let y_index = (pos.y.max(0) as usize).min(Y_BUCKET_COUNT - 1);
-                y_buckets[y_index].push(pos);
+                self.y_buckets[y_index].push(pos);
             }
         }
 
@@ -949,7 +960,7 @@ impl WaterGrid {
         const EVAPORATION_RATE: f32 = 0.005;
         const VERY_THIN_THRESHOLD: f32 = 0.1;
 
-        'outer: for bucket in &y_buckets {
+        'outer: for bucket in &self.y_buckets {
             for &pos in bucket {
                 if process_count >= self.max_updates_per_frame {
                     break 'outer;
@@ -1126,8 +1137,11 @@ impl WaterGrid {
             self.stats.last_cells_deactivated = deactivate_count;
         }
 
-        // Return a clone of the buffer (we keep the buffer for reuse)
-        self.changed_positions_buffer.clone()
+        // Move out the buffer to avoid cloning; recreate an empty buffer with same capacity
+        let out = std::mem::take(&mut self.changed_positions_buffer);
+        let cap = out.capacity().max(256);
+        self.changed_positions_buffer = Vec::with_capacity(cap);
+        out
     }
 
     /// Returns the number of water cells.
@@ -1360,6 +1374,9 @@ impl WaterGrid {
         self.last_prune_player_pos = None;
         self.tick_counter = 0;
         self.stats = WaterSimStats::default();
+        for bucket in self.y_buckets.iter_mut() {
+            bucket.clear();
+        }
     }
 
     /// Processes water flow simulation.
@@ -1418,7 +1435,7 @@ impl WaterGrid {
         let changed_positions = self.tick(is_solid, is_out_of_bounds, has_world_water, player_pos);
 
         // Update world blocks and GPU for changed water cells
-        for pos in changed_positions {
+        for &pos in &changed_positions {
             if pos.y < 0 || pos.y >= texture_height {
                 continue;
             }
@@ -1472,39 +1489,53 @@ impl WaterGrid {
 
         // Check for water-lava adjacency and create cobblestone
         // This handles cases where water is adjacent to lava but not flowing into it
-        let water_positions: Vec<_> = self.cells.keys().copied().collect();
-        for pos in water_positions {
-            if pos.y < 0 || pos.y >= texture_height {
-                continue;
+        if !changed_positions.is_empty() {
+            // Check only around cells that changed this tick (and their neighbors)
+            let mut lava_checks = Vec::with_capacity(changed_positions.len() * 7);
+            for &pos in &changed_positions {
+                if pos.y >= 0 && pos.y < texture_height {
+                    lava_checks.push(pos);
+                    for (dx, dy, dz) in ORTHO_DIRS {
+                        lava_checks.push(pos + Vector3::new(dx, dy, dz));
+                    }
+                }
             }
+            lava_checks.sort_by(|a, b| (a.x, a.y, a.z).cmp(&(b.x, b.y, b.z)));
+            lava_checks.dedup();
 
-            // Check adjacent positions for lava
-            let neighbors = [
-                pos + Vector3::new(1, 0, 0),
-                pos + Vector3::new(-1, 0, 0),
-                pos + Vector3::new(0, 1, 0),
-                pos + Vector3::new(0, -1, 0),
-                pos + Vector3::new(0, 0, 1),
-                pos + Vector3::new(0, 0, -1),
-            ];
+            for pos in lava_checks {
+                if pos.y < 0 || pos.y >= texture_height {
+                    continue;
+                }
+                // Check adjacent positions for lava
+                let neighbors = [
+                    pos + Vector3::new(1, 0, 0),
+                    pos + Vector3::new(-1, 0, 0),
+                    pos + Vector3::new(0, 1, 0),
+                    pos + Vector3::new(0, -1, 0),
+                    pos + Vector3::new(0, 0, 1),
+                    pos + Vector3::new(0, 0, -1),
+                ];
 
-            for neighbor in neighbors {
-                // Check if neighbor has lava (either in world or lava grid)
-                let neighbor_is_lava = lava_grid.has_lava(neighbor)
-                    || world
-                        .get_block(neighbor)
-                        .map(|b| b == BlockType::Lava)
-                        .unwrap_or(false);
+                for neighbor in neighbors {
+                    let neighbor_is_lava = lava_grid.has_lava(neighbor)
+                        || world
+                            .get_block(neighbor)
+                            .map(|b| b == BlockType::Lava)
+                            .unwrap_or(false);
 
-                if neighbor_is_lava && self.has_water(pos) {
-                    // Water touching lava - convert lava to cobblestone
-                    lava_grid.set_lava(neighbor, 0.0, false); // Removes the lava cell
-                    world.set_block(neighbor, BlockType::Cobblestone);
-                    world.invalidate_minimap_cache(neighbor.x, neighbor.z);
-                    break; // Only convert one lava per tick per water cell
+                    if neighbor_is_lava && self.has_water(pos) {
+                        lava_grid.set_lava(neighbor, 0.0, false); // Removes the lava cell
+                        world.set_block(neighbor, BlockType::Cobblestone);
+                        world.invalidate_minimap_cache(neighbor.x, neighbor.z);
+                        break;
+                    }
                 }
             }
         }
+
+        // Visual smoothing: run once per simulation tick instead of every frame
+        let _ = self.update_visuals(self.tick_interval_ms as f32 / 1000.0);
     }
 
     /// Checks adjacent blocks for terrain water and adds them to the water grid.

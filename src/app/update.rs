@@ -378,10 +378,6 @@ impl App {
             );
         }
 
-        // Update water visual smoothing every frame (even if simulation disabled)
-        // This makes water level transitions smooth instead of jumpy
-        let _visual_changes = self.sim.water_grid.update_visuals(delta_time as f32);
-
         self.handle_focused_controls(delta_time);
         self.handle_block_interactions(delta_time as f32);
     }
