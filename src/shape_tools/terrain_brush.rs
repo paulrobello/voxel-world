@@ -98,6 +98,10 @@ pub struct TerrainBrushState {
     pub preview_positions: Vec<Vector3<i32>>,
     /// Last paint position to avoid repainting same spot.
     last_paint_pos: Option<Vector3<i32>>,
+    /// Cooldown between paint applications in seconds.
+    pub cooldown: f32,
+    /// Time of last paint application (for cooldown).
+    last_paint_time: f64,
 }
 
 impl Default for TerrainBrushState {
@@ -112,6 +116,8 @@ impl Default for TerrainBrushState {
             painting: false,
             preview_positions: Vec::new(),
             last_paint_pos: None,
+            cooldown: 0.5,
+            last_paint_time: 0.0,
         }
     }
 }
@@ -148,13 +154,33 @@ impl TerrainBrushState {
         self.last_paint_pos = None;
     }
 
-    /// Check if we should paint at this position (avoid repeat).
-    pub fn should_paint_at(&mut self, pos: Vector3<i32>) -> bool {
+    /// Check if we should paint at this position (avoid repeat and cooldown).
+    ///
+    /// # Arguments
+    /// * `pos` - Current paint position
+    /// * `current_time` - Current time in seconds (from game start)
+    ///
+    /// # Returns
+    /// True if painting should proceed (position changed and cooldown elapsed).
+    pub fn should_paint_at(&mut self, pos: Vector3<i32>, current_time: f64) -> bool {
+        // Check cooldown
+        if current_time - self.last_paint_time < self.cooldown as f64 {
+            return false;
+        }
+
+        // Check position change
         if self.last_paint_pos == Some(pos) {
             return false;
         }
+
         self.last_paint_pos = Some(pos);
+        self.last_paint_time = current_time;
         true
+    }
+
+    /// Reset cooldown timer (called when starting to paint).
+    pub fn reset_cooldown(&mut self) {
+        self.last_paint_time = 0.0;
     }
 }
 

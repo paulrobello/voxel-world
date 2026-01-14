@@ -64,6 +64,12 @@ impl TerrainBrushToolUI {
             });
         }
 
+        // Cooldown slider
+        ui.horizontal(|ui: &mut Ui| {
+            ui.label("Cooldown:");
+            ui.add(Slider::new(&mut state.cooldown, 0.1..=2.0).suffix("s"));
+        });
+
         ui.add_space(8.0);
         ui.separator();
 

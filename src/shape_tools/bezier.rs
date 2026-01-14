@@ -19,6 +19,8 @@ pub struct BezierToolState {
     pub resolution: i32,
     /// Cached preview positions for GPU upload.
     pub preview_positions: Vec<Vector3<i32>>,
+    /// Control point marker positions (for rendering with different color).
+    pub control_point_markers: Vec<Vector3<i32>>,
     /// Total block count for the full curve (may differ from preview if truncated).
     pub total_blocks: usize,
     /// Whether the preview is truncated due to MAX_STENCIL_BLOCKS.
@@ -35,6 +37,7 @@ impl Default for BezierToolState {
             tube_radius: 1,
             resolution: 2,
             preview_positions: Vec::new(),
+            control_point_markers: Vec::new(),
             total_blocks: 0,
             preview_truncated: false,
             cached_params: (0, 0, Vec::new()),
@@ -101,6 +104,9 @@ impl BezierToolState {
 
         self.update_cache();
 
+        // Always generate control point markers
+        self.control_point_markers = generate_control_point_markers(&self.control_points);
+
         if self.control_points.len() < 3 {
             self.preview_positions.clear();
             self.total_blocks = 0;
@@ -131,6 +137,9 @@ impl BezierToolState {
             temp_points.push(cursor_pos);
         }
 
+        // Generate control point markers (including cursor as potential next point)
+        self.control_point_markers = generate_control_point_markers(&temp_points);
+
         if temp_points.len() < 3 {
             self.preview_positions.clear();
             self.total_blocks = 0;
@@ -157,6 +166,7 @@ impl BezierToolState {
     pub fn clear(&mut self) {
         self.control_points.clear();
         self.preview_positions.clear();
+        self.control_point_markers.clear();
         self.total_blocks = 0;
         self.preview_truncated = false;
     }
@@ -256,6 +266,34 @@ pub fn generate_bezier_positions(
     }
 
     positions
+}
+
+/// Generate control point marker positions for visualization.
+///
+/// Creates a small 3D cross marker at each control point location.
+///
+/// # Arguments
+/// * `control_points` - The control points to mark
+///
+/// # Returns
+/// Vector of block positions for the markers
+pub fn generate_control_point_markers(control_points: &[Vector3<i32>]) -> Vec<Vector3<i32>> {
+    let mut markers = Vec::new();
+
+    for point in control_points {
+        // Add center point
+        markers.push(*point);
+
+        // Add 3D cross arms (±1 in each axis)
+        markers.push(Vector3::new(point.x - 1, point.y, point.z));
+        markers.push(Vector3::new(point.x + 1, point.y, point.z));
+        markers.push(Vector3::new(point.x, point.y - 1, point.z));
+        markers.push(Vector3::new(point.x, point.y + 1, point.z));
+        markers.push(Vector3::new(point.x, point.y, point.z - 1));
+        markers.push(Vector3::new(point.x, point.y, point.z + 1));
+    }
+
+    markers
 }
 
 /// Quadratic Bezier curve (3 control points).

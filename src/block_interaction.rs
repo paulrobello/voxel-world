@@ -1844,13 +1844,16 @@ impl App {
     /// Apply scatter brush placement at the given center position.
     ///
     /// Places blocks in a circular brush area with configurable density and height variation.
+    /// Supports both regular blocks and model blocks.
     pub fn apply_scatter(&mut self, center: nalgebra::Vector3<i32>) {
         let scatter = &self.ui.scatter_tool;
         if !scatter.active {
             return;
         }
 
-        // Get block from hotbar slot 0
+        // Get block type and model info from hotbar
+        let block_type = self.ui.hotbar_blocks[self.ui.hotbar_index];
+        let model_id = self.ui.hotbar_model_ids[self.ui.hotbar_index];
         let params = self.get_hotbar_placement_params();
 
         // Generate scatter positions
@@ -1911,14 +1914,27 @@ impl App {
             return;
         }
 
-        // Place blocks
-        let placed_count = place_blocks_at_positions(
-            &final_positions,
-            params,
-            &mut self.sim.world,
-            &mut self.sim.water_grid,
-            &mut self.sim.lava_grid,
-        );
+        // Place blocks - handle models specially
+        let placed_count = if block_type == BlockType::Model && model_id > 0 {
+            // Place model blocks
+            let mut count = 0;
+            for pos in &final_positions {
+                if pos.y >= 0 && pos.y < crate::constants::TEXTURE_SIZE_Y as i32 {
+                    self.sim.world.set_model_block(*pos, model_id, 0, false);
+                    count += 1;
+                }
+            }
+            count
+        } else {
+            // Place regular blocks using shared helper
+            place_blocks_at_positions(
+                &final_positions,
+                params,
+                &mut self.sim.world,
+                &mut self.sim.water_grid,
+                &mut self.sim.lava_grid,
+            )
+        };
 
         // Invalidate minimap cache
         if let Some(first_pos) = final_positions.first() {
@@ -1928,10 +1944,17 @@ impl App {
         }
 
         if placed_count > 0 {
-            println!(
-                "Scattered {} blocks (R={}, D={}%)",
-                placed_count, self.ui.scatter_tool.radius, self.ui.scatter_tool.density
-            );
+            if block_type == BlockType::Model {
+                println!(
+                    "Scattered {} models (R={}, D={}%)",
+                    placed_count, self.ui.scatter_tool.radius, self.ui.scatter_tool.density
+                );
+            } else {
+                println!(
+                    "Scattered {} blocks (R={}, D={}%)",
+                    placed_count, self.ui.scatter_tool.radius, self.ui.scatter_tool.density
+                );
+            }
         }
     }
 

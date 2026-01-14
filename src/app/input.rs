@@ -897,6 +897,7 @@ impl App {
         if self.input.focused && self.ui.terrain_brush.active {
             if self.input.mouse_pressed(MouseButton::Right) {
                 self.ui.terrain_brush.start_paint();
+                self.ui.terrain_brush.reset_cooldown();
             }
             if self.input.mouse_released(MouseButton::Right) {
                 self.ui.terrain_brush.stop_paint();
@@ -904,7 +905,8 @@ impl App {
             if self.ui.terrain_brush.painting && self.input.mouse_held(MouseButton::Right) {
                 if let Some(hit) = self.ui.current_hit {
                     let center = get_place_position(&hit);
-                    if self.ui.terrain_brush.should_paint_at(center) {
+                    let current_time = self.start_time.elapsed().as_secs_f64();
+                    if self.ui.terrain_brush.should_paint_at(center, current_time) {
                         self.apply_terrain_brush(center);
                     }
                 }
