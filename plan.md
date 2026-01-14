@@ -557,49 +557,64 @@ impl FloodFillTool {
 
 ---
 
-### Phase 18: Extended Building Tools II
+### Phase 18: Extended Building Tools II ✅
 
 **Goal**: Add 8 new building tools with modular architecture and refactor existing large files.
 
-**Status**: IN PROGRESS
+**Status**: COMPLETE
 
-#### Part A: Refactoring
+#### Part A: Refactoring ✅
 
-**Files to refactor:**
-- [ ] `shape_tools/mod.rs` (1617→~100 lines): Split into per-tool sub-modules
-- [ ] `block_interaction.rs` (2253→~800 lines): Extract `placement/` module
-- [ ] `app/input.rs` (1391→~600 lines): Extract `preview/` module
+**Completed:**
+- [x] `src/placement/` module: Shared placement helpers extracted
+- [x] `src/preview/` module: Unified preview update logic for all shape tools
+- [x] Per-tool modules: torus.rs, helix.rs, polygon.rs, bezier.rs, pattern.rs, scatter.rs, hollow.rs, terrain_brush.rs
 
-**New module structure:**
-```
-src/shape_tools/{tool}/     # state.rs, generate.rs, mod.rs per tool
-src/placement/              # Shared placement helpers + per-tool files
-src/preview/                # Shared preview helpers + per-tool files
-```
-
-#### Part B: New Tools (8 total)
+#### Part B: New Tools (8 total) ✅
 
 **Shape Tools:**
-- [ ] Torus (🍩): Ring/donut shapes with arc angle support
-- [ ] Helix (🌀): Spiral staircases and decorative spirals
-- [ ] Polygon (⬡): Regular n-gons (3-12 sides)
-- [ ] Bezier Curve (〰): Smooth curved structures with control points
+- [x] **Torus Tool (🍩)**: Ring/donut shapes
+  - Major/minor radius (2-50 / 1-20 blocks)
+  - Orientation: XZ (horizontal), XY, YZ (vertical)
+  - Arc angle (1-360°) for partial rings
+  - Hollow mode, placement mode (Center/Base)
+- [x] **Helix Tool (🌀)**: Spiral staircases and decorative spirals
+  - Radius, height, turns, tube radius
+  - Clockwise/Counter-clockwise direction
+  - Start angle configuration
+- [x] **Polygon Tool (⬡)**: Regular n-gons (3-12 sides)
+  - Radius and height configuration
+  - Hollow and filled modes
+  - Rotation angle support
+- [x] **Bezier Curve Tool (〰)**: Smooth curved structures
+  - 3-4 control points (right-click to place)
+  - Tube radius and resolution settings
+  - Control points rendered in magenta, curve in cyan
+  - Enter to confirm, Backspace to undo point
 
 **Utility Tools:**
-- [ ] Pattern Fill (🔲): Checkerboard, stripes, gradient patterns
-- [ ] Scatter (🎨): Paint-style vegetation/debris placement
-- [ ] Hollow (⬜): Convert solid selection to shell
-- [ ] Terrain Brush (⛰): Raise/lower/smooth/flatten terrain
+- [x] **Pattern Fill Tool (🔲)**: Fill selection with patterns
+  - Checkerboard, Stripes (X/Y/Z), Diagonal, Random
+  - Two-block patterns using hotbar slots 1 and 2
+  - Period/size configuration
+- [x] **Scatter Brush Tool (🎨)**: Paint-style placement
+  - Brush radius and density configuration
+  - Surface-only mode with height variation
+  - **Model block support** for vegetation/debris
+- [x] **Hollow Tool (⬜)**: Convert solid selection to shell
+  - Configurable wall thickness (1-5 blocks)
+  - Uses template selection system (V key)
+- [x] **Terrain Brush Tool (⛰)**: Terrain modification
+  - Modes: Raise, Lower, Smooth, Flatten
+  - Brush radius, strength, shape (Circle/Square)
+  - Target Y level for flatten mode
+  - **Cooldown parameter** (default 0.5s) to prevent too-fast modification
 
-**Console Commands:**
-- `/torus <major_r> <minor_r> [plane] [arc] [hollow]`
-- `/helix <radius> <height> <turns> [tube_r] [ccw]`
-- `/polygon <sides> <radius> [height] [hollow] [rotation]`
-- `/bezier <x1> <y1> <z1> ... <tube_r>`
-- `/pattern <type> <block_a> <block_b> [period]`
-- `/scatter <block> <radius> <density> [surface_only]`
-- `/hollow [thickness]`
-- `/terrain <mode> <radius> [strength] [target_y]`
+**UI Integration:**
+- All tools accessible via Tools Palette (T key)
+- Left-click to cancel (consistent across all Phase 18 tools)
+- Holographic previews via stencil buffer
+- Block placement suppressed when shape tools active
 
 ---
 
@@ -976,6 +991,18 @@ Escape                      # Cancel tool
 
 ## Done Recently
 
+- **Phase 18: Extended Building Tools II** (2026-01-13): ✅ COMPLETE
+  - **8 New Building Tools**: Torus, Helix, Polygon, Bezier, Pattern Fill, Scatter, Hollow, Terrain Brush
+  - **Modular Architecture**: New `src/placement/` and `src/preview/` modules
+  - **Consistent UX**: Left-click to cancel all Phase 18 tools (not Escape)
+  - **Bug Fixes**:
+    - Torus Base mode for vertical planes (XY/YZ) now correctly offsets by major+minor radius
+    - Helix "missing steps" fixed with continuous parametric sampling
+    - Shape placement no longer places extra block on right-click
+    - Bezier control points render in magenta (distinct from cyan curve)
+    - Scatter brush now supports model blocks from hotbar
+    - Terrain brush has configurable cooldown (default 0.5s)
+
 - **Water Simulation Performance Tuning** (2026-01-13): ✅ COMPLETE
   - **Y-Layer Bucket Sort**: Replaced O(n log n) sort with O(n) bucket distribution using 512 Y-layer buckets
   - **Cached Neighbor Masses**: Batch HashMap lookups for 6 neighbors into single NeighborMasses struct
@@ -1199,4 +1226,4 @@ Escape                      # Cancel tool
 ---
 
 *Last Updated: 2026-01-13*
-*Plan Version: 3.5 - Phase 18 Extended Building Tools II (Modular Architecture + 8 New Tools)*
+*Plan Version: 3.6 - Phase 18 Extended Building Tools II Complete*
