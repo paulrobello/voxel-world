@@ -757,6 +757,13 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
             vec3 wireColor = vec3(1.0, 1.0, 0.0);
             color = mix(color, wireColor, boundaryFactor * 0.8);
         }
+
+        float shiftFactor = chunkShiftBoundaryFactor(hit, stepped_axis);
+        if (shiftFactor > 0.0) {
+            // Magenta highlight for impending origin-shift window edges.
+            vec3 shiftColor = vec3(1.0, 0.2, 1.0);
+            color = mix(color, shiftColor, 0.9);
+        }
     }
 
     if (inWater && pc.player_in_water == 0) {

@@ -1,5 +1,6 @@
 use crate::App;
-use crate::chunk::{BlockType, CHUNK_SIZE, CHUNK_VOLUME};
+use crate::chunk::{BlockType, CHUNK_SIZE, CHUNK_VOLUME, Chunk};
+use crate::chunk_loader::RequestStats;
 use crate::constants::{
     CHUNKS_PER_FRAME, EMPTY_CHUNK_DATA, EMPTY_MODEL_METADATA, LOADED_CHUNKS_X, LOADED_CHUNKS_Z,
     TEXTURE_SIZE_X, TEXTURE_SIZE_Y, TEXTURE_SIZE_Z, WORLD_CHUNKS_Y,
@@ -22,6 +23,9 @@ use vulkano::sync::GpuFuture;
 
 const METADATA_DEFAULT_BUDGET: usize = 192;
 const METADATA_MIN_BUDGET: usize = 64;
+const REUPLOAD_DEFAULT_PER_FRAME: usize = 256;
+const UPLOAD_DEFAULT_PER_FRAME: usize = 256;
+const METADATA_RESET_DEFAULT_BUDGET: usize = 512;
 
 fn metadata_chunks_per_frame() -> usize {
     static BUDGET: OnceLock<usize> = OnceLock::new();
@@ -31,6 +35,36 @@ fn metadata_chunks_per_frame() -> usize {
             .and_then(|v| v.parse::<usize>().ok())
             .map(|v| v.clamp(METADATA_MIN_BUDGET, TOTAL_CHUNKS))
             .unwrap_or(METADATA_DEFAULT_BUDGET)
+    })
+}
+
+fn reupload_per_frame() -> usize {
+    static VAL: OnceLock<usize> = OnceLock::new();
+    *VAL.get_or_init(|| {
+        std::env::var("REUPLOAD_PER_FRAME")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(REUPLOAD_DEFAULT_PER_FRAME)
+    })
+}
+
+fn uploads_per_frame() -> usize {
+    static VAL: OnceLock<usize> = OnceLock::new();
+    *VAL.get_or_init(|| {
+        std::env::var("UPLOADS_PER_FRAME")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(UPLOAD_DEFAULT_PER_FRAME)
+    })
+}
+
+fn metadata_reset_budget() -> usize {
+    static VAL: OnceLock<usize> = OnceLock::new();
+    *VAL.get_or_init(|| {
+        std::env::var("METADATA_RESET_BUDGET")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(METADATA_RESET_DEFAULT_BUDGET)
     })
 }
 
@@ -116,25 +150,28 @@ impl MetadataState {
 
     /// Returns chunk indices to refresh, prioritizing explicit dirty chunks.
     ///
-    /// IMPORTANT: All pending chunks (from newly loaded/modified chunks) are ALWAYS processed
-    /// to avoid invisible chunks. The budget only limits the background full refresh sweep.
+    /// Pending dirty chunks are bounded by the budget to avoid frame stalls;
+    /// any remaining pending items stay queued for the next frame.
     pub fn take_work(&mut self, budget: usize) -> Vec<usize> {
         let mut work = Vec::with_capacity(budget);
+        let mut remaining = budget;
 
-        // First, drain ALL pending chunks - these are newly loaded/modified chunks
-        // that must be visible immediately. No budget limit here!
-        while let Some(idx) = self.pending.pop_front() {
-            self.pending_set.remove(&idx);
-            work.push(idx);
+        // Drain pending up to budget
+        while remaining > 0 {
+            if let Some(idx) = self.pending.pop_front() {
+                self.pending_set.remove(&idx);
+                work.push(idx);
+                remaining -= 1;
+            } else {
+                break;
+            }
         }
 
-        // Then, apply budget limit only to the background full refresh sweep
-        let pending_count = work.len();
-        let remaining_budget = budget.saturating_sub(pending_count);
-        let target_len = pending_count + remaining_budget;
-        while work.len() < target_len && self.full_refresh && self.cursor < TOTAL_CHUNKS {
+        // Background sweep uses any leftover budget
+        while remaining > 0 && self.full_refresh && self.cursor < TOTAL_CHUNKS {
             work.push(self.cursor);
             self.cursor += 1;
+            remaining -= 1;
         }
 
         work
@@ -157,10 +194,9 @@ impl MetadataState {
     }
 }
 
-#[derive(Clone)]
-enum ChunkWork {
+enum ChunkWork<'a> {
     Missing,
-    Blocks(Box<[BlockType; CHUNK_VOLUME]>),
+    Borrow(&'a [BlockType; CHUNK_VOLUME]),
 }
 
 struct ChunkMetaResult {
@@ -262,6 +298,9 @@ impl App {
             player_chunk.z
         );
 
+        self.sim.last_origin_shift = Some(new_origin / CHUNK_SIZE as i32);
+        self.sim.origin_shift_count = self.sim.origin_shift_count.saturating_add(1);
+
         // Save old origin to adjust camera position
         let old_origin = self.sim.texture_origin;
         self.sim.texture_origin = new_origin;
@@ -272,7 +311,7 @@ impl App {
         // Cancel all in-flight chunk generation requests - they were requested for the old
         // texture origin and may complete at positions outside the new texture bounds.
         // They'll be re-requested with the correct origin in the next frame.
-        self.sim.chunk_loader.clear_pending();
+        self.sim.chunk_loader.reset_epoch_and_clear();
 
         // Adjust camera position to maintain the same world position
         let origin_delta = old_origin - new_origin;
@@ -286,56 +325,26 @@ impl App {
         self.sim.player.camera.position.z += origin_delta.z as f64 / scale.z;
 
         // Re-upload all loaded chunks to their new texture positions (slice-backed, no alloc).
-        struct Upload<'a> {
-            pos: Vector3<i32>,
-            block: &'a [u8],
-            meta: Ref<'a, [u8]>,
-        }
+        // Clear GPU textures so old data doesn't flash while we repopulate.
+        self.clear_voxel_texture();
 
-        let mut uploads: Vec<Upload> = Vec::new();
-        for (pos, chunk) in self.sim.world.chunks() {
-            // Skip empty chunks entirely (they contain no visible data)
-            if chunk.is_empty() {
-                continue;
-            }
-            uploads.push(Upload {
-                pos: *pos,
-                block: chunk.block_bytes(),
-                meta: chunk.model_metadata_bytes(),
-            });
-        }
-
-        if !uploads.is_empty() {
-            // Clear the texture first (set all to air)
-            self.clear_voxel_texture();
-
-            // NOTE: We don't sync metadata to GPU here - that will be done in
-            // update_metadata_buffers() after processing the pending queue.
-            // This ensures metadata reflects actual chunk state, not "all empty".
-
-            // Upload chunks at new positions - convert to slice references
-            let upload_slices: Vec<_> =
-                uploads.iter().map(|u| (u.pos, u.block, &*u.meta)).collect();
-            self.upload_chunk_refs(&upload_slices);
-        }
-        // Drop metadata refs and chunk borrows before any mutable world operations
-        let uploaded_positions: Vec<_> = uploads.iter().map(|u| u.pos).collect();
-        drop(uploads);
-
-        if !uploaded_positions.is_empty() {
-            self.sim.world.remove_dirty_positions(&uploaded_positions);
-
-            // CRITICAL: Queue metadata update for all re-uploaded chunks.
-            // After origin shift, metadata was reset (all chunks marked empty).
-            // We must queue updates so shader knows these chunks have data.
-            self.sim
-                .metadata_state
-                .queue_many(self.sim.texture_origin, uploaded_positions.iter().copied());
+        // Prepare prioritized re-upload queue (nearest first).
+        self.sim.reupload_queue.clear();
+        let mut positions: Vec<_> = self.sim.world.chunks().map(|(pos, _)| *pos).collect();
+        positions.sort_by_key(|p| {
+            let dx = p.x - player_chunk.x;
+            let dy = p.y - player_chunk.y;
+            let dz = p.z - player_chunk.z;
+            dx * dx + dy * dy + dz * dz
+        });
+        for pos in positions {
+            self.sim.reupload_queue.push_back(pos);
         }
 
         true
     }
 
+    #[allow(dead_code)]
     pub fn clear_voxel_texture(&self) {
         let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
             self.graphics.command_buffer_allocator.clone(),
@@ -394,7 +403,19 @@ impl App {
         ];
 
         // === STEP 1: Receive completed chunks from background threads ===
-        let mut completed = self.sim.chunk_loader.receive_chunks();
+        let completed_all = self.sim.chunk_loader.receive_chunks();
+        let (mut completed, dropped_oob): (Vec<_>, Vec<_>) = completed_all
+            .into_iter()
+            .partition(|r| world_pos_to_chunk_index(self.sim.texture_origin, r.position).is_some());
+        // If any completed chunks are now out-of-bounds, re-request them at the new origin.
+        if !dropped_oob.is_empty() {
+            let mut retry_positions = Vec::with_capacity(dropped_oob.len());
+            for c in dropped_oob {
+                retry_positions.push(c.position);
+            }
+            // Drop silent errors; just requeue.
+            let _ = self.sim.chunk_loader.request_chunks(&retry_positions);
+        }
 
         // Sort completed chunks by distance to player (closer chunks processed first)
         // This ensures nearby chunks become visible before distant chunks, even when
@@ -409,69 +430,91 @@ impl App {
             dist_sq_a.cmp(&dist_sq_b)
         });
 
-        let mut chunks_to_upload: Vec<(Vector3<i32>, Vec<u8>, Vec<u8>)> = Vec::new();
+        let mut meta_inputs: Vec<(Vector3<i32>, Vec<u8>)> = Vec::new();
         let mut loaded = 0;
-
-        // CRITICAL: Two-pass processing to fix tree overflow race condition.
-        // If we process chunks in order (apply overflow, insert, extract), a chunk
-        // processed early in the batch may be modified by a later chunk's overflow
-        // AFTER its block_data was already extracted, causing stale GPU data.
-        //
-        // Fix: First pass applies ALL overflow, second pass inserts and extracts.
-        // This ensures all cross-chunk modifications happen before any extraction.
-
-        // First pass: Apply all overflow blocks from the batch
-        // This handles both immediate application (target exists) and pending (target doesn't exist yet)
-        for result in &completed {
-            self.sim
-                .world
-                .apply_overflow_blocks(result.overflow_blocks.clone());
-        }
-
-        // Second pass: Insert chunks and extract block_data
-        // Now all overflow targeting these chunks has been applied
-        for result in completed {
-            // Skip chunks that are outside the current texture bounds.
-            // This can happen if texture origin shifted while chunks were in-flight.
-            // These chunks will be re-requested next frame at their new positions.
-            if world_pos_to_chunk_index(self.sim.texture_origin, result.position).is_none() {
-                continue;
+        {
+            struct Upload {
+                pos: Vector3<i32>,
+                block: Vec<u8>,
+                meta: Vec<u8>,
             }
 
-            // Insert chunk into world (will also apply any pending overflow for this chunk)
-            self.sim.world.insert_chunk(result.position, result.chunk);
+            let mut uploads: Vec<Upload> = Vec::new();
 
-            // Extract block_data AFTER insert and AFTER all overflow has been applied
-            let chunk = self
-                .sim
-                .world
-                .get_chunk(result.position)
-                .expect("Chunk should exist after insert");
-            let block_data = chunk.to_block_data();
-            let model_metadata = chunk.to_model_metadata();
+            // CRITICAL: Two-pass processing to fix tree overflow race condition.
+            // If we process chunks in order (apply overflow, insert, extract), a chunk
+            // processed early in the batch may be modified by a later chunk's overflow
+            // AFTER its block_data was already extracted, causing stale GPU data.
+            //
+            // Fix: First pass applies ALL overflow, second pass inserts and extracts.
+            // This ensures all cross-chunk modifications happen before any extraction.
 
-            chunks_to_upload.push((result.position, block_data, model_metadata));
-            loaded += 1;
-        }
+            // First pass: Apply all overflow blocks from the batch
+            // This handles both immediate application (target exists) and pending (target doesn't exist yet)
+            for result in &completed {
+                self.sim
+                    .world
+                    .apply_overflow_blocks(result.overflow_blocks.clone());
+            }
 
-        // Batch upload completed chunks to GPU
-        if !chunks_to_upload.is_empty() {
-            // Convert to slice references for upload
-            self.upload_owned_chunks(&chunks_to_upload);
-            self.mark_chunks_clean(&chunks_to_upload);
+            // Second pass: Insert chunks and extract block_data
+            // Now all overflow targeting these chunks has been applied
+            for result in completed {
+                // Skip chunks that are outside the current texture bounds.
+                // This can happen if texture origin shifted while chunks were in-flight.
+                // These chunks will be re-requested next frame at their new positions.
+                if world_pos_to_chunk_index(self.sim.texture_origin, result.position).is_none() {
+                    continue;
+                }
 
-            // Collect positions for metadata queue and dirty removal
-            let uploaded_positions: Vec<_> =
-                chunks_to_upload.iter().map(|(pos, _, _)| *pos).collect();
+                // Insert chunk into world (will also apply any pending overflow for this chunk)
+                self.sim.world.insert_chunk(result.position, result.chunk);
 
-            // CRITICAL: Queue metadata update for newly loaded chunks.
-            // Without this, chunk_bits stays as "empty" and shader skips the chunk.
-            self.sim
-                .metadata_state
-                .queue_many(self.sim.texture_origin, uploaded_positions.iter().copied());
+                // Extract block_data AFTER insert and AFTER all overflow has been applied
+                let chunk = self
+                    .sim
+                    .world
+                    .get_chunk(result.position)
+                    .expect("Chunk should exist after insert");
+                uploads.push(Upload {
+                    pos: result.position,
+                    block: chunk.to_block_data(),
+                    meta: chunk.to_model_metadata(),
+                });
+                loaded += 1;
+            }
 
-            // Already uploaded this frame; avoid a second upload in upload_world_to_gpu
-            self.sim.world.remove_dirty_positions(&uploaded_positions);
+            // Batch upload completed chunks to GPU
+            if !uploads.is_empty() {
+                let uploaded_positions: Vec<Vector3<i32>> = uploads.iter().map(|u| u.pos).collect();
+                // Convert to slice references for upload
+                let upload_slices: Vec<_> = uploads
+                    .iter()
+                    .map(|u| (u.pos, u.block.as_slice(), u.meta.as_slice()))
+                    .collect();
+                self.upload_chunk_refs(&upload_slices);
+
+                // Collect inputs for immediate metadata update (owned copies).
+                meta_inputs = uploads.iter().map(|u| (u.pos, u.block.clone())).collect();
+
+                // Release borrows before marking clean
+                drop(uploads);
+
+                for pos in &uploaded_positions {
+                    if let Some(chunk) = self.sim.world.get_chunk_mut(*pos) {
+                        chunk.mark_clean();
+                    }
+                }
+
+                // CRITICAL: Queue metadata update for newly loaded chunks.
+                // Without this, chunk_bits stays as "empty" and shader skips the chunk.
+                self.sim
+                    .metadata_state
+                    .queue_many(self.sim.texture_origin, uploaded_positions.iter().copied());
+
+                // Already uploaded this frame; avoid a second upload in upload_world_to_gpu
+                self.sim.world.remove_dirty_positions(&uploaded_positions);
+            }
         }
 
         // === STEP 2: Queue new chunks for generation ===
@@ -479,28 +522,50 @@ impl App {
         let yaw = self.sim.player.camera.rotation.y as f32;
         let view_dir = Some((yaw.sin(), -yaw.cos())); // XZ direction player is looking
 
+        // Snapshot loader state for budgeting new requests.
+        let loader_stats_before = self.sim.chunk_loader.stats();
+        let queue_capacity = self.sim.chunk_loader.queue_capacity();
+        let available_slots = queue_capacity
+            .saturating_sub(loader_stats_before.queue_len + loader_stats_before.in_flight);
+
         // Get visible chunks first (highest priority)
         let visible_chunks = self.sim.world.get_chunks_to_load(
             player_chunk,
             self.sim.view_distance,
             (min_chunk, max_chunk),
             view_dir,
+            None,
         );
 
         // Request visible chunks first
-        let max_to_queue = CHUNKS_PER_FRAME * 4;
-        let visible_to_request: Vec<_> = visible_chunks.into_iter().take(max_to_queue).collect();
-        let queued_visible = self.sim.chunk_loader.request_chunks(&visible_to_request);
+        let max_to_queue = (CHUNKS_PER_FRAME * 4).min(available_slots);
+        let mut queued_visible = 0;
+        let mut failed_visible = 0;
+        if max_to_queue > 0 {
+            let visible_to_request: Vec<_> =
+                visible_chunks.into_iter().take(max_to_queue).collect();
+            let RequestStats {
+                queued,
+                failed_full,
+            } = self.sim.chunk_loader.request_chunks(&visible_to_request);
+            queued_visible = queued;
+            failed_visible = failed_full;
+        }
 
         // Only request preload chunks if we have spare capacity
         let mut queued_preload = 0;
-        let remaining_capacity = max_to_queue.saturating_sub(queued_visible);
-        if remaining_capacity > 0 && self.sim.load_distance > self.sim.view_distance {
+        let mut failed_preload = 0;
+        // If we already hit a full queue on visible requests, skip preloading this frame.
+        let queue_len_after_vis = self.sim.chunk_loader.stats().queue_len;
+        let remaining_capacity = queue_capacity.saturating_sub(queue_len_after_vis);
+        let near_full = queue_len_after_vis >= queue_capacity.saturating_mul(8) / 10;
+        if !near_full && remaining_capacity > 0 && self.sim.load_distance > self.sim.view_distance {
             let preload_chunks = self.sim.world.get_chunks_to_load(
                 player_chunk,
                 self.sim.load_distance,
                 (min_chunk, max_chunk),
                 view_dir,
+                Some(1),
             );
             // Filter to only chunks beyond view distance
             let preload_only: Vec<_> = preload_chunks
@@ -510,17 +575,30 @@ impl App {
                     let dz = (pos.z - player_chunk.z).abs();
                     dx > self.sim.view_distance || dz > self.sim.view_distance
                 })
-                .take(remaining_capacity)
+                .take(remaining_capacity.min(CHUNKS_PER_FRAME * 2))
                 .collect();
-            queued_preload = self.sim.chunk_loader.request_chunks(&preload_only);
+            let RequestStats {
+                queued,
+                failed_full,
+            } = self.sim.chunk_loader.request_chunks(&preload_only);
+            queued_preload = queued;
+            failed_preload = failed_full;
         }
 
         let queued = queued_visible + queued_preload;
+        let failed_full = failed_visible + failed_preload;
 
-        if queued > 20 {
+        // Throttle noisy logs: only print occasionally or when verbose requested.
+        let log_spam_frame = self.ui.total_frames % 60 == 0;
+        if self.args.verbose && (queued > 0 || failed_full > 0) {
             println!(
-                "Queued {} chunks for generation around ({}, {}, {})",
-                queued, player_chunk.x, player_chunk.y, player_chunk.z
+                "Queued {} chunks ({} failed: queue full) around ({}, {}, {})",
+                queued, failed_full, player_chunk.x, player_chunk.y, player_chunk.z
+            );
+        } else if log_spam_frame && failed_full > 0 {
+            println!(
+                "[chunk-load] queue_full: queued={} failed={} pos=({}, {}, {})",
+                queued, failed_full, player_chunk.x, player_chunk.y, player_chunk.z
             );
         }
 
@@ -559,8 +637,8 @@ impl App {
         }
 
         // Update chunk metadata if any chunks were loaded or unloaded
-        if !chunks_to_upload.is_empty() {
-            let positions: Vec<_> = chunks_to_upload.iter().map(|(pos, _, _)| *pos).collect();
+        if !meta_inputs.is_empty() {
+            let positions: Vec<_> = meta_inputs.iter().map(|(pos, _)| *pos).collect();
 
             // IMMEDIATE metadata update for newly loaded chunks to prevent invisible chunks.
             // CRITICAL: Use the block_data we already have from chunks_to_upload, NOT a lookup
@@ -576,9 +654,9 @@ impl App {
                 packed_dist: [u32; 16],
             }
 
-            let mut updates: Vec<MetadataUpdate> = Vec::with_capacity(chunks_to_upload.len());
+            let mut updates: Vec<MetadataUpdate> = Vec::with_capacity(meta_inputs.len());
 
-            for (pos, block_data, _model_metadata) in &chunks_to_upload {
+            for (pos, block_data) in &meta_inputs {
                 if let Some(idx) = world_pos_to_chunk_index(self.sim.texture_origin, *pos) {
                     // Compute SVT directly from block_data we already have
                     let svt = ChunkSVT::from_bytes(block_data);
@@ -643,10 +721,17 @@ impl App {
         }
 
         // Update chunk stats
+        let loader_stats = self.sim.chunk_loader.stats();
         self.sim.chunk_stats = ChunkStats {
             loaded_count: self.sim.world.chunk_count(),
             dirty_count: self.sim.world.dirty_chunk_count(),
-            in_flight_count: self.sim.chunk_loader.in_flight_count(),
+            in_flight_count: loader_stats.in_flight,
+            queued_count: loader_stats.queue_len,
+            queue_full_events: loader_stats.queue_full_events,
+            dropped_results: loader_stats.dropped_stale_results,
+            origin_chunk_x: self.sim.texture_origin.x / CHUNK_SIZE as i32,
+            origin_chunk_z: self.sim.texture_origin.z / CHUNK_SIZE as i32,
+            origin_shift_count: self.sim.origin_shift_count,
             memory_mb: (TEXTURE_SIZE_X * TEXTURE_SIZE_Y * TEXTURE_SIZE_Z) as f32
                 / (1024.0 * 1024.0),
         };
@@ -658,8 +743,25 @@ impl App {
     }
 
     pub fn upload_world_to_gpu(&mut self) {
-        // Drain dirty chunk positions from world
-        let dirty_positions = self.sim.world.drain_dirty_chunks();
+        // Gradually mark chunks dirty after origin shifts to avoid stalls.
+        let reupload_budget = reupload_per_frame();
+        for _ in 0..reupload_budget {
+            if let Some(pos) = self.sim.reupload_queue.pop_front() {
+                if let Some(chunk) = self.sim.world.get_chunk_mut(pos) {
+                    chunk.mark_dirty();
+                }
+                self.sim
+                    .metadata_state
+                    .queue_world_chunk(self.sim.texture_origin, pos);
+                self.sim.world.requeue_dirty(&[pos]);
+            } else {
+                break;
+            }
+        }
+
+        // Drain a bounded number of dirty chunk positions from world to avoid frame stalls
+        let max_uploads = uploads_per_frame();
+        let dirty_positions = self.sim.world.drain_dirty_chunks_limit(max_uploads);
         if dirty_positions.is_empty() {
             return;
         }
@@ -686,6 +788,41 @@ impl App {
             let upload_slices: Vec<_> =
                 uploads.iter().map(|u| (u.pos, u.block, &*u.meta)).collect();
             self.upload_chunk_refs(&upload_slices);
+
+            // Immediate metadata update to prevent visibility gaps.
+            if !upload_slices.is_empty() {
+                let mut chunk_meta_write = self.graphics.chunk_metadata_buffer.write().unwrap();
+                let mut brick_mask_write = self.graphics.brick_mask_buffer.write().unwrap();
+                let mut brick_dist_write = self.graphics.brick_dist_buffer.write().unwrap();
+
+                for (pos, block_data, _meta) in &upload_slices {
+                    if let Some(idx) = world_pos_to_chunk_index(self.sim.texture_origin, *pos) {
+                        let svt = ChunkSVT::from_bytes(block_data);
+                        let word_idx = idx / 32;
+                        let bit_idx = idx % 32;
+                        if svt.brick_mask == 0 {
+                            self.sim.metadata_state.chunk_bits[word_idx] |= 1u32 << bit_idx;
+                        } else {
+                            self.sim.metadata_state.chunk_bits[word_idx] &= !(1u32 << bit_idx);
+                        }
+                        chunk_meta_write[word_idx] = self.sim.metadata_state.chunk_bits[word_idx];
+
+                        let mask_offset = idx * 2;
+                        self.sim.metadata_state.brick_masks[mask_offset] = svt.brick_mask as u32;
+                        self.sim.metadata_state.brick_masks[mask_offset + 1] =
+                            (svt.brick_mask >> 32) as u32;
+                        brick_mask_write[mask_offset] = svt.brick_mask as u32;
+                        brick_mask_write[mask_offset + 1] = (svt.brick_mask >> 32) as u32;
+
+                        let dist_offset = idx * 16;
+                        let packed_dist = pack_distances(&svt.brick_distances);
+                        for (i, word) in packed_dist.iter().enumerate() {
+                            self.sim.metadata_state.brick_distances[dist_offset + i] = *word;
+                            brick_dist_write[dist_offset + i] = *word;
+                        }
+                    }
+                }
+            }
 
             // Release borrows before marking chunks clean
             let uploaded_positions: Vec<_> = uploads.iter().map(|u| u.pos).collect();
@@ -763,17 +900,6 @@ impl App {
         }
     }
 
-    /// Uploads owned chunk buffers (Vec-backed) to GPU by creating borrowed views.
-    fn upload_owned_chunks(&self, uploads: &[(Vector3<i32>, Vec<u8>, Vec<u8>)]) {
-        let upload_refs: Vec<_> = uploads
-            .iter()
-            .map(|(pos, block_data, model_metadata)| {
-                (*pos, block_data.as_slice(), model_metadata.as_slice())
-            })
-            .collect();
-        self.upload_chunk_refs(&upload_refs);
-    }
-
     /// Uploads chunk data that is already slice-backed to GPU.
     fn upload_chunk_refs(&self, uploads: &[(Vector3<i32>, &[u8], &[u8])]) {
         if uploads.is_empty() {
@@ -788,15 +914,6 @@ impl App {
             self.sim.texture_origin,
             uploads,
         );
-    }
-
-    /// Marks chunks referenced in the upload list as clean if they exist in the world.
-    fn mark_chunks_clean(&mut self, uploads: &[(Vector3<i32>, Vec<u8>, Vec<u8>)]) {
-        for (pos, _, _) in uploads {
-            if let Some(chunk) = self.sim.world.get_chunk_mut(*pos) {
-                chunk.mark_clean();
-            }
-        }
     }
 
     /// Refreshes chunk and brick metadata buffers and records profiling time.
@@ -817,10 +934,9 @@ impl App {
 
         let t_meta = Instant::now();
 
-        // After a texture-origin shift we must rebuild all chunk/brick metadata in one frame
-        // to avoid a "world is empty" flash. Otherwise, keep the amortized per-frame budget.
+        // After a texture-origin shift we rebuild gradually to avoid stalls.
         let budget = if reset_buffers {
-            TOTAL_CHUNKS
+            metadata_reset_budget()
         } else {
             metadata_chunks_per_frame()
         };
@@ -831,18 +947,20 @@ impl App {
         // This ensures metadata reflects actual chunk data before any GPU sync
         if !work_indices.is_empty() {
             let mut tasks = Vec::with_capacity(work_indices.len());
+            // Collect immutable borrows first to avoid overlapping mutable borrows.
+            let mut borrows: Vec<(usize, &Chunk)> = Vec::with_capacity(work_indices.len());
             for idx in &work_indices {
                 let world_pos = chunk_index_to_world_pos(*idx, self.sim.texture_origin);
-                let work = if let Some(chunk) = self.sim.world.get_chunk_mut(world_pos) {
-                    chunk.update_metadata();
-                    // ALWAYS compute SVT from actual block data to avoid stale cache issues.
-                    // The cached_is_empty/cached_is_fully_solid optimizations can return
-                    // incorrect values if metadata wasn't properly updated, causing invisible chunks.
-                    ChunkWork::Blocks(chunk.clone_blocks())
+                if let Some(chunk) = self.sim.world.get_chunk(world_pos) {
+                    borrows.push((*idx, chunk));
                 } else {
-                    ChunkWork::Missing
-                };
-                tasks.push((*idx, work));
+                    tasks.push((*idx, ChunkWork::Missing));
+                }
+            }
+
+            for (idx, chunk) in borrows {
+                // We only need immutable access for block_slice; metadata is kept up to date elsewhere.
+                tasks.push((idx, ChunkWork::Borrow(chunk.block_slice())));
             }
 
             let results: Vec<ChunkMetaResult> = tasks
@@ -855,8 +973,8 @@ impl App {
                         mask_high: 0,
                         dist: [0xFFFF_FFFF; 16],
                     },
-                    ChunkWork::Blocks(blocks) => {
-                        let svt = ChunkSVT::from_block_data(&blocks);
+                    ChunkWork::Borrow(blocks) => {
+                        let svt = ChunkSVT::from_block_data(blocks);
                         ChunkMetaResult {
                             idx,
                             is_empty: svt.brick_mask == 0,

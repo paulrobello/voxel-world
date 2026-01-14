@@ -161,6 +161,21 @@ impl World {
         std::mem::take(&mut self.dirty_chunks)
     }
 
+    /// Drains up to `limit` dirty chunk positions, leaving the rest queued.
+    pub fn drain_dirty_chunks_limit(&mut self, limit: usize) -> Vec<ChunkPos> {
+        if limit == 0 || self.dirty_chunks.is_empty() {
+            return Vec::new();
+        }
+        let len = self.dirty_chunks.len();
+        let take = len.min(limit);
+        let start = len - take;
+        let taken: Vec<_> = self.dirty_chunks.drain(start..).collect();
+        for pos in &taken {
+            self.dirty_set.remove(pos);
+        }
+        taken
+    }
+
     /// Removes the given positions from the dirty chunk queue, if present.
     pub fn remove_dirty_positions(&mut self, positions: &[ChunkPos]) {
         if self.dirty_chunks.is_empty() || positions.is_empty() {
@@ -191,6 +206,19 @@ impl World {
         self.chunks.values().filter(|c| c.dirty).count()
     }
 
+    /// Marks all loaded chunks as dirty for GPU upload.
+    pub fn mark_all_dirty(&mut self) {
+        let positions: Vec<_> = self.chunks.keys().copied().collect();
+        self.requeue_dirty(&positions);
+    }
+
+    /// Re-queues a list of dirty chunk positions (deduped).
+    pub fn requeue_dirty(&mut self, positions: &[ChunkPos]) {
+        for &pos in positions {
+            self.push_dirty(pos);
+        }
+    }
+
     /// Gets chunk positions that should be loaded based on player position and view direction.
     ///
     /// Returns chunks within the given view distance that are not yet loaded.
@@ -205,9 +233,19 @@ impl World {
         view_distance: i32,
         world_bounds: (ChunkPos, ChunkPos), // (min_chunk, max_chunk) inclusive
         view_dir: Option<(f32, f32)>,       // Optional (dir_x, dir_z) normalized
+        y_band: Option<i32>,                // Optional vertical band half-extent
     ) -> Vec<ChunkPos> {
         let mut to_load = Vec::new();
         let (min_chunk, max_chunk) = world_bounds;
+
+        let (y_min, y_max) = if let Some(radius) = y_band {
+            (
+                (center.y - radius).max(min_chunk.y),
+                (center.y + radius).min(max_chunk.y),
+            )
+        } else {
+            (min_chunk.y, max_chunk.y)
+        };
 
         // Use horizontal distance only - load ALL Y levels within horizontal range
         // This prevents floating chunks when viewing from mountaintops
@@ -220,7 +258,7 @@ impl World {
                 }
 
                 // Load all Y levels within horizontal range
-                for cy in min_chunk.y..=max_chunk.y {
+                for cy in y_min..=y_max {
                     let chunk_pos = vector![center.x + dx, cy, center.z + dz];
 
                     // Check horizontal world bounds
@@ -298,7 +336,8 @@ impl World {
     /// Returns loaded chunks that are beyond the given unload distance (horizontal only).
     pub fn get_chunks_to_unload(&self, center: ChunkPos, unload_distance: i32) -> Vec<ChunkPos> {
         let unload_dist_sq = unload_distance * unload_distance;
-        self.chunks
+        let mut to_unload: Vec<_> = self
+            .chunks
             .keys()
             .filter(|pos| {
                 // Use horizontal distance only (matching load behavior)
@@ -307,7 +346,16 @@ impl World {
                 dx * dx + dz * dz > unload_dist_sq
             })
             .cloned()
-            .collect()
+            .collect();
+
+        // Prefer unloading farthest chunks first to reduce thrash near the boundary.
+        to_unload.sort_by(|a, b| {
+            let da = (a.x - center.x).pow(2) + (a.z - center.z).pow(2);
+            let db = (b.x - center.x).pow(2) + (b.z - center.z).pow(2);
+            db.cmp(&da)
+        });
+
+        to_unload
     }
 
     /// Gets the block at world coordinates.

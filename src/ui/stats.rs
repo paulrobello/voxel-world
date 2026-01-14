@@ -53,15 +53,55 @@ impl StatsUI {
                         egui::Color32::DARK_GRAY
                     };
                     ui.label(
-                        egui::RichText::new(format!("Loading: {}", chunk_stats.in_flight_count))
-                            .color(gen_color)
-                            .small(),
+                        egui::RichText::new(format!(
+                            "Loading: {} (queued: {})",
+                            chunk_stats.in_flight_count, chunk_stats.queued_count
+                        ))
+                        .color(gen_color)
+                        .small(),
                     );
 
                     ui.label(
                         egui::RichText::new(format!("GPU: {:.1} MB", chunk_stats.memory_mb))
                             .color(egui::Color32::LIGHT_GRAY)
                             .small(),
+                    );
+
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "Origin chunk: ({}, {})",
+                            chunk_stats.origin_chunk_x, chunk_stats.origin_chunk_z
+                        ))
+                        .color(egui::Color32::LIGHT_GRAY)
+                        .small(),
+                    );
+
+                    let shift_color = if chunk_stats.origin_shift_count > 0 {
+                        egui::Color32::from_rgb(120, 200, 120)
+                    } else {
+                        egui::Color32::DARK_GRAY
+                    };
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "Origin shifts: {}",
+                            chunk_stats.origin_shift_count
+                        ))
+                        .color(shift_color)
+                        .small(),
+                    );
+
+                    let queue_color = if chunk_stats.queue_full_events > 0 {
+                        egui::Color32::from_rgb(255, 170, 0)
+                    } else {
+                        egui::Color32::DARK_GRAY
+                    };
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "Queue full: {} | Drops: {}",
+                            chunk_stats.queue_full_events, chunk_stats.dropped_results
+                        ))
+                        .color(queue_color)
+                        .small(),
                     );
 
                     // Fluid stats - always show for fixed height

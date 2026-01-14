@@ -116,6 +116,10 @@ pub struct UserPreferences {
     #[serde(default)]
     pub world_player_data: HashMap<String, WorldPlayerData>,
 
+    /// Last fly-mode setting (None = use defaults/CLI).
+    #[serde(default)]
+    pub last_fly_mode: Option<bool>,
+
     /// Console command history (most recent last, max 100 entries).
     #[serde(default)]
     pub console_history: Vec<String>,
@@ -149,6 +153,7 @@ impl Default for UserPreferences {
             last_world: None,
             recent_worlds: Vec::new(),
             world_player_data: HashMap::new(),
+            last_fly_mode: None,
             console_history: Vec::new(),
             saved_positions: HashMap::new(),
         }

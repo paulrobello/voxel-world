@@ -105,6 +105,7 @@ impl App {
         self.prefs.hotbar_paint_textures = self.ui.hotbar_paint_textures;
         self.prefs.show_minimap = self.ui.show_minimap;
         self.prefs.console_history = self.ui.console.get_history();
+        self.prefs.last_fly_mode = Some(self.sim.player.fly_mode);
 
         // Save player position for the current world
         let player_pos = self

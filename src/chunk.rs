@@ -1077,15 +1077,33 @@ impl Chunk {
         unsafe { slice::from_raw_parts(self.blocks.as_ptr() as *const u8, CHUNK_VOLUME) }
     }
 
+    /// Returns a pooled Vec<u8> containing block bytes, reusing the provided buffer if large enough.
+    pub fn write_block_bytes_into(&self, out: &mut Vec<u8>) {
+        out.clear();
+        if out.capacity() < CHUNK_VOLUME {
+            out.reserve(CHUNK_VOLUME - out.capacity());
+        }
+        // SAFETY: block_bytes returns contiguous u8 slice of CHUNK_VOLUME length.
+        out.extend_from_slice(self.block_bytes());
+    }
+
     /// Converts the chunk's model metadata to GPU format.
     ///
-    /// This returns a Vec<u8> with 2 bytes per block (RG8 format):
-    /// - R channel: model_id (0 for non-model blocks)
-    /// - G channel: rotation (0 for non-model blocks)
-    ///
-    /// Suitable for uploading to an RG8_UINT 3D texture.
+    /// Returns a Vec<u8> with 2 bytes per block (RG8 format) suitable for upload.
     pub fn to_model_metadata(&self) -> Vec<u8> {
-        self.model_metadata_bytes().to_vec()
+        let mut out = Vec::with_capacity(CHUNK_VOLUME * 2);
+        self.write_model_metadata_into(&mut out);
+        out
+    }
+
+    /// Writes model metadata into provided Vec, reusing its capacity.
+    pub fn write_model_metadata_into(&self, out: &mut Vec<u8>) {
+        let buf = self.model_metadata_bytes();
+        out.clear();
+        if out.capacity() < buf.len() {
+            out.reserve(buf.len() - out.capacity());
+        }
+        out.extend_from_slice(&buf);
     }
 
     /// Returns a cached RG8 view of the model metadata (2 bytes per voxel).

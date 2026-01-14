@@ -52,6 +52,12 @@ pub struct WorldSim {
     pub profiler: Profiler,
 
     pub metadata_state: MetadataState,
+    /// Incremental reupload queue after origin shifts to avoid stalls.
+    pub reupload_queue: std::collections::VecDeque<Vector3<i32>>,
+    /// Most recent texture origin shift positions for HUD/debug.
+    pub last_origin_shift: Option<Vector3<i32>>,
+    /// Count of origin shifts in this session.
+    pub origin_shift_count: u32,
     pub last_save: Instant,
     pub world_dir: PathBuf,
     pub world_name: String,

@@ -7,17 +7,33 @@ use crossbeam_channel::{Receiver, Sender, TryRecvError, bounded, unbounded};
 use nalgebra::Vector3;
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::thread::{self, JoinHandle};
 
 use crate::chunk::Chunk;
 use crate::storage::ParallelStorageReader;
 use crate::terrain_gen::{ChunkGenerationResult, OverflowBlock};
 
-/// Number of worker threads for chunk generation.
-/// Using more threads provides better parallelism for CPU-bound terrain generation.
-/// This should roughly match available CPU cores minus 1-2 for main thread/GPU.
-const WORKER_THREADS: usize = 8;
+fn worker_threads() -> usize {
+    static WORKERS: OnceLock<usize> = OnceLock::new();
+    *WORKERS.get_or_init(|| {
+        // Allow override via env; otherwise use physical cores, min 2 to keep parallelism.
+        if let Ok(v) = std::env::var("CHUNK_WORKER_THREADS") {
+            if let Ok(n) = v.parse::<usize>() {
+                return n.clamp(1, num_cpus::get());
+            }
+        }
+        // default: leave 1 core for main/render, but at least 2 workers
+        let cores = num_cpus::get().max(2);
+        cores.saturating_sub(1).max(2)
+    })
+}
+
+/// Returns the default worker thread count (honors env override).
+#[allow(dead_code)]
+pub fn default_worker_threads() -> usize {
+    worker_threads()
+}
 
 /// Maximum chunks to queue for generation.
 /// Prevents memory buildup if generation is slower than requests.
@@ -29,6 +45,7 @@ const MAX_BATCH_REQUEST: usize = 256;
 #[derive(Debug, Clone)]
 pub struct ChunkRequest {
     pub position: Vector3<i32>,
+    pub epoch: u32,
 }
 
 /// Result of chunk generation.
@@ -37,6 +54,23 @@ pub struct ChunkResult {
     pub chunk: Chunk,
     /// Blocks that should be placed in neighboring chunks.
     pub overflow_blocks: Vec<OverflowBlock>,
+    pub epoch: u32,
+}
+
+/// Stats snapshot for loader/backpressure observability.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct LoaderStats {
+    pub in_flight: usize,
+    pub queue_full_events: u32,
+    pub dropped_stale_results: u32,
+    pub queue_len: usize,
+}
+
+/// Batch request results.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct RequestStats {
+    pub queued: usize,
+    pub failed_full: usize,
 }
 
 /// Async chunk loader that generates chunks in background threads.
@@ -44,12 +78,22 @@ pub struct ChunkLoader {
     /// Sender to queue chunk generation requests (crossbeam MPMC).
     /// Wrapped in Option to allow explicit drop before joining workers.
     request_tx: Option<Sender<ChunkRequest>>,
+    /// Receiver handle for draining pending requests when resetting.
+    request_rx: Receiver<ChunkRequest>,
     /// Receiver for completed chunks (crossbeam MPMC).
     result_rx: Receiver<ChunkResult>,
     /// Worker thread handles (for cleanup).
     workers: Vec<JoinHandle<()>>,
     /// Set of chunks currently being generated (to avoid duplicates).
     in_flight: HashSet<Vector3<i32>>,
+    /// Current epoch/generation for requests (bumped on origin shift).
+    current_epoch: u32,
+    /// Count of try_send failures (queue full).
+    queue_full_events: u32,
+    /// Count of stale results dropped due to epoch mismatch.
+    dropped_stale_results: u32,
+    /// Number of worker threads currently active.
+    worker_count: usize,
 }
 
 impl ChunkLoader {
@@ -64,6 +108,18 @@ impl ChunkLoader {
     where
         F: Fn(Vector3<i32>) -> ChunkGenerationResult + Send + Sync + 'static,
     {
+        Self::new_with_threads(generator, world_dir, worker_threads())
+    }
+
+    /// Creates a new chunk loader with an explicit worker thread count.
+    pub fn new_with_threads<F>(
+        generator: F,
+        world_dir: Option<PathBuf>,
+        worker_count: usize,
+    ) -> Self
+    where
+        F: Fn(Vector3<i32>) -> ChunkGenerationResult + Send + Sync + 'static,
+    {
         let generator = Arc::new(generator);
         let world_dir = world_dir.map(Arc::new);
 
@@ -74,8 +130,8 @@ impl ChunkLoader {
         let (result_tx, result_rx) = unbounded::<ChunkResult>();
 
         // Spawn worker threads
-        let mut workers = Vec::with_capacity(WORKER_THREADS);
-        for i in 0..WORKER_THREADS {
+        let mut workers = Vec::with_capacity(worker_count);
+        for i in 0..worker_count {
             let request_rx = request_rx.clone();
             let result_tx = result_tx.clone();
             let generator = Arc::clone(&generator);
@@ -140,6 +196,7 @@ impl ChunkLoader {
                                     position: req.position,
                                     chunk,
                                     overflow_blocks,
+                                    epoch: req.epoch,
                                 });
                             }
                             Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
@@ -160,9 +217,14 @@ impl ChunkLoader {
 
         Self {
             request_tx: Some(request_tx),
+            request_rx,
             result_rx,
             workers,
             in_flight: HashSet::new(),
+            current_epoch: 0,
+            queue_full_events: 0,
+            dropped_stale_results: 0,
+            worker_count,
         }
     }
 
@@ -187,20 +249,27 @@ impl ChunkLoader {
         };
 
         // Send request to workers (non-blocking try_send to avoid stalling main thread)
-        match request_tx.try_send(ChunkRequest { position }) {
+        match request_tx.try_send(ChunkRequest {
+            position,
+            epoch: self.current_epoch,
+        }) {
             Ok(()) => {
                 self.in_flight.insert(position);
                 true
             }
-            Err(_) => false, // Channel full or disconnected
+            Err(_) => {
+                self.queue_full_events = self.queue_full_events.wrapping_add(1);
+                false
+            } // Channel full or disconnected
         }
     }
 
     /// Queues multiple chunks for generation.
     ///
     /// Returns the number of chunks successfully queued.
-    pub fn request_chunks(&mut self, positions: &[Vector3<i32>]) -> usize {
+    pub fn request_chunks(&mut self, positions: &[Vector3<i32>]) -> RequestStats {
         let mut queued = 0;
+        let mut failed_full = 0;
         // Deduplicate within the batch to avoid spamming the channel with repeats.
         let mut batch_seen = HashSet::with_capacity(positions.len().min(MAX_BATCH_REQUEST));
         for &pos in positions.iter().take(MAX_BATCH_REQUEST) {
@@ -209,9 +278,14 @@ impl ChunkLoader {
             }
             if self.request_chunk(pos) {
                 queued += 1;
+            } else {
+                failed_full += 1;
             }
         }
-        queued
+        RequestStats {
+            queued,
+            failed_full,
+        }
     }
 
     /// Receives completed chunks (non-blocking).
@@ -223,8 +297,13 @@ impl ChunkLoader {
         loop {
             match self.result_rx.try_recv() {
                 Ok(result) => {
-                    self.in_flight.remove(&result.position);
-                    results.push(result);
+                    if result.epoch == self.current_epoch {
+                        self.in_flight.remove(&result.position);
+                        results.push(result);
+                    } else {
+                        // Stale result from previous epoch; drop it.
+                        self.dropped_stale_results = self.dropped_stale_results.wrapping_add(1);
+                    }
                 }
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => break,
@@ -235,6 +314,7 @@ impl ChunkLoader {
     }
 
     /// Returns the number of chunks currently being generated.
+    #[allow(dead_code)]
     pub fn in_flight_count(&self) -> usize {
         self.in_flight.len()
     }
@@ -243,6 +323,19 @@ impl ChunkLoader {
     #[allow(dead_code)]
     pub fn is_in_flight(&self, position: Vector3<i32>) -> bool {
         self.in_flight.contains(&position)
+    }
+
+    /// Bumps epoch and clears all pending and in-flight work.
+    ///
+    /// Used when the texture origin shifts to drop stale work immediately.
+    pub fn reset_epoch_and_clear(&mut self) {
+        self.current_epoch = self.current_epoch.wrapping_add(1);
+        self.in_flight.clear();
+
+        // Drain request queue
+        while self.request_rx.try_recv().is_ok() {}
+        // Drain results queue
+        while self.result_rx.try_recv().is_ok() {}
     }
 
     /// Cancels a pending chunk request if it hasn't started yet.
@@ -257,12 +350,27 @@ impl ChunkLoader {
     ///
     /// This is called during texture origin shifts to ensure no stale chunks
     /// are processed with the wrong coordinate system.
+    #[allow(dead_code)]
     pub fn clear_pending(&mut self) {
-        self.in_flight.clear();
-        // Drain the result channel to discard any stale completed chunks.
-        // These were generated for the old origin and could cause artifacts
-        // if processed with the new origin.
-        while self.result_rx.try_recv().is_ok() {}
+        self.reset_epoch_and_clear();
+    }
+
+    /// Returns loader stats for HUD/telemetry.
+    pub fn stats(&self) -> LoaderStats {
+        LoaderStats {
+            in_flight: self.in_flight.len(),
+            queue_full_events: self.queue_full_events,
+            dropped_stale_results: self.dropped_stale_results,
+            queue_len: self.request_rx.len(),
+        }
+    }
+
+    pub fn worker_count(&self) -> usize {
+        self.worker_count
+    }
+
+    pub fn queue_capacity(&self) -> usize {
+        MAX_QUEUE_SIZE
     }
 }
 
@@ -329,8 +437,8 @@ mod tests {
 
         // Request multiple chunks
         let positions: Vec<_> = (0..8).map(|i| Vector3::new(i, 0, 0)).collect();
-        let queued = loader.request_chunks(&positions);
-        assert_eq!(queued, 8);
+        let stats = loader.request_chunks(&positions);
+        assert_eq!(stats.queued, 8);
 
         // Wait for completion
         thread::sleep(Duration::from_millis(500));
@@ -349,15 +457,15 @@ mod tests {
         positions.push(Vector3::new(0, 0, 0));
         positions.push(Vector3::new(1, 0, 0));
 
-        let queued = loader.request_chunks(&positions);
+        let stats = loader.request_chunks(&positions);
 
         // Expect at most MAX_BATCH_REQUEST unique positions to be queued
-        assert!(queued <= MAX_BATCH_REQUEST);
+        assert!(stats.queued <= MAX_BATCH_REQUEST);
 
         // Duplicates of the first few positions should be ignored
         assert!(loader.is_in_flight(Vector3::new(0, 0, 0)));
         assert!(loader.is_in_flight(Vector3::new(1, 0, 0)));
         // And the count should match the in-flight tracking
-        assert_eq!(loader.in_flight_count(), queued);
+        assert_eq!(loader.in_flight_count(), stats.queued);
     }
 }

@@ -313,8 +313,14 @@ impl App {
             Vector3::new(safe_x as f64, spawn_y as f64 + 1.0, safe_z as f64)
         };
 
-        // Flat worlds default to fly mode for easier building
-        let fly_mode = args.fly_mode || world_gen == WorldGenType::Flat;
+        // Fly mode default: CLI flag > saved preference > flat-world convenience default.
+        let fly_mode = if args.fly_mode {
+            true
+        } else if let Some(pref) = prefs.last_fly_mode {
+            pref
+        } else {
+            world_gen == WorldGenType::Flat
+        };
         let mut player = Player::new(spawn_pos, texture_origin, world_extent, fly_mode);
         player.auto_jump = true;
 
@@ -412,6 +418,9 @@ impl App {
             unload_distance,
             profiler: Profiler::default(),
             metadata_state: MetadataState::new(texture_origin),
+            reupload_queue: std::collections::VecDeque::new(),
+            last_origin_shift: None,
+            origin_shift_count: 0,
             last_save: Instant::now(),
             world_dir: world_dir.clone(),
             world_name: world_name.clone(),

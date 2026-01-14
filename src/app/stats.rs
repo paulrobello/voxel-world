@@ -19,7 +19,7 @@ pub fn print_stats(ui: &mut UiState, sim: &mut WorldSim, verbose: bool) {
     ];
     if verbose {
         println!(
-            "[STATS] FPS: {} ({:.1}ms) | Win: {}x{} Render: {}x{} | Chunks: {} | Dirty: {} | Gen: {} | Pos: ({:.1}, {:.1}, {:.1}) | Chunk: ({}, {}, {}) | TexOrigin: ({}, {})",
+            "[STATS] FPS: {} ({:.1}ms) | Win: {}x{} Render: {}x{} | Chunks: {} | Dirty: {} | Gen: {} | Pos: ({:.1}, {:.1}, {:.1}) | Chunk: ({}, {}, {}) | Origin: ({}, {}) | Shifts: {}",
             ui.fps,
             frame_time_ms,
             ui.window_size[0],
@@ -28,15 +28,16 @@ pub fn print_stats(ui: &mut UiState, sim: &mut WorldSim, verbose: bool) {
             render_res[1],
             sim.chunk_stats.loaded_count,
             sim.chunk_stats.dirty_count,
-            sim.chunk_loader.in_flight_count(),
+            sim.chunk_stats.in_flight_count,
             player_pos.x,
             player_pos.y,
             player_pos.z,
             player_chunk.x,
             player_chunk.y,
             player_chunk.z,
-            sim.texture_origin.x,
-            sim.texture_origin.z,
+            sim.chunk_stats.origin_chunk_x,
+            sim.chunk_stats.origin_chunk_z,
+            sim.chunk_stats.origin_shift_count,
         );
     } else {
         println!(
@@ -48,7 +49,7 @@ pub fn print_stats(ui: &mut UiState, sim: &mut WorldSim, verbose: bool) {
             render_res[0],
             render_res[1],
             sim.chunk_stats.loaded_count,
-            sim.chunk_loader.in_flight_count(),
+            sim.chunk_stats.in_flight_count,
             player_pos.x,
             player_pos.y,
             player_pos.z,
@@ -80,7 +81,7 @@ pub fn print_stats(ui: &mut UiState, sim: &mut WorldSim, verbose: bool) {
             if !ui.profile_log_header_written {
                 let _ = writeln!(
                     file,
-                    "world_gen,time_s,fps,frame_ms,win_w,win_h,render_w,render_h,chunks_loaded,chunks_dirty,chunks_inflight,pos_x,pos_y,pos_z,chunk_x,chunk_y,chunk_z,tex_x,tex_z,chunkload_ms,upload_ms,chunks_uploaded,metadata_ms,render_ms,enable_ao,enable_shadows,enable_model_shadows,enable_point_lights,light_cull_radius,max_active_lights,show_minimap,minimap_size,minimap_skip_decorative,hide_ground_cover"
+                    "world_gen,time_s,fps,frame_ms,win_w,win_h,render_w,render_h,chunks_loaded,chunks_dirty,chunks_inflight,chunks_queued,queue_full_events,queue_drops,workers,pos_x,pos_y,pos_z,chunk_x,chunk_y,chunk_z,tex_x,tex_z,origin_chunk_x,origin_chunk_z,origin_shifts,chunkload_ms,upload_ms,chunks_uploaded,metadata_ms,render_ms,enable_ao,enable_shadows,enable_model_shadows,enable_point_lights,light_cull_radius,max_active_lights,show_minimap,minimap_size,minimap_skip_decorative,hide_ground_cover"
                 );
                 ui.profile_log_header_written = true;
                 println!("[PROFILE] Writing to: {}", path);
@@ -93,7 +94,7 @@ pub fn print_stats(ui: &mut UiState, sim: &mut WorldSim, verbose: bool) {
             };
             let _ = writeln!(
                 file,
-                "{},{:.3},{},{:.3},{},{},{},{},{},{},{},{:.1},{:.1},{:.1},{},{},{},{},{},{:.3},{:.3},{},{:.3},{:.3},{},{},{},{},{:.0},{},{},{},{},{}",
+                "{},{:.3},{},{:.3},{},{},{},{},{},{},{},{},{},{},{},{:.1},{:.1},{:.1},{},{},{},{},{},{},{},{},{:.3},{:.3},{},{:.3},{:.3},{},{},{},{},{:.1},{},{},{},{},{}",
                 world_gen_str,
                 elapsed,
                 ui.fps,
@@ -104,7 +105,11 @@ pub fn print_stats(ui: &mut UiState, sim: &mut WorldSim, verbose: bool) {
                 render_res[1],
                 sim.chunk_stats.loaded_count,
                 sim.chunk_stats.dirty_count,
-                sim.chunk_loader.in_flight_count(),
+                sim.chunk_stats.in_flight_count,
+                sim.chunk_stats.queued_count,
+                sim.chunk_stats.queue_full_events,
+                sim.chunk_stats.dropped_results,
+                sim.chunk_loader.worker_count(),
                 player_pos.x,
                 player_pos.y,
                 player_pos.z,
@@ -113,6 +118,9 @@ pub fn print_stats(ui: &mut UiState, sim: &mut WorldSim, verbose: bool) {
                 player_chunk.z,
                 sim.texture_origin.x,
                 sim.texture_origin.z,
+                sim.chunk_stats.origin_chunk_x,
+                sim.chunk_stats.origin_chunk_z,
+                sim.chunk_stats.origin_shift_count,
                 chunkload_ms,
                 upload_ms,
                 chunks_uploaded,

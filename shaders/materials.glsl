@@ -417,3 +417,38 @@ float chunkBoundaryFactor(vec3 hitPos, uint steppedAxis) {
 
     return factor;
 }
+
+// Highlight boundaries where an origin shift will trigger (safe window edges).
+float chunkShiftBoundaryFactor(vec3 hitPos, uint steppedAxis) {
+    // Hit positions are already in texture-space coordinates.
+    if (hitPos.x < 0.0 || hitPos.x >= float(pc.texture_size_x) ||
+        hitPos.z < 0.0 || hitPos.z >= float(pc.texture_size_z)) {
+        return 0.0;
+    }
+
+    int chunkX = int(floor(hitPos.x / float(CHUNK_SIZE)));
+    int chunkZ = int(floor(hitPos.z / float(CHUNK_SIZE)));
+    float localX = hitPos.x - float(chunkX * int(CHUNK_SIZE));
+    float localZ = hitPos.z - float(chunkZ * int(CHUNK_SIZE));
+
+    int marginX = int(CHUNKS_X) / 4;
+    int marginZ = int(CHUNKS_Z) / 4;
+    int minSafeX = marginX;
+    int maxSafeX = int(CHUNKS_X) - marginX - 1;
+    int minSafeZ = marginZ;
+    int maxSafeZ = int(CHUNKS_Z) - marginZ - 1;
+
+    float edgeThreshold = 1.5; // thicker highlight than regular boundaries
+    float factor = 0.0;
+
+    if (steppedAxis != 0u) {
+        if (chunkX == minSafeX && localX < edgeThreshold) factor = 1.0;
+        if (chunkX == maxSafeX && localX > float(CHUNK_SIZE) - edgeThreshold) factor = 1.0;
+    }
+    if (steppedAxis != 2u) {
+        if (chunkZ == minSafeZ && localZ < edgeThreshold) factor = 1.0;
+        if (chunkZ == maxSafeZ && localZ > float(CHUNK_SIZE) - edgeThreshold) factor = 1.0;
+    }
+
+    return factor;
+}

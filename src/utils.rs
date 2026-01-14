@@ -7,6 +7,17 @@ pub struct ChunkStats {
     pub dirty_count: usize,
     /// Number of chunks being generated in background.
     pub in_flight_count: usize,
+    /// Approximate queued generation requests (channel len).
+    pub queued_count: usize,
+    /// Number of times the generation queue was full (since start).
+    pub queue_full_events: u32,
+    /// Number of background chunk results discarded as stale.
+    pub dropped_results: u32,
+    /// Current texture origin in chunk coordinates (x, z).
+    pub origin_chunk_x: i32,
+    pub origin_chunk_z: i32,
+    /// Number of origin shifts this session.
+    pub origin_shift_count: u32,
     /// Estimated GPU memory usage in megabytes.
     pub memory_mb: f32,
 }
