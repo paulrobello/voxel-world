@@ -7,15 +7,15 @@
 - [x] Drop overflow blocks for out-of-bounds completed chunks after origin shifts (`src/world_streaming.rs` completion loop).
 - [x] Add preload backoff when queue is near full (not just full) using queue length (`src/world_streaming.rs`; may expose helper in `src/chunk_loader.rs`).
 - [x] Optional profiling log: per-second CSV of queue/FPS/worker stats gated by `--profile` (`src/app/stats.rs` or new helper).
-- [ ] Prioritized reupload + nearest-first dirty scheduling after origin shift (added but needs validation in flight).
-- [ ] Validate visual stability post-shift (holes/flash); tune per-frame budgets if needed.
+- [x] Prioritized reupload + nearest-first dirty scheduling after origin shift (validated in flight).
+- [x] Validate visual stability post-shift (holes/flash); tune per-frame budgets if needed.
 
 ## 2026-01-14 follow-up tasks
 
 - [x] Run `cargo check` to surface warnings from new ChunkStats fields and budget helpers.
 - [x] Wire origin shift debug info into on-screen stats overlay (B key) so origin offset/shift count visible.
 - [x] Ensure ChunkStats origin fields are consumed in stats logging/CSV to avoid dead code warnings.
-- [ ] Investigate/resolve remaining outer-edge chunk flash (already improved; verify after HUD changes).
+- [x] Investigate/resolve remaining outer-edge chunk flash (validated: no flashing at high-speed flight).
 - [x] Visualize origin-shift window in chunk boundary overlay (magenta threshold lines).
 - [x] Persist fly mode in user preferences (defaults to CLI flag, then saved value, else flat-world default).
 - [x] Add HUD/CSV telemetry for upload/reupload/metadata budgets and pending queues to aid validation.
