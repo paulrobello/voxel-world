@@ -18,3 +18,4 @@
 - [ ] Investigate/resolve remaining outer-edge chunk flash (already improved; verify after HUD changes).
 - [x] Visualize origin-shift window in chunk boundary overlay (magenta threshold lines).
 - [x] Persist fly mode in user preferences (defaults to CLI flag, then saved value, else flat-world default).
+- [x] Add HUD/CSV telemetry for upload/reupload/metadata budgets and pending queues to aid validation.

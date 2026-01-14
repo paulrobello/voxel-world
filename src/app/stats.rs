@@ -81,7 +81,7 @@ pub fn print_stats(ui: &mut UiState, sim: &mut WorldSim, verbose: bool) {
             if !ui.profile_log_header_written {
                 let _ = writeln!(
                     file,
-                    "world_gen,time_s,fps,frame_ms,win_w,win_h,render_w,render_h,chunks_loaded,chunks_dirty,chunks_inflight,chunks_queued,queue_full_events,queue_drops,workers,pos_x,pos_y,pos_z,chunk_x,chunk_y,chunk_z,tex_x,tex_z,origin_chunk_x,origin_chunk_z,origin_shifts,chunkload_ms,upload_ms,chunks_uploaded,metadata_ms,render_ms,enable_ao,enable_shadows,enable_model_shadows,enable_point_lights,light_cull_radius,max_active_lights,show_minimap,minimap_size,minimap_skip_decorative,hide_ground_cover"
+                    "world_gen,time_s,fps,frame_ms,win_w,win_h,render_w,render_h,chunks_loaded,chunks_dirty,chunks_inflight,chunks_queued,queue_full_events,queue_drops,reupload_pending,metadata_pending,upload_budget,reupload_budget,metadata_budget,workers,pos_x,pos_y,pos_z,chunk_x,chunk_y,chunk_z,tex_x,tex_z,origin_chunk_x,origin_chunk_z,origin_shifts,chunkload_ms,upload_ms,chunks_uploaded,metadata_ms,render_ms,enable_ao,enable_shadows,enable_model_shadows,enable_point_lights,light_cull_radius,max_active_lights,show_minimap,minimap_size,minimap_skip_decorative,hide_ground_cover"
                 );
                 ui.profile_log_header_written = true;
                 println!("[PROFILE] Writing to: {}", path);
@@ -94,7 +94,7 @@ pub fn print_stats(ui: &mut UiState, sim: &mut WorldSim, verbose: bool) {
             };
             let _ = writeln!(
                 file,
-                "{},{:.3},{},{:.3},{},{},{},{},{},{},{},{},{},{},{},{:.1},{:.1},{:.1},{},{},{},{},{},{},{},{},{:.3},{:.3},{},{:.3},{:.3},{},{},{},{},{:.1},{},{},{},{},{}",
+                "{},{:.3},{},{:.3},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{:.1},{:.1},{:.1},{},{},{},{},{},{},{},{},{:.3},{:.3},{},{:.3},{:.3},{},{},{},{},{:.1},{},{},{},{},{}",
                 world_gen_str,
                 elapsed,
                 ui.fps,
@@ -109,6 +109,11 @@ pub fn print_stats(ui: &mut UiState, sim: &mut WorldSim, verbose: bool) {
                 sim.chunk_stats.queued_count,
                 sim.chunk_stats.queue_full_events,
                 sim.chunk_stats.dropped_results,
+                sim.chunk_stats.reupload_pending,
+                sim.chunk_stats.metadata_pending,
+                sim.chunk_stats.upload_budget,
+                sim.chunk_stats.reupload_budget,
+                sim.chunk_stats.metadata_budget,
                 sim.chunk_loader.worker_count(),
                 player_pos.x,
                 player_pos.y,

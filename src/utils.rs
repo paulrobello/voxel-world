@@ -13,6 +13,14 @@ pub struct ChunkStats {
     pub queue_full_events: u32,
     /// Number of background chunk results discarded as stale.
     pub dropped_results: u32,
+    /// Pending reupload queue length (post-origin shift).
+    pub reupload_pending: usize,
+    /// Pending metadata updates in queue.
+    pub metadata_pending: usize,
+    /// Per-frame budgets (runtime for debugging).
+    pub upload_budget: usize,
+    pub reupload_budget: usize,
+    pub metadata_budget: usize,
     /// Current texture origin in chunk coordinates (x, z).
     pub origin_chunk_x: i32,
     pub origin_chunk_z: i32,

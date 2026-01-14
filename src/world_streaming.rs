@@ -192,6 +192,11 @@ impl MetadataState {
         }
         self.dirty = true;
     }
+
+    #[inline]
+    pub fn pending_len(&self) -> usize {
+        self.pending.len()
+    }
 }
 
 enum ChunkWork<'a> {
@@ -729,6 +734,11 @@ impl App {
             queued_count: loader_stats.queue_len,
             queue_full_events: loader_stats.queue_full_events,
             dropped_results: loader_stats.dropped_stale_results,
+            reupload_pending: self.sim.reupload_queue.len(),
+            metadata_pending: self.sim.metadata_state.pending_len(),
+            upload_budget: uploads_per_frame(),
+            reupload_budget: reupload_per_frame(),
+            metadata_budget: metadata_chunks_per_frame(),
             origin_chunk_x: self.sim.texture_origin.x / CHUNK_SIZE as i32,
             origin_chunk_z: self.sim.texture_origin.z / CHUNK_SIZE as i32,
             origin_shift_count: self.sim.origin_shift_count,

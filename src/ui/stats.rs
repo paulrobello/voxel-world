@@ -104,6 +104,26 @@ impl StatsUI {
                         .small(),
                     );
 
+                    ui.separator();
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "Upload budget: u{} r{} m{}",
+                            chunk_stats.upload_budget,
+                            chunk_stats.reupload_budget,
+                            chunk_stats.metadata_budget
+                        ))
+                        .color(egui::Color32::LIGHT_GRAY)
+                        .small(),
+                    );
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "Pending: reup {} meta {}",
+                            chunk_stats.reupload_pending, chunk_stats.metadata_pending
+                        ))
+                        .color(egui::Color32::LIGHT_GRAY)
+                        .small(),
+                    );
+
                     // Fluid stats - always show for fixed height
                     ui.separator();
 
