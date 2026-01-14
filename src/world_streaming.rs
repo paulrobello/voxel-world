@@ -21,8 +21,8 @@ use vulkano::command_buffer::{
 };
 use vulkano::sync::GpuFuture;
 
-const METADATA_DEFAULT_BUDGET: usize = 192;
-const METADATA_MIN_BUDGET: usize = 64;
+const METADATA_DEFAULT_BUDGET: usize = 256;
+const METADATA_MIN_BUDGET: usize = 96;
 const REUPLOAD_DEFAULT_PER_FRAME: usize = 256;
 const UPLOAD_DEFAULT_PER_FRAME: usize = 256;
 const METADATA_RESET_DEFAULT_BUDGET: usize = 512;
