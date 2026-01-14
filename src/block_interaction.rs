@@ -2,6 +2,7 @@ use crate::App;
 use crate::block_update::BlockUpdateType;
 use crate::chunk::{BlockType, WaterType};
 use crate::constants::TEXTURE_SIZE_Y;
+use crate::placement::{BlockPlacementParams, place_blocks_at_positions};
 use crate::player::{PLAYER_HALF_WIDTH, PLAYER_HEIGHT};
 use crate::raycast::{MAX_RAYCAST_DISTANCE, get_place_position, raycast};
 use crate::sub_voxel::{FIRST_CUSTOM_MODEL_ID, ModelRegistry, StairShape};
@@ -1154,6 +1155,14 @@ impl App {
         }
     }
 
+    /// Get block placement parameters from the current hotbar selection.
+    fn get_hotbar_placement_params(&self) -> BlockPlacementParams {
+        let block_type = self.ui.hotbar_blocks[self.ui.hotbar_index];
+        let tint_index = self.ui.hotbar_tint_indices[self.ui.hotbar_index];
+        let paint_texture = self.ui.hotbar_paint_textures[self.ui.hotbar_index];
+        BlockPlacementParams::new(block_type, tint_index, paint_texture)
+    }
+
     /// Place a sphere using the current sphere tool settings and hotbar selection.
     pub fn place_sphere(&mut self) {
         let sphere = &self.ui.sphere_tool;
@@ -1162,59 +1171,24 @@ impl App {
         }
 
         // Get block type and metadata from hotbar
-        let block_type = self.ui.hotbar_blocks[self.ui.hotbar_index];
-        let hotbar_idx = self.ui.hotbar_index;
-        let tint_index = self.ui.hotbar_tint_indices[hotbar_idx];
-        let paint_texture = self.ui.hotbar_paint_textures[hotbar_idx];
+        let params = self.get_hotbar_placement_params();
 
         // Regenerate full positions (preview may be truncated)
         let center = sphere.preview_center.unwrap();
-        let positions = crate::shape_tools::sphere::generate_sphere_positions(
-            center,
-            sphere.radius,
-            sphere.hollow,
-            sphere.dome,
+        let radius = sphere.radius;
+        let hollow = sphere.hollow;
+        let dome = sphere.dome;
+        let positions =
+            crate::shape_tools::sphere::generate_sphere_positions(center, radius, hollow, dome);
+
+        // Place blocks using shared helper
+        let placed_count = place_blocks_at_positions(
+            &positions,
+            params,
+            &mut self.sim.world,
+            &mut self.sim.water_grid,
+            &mut self.sim.lava_grid,
         );
-
-        // Place blocks
-        let mut placed_count = 0;
-        for pos in &positions {
-            // Skip if out of Y bounds (X/Z are infinite)
-            if pos.y < 0 || pos.y >= TEXTURE_SIZE_Y as i32 {
-                continue;
-            }
-
-            match block_type {
-                BlockType::TintedGlass => {
-                    self.sim.world.set_tinted_glass_block(*pos, tint_index);
-                }
-                BlockType::Crystal => {
-                    self.sim.world.set_crystal_block(*pos, tint_index);
-                }
-                BlockType::Painted => {
-                    self.sim
-                        .world
-                        .set_painted_block(*pos, paint_texture, tint_index);
-                }
-                BlockType::Water => {
-                    let water_type = WaterType::from_u8(tint_index);
-                    self.sim.water_grid.place_source(*pos, water_type);
-                    self.sim.world.set_water_block(*pos, water_type);
-                }
-                BlockType::Lava => {
-                    self.sim.lava_grid.place_source(*pos);
-                    self.sim.world.set_block(*pos, BlockType::Lava);
-                }
-                BlockType::Model | BlockType::Air => {
-                    // Skip model and air blocks - don't make sense for sphere fill
-                    continue;
-                }
-                _ => {
-                    self.sim.world.set_block(*pos, block_type);
-                }
-            }
-            placed_count += 1;
-        }
 
         // Invalidate minimap cache for affected area
         if let Some(first_pos) = positions.first() {
@@ -1225,13 +1199,9 @@ impl App {
 
         println!(
             "Placed {} sphere ({} blocks, radius {})",
-            if self.ui.sphere_tool.hollow {
-                "hollow"
-            } else {
-                "solid"
-            },
+            if hollow { "hollow" } else { "solid" },
             placed_count,
-            self.ui.sphere_tool.radius
+            radius
         );
 
         // Don't deactivate tool - allow placing multiple spheres
@@ -1245,61 +1215,27 @@ impl App {
         }
 
         // Get block type and metadata from hotbar
-        let block_type = self.ui.hotbar_blocks[self.ui.hotbar_index];
-        let hotbar_idx = self.ui.hotbar_index;
-        let tint_index = self.ui.hotbar_tint_indices[hotbar_idx];
-        let paint_texture = self.ui.hotbar_paint_textures[hotbar_idx];
+        let params = self.get_hotbar_placement_params();
 
         // Regenerate full positions (preview may be truncated)
         let center = cube.preview_center.unwrap();
+        let size_x = cube.size_x;
+        let size_y = cube.size_y;
+        let size_z = cube.size_z;
+        let hollow = cube.hollow;
+        let dome = cube.dome;
         let positions = crate::shape_tools::cube::generate_cube_positions(
-            center,
-            cube.size_x,
-            cube.size_y,
-            cube.size_z,
-            cube.hollow,
-            cube.dome,
+            center, size_x, size_y, size_z, hollow, dome,
         );
 
-        // Place blocks
-        let mut placed_count = 0;
-        for pos in &positions {
-            // Skip if out of Y bounds (X/Z are infinite)
-            if pos.y < 0 || pos.y >= TEXTURE_SIZE_Y as i32 {
-                continue;
-            }
-
-            match block_type {
-                BlockType::TintedGlass => {
-                    self.sim.world.set_tinted_glass_block(*pos, tint_index);
-                }
-                BlockType::Crystal => {
-                    self.sim.world.set_crystal_block(*pos, tint_index);
-                }
-                BlockType::Painted => {
-                    self.sim
-                        .world
-                        .set_painted_block(*pos, paint_texture, tint_index);
-                }
-                BlockType::Water => {
-                    let water_type = WaterType::from_u8(tint_index);
-                    self.sim.water_grid.place_source(*pos, water_type);
-                    self.sim.world.set_water_block(*pos, water_type);
-                }
-                BlockType::Lava => {
-                    self.sim.lava_grid.place_source(*pos);
-                    self.sim.world.set_block(*pos, BlockType::Lava);
-                }
-                BlockType::Model | BlockType::Air => {
-                    // Skip model and air blocks - don't make sense for cube fill
-                    continue;
-                }
-                _ => {
-                    self.sim.world.set_block(*pos, block_type);
-                }
-            }
-            placed_count += 1;
-        }
+        // Place blocks using shared helper
+        let placed_count = place_blocks_at_positions(
+            &positions,
+            params,
+            &mut self.sim.world,
+            &mut self.sim.water_grid,
+            &mut self.sim.lava_grid,
+        );
 
         // Invalidate minimap cache for affected area
         if let Some(first_pos) = positions.first() {
@@ -1308,16 +1244,12 @@ impl App {
                 .invalidate_minimap_cache(first_pos.x, first_pos.z);
         }
 
-        let width = self.ui.cube_tool.size_x * 2 + 1;
-        let height = self.ui.cube_tool.size_y * 2 + 1;
-        let depth = self.ui.cube_tool.size_z * 2 + 1;
+        let width = size_x * 2 + 1;
+        let height = size_y * 2 + 1;
+        let depth = size_z * 2 + 1;
         println!(
             "Placed {} cube ({} blocks, {}x{}x{})",
-            if self.ui.cube_tool.hollow {
-                "hollow"
-            } else {
-                "solid"
-            },
+            if hollow { "hollow" } else { "solid" },
             placed_count,
             width,
             height,
@@ -1335,55 +1267,21 @@ impl App {
         }
 
         // Get block type and metadata from hotbar
-        let block_type = self.ui.hotbar_blocks[self.ui.hotbar_index];
-        let hotbar_idx = self.ui.hotbar_index;
-        let tint_index = self.ui.hotbar_tint_indices[hotbar_idx];
-        let paint_texture = self.ui.hotbar_paint_textures[hotbar_idx];
+        let params = self.get_hotbar_placement_params();
 
         // Generate line positions
         let start = bridge.start_position.unwrap();
         let end = bridge.preview_end.unwrap();
         let positions = crate::shape_tools::bridge::generate_line_positions(start, end);
 
-        // Place blocks
-        let mut placed_count = 0;
-        for pos in &positions {
-            // Skip if out of Y bounds (X/Z are infinite)
-            if pos.y < 0 || pos.y >= TEXTURE_SIZE_Y as i32 {
-                continue;
-            }
-
-            match block_type {
-                BlockType::TintedGlass => {
-                    self.sim.world.set_tinted_glass_block(*pos, tint_index);
-                }
-                BlockType::Crystal => {
-                    self.sim.world.set_crystal_block(*pos, tint_index);
-                }
-                BlockType::Painted => {
-                    self.sim
-                        .world
-                        .set_painted_block(*pos, paint_texture, tint_index);
-                }
-                BlockType::Water => {
-                    let water_type = WaterType::from_u8(tint_index);
-                    self.sim.water_grid.place_source(*pos, water_type);
-                    self.sim.world.set_water_block(*pos, water_type);
-                }
-                BlockType::Lava => {
-                    self.sim.lava_grid.place_source(*pos);
-                    self.sim.world.set_block(*pos, BlockType::Lava);
-                }
-                BlockType::Model | BlockType::Air => {
-                    // Skip model and air blocks - don't make sense for bridge
-                    continue;
-                }
-                _ => {
-                    self.sim.world.set_block(*pos, block_type);
-                }
-            }
-            placed_count += 1;
-        }
+        // Place blocks using shared helper
+        let placed_count = place_blocks_at_positions(
+            &positions,
+            params,
+            &mut self.sim.world,
+            &mut self.sim.water_grid,
+            &mut self.sim.lava_grid,
+        );
 
         // Invalidate minimap cache for affected area
         self.sim.world.invalidate_minimap_cache(start.x, start.z);
@@ -1405,60 +1303,26 @@ impl App {
         }
 
         // Get block type and metadata from hotbar
-        let block_type = self.ui.hotbar_blocks[self.ui.hotbar_index];
-        let hotbar_idx = self.ui.hotbar_index;
-        let tint_index = self.ui.hotbar_tint_indices[hotbar_idx];
-        let paint_texture = self.ui.hotbar_paint_textures[hotbar_idx];
+        let params = self.get_hotbar_placement_params();
 
         // Regenerate full positions (preview may be truncated)
         let center = cylinder.preview_center.unwrap();
+        let radius = cylinder.radius;
+        let height = cylinder.height;
+        let hollow = cylinder.hollow;
+        let axis = cylinder.axis;
         let positions = crate::shape_tools::cylinder::generate_cylinder_positions(
-            center,
-            cylinder.radius,
-            cylinder.height,
-            cylinder.hollow,
-            cylinder.axis,
+            center, radius, height, hollow, axis,
         );
 
-        // Place blocks
-        let mut placed_count = 0;
-        for pos in &positions {
-            // Skip if out of Y bounds (X/Z are infinite)
-            if pos.y < 0 || pos.y >= TEXTURE_SIZE_Y as i32 {
-                continue;
-            }
-
-            match block_type {
-                BlockType::TintedGlass => {
-                    self.sim.world.set_tinted_glass_block(*pos, tint_index);
-                }
-                BlockType::Crystal => {
-                    self.sim.world.set_crystal_block(*pos, tint_index);
-                }
-                BlockType::Painted => {
-                    self.sim
-                        .world
-                        .set_painted_block(*pos, paint_texture, tint_index);
-                }
-                BlockType::Water => {
-                    let water_type = WaterType::from_u8(tint_index);
-                    self.sim.water_grid.place_source(*pos, water_type);
-                    self.sim.world.set_water_block(*pos, water_type);
-                }
-                BlockType::Lava => {
-                    self.sim.lava_grid.place_source(*pos);
-                    self.sim.world.set_block(*pos, BlockType::Lava);
-                }
-                BlockType::Model | BlockType::Air => {
-                    // Skip model and air blocks - don't make sense for cylinder fill
-                    continue;
-                }
-                _ => {
-                    self.sim.world.set_block(*pos, block_type);
-                }
-            }
-            placed_count += 1;
-        }
+        // Place blocks using shared helper
+        let placed_count = place_blocks_at_positions(
+            &positions,
+            params,
+            &mut self.sim.world,
+            &mut self.sim.water_grid,
+            &mut self.sim.lava_grid,
+        );
 
         // Invalidate minimap cache for affected area
         if let Some(first_pos) = positions.first() {
@@ -1467,22 +1331,18 @@ impl App {
                 .invalidate_minimap_cache(first_pos.x, first_pos.z);
         }
 
-        let axis_name = match self.ui.cylinder_tool.axis {
+        let axis_name = match axis {
             crate::shape_tools::cylinder::CylinderAxis::Y => "vertical",
             crate::shape_tools::cylinder::CylinderAxis::X => "X-axis",
             crate::shape_tools::cylinder::CylinderAxis::Z => "Z-axis",
         };
         println!(
             "Placed {} {} cylinder ({} blocks, radius {}, height {})",
-            if self.ui.cylinder_tool.hollow {
-                "hollow"
-            } else {
-                "solid"
-            },
+            if hollow { "hollow" } else { "solid" },
             axis_name,
             placed_count,
-            self.ui.cylinder_tool.radius,
-            self.ui.cylinder_tool.height
+            radius,
+            height
         );
 
         // Don't deactivate tool - allow placing multiple cylinders
@@ -1496,74 +1356,34 @@ impl App {
         }
 
         // Get block type and metadata from hotbar
-        let block_type = self.ui.hotbar_blocks[self.ui.hotbar_index];
-        let hotbar_idx = self.ui.hotbar_index;
-        let tint_index = self.ui.hotbar_tint_indices[hotbar_idx];
-        let paint_texture = self.ui.hotbar_paint_textures[hotbar_idx];
+        let params = self.get_hotbar_placement_params();
 
         // Regenerate full positions (preview may be truncated)
         let start = wall.start_position.unwrap();
         let end = wall.preview_end.unwrap();
-        let positions = crate::shape_tools::wall::generate_wall_positions(
-            start,
-            end,
-            wall.thickness,
-            wall.effective_manual_height(),
+        let thickness = wall.thickness;
+        let manual_height = wall.effective_manual_height();
+        let positions =
+            crate::shape_tools::wall::generate_wall_positions(start, end, thickness, manual_height);
+
+        // Place blocks using shared helper
+        let placed_count = place_blocks_at_positions(
+            &positions,
+            params,
+            &mut self.sim.world,
+            &mut self.sim.water_grid,
+            &mut self.sim.lava_grid,
         );
-
-        // Place blocks
-        let mut placed_count = 0;
-        for pos in &positions {
-            // Skip if out of Y bounds (X/Z are infinite)
-            if pos.y < 0 || pos.y >= TEXTURE_SIZE_Y as i32 {
-                continue;
-            }
-
-            match block_type {
-                BlockType::TintedGlass => {
-                    self.sim.world.set_tinted_glass_block(*pos, tint_index);
-                }
-                BlockType::Crystal => {
-                    self.sim.world.set_crystal_block(*pos, tint_index);
-                }
-                BlockType::Painted => {
-                    self.sim
-                        .world
-                        .set_painted_block(*pos, paint_texture, tint_index);
-                }
-                BlockType::Water => {
-                    let water_type = WaterType::from_u8(tint_index);
-                    self.sim.water_grid.place_source(*pos, water_type);
-                    self.sim.world.set_water_block(*pos, water_type);
-                }
-                BlockType::Lava => {
-                    self.sim.lava_grid.place_source(*pos);
-                    self.sim.world.set_block(*pos, BlockType::Lava);
-                }
-                BlockType::Model | BlockType::Air => {
-                    // Skip model and air blocks - don't make sense for wall fill
-                    continue;
-                }
-                _ => {
-                    self.sim.world.set_block(*pos, block_type);
-                }
-            }
-            placed_count += 1;
-        }
 
         // Invalidate minimap cache for affected area
         self.sim.world.invalidate_minimap_cache(start.x, start.z);
         self.sim.world.invalidate_minimap_cache(end.x, end.z);
 
-        let (length, height, thickness) = crate::shape_tools::wall::calculate_dimensions(
-            start,
-            end,
-            self.ui.wall_tool.thickness,
-            self.ui.wall_tool.effective_manual_height(),
-        );
+        let (length, height, thick) =
+            crate::shape_tools::wall::calculate_dimensions(start, end, thickness, manual_height);
         println!(
             "Placed wall ({} blocks, {}L × {}H × {}T)",
-            placed_count, length, height, thickness
+            placed_count, length, height, thick
         );
 
         // Don't deactivate tool - allow placing multiple walls
@@ -1577,73 +1397,34 @@ impl App {
         }
 
         // Get block type and metadata from hotbar
-        let block_type = self.ui.hotbar_blocks[self.ui.hotbar_index];
-        let hotbar_idx = self.ui.hotbar_index;
-        let tint_index = self.ui.hotbar_tint_indices[hotbar_idx];
-        let paint_texture = self.ui.hotbar_paint_textures[hotbar_idx];
+        let params = self.get_hotbar_placement_params();
 
         // Regenerate full positions (preview may be truncated)
         let start = floor.start_position.unwrap();
         let end = floor.preview_end.unwrap();
-        let positions = crate::shape_tools::floor::generate_floor_positions(
-            start,
-            end,
-            floor.thickness,
-            floor.direction,
+        let thickness = floor.thickness;
+        let direction = floor.direction;
+        let positions =
+            crate::shape_tools::floor::generate_floor_positions(start, end, thickness, direction);
+
+        // Place blocks using shared helper
+        let placed_count = place_blocks_at_positions(
+            &positions,
+            params,
+            &mut self.sim.world,
+            &mut self.sim.water_grid,
+            &mut self.sim.lava_grid,
         );
-
-        // Place blocks
-        let mut placed_count = 0;
-        for pos in &positions {
-            // Skip if out of Y bounds (X/Z are infinite)
-            if pos.y < 0 || pos.y >= TEXTURE_SIZE_Y as i32 {
-                continue;
-            }
-
-            match block_type {
-                BlockType::TintedGlass => {
-                    self.sim.world.set_tinted_glass_block(*pos, tint_index);
-                }
-                BlockType::Crystal => {
-                    self.sim.world.set_crystal_block(*pos, tint_index);
-                }
-                BlockType::Painted => {
-                    self.sim
-                        .world
-                        .set_painted_block(*pos, paint_texture, tint_index);
-                }
-                BlockType::Water => {
-                    let water_type = WaterType::from_u8(tint_index);
-                    self.sim.water_grid.place_source(*pos, water_type);
-                    self.sim.world.set_water_block(*pos, water_type);
-                }
-                BlockType::Lava => {
-                    self.sim.lava_grid.place_source(*pos);
-                    self.sim.world.set_block(*pos, BlockType::Lava);
-                }
-                BlockType::Model | BlockType::Air => {
-                    // Skip model and air blocks - don't make sense for floor fill
-                    continue;
-                }
-                _ => {
-                    self.sim.world.set_block(*pos, block_type);
-                }
-            }
-            placed_count += 1;
-        }
 
         // Invalidate minimap cache for affected area
         self.sim.world.invalidate_minimap_cache(start.x, start.z);
         self.sim.world.invalidate_minimap_cache(end.x, end.z);
 
-        let (length, width, thickness) = crate::shape_tools::floor::calculate_dimensions(
-            start,
-            end,
-            self.ui.floor_tool.thickness,
-        );
+        let (length, width, thick) =
+            crate::shape_tools::floor::calculate_dimensions(start, end, thickness);
         println!(
             "Placed floor ({} blocks, {}L × {}W × {}T)",
-            placed_count, length, width, thickness
+            placed_count, length, width, thick
         );
 
         // Don't deactivate tool - allow placing multiple floors
@@ -1657,80 +1438,39 @@ impl App {
         }
 
         // Get block type and metadata from hotbar
-        let block_type = self.ui.hotbar_blocks[self.ui.hotbar_index];
-        let hotbar_idx = self.ui.hotbar_index;
-        let tint_index = self.ui.hotbar_tint_indices[hotbar_idx];
-        let paint_texture = self.ui.hotbar_paint_textures[hotbar_idx];
+        let params = self.get_hotbar_placement_params();
 
         // Regenerate full positions (preview may be truncated)
         // Apply placement mode adjustment to get the actual center
         let raw_center = circle.preview_center.unwrap();
         let center = circle.adjust_center_for_placement(raw_center);
+        let radius_a = circle.radius_a;
+        let radius_b = circle.effective_radius_b();
+        let plane = circle.plane;
+        let filled = circle.filled;
+        let ellipse_mode = circle.ellipse_mode;
         let positions = crate::shape_tools::circle::generate_circle_positions(
-            center,
-            circle.radius_a,
-            circle.effective_radius_b(),
-            circle.plane,
-            circle.filled,
+            center, radius_a, radius_b, plane, filled,
         );
 
-        // Place blocks
-        let mut placed_count = 0;
-        for pos in &positions {
-            // Skip if out of Y bounds (X/Z are infinite)
-            if pos.y < 0 || pos.y >= TEXTURE_SIZE_Y as i32 {
-                continue;
-            }
-
-            match block_type {
-                BlockType::TintedGlass => {
-                    self.sim.world.set_tinted_glass_block(*pos, tint_index);
-                }
-                BlockType::Crystal => {
-                    self.sim.world.set_crystal_block(*pos, tint_index);
-                }
-                BlockType::Painted => {
-                    self.sim
-                        .world
-                        .set_painted_block(*pos, paint_texture, tint_index);
-                }
-                BlockType::Water => {
-                    let water_type = WaterType::from_u8(tint_index);
-                    self.sim.water_grid.place_source(*pos, water_type);
-                    self.sim.world.set_water_block(*pos, water_type);
-                }
-                BlockType::Lava => {
-                    self.sim.lava_grid.place_source(*pos);
-                    self.sim.world.set_block(*pos, BlockType::Lava);
-                }
-                BlockType::Model | BlockType::Air => {
-                    // Skip model and air blocks - don't make sense for circle fill
-                    continue;
-                }
-                _ => {
-                    self.sim.world.set_block(*pos, block_type);
-                }
-            }
-            placed_count += 1;
-        }
+        // Place blocks using shared helper
+        let placed_count = place_blocks_at_positions(
+            &positions,
+            params,
+            &mut self.sim.world,
+            &mut self.sim.water_grid,
+            &mut self.sim.lava_grid,
+        );
 
         // Invalidate minimap cache for affected area
         self.sim.world.invalidate_minimap_cache(center.x, center.z);
 
-        let radius_desc = if self.ui.circle_tool.ellipse_mode {
-            format!(
-                "{}×{}",
-                self.ui.circle_tool.radius_a,
-                self.ui.circle_tool.effective_radius_b()
-            )
+        let radius_desc = if ellipse_mode {
+            format!("{}×{}", radius_a, radius_b)
         } else {
-            format!("{}", self.ui.circle_tool.radius_a)
+            format!("{}", radius_a)
         };
-        let fill_desc = if self.ui.circle_tool.filled {
-            "filled"
-        } else {
-            "outline"
-        };
+        let fill_desc = if filled { "filled" } else { "outline" };
         println!(
             "Placed {} circle ({} blocks, radius {})",
             fill_desc, placed_count, radius_desc
@@ -1747,44 +1487,21 @@ impl App {
         }
 
         // Get block type and metadata from hotbar
-        let block_type = self.ui.hotbar_blocks[self.ui.hotbar_index];
-        let hotbar_idx = self.ui.hotbar_index;
-        let tint_index = self.ui.hotbar_tint_indices[hotbar_idx];
-        let paint_texture = self.ui.hotbar_paint_textures[hotbar_idx];
+        let params = self.get_hotbar_placement_params();
 
         // Use preview positions (already generated with current target)
         let positions = self.ui.stairs_tool.preview_positions.clone();
+        let step_count = self.ui.stairs_tool.step_count;
+        let width = self.ui.stairs_tool.width;
 
-        // Place blocks
-        let mut placed_count = 0;
-        for pos in &positions {
-            // Skip if out of Y bounds (X/Z are infinite)
-            if pos.y < 0 || pos.y >= TEXTURE_SIZE_Y as i32 {
-                continue;
-            }
-
-            match block_type {
-                BlockType::TintedGlass => {
-                    self.sim.world.set_tinted_glass_block(*pos, tint_index);
-                }
-                BlockType::Crystal => {
-                    self.sim.world.set_crystal_block(*pos, tint_index);
-                }
-                BlockType::Painted => {
-                    self.sim
-                        .world
-                        .set_painted_block(*pos, paint_texture, tint_index);
-                }
-                BlockType::Model | BlockType::Air => {
-                    // Skip model and air blocks - don't make sense for stairs fill
-                    continue;
-                }
-                _ => {
-                    self.sim.world.set_block(*pos, block_type);
-                }
-            }
-            placed_count += 1;
-        }
+        // Place blocks using shared helper
+        let placed_count = place_blocks_at_positions(
+            &positions,
+            params,
+            &mut self.sim.world,
+            &mut self.sim.water_grid,
+            &mut self.sim.lava_grid,
+        );
 
         // Invalidate minimap cache for affected area
         if let Some(first_pos) = positions.first() {
@@ -1798,8 +1515,6 @@ impl App {
                 .invalidate_minimap_cache(last_pos.x, last_pos.z);
         }
 
-        let step_count = self.ui.stairs_tool.step_count;
-        let width = self.ui.stairs_tool.width;
         println!(
             "Placed stairs ({} blocks, {} steps × {} wide)",
             placed_count, step_count, width
@@ -1816,44 +1531,22 @@ impl App {
         }
 
         // Get block type and metadata from hotbar
-        let block_type = self.ui.hotbar_blocks[self.ui.hotbar_index];
-        let hotbar_idx = self.ui.hotbar_index;
-        let tint_index = self.ui.hotbar_tint_indices[hotbar_idx];
-        let paint_texture = self.ui.hotbar_paint_textures[hotbar_idx];
+        let params = self.get_hotbar_placement_params();
 
         // Use preview positions (already generated with current settings)
         let positions = self.ui.arch_tool.preview_positions.clone();
+        let width = self.ui.arch_tool.width;
+        let height = self.ui.arch_tool.height;
+        let style_name = self.ui.arch_tool.style.name();
 
-        // Place blocks
-        let mut placed_count = 0;
-        for pos in &positions {
-            // Skip if out of Y bounds (X/Z are infinite)
-            if pos.y < 0 || pos.y >= TEXTURE_SIZE_Y as i32 {
-                continue;
-            }
-
-            match block_type {
-                BlockType::TintedGlass => {
-                    self.sim.world.set_tinted_glass_block(*pos, tint_index);
-                }
-                BlockType::Crystal => {
-                    self.sim.world.set_crystal_block(*pos, tint_index);
-                }
-                BlockType::Painted => {
-                    self.sim
-                        .world
-                        .set_painted_block(*pos, paint_texture, tint_index);
-                }
-                BlockType::Model | BlockType::Air => {
-                    // Skip model and air blocks - don't make sense for arch fill
-                    continue;
-                }
-                _ => {
-                    self.sim.world.set_block(*pos, block_type);
-                }
-            }
-            placed_count += 1;
-        }
+        // Place blocks using shared helper
+        let placed_count = place_blocks_at_positions(
+            &positions,
+            params,
+            &mut self.sim.world,
+            &mut self.sim.water_grid,
+            &mut self.sim.lava_grid,
+        );
 
         // Invalidate minimap cache for affected area
         if let Some(first_pos) = positions.first() {
@@ -1862,9 +1555,6 @@ impl App {
                 .invalidate_minimap_cache(first_pos.x, first_pos.z);
         }
 
-        let width = self.ui.arch_tool.width;
-        let height = self.ui.arch_tool.height;
-        let style_name = self.ui.arch_tool.style.name();
         println!(
             "Placed {} arch ({} blocks, {}W × {}H)",
             style_name, placed_count, width, height
@@ -1881,44 +1571,22 @@ impl App {
         }
 
         // Get block type and metadata from hotbar
-        let block_type = self.ui.hotbar_blocks[self.ui.hotbar_index];
-        let hotbar_idx = self.ui.hotbar_index;
-        let tint_index = self.ui.hotbar_tint_indices[hotbar_idx];
-        let paint_texture = self.ui.hotbar_paint_textures[hotbar_idx];
+        let params = self.get_hotbar_placement_params();
 
         // Use preview positions (already generated with current settings)
         let positions = self.ui.cone_tool.preview_positions.clone();
+        let shape_name = self.ui.cone_tool.shape.name();
+        let base_size = self.ui.cone_tool.base_size;
+        let height = self.ui.cone_tool.height;
 
-        // Place blocks
-        let mut placed_count = 0;
-        for pos in &positions {
-            // Skip if out of Y bounds (X/Z are infinite)
-            if pos.y < 0 || pos.y >= TEXTURE_SIZE_Y as i32 {
-                continue;
-            }
-
-            match block_type {
-                BlockType::TintedGlass => {
-                    self.sim.world.set_tinted_glass_block(*pos, tint_index);
-                }
-                BlockType::Crystal => {
-                    self.sim.world.set_crystal_block(*pos, tint_index);
-                }
-                BlockType::Painted => {
-                    self.sim
-                        .world
-                        .set_painted_block(*pos, paint_texture, tint_index);
-                }
-                BlockType::Model | BlockType::Air => {
-                    // Skip model and air blocks - don't make sense for cone fill
-                    continue;
-                }
-                _ => {
-                    self.sim.world.set_block(*pos, block_type);
-                }
-            }
-            placed_count += 1;
-        }
+        // Place blocks using shared helper
+        let placed_count = place_blocks_at_positions(
+            &positions,
+            params,
+            &mut self.sim.world,
+            &mut self.sim.water_grid,
+            &mut self.sim.lava_grid,
+        );
 
         // Invalidate minimap cache for affected area
         if let Some(first_pos) = positions.first() {
@@ -1927,9 +1595,6 @@ impl App {
                 .invalidate_minimap_cache(first_pos.x, first_pos.z);
         }
 
-        let shape_name = self.ui.cone_tool.shape.name();
-        let base_size = self.ui.cone_tool.base_size;
-        let height = self.ui.cone_tool.height;
         println!(
             "Placed {} ({} blocks, base {} × height {})",
             shape_name, placed_count, base_size, height

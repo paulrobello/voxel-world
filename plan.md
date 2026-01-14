@@ -557,6 +557,52 @@ impl FloodFillTool {
 
 ---
 
+### Phase 18: Extended Building Tools II
+
+**Goal**: Add 8 new building tools with modular architecture and refactor existing large files.
+
+**Status**: IN PROGRESS
+
+#### Part A: Refactoring
+
+**Files to refactor:**
+- [ ] `shape_tools/mod.rs` (1617→~100 lines): Split into per-tool sub-modules
+- [ ] `block_interaction.rs` (2253→~800 lines): Extract `placement/` module
+- [ ] `app/input.rs` (1391→~600 lines): Extract `preview/` module
+
+**New module structure:**
+```
+src/shape_tools/{tool}/     # state.rs, generate.rs, mod.rs per tool
+src/placement/              # Shared placement helpers + per-tool files
+src/preview/                # Shared preview helpers + per-tool files
+```
+
+#### Part B: New Tools (8 total)
+
+**Shape Tools:**
+- [ ] Torus (🍩): Ring/donut shapes with arc angle support
+- [ ] Helix (🌀): Spiral staircases and decorative spirals
+- [ ] Polygon (⬡): Regular n-gons (3-12 sides)
+- [ ] Bezier Curve (〰): Smooth curved structures with control points
+
+**Utility Tools:**
+- [ ] Pattern Fill (🔲): Checkerboard, stripes, gradient patterns
+- [ ] Scatter (🎨): Paint-style vegetation/debris placement
+- [ ] Hollow (⬜): Convert solid selection to shell
+- [ ] Terrain Brush (⛰): Raise/lower/smooth/flatten terrain
+
+**Console Commands:**
+- `/torus <major_r> <minor_r> [plane] [arc] [hollow]`
+- `/helix <radius> <height> <turns> [tube_r] [ccw]`
+- `/polygon <sides> <radius> [height] [hollow] [rotation]`
+- `/bezier <x1> <y1> <z1> ... <tube_r>`
+- `/pattern <type> <block_a> <block_b> [period]`
+- `/scatter <block> <radius> <density> [surface_only]`
+- `/hollow [thickness]`
+- `/terrain <mode> <radius> [strength] [target_y]`
+
+---
+
 ## Deferred Phases
 
 ### Phase 7: Entity System (Low Priority)
@@ -1153,4 +1199,4 @@ Escape                      # Cancel tool
 ---
 
 *Last Updated: 2026-01-13*
-*Plan Version: 3.4 - Phase 17 Extended Building Tools (Mirror Tool, Arch Fix, Icon Fixes)*
+*Plan Version: 3.5 - Phase 18 Extended Building Tools II (Modular Architecture + 8 New Tools)*

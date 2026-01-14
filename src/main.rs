@@ -54,6 +54,7 @@ mod hot_reload;
 mod hud;
 mod lava;
 mod particles;
+mod placement;
 mod player;
 mod raycast;
 mod render_mode;
