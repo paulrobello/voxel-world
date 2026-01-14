@@ -530,6 +530,15 @@ impl App {
             || self.ui.arch_tool.active
             || self.ui.cone_tool.active
             || self.ui.clone_tool.active
+            // Phase 18 tools
+            || self.ui.torus_tool.active
+            || self.ui.helix_tool.active
+            || self.ui.polygon_tool.active
+            || self.ui.bezier_tool.active
+            || self.ui.pattern_fill.active
+            || self.ui.scatter_tool.active
+            || self.ui.hollow_tool.active
+            || self.ui.terrain_brush.active
         {
             return;
         }

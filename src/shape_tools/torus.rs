@@ -154,8 +154,13 @@ impl TorusToolState {
             self.update_cache();
 
             // Calculate actual center based on placement mode
-            let center =
-                calculate_center(target, self.minor_radius, self.plane, self.placement_mode);
+            let center = calculate_center(
+                target,
+                self.major_radius,
+                self.minor_radius,
+                self.plane,
+                self.placement_mode,
+            );
 
             let all_positions = generate_torus_positions(
                 center,
@@ -196,6 +201,7 @@ impl TorusToolState {
 /// The actual center position for the torus.
 pub fn calculate_center(
     target: Vector3<i32>,
+    major_radius: i32,
     minor_radius: i32,
     plane: TorusPlane,
     mode: PlacementMode,
@@ -205,9 +211,15 @@ pub fn calculate_center(
         PlacementMode::Base => {
             // Offset so the bottom of the torus rests on the target
             match plane {
+                // XZ plane: horizontal ring, bottom is minor_radius below center
                 TorusPlane::XZ => Vector3::new(target.x, target.y + minor_radius, target.z),
-                TorusPlane::XY => Vector3::new(target.x, target.y, target.z + minor_radius),
-                TorusPlane::YZ => Vector3::new(target.x + minor_radius, target.y, target.z),
+                // XY/YZ planes: vertical ring, bottom is major_radius + minor_radius below center
+                TorusPlane::XY => {
+                    Vector3::new(target.x, target.y + major_radius + minor_radius, target.z)
+                }
+                TorusPlane::YZ => {
+                    Vector3::new(target.x, target.y + major_radius + minor_radius, target.z)
+                }
             }
         }
     }
