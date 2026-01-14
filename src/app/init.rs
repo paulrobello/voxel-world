@@ -583,6 +583,7 @@ impl App {
             clone_tool: crate::shape_tools::CloneToolState::default(),
             torus_tool: crate::shape_tools::TorusToolState::default(),
             helix_tool: crate::shape_tools::HelixToolState::default(),
+            polygon_tool: crate::shape_tools::PolygonToolState::default(),
         };
 
         let input = InputState {

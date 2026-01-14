@@ -11,8 +11,8 @@ use crate::hud::Minimap;
 use crate::raycast::RaycastHit;
 use crate::shape_tools::{
     ArchToolState, BridgeToolState, CircleToolState, CloneToolState, ConeToolState, CubeToolState,
-    CylinderToolState, FloorToolState, HelixToolState, MirrorToolState, ReplaceToolState,
-    SphereToolState, StairsToolState, TorusToolState, WallToolState,
+    CylinderToolState, FloorToolState, HelixToolState, MirrorToolState, PolygonToolState,
+    ReplaceToolState, SphereToolState, StairsToolState, TorusToolState, WallToolState,
 };
 use crate::templates::{TemplateLibrary, TemplatePlacement, TemplateSelection, TemplateUi};
 use crate::ui::tools::ToolsPaletteState;
@@ -166,4 +166,7 @@ pub struct UiState {
 
     /// Helix/spiral placement tool state.
     pub helix_tool: HelixToolState,
+
+    /// Polygon (n-gon) placement tool state.
+    pub polygon_tool: PolygonToolState,
 }

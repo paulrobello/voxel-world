@@ -115,6 +115,13 @@ impl App {
             return true;
         }
 
+        // Cancel polygon tool
+        if self.input.key_pressed(KeyCode::Escape) && self.ui.polygon_tool.active {
+            println!("Polygon Tool: OFF");
+            self.ui.polygon_tool.deactivate();
+            return true;
+        }
+
         // Handle escape to unfocus
         if self.input.key_pressed(KeyCode::Escape) && self.input.focused {
             self.input.focused = false;
@@ -800,6 +807,18 @@ impl App {
             && !self.ui.place_needs_reclick
         {
             self.place_helix();
+            self.ui.place_needs_reclick = true;
+            return; // Skip block placement
+        }
+
+        // Handle polygon placement with right-click
+        if self.input.focused
+            && self.ui.polygon_tool.active
+            && !self.ui.polygon_tool.preview_positions.is_empty()
+            && self.input.mouse_pressed(MouseButton::Right)
+            && !self.ui.place_needs_reclick
+        {
+            self.place_polygon();
             self.ui.place_needs_reclick = true;
             return; // Skip block placement
         }

@@ -40,6 +40,7 @@ pub mod hotbar;
 pub mod minimap;
 pub mod mirror_tool;
 pub mod palette;
+pub mod polygon_tool;
 pub mod replace_tool;
 pub mod settings;
 pub mod sphere_tool;
@@ -63,6 +64,7 @@ use hotbar::HotbarUI;
 use minimap::MinimapUI;
 use mirror_tool::MirrorToolUI;
 use palette::PaletteUI;
+use polygon_tool::PolygonToolUI;
 use replace_tool::ReplaceToolUI;
 use settings::SettingsUI;
 use sphere_tool::SphereToolUI;
@@ -154,6 +156,7 @@ pub struct HudInputs<'a> {
     pub clone_tool: &'a mut crate::shape_tools::CloneToolState,
     pub torus_tool: &'a mut crate::shape_tools::TorusToolState,
     pub helix_tool: &'a mut crate::shape_tools::HelixToolState,
+    pub polygon_tool: &'a mut crate::shape_tools::PolygonToolState,
 }
 
 pub struct HUDRenderer;
@@ -229,6 +232,7 @@ impl HUDRenderer {
             clone_tool,
             torus_tool,
             helix_tool,
+            polygon_tool,
         } = input;
         let mut scale_changed = false;
         let mut editor_action = EditorAction::None;
@@ -311,6 +315,7 @@ impl HUDRenderer {
                 clone_tool.active,
                 torus_tool.active,
                 helix_tool.active,
+                polygon_tool.active,
                 stencil_manager.global_opacity,
                 stencil_manager.render_mode,
             );
@@ -369,6 +374,9 @@ impl HUDRenderer {
 
             // Helix tool settings window
             HelixToolUI::draw(&ctx, helix_tool);
+
+            // Polygon tool settings window
+            PolygonToolUI::draw(&ctx, polygon_tool);
 
             // Crosshair (hide when editor or console is open)
             if !editor.active && !console.active {

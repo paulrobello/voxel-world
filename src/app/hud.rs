@@ -96,6 +96,7 @@ pub fn render_hud(
             clone_tool: &mut ui.clone_tool,
             torus_tool: &mut ui.torus_tool,
             helix_tool: &mut ui.helix_tool,
+            polygon_tool: &mut ui.polygon_tool,
         },
     );
 
@@ -321,6 +322,18 @@ pub fn render_hud(
             if ui.helix_tool.active {
                 ui.tools_palette.open = false;
                 // Don't request cursor grab - helix tool UI needs mouse interaction
+            }
+        }
+        ToolAction::TogglePolygonTool => {
+            ui.polygon_tool.active = !ui.polygon_tool.active;
+            println!(
+                "Polygon Tool: {}",
+                if ui.polygon_tool.active { "ON" } else { "OFF" }
+            );
+            // Close tools palette but DON'T grab cursor - let user adjust settings first
+            if ui.polygon_tool.active {
+                ui.tools_palette.open = false;
+                // Don't request cursor grab - polygon tool UI needs mouse interaction
             }
         }
         ToolAction::None => {}

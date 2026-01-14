@@ -1683,6 +1683,47 @@ impl App {
         // Don't deactivate tool - allow placing multiple helixes
     }
 
+    /// Place a polygon/prism at the preview position.
+    pub fn place_polygon(&mut self) {
+        let polygon = &self.ui.polygon_tool;
+        if !polygon.active || polygon.preview_positions.is_empty() {
+            return;
+        }
+
+        // Get block type and metadata from hotbar
+        let params = self.get_hotbar_placement_params();
+
+        // Use preview positions (already generated with current settings)
+        let positions = self.ui.polygon_tool.preview_positions.clone();
+        let sides = self.ui.polygon_tool.sides;
+        let radius = self.ui.polygon_tool.radius;
+        let height = self.ui.polygon_tool.height;
+
+        // Place blocks using shared helper
+        let placed_count = place_blocks_at_positions(
+            &positions,
+            params,
+            &mut self.sim.world,
+            &mut self.sim.water_grid,
+            &mut self.sim.lava_grid,
+        );
+
+        // Invalidate minimap cache for affected area
+        if let Some(first_pos) = positions.first() {
+            self.sim
+                .world
+                .invalidate_minimap_cache(first_pos.x, first_pos.z);
+        }
+
+        let shape_name = self.ui.polygon_tool.polygon_name();
+        println!(
+            "Placed {} ({} blocks, {} sides, R={}, H={})",
+            shape_name, placed_count, sides, radius, height
+        );
+
+        // Don't deactivate tool - allow placing multiple polygons
+    }
+
     /// Execute clone operation: copy blocks from selection to cloned positions.
     pub fn execute_clone(&mut self) {
         let clone_tool = &self.ui.clone_tool;
