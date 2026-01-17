@@ -2,6 +2,7 @@
 //!
 //! Creates predictable terrain with:
 //! - Flat or hills terrain styles
+//! - Dense showcase area near spawn with all feature types
 //! - Regular torch placement for point light testing
 //! - Glowstone pillars and crystal clusters
 //! - Glass walls for transparency stress testing
@@ -16,6 +17,12 @@ const TORCH_MODEL_ID: u8 = 1;
 
 /// Base height for flat terrain
 const BASE_HEIGHT: i32 = 100;
+
+/// Showcase area radius (dense features within this distance of spawn)
+const SHOWCASE_RADIUS: i32 = 48;
+
+/// Torch placement interval in showcase area
+const SHOWCASE_TORCH_INTERVAL: i32 = 8;
 
 /// Torch placement interval (every N blocks on grid)
 const TORCH_INTERVAL: i32 = 16;
@@ -117,6 +124,7 @@ pub fn generate_benchmark_chunk(
 }
 
 /// Places benchmark features (torches, glowstone pillars, crystals, glass walls)
+/// Creates a dense showcase area near spawn (0,0) and regular features elsewhere.
 fn place_benchmark_features(
     chunk: &mut Chunk,
     chunk_world_x: i32,
@@ -139,28 +147,58 @@ fn place_benchmark_features(
                 }
             };
 
-            // Check if torch should be placed (every TORCH_INTERVAL blocks on grid)
-            let is_torch_pos =
-                world_x.rem_euclid(TORCH_INTERVAL) == 0 && world_z.rem_euclid(TORCH_INTERVAL) == 0;
+            // Check if we're in the showcase area (dense features near spawn)
+            let in_showcase = world_x.abs() <= SHOWCASE_RADIUS && world_z.abs() <= SHOWCASE_RADIUS;
 
-            // Check if glowstone pillar should be placed
-            let is_glowstone_pos = world_x.rem_euclid(GLOWSTONE_INTERVAL) == 0
-                && world_z.rem_euclid(GLOWSTONE_INTERVAL) == 0;
+            // Determine feature placement based on location
+            let (is_torch_pos, is_glowstone_pos, is_crystal_pos, is_glass_wall_pos) = if in_showcase
+            {
+                // Dense showcase area: more torches, explicit feature positions
+                let torch = world_x.rem_euclid(SHOWCASE_TORCH_INTERVAL) == 0
+                    && world_z.rem_euclid(SHOWCASE_TORCH_INTERVAL) == 0;
 
-            // Check if crystal cluster should be placed
-            let is_crystal_pos = world_x.rem_euclid(CRYSTAL_INTERVAL) == 0
-                && world_z.rem_euclid(CRYSTAL_INTERVAL) == 0;
+                // Glowstone pillars at specific positions in showcase
+                // Cardinal directions and corners
+                let glowstone = (world_x.abs() == 16 && world_z == 0)
+                    || (world_x == 0 && world_z.abs() == 16)
+                    || (world_x.abs() == 24 && world_z.abs() == 24);
 
-            // Check if glass wall should be placed (perpendicular to X-axis)
-            let is_glass_wall_pos = world_x.rem_euclid(GLASS_WALL_INTERVAL) == 0;
+                // Crystal clusters at different positions with different tints
+                let crystal = (world_x.abs() == 32 && world_z == 0)
+                    || (world_x == 0 && world_z.abs() == 32)
+                    || (world_x.abs() == 40 && world_z == 8);
+
+                // Glass walls at specific Z positions (not blocking forward view)
+                let glass = (world_z == 20 || world_z == -20) && (8..=40).contains(&world_x.abs());
+
+                (torch, glowstone, crystal, glass)
+            } else {
+                // Regular sparse placement outside showcase
+                let torch = world_x.rem_euclid(TORCH_INTERVAL) == 0
+                    && world_z.rem_euclid(TORCH_INTERVAL) == 0;
+                let glowstone = world_x.rem_euclid(GLOWSTONE_INTERVAL) == 0
+                    && world_z.rem_euclid(GLOWSTONE_INTERVAL) == 0;
+                let crystal = world_x.rem_euclid(CRYSTAL_INTERVAL) == 0
+                    && world_z.rem_euclid(CRYSTAL_INTERVAL) == 0;
+                let glass = world_x.rem_euclid(GLASS_WALL_INTERVAL) == 0;
+
+                (torch, glowstone, crystal, glass)
+            };
 
             // Process each Y level in this chunk
             for ly in 0..CHUNK_SIZE {
                 let world_y = chunk_world_y + ly as i32;
                 let height_above_surface = world_y - surface_height;
 
+                // Skip positions that would have multiple features
+                let skip_for_glowstone = is_glowstone_pos;
+                let skip_for_crystal = is_crystal_pos && !is_glowstone_pos;
+
                 // Torch on surface (height_above_surface == 1)
-                if is_torch_pos && height_above_surface == 1 && !is_glowstone_pos && !is_crystal_pos
+                if is_torch_pos
+                    && height_above_surface == 1
+                    && !skip_for_glowstone
+                    && !skip_for_crystal
                 {
                     place_torch(chunk, lx, ly, lz);
                 }
