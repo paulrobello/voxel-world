@@ -3,6 +3,7 @@
 use super::App;
 use crate::app::stats::print_stats;
 use crate::app_state::AutoProfileFeature;
+use crate::config::{BenchmarkTerrain, WorldGenType};
 use crate::constants::{DAY_CYCLE_DURATION, TEXTURE_SIZE_Y};
 use crate::gpu_resources::upload_model_registry;
 use nalgebra::Vector3;
@@ -213,7 +214,16 @@ impl App {
                                         // Set camera to face +X direction (yaw = -π/2)
                                         self.sim.player.camera.rotation.y =
                                             -std::f64::consts::FRAC_PI_2;
-                                        self.sim.player.camera.rotation.x = 0.0;
+                                        // Flat terrain: angle down 30°; hills: look straight
+                                        let is_flat = self.args.world_gen == WorldGenType::Flat
+                                            || (self.args.world_gen == WorldGenType::Benchmark
+                                                && self.args.benchmark_terrain
+                                                    == BenchmarkTerrain::Flat);
+                                        self.sim.player.camera.rotation.x = if is_flat {
+                                            std::f64::consts::FRAC_PI_6 // 30 degrees down
+                                        } else {
+                                            0.0
+                                        };
                                         println!(
                                             "[AUTO-PROFILE] Starting Flying phase ({}s, straight +X)",
                                             self.ui.auto_profile_feature.duration_secs()

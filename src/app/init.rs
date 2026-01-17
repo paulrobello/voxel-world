@@ -6,7 +6,7 @@ use crate::atmosphere;
 use crate::block_update::BlockUpdateQueue;
 use crate::chunk::CHUNK_SIZE;
 use crate::chunk_loader::ChunkLoader;
-use crate::config::{Args, INITIAL_WINDOW_RESOLUTION, WorldGenType};
+use crate::config::{Args, BenchmarkTerrain, INITIAL_WINDOW_RESOLUTION, WorldGenType};
 use crate::console::ConsoleState;
 use crate::constants::{
     DEFAULT_TIME_OF_DAY, LOAD_DISTANCE, LOADED_CHUNKS_X, LOADED_CHUNKS_Z, TEXTURE_SIZE_X,
@@ -304,8 +304,15 @@ impl App {
                 player_data.position[2],
             )
         } else if world_gen == WorldGenType::Benchmark {
-            // Benchmark world: spawn at Y=150 (above terrain at Y=100)
-            Vector3::new(spawn_block_x as f64, 150.0, spawn_block_z as f64)
+            // Benchmark world: spawn above terrain (Y=100)
+            // Flat terrain: Y=145 (lower to see more ground)
+            // Hills terrain: Y=150 (higher for terrain variation)
+            let spawn_y = if args.benchmark_terrain == BenchmarkTerrain::Flat {
+                145.0
+            } else {
+                150.0
+            };
+            Vector3::new(spawn_block_x as f64, spawn_y, spawn_block_z as f64)
         } else {
             // If explicit spawn coords provided, use them; otherwise find safe spawn
             let (safe_x, safe_z) = if args.spawn_x.is_some() || args.spawn_z.is_some() {
@@ -351,7 +358,15 @@ impl App {
             player.auto_fly_pattern = args.auto_fly_pattern;
             // Set camera to face the direction of flight (+X direction = yaw -π/2)
             player.camera.rotation.y = -std::f64::consts::FRAC_PI_2;
-            player.camera.rotation.x = 0.0; // Look straight ahead
+            // Flat terrain: angle down 30° to see more ground; hills: look straight
+            let is_flat = world_gen == WorldGenType::Flat
+                || (world_gen == WorldGenType::Benchmark
+                    && args.benchmark_terrain == BenchmarkTerrain::Flat);
+            player.camera.rotation.x = if is_flat {
+                std::f64::consts::FRAC_PI_6 // 30 degrees down
+            } else {
+                0.0 // Look straight ahead
+            };
             println!(
                 "[AUTO-FLY] Enabled: speed={:.1} blocks/sec, pattern={:?}",
                 args.auto_fly_speed, args.auto_fly_pattern
