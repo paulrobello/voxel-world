@@ -101,12 +101,14 @@ impl App {
 
             print_stats(&mut self.ui, &mut self.sim, self.args.verbose);
 
-            // Auto-profile state machine: toggle features every 5 seconds
+            // Auto-profile state machine: toggle features, then fly
             if self.ui.auto_profile_enabled {
-                const PHASE_DURATION: Duration = Duration::from_secs(5);
+                // Phase duration is dynamic: 5s for toggle tests, 30s for flying
+                let phase_duration =
+                    Duration::from_secs(self.ui.auto_profile_feature.duration_secs());
                 let phase_elapsed = now.duration_since(self.ui.auto_profile_phase_start);
 
-                if phase_elapsed >= PHASE_DURATION {
+                if phase_elapsed >= phase_duration {
                     self.ui.auto_profile_phase_start = now;
 
                     match self.ui.auto_profile_feature {
@@ -117,9 +119,18 @@ impl App {
                             self.ui.settings.enable_ao = false;
                             println!("[AUTO-PROFILE] Testing AO: OFF");
                         }
+                        AutoProfileFeature::Flying => {
+                            // Flying phase complete, move to Done
+                            self.ui.auto_profile_feature = AutoProfileFeature::Done;
+                            self.sim.player.auto_fly_enabled = false;
+                            println!("[AUTO-PROFILE] Flying phase complete.");
+                        }
                         AutoProfileFeature::Done => {
                             // Exit the application
                             println!("[AUTO-PROFILE] Complete! Exiting...");
+                            self.sim
+                                .save_all(&self.ui.measurement_markers, &self.ui.stencil_manager);
+                            self.save_preferences();
                             std::process::exit(0);
                         }
                         _ => {
@@ -165,7 +176,7 @@ impl App {
                                     state_name
                                 );
                             } else {
-                                // Feature was ON/MAX, move to next feature (OFF/MIN)
+                                // Feature was ON/MAX, move to next feature (OFF/MIN or Flying)
                                 self.ui.auto_profile_feature = self.ui.auto_profile_feature.next();
                                 self.ui.auto_profile_feature_off = true;
                                 match self.ui.auto_profile_feature {
@@ -194,15 +205,27 @@ impl App {
                                     AutoProfileFeature::HideGroundCover => {
                                         self.ui.settings.hide_ground_cover = false
                                     }
-                                    AutoProfileFeature::Done => {
+                                    AutoProfileFeature::Flying => {
+                                        // Start auto-fly for streaming test
+                                        self.sim.player.auto_fly_enabled = true;
+                                        self.sim.player.fly_mode = true;
+                                        self.sim.player.auto_fly_time = 0.0;
                                         println!(
-                                            "[AUTO-PROFILE] All features tested. Final 5s baseline..."
+                                            "[AUTO-PROFILE] Starting Flying phase ({}s, straight +X)",
+                                            self.ui.auto_profile_feature.duration_secs()
                                         );
+                                        self.ui.auto_profile_feature_off = false; // No OFF phase
+                                    }
+                                    AutoProfileFeature::Done => {
+                                        // Should not reach here (Flying handles transition)
                                         self.ui.auto_profile_feature_off = false;
                                     }
                                     _ => {}
                                 }
-                                if self.ui.auto_profile_feature != AutoProfileFeature::Done {
+                                // Print message for toggle features (not Flying/Done)
+                                if self.ui.auto_profile_feature != AutoProfileFeature::Flying
+                                    && self.ui.auto_profile_feature != AutoProfileFeature::Done
+                                {
                                     let state_name = match self.ui.auto_profile_feature {
                                         AutoProfileFeature::LightCullRadius => "MIN (16)",
                                         AutoProfileFeature::MaxActiveLights => "MIN (8)",

@@ -16,8 +16,12 @@ pub enum AutoProfileFeature {
     Minimap,               // Testing show_minimap
     MinimapSkipDecorative, // Testing minimap.skip_decorative (ground clutter only, not leaves)
     HideGroundCover,       // Testing hide_ground_cover (skip vegetation in main view)
+    Flying,                // Auto-fly streaming test (30s)
     Done,                  // All tests complete
 }
+
+/// Duration of the flying phase in seconds
+pub const FLYING_PHASE_DURATION_SECS: u64 = 30;
 
 impl AutoProfileFeature {
     pub fn next(self) -> Self {
@@ -31,7 +35,8 @@ impl AutoProfileFeature {
             Self::MaxActiveLights => Self::Minimap,
             Self::Minimap => Self::MinimapSkipDecorative,
             Self::MinimapSkipDecorative => Self::HideGroundCover,
-            Self::HideGroundCover => Self::Done,
+            Self::HideGroundCover => Self::Flying,
+            Self::Flying => Self::Done,
             Self::Done => Self::Done,
         }
     }
@@ -48,7 +53,16 @@ impl AutoProfileFeature {
             Self::Minimap => "Minimap",
             Self::MinimapSkipDecorative => "MinimapSkipDecorative",
             Self::HideGroundCover => "HideGroundCover",
+            Self::Flying => "Flying (streaming)",
             Self::Done => "Done",
+        }
+    }
+
+    /// Returns the duration for this phase in seconds
+    pub fn duration_secs(&self) -> u64 {
+        match self {
+            Self::Flying => FLYING_PHASE_DURATION_SECS,
+            _ => 5, // Default 5 seconds for toggle tests
         }
     }
 }
