@@ -452,8 +452,10 @@ float marchSubVoxelShadow(
     uint res = model_properties[model_id].resolution;
     float fres = float(res);
 
-    // Early out using coarse mask
-    if (!modelMaskBlocksRay(origin, dir, model_id, rotation)) {
+    // Early out using coarse mask - skip for glass pane models (119-150) since their
+    // thin frame geometry (1 voxel thick) can be missed by the 4x4x4 coarse mask DDA
+    bool isGlassPane = (model_id >= 119u && model_id <= 150u);
+    if (!isGlassPane && !modelMaskBlocksRay(origin, dir, model_id, rotation)) {
         return 1.0; // No blocking
     }
 
