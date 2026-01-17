@@ -226,21 +226,18 @@ float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFl
                                     // Accumulate model tint for translucent sub-voxels
                                     shadowTint *= modelTint;
                                     if (transmission < 0.05) {
-                                        // Nearly opaque hit
-                                        if (model_id == 2u || model_id == 3u) {
-                                            debugFlag = 2u;
-                                            return 0.0; // slabs: block fully where geometry exists
-                                        }
-                                        if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
-                                            // Accumulate partial shadow and continue to check for full blockers behind
-                                            debugFlag = 3u;
-                                            accumulatedPartialShadow *= MODEL_PARTIAL_SHADOW;
-                                        } else {
-                                            debugFlag = 2u;
-                                            return 0.0;
-                                        }
+                                        // Nearly opaque hit - always block fully regardless of partial flag
+                                        // This ensures opaque frame parts of glass panes cast proper shadows
+                                        debugFlag = 2u;
+                                        return 0.0;
                                     }
-                                    // Partial transmission through translucent sub-voxels - continue ray
+                                    // Partial transmission through translucent sub-voxels
+                                    if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
+                                        // Accumulate partial shadow for translucent hits
+                                        debugFlag = 3u;
+                                        accumulatedPartialShadow *= (1.0 - transmission) * MODEL_PARTIAL_SHADOW + transmission;
+                                    }
+                                    // Continue ray through translucent geometry
                                 }
                                 // For full blockers, conservative: still block if not hit due to precision.
                                 if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u && transmission >= 1.0) {
