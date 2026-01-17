@@ -210,6 +210,10 @@ impl App {
                                         self.sim.player.auto_fly_enabled = true;
                                         self.sim.player.fly_mode = true;
                                         self.sim.player.auto_fly_time = 0.0;
+                                        // Set camera to face +X direction (yaw = -π/2)
+                                        self.sim.player.camera.rotation.y =
+                                            -std::f64::consts::FRAC_PI_2;
+                                        self.sim.player.camera.rotation.x = 0.0;
                                         println!(
                                             "[AUTO-PROFILE] Starting Flying phase ({}s, straight +X)",
                                             self.ui.auto_profile_feature.duration_secs()

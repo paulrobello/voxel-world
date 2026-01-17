@@ -336,21 +336,26 @@ impl App {
         let mut player = Player::new(spawn_pos, texture_origin, world_extent, fly_mode);
         player.auto_jump = true;
 
+        // Restore rotation if available (but not for auto-fly, which sets its own direction)
+        if let Some(ref p) = initial_player_data {
+            if !args.auto_fly {
+                player.camera.rotation.y = p.yaw as f64;
+                player.camera.rotation.x = p.pitch as f64;
+            }
+        }
+
         // Initialize auto-fly settings from CLI args
         if args.auto_fly {
             player.auto_fly_enabled = true;
             player.auto_fly_speed = args.auto_fly_speed;
             player.auto_fly_pattern = args.auto_fly_pattern;
+            // Set camera to face the direction of flight (+X direction = yaw -π/2)
+            player.camera.rotation.y = -std::f64::consts::FRAC_PI_2;
+            player.camera.rotation.x = 0.0; // Look straight ahead
             println!(
                 "[AUTO-FLY] Enabled: speed={:.1} blocks/sec, pattern={:?}",
                 args.auto_fly_speed, args.auto_fly_pattern
             );
-        }
-
-        // Restore rotation if available
-        if let Some(ref p) = initial_player_data {
-            player.camera.rotation.y = p.yaw as f64;
-            player.camera.rotation.x = p.pitch as f64;
         }
 
         println!(
