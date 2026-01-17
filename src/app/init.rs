@@ -22,7 +22,7 @@ use crate::hot_reload::HotReloadComputePipeline;
 use crate::hud::Minimap;
 use crate::lava::LavaGrid;
 use crate::particles::ParticleSystem;
-use crate::player::{PLAYER_EYE_HEIGHT, Player};
+use crate::player::Player;
 use crate::render_mode::RenderMode;
 use crate::sprite_gen;
 use crate::storage;
@@ -288,10 +288,12 @@ impl App {
         let input = WinitInputHelper::new();
 
         // Spawn at safe location (avoiding water/rivers)
+        // Note: Player::new() expects feet position - it internally adds PLAYER_EYE_HEIGHT
+        // for camera. The saved position is already feet position from feet_pos().
         let spawn_pos = if let Some(ref player_data) = initial_player_data {
             Vector3::new(
                 player_data.position[0],
-                player_data.position[1] + PLAYER_EYE_HEIGHT,
+                player_data.position[1],
                 player_data.position[2],
             )
         } else {
