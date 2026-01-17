@@ -40,40 +40,41 @@ pub fn create_horizontal_glass_pane(connections: u8) -> SubVoxelModel {
     // Fill glass (1 voxel thick at Y=3, extends to edge when connected)
     fill_scaled(&mut model, x_min, 3, z_min, x_max, 3, z_max, 2);
 
-    // Frame edges (only if not connected, 1 voxel thick)
+    // Frame edges - 3 voxels thick in y (2,3,4) for better shadow coverage
+    // The glass stays thin at y=3, but the frame extends to catch more shadow rays
     // North edge (-Z, z=0)
     if connections & 1 == 0 {
-        fill_scaled(&mut model, x_min, 3, 0, x_max, 3, 0, 1);
+        fill_scaled(&mut model, x_min, 2, 0, x_max, 4, 0, 1);
     }
     // South edge (+Z, z=7)
     if connections & 2 == 0 {
-        fill_scaled(&mut model, x_min, 3, 7, x_max, 3, 7, 1);
+        fill_scaled(&mut model, x_min, 2, 7, x_max, 4, 7, 1);
     }
     // East edge (+X, x=7)
     if connections & 4 == 0 {
-        fill_scaled(&mut model, 7, 3, z_min, 7, 3, z_max, 1);
+        fill_scaled(&mut model, 7, 2, z_min, 7, 4, z_max, 1);
     }
     // West edge (-X, x=0)
     if connections & 8 == 0 {
-        fill_scaled(&mut model, 0, 3, z_min, 0, 3, z_max, 1);
+        fill_scaled(&mut model, 0, 2, z_min, 0, 4, z_max, 1);
     }
 
-    // Corners (only if both adjacent edges are visible)
+    // Corners (only if both adjacent edges are visible) - also 3 voxels thick
     // NW corner (x=0, z=0) - visible if N and W edges visible
     if connections & 1 == 0 && connections & 8 == 0 {
-        fill_scaled(&mut model, 0, 3, 0, 0, 3, 0, 1);
+        fill_scaled(&mut model, 0, 2, 0, 0, 4, 0, 1);
     }
     // NE corner (x=7, z=0) - visible if N and E edges visible
     if connections & 1 == 0 && connections & 4 == 0 {
-        fill_scaled(&mut model, 7, 3, 0, 7, 3, 0, 1);
+        fill_scaled(&mut model, 7, 2, 0, 7, 4, 0, 1);
     }
     // SW corner (x=0, z=7) - visible if S and W edges visible
     if connections & 2 == 0 && connections & 8 == 0 {
-        fill_scaled(&mut model, 0, 3, 7, 0, 3, 7, 1);
+        fill_scaled(&mut model, 0, 2, 7, 0, 4, 7, 1);
     }
     // SE corner (x=7, z=7) - visible if S and E edges visible
     if connections & 2 == 0 && connections & 4 == 0 {
-        fill_scaled(&mut model, 7, 3, 7, 7, 3, 7, 1);
+        fill_scaled(&mut model, 7, 2, 7, 7, 4, 7, 1);
     }
 
     model.light_blocking = LightBlocking::Partial;
@@ -106,40 +107,41 @@ pub fn create_vertical_glass_pane(connections: u8) -> SubVoxelModel {
     // Fill glass (1 voxel thick at Z=3, extends to edge when connected)
     fill_scaled(&mut model, x_min, y_min, 3, x_max, y_max, 3, 2);
 
-    // Frame edges (only if not connected, 1 voxel thick)
+    // Frame edges - 3 voxels thick in z (2,3,4) for better shadow coverage
+    // The glass stays thin at z=3, but the frame extends to catch more shadow rays
     // Top edge (+Y, y=7)
     if connections & 1 == 0 {
-        fill_scaled(&mut model, x_min, 7, 3, x_max, 7, 3, 1);
+        fill_scaled(&mut model, x_min, 7, 2, x_max, 7, 4, 1);
     }
     // Bottom edge (-Y, y=0)
     if connections & 2 == 0 {
-        fill_scaled(&mut model, x_min, 0, 3, x_max, 0, 3, 1);
+        fill_scaled(&mut model, x_min, 0, 2, x_max, 0, 4, 1);
     }
     // East edge (+X, x=7)
     if connections & 4 == 0 {
-        fill_scaled(&mut model, 7, y_min, 3, 7, y_max, 3, 1);
+        fill_scaled(&mut model, 7, y_min, 2, 7, y_max, 4, 1);
     }
     // West edge (-X, x=0)
     if connections & 8 == 0 {
-        fill_scaled(&mut model, 0, y_min, 3, 0, y_max, 3, 1);
+        fill_scaled(&mut model, 0, y_min, 2, 0, y_max, 4, 1);
     }
 
-    // Corners (only if both adjacent edges are visible)
+    // Corners (only if both adjacent edges are visible) - also 3 voxels thick
     // Top-West corner (x=0, y=7)
     if connections & 1 == 0 && connections & 8 == 0 {
-        fill_scaled(&mut model, 0, 7, 3, 0, 7, 3, 1);
+        fill_scaled(&mut model, 0, 7, 2, 0, 7, 4, 1);
     }
     // Top-East corner (x=7, y=7)
     if connections & 1 == 0 && connections & 4 == 0 {
-        fill_scaled(&mut model, 7, 7, 3, 7, 7, 3, 1);
+        fill_scaled(&mut model, 7, 7, 2, 7, 7, 4, 1);
     }
     // Bottom-West corner (x=0, y=0)
     if connections & 2 == 0 && connections & 8 == 0 {
-        fill_scaled(&mut model, 0, 0, 3, 0, 0, 3, 1);
+        fill_scaled(&mut model, 0, 0, 2, 0, 0, 4, 1);
     }
     // Bottom-East corner (x=7, y=0)
     if connections & 2 == 0 && connections & 4 == 0 {
-        fill_scaled(&mut model, 7, 0, 3, 7, 0, 3, 1);
+        fill_scaled(&mut model, 7, 0, 2, 7, 0, 4, 1);
     }
 
     model.light_blocking = LightBlocking::Partial;
