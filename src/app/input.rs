@@ -132,7 +132,23 @@ impl App {
     }
 
     /// Handles movement, toggles, and block placing when focused.
+    /// Auto-fly physics always runs even when unfocused.
     pub fn handle_focused_controls(&mut self, delta_time: f64) {
+        // Auto-fly physics runs even when not focused (for profiling without mouse capture)
+        if self.sim.player.auto_fly_enabled && !self.input.focused {
+            self.sim.player.update_physics(
+                delta_time,
+                &self.sim.world,
+                self.sim.world_extent,
+                self.sim.texture_origin,
+                &self.input,
+                &self.sim.model_registry,
+                self.args.verbose,
+                self.ui.settings.collision_enabled_fly,
+            );
+            return;
+        }
+
         if !self.input.focused {
             return;
         }
