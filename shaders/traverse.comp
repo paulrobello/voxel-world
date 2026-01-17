@@ -345,26 +345,32 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
                     float subT;
                     float subAlpha;
                     if (marchSubVoxelModel(localEntry, dirNorm, model_id, rotation, subColor, subNormal, subT, subAlpha)) {
-                        subVoxelHit = true;
-                        subVoxelColor = subColor;
-                        subVoxelNormal = subNormal;
-                        subVoxelHitPos = vec3(coord) + localEntry + dirNorm * subT;
-                        subVoxelAlpha = subAlpha;
-                        // Check if model emits light (skip shadow calculations)
-                        ModelProperties props = model_properties[model_id];
-                        subVoxelEmissive = props.emission.a > 0.0 ||
-                                           (props.flags & MODEL_FLAG_IS_LIGHT_SOURCE) != 0u;
+                        // Only record the FIRST translucent model hit
+                        // Subsequent translucent models are skipped to avoid double-blending artifacts
+                        if (!subVoxelHit) {
+                            subVoxelHit = true;
+                            subVoxelColor = subColor;
+                            subVoxelNormal = subNormal;
+                            subVoxelHitPos = vec3(coord) + localEntry + dirNorm * subT;
+                            subVoxelAlpha = subAlpha;
+                            // Check if model emits light (skip shadow calculations)
+                            ModelProperties props = model_properties[model_id];
+                            subVoxelEmissive = props.emission.a > 0.0 ||
+                                               (props.flags & MODEL_FLAG_IS_LIGHT_SOURCE) != 0u;
 
-                        if (inWater) {
-                            float currentT = (tmin + distToBlock / length(dir) + subT);
-                            waterDepth = (currentT - waterEntryT) * length(dir);
-                        }
+                            if (inWater) {
+                                float currentT = (tmin + distToBlock / length(dir) + subT);
+                                waterDepth = (currentT - waterEntryT) * length(dir);
+                            }
 
-                        // If model is opaque, we're done
-                        // If translucent (alpha < 1.0), continue marching to find background for blending
-                        if (subAlpha >= 0.99) {
-                            break;
+                            // If model is opaque, we're done
+                            if (subAlpha >= 0.99) {
+                                break;
+                            }
+                            // If translucent, continue marching to find background for blending
                         }
+                        // Already have a translucent hit - skip additional translucent models
+                        // to avoid bright band artifacts from double-counting
                     }
                 }
             }
