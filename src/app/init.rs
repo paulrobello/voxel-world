@@ -357,16 +357,9 @@ impl App {
             player.auto_fly_speed = args.auto_fly_speed;
             player.auto_fly_pattern = args.auto_fly_pattern;
             // Set camera to face the direction of flight (+X direction = yaw -π/2)
+            // Angle down 30° to see terrain ahead
             player.camera.rotation.y = -std::f64::consts::FRAC_PI_2;
-            // Flat terrain: angle down 30° to see more ground; hills: look straight
-            let is_flat = world_gen == WorldGenType::Flat
-                || (world_gen == WorldGenType::Benchmark
-                    && args.benchmark_terrain == BenchmarkTerrain::Flat);
-            player.camera.rotation.x = if is_flat {
-                -std::f64::consts::FRAC_PI_6 // 30 degrees down
-            } else {
-                0.0 // Look straight ahead
-            };
+            player.camera.rotation.x = -std::f64::consts::FRAC_PI_6;
             println!(
                 "[AUTO-FLY] Enabled: speed={:.1} blocks/sec, pattern={:?}",
                 args.auto_fly_speed, args.auto_fly_pattern
