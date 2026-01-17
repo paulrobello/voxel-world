@@ -528,6 +528,11 @@ float marchSubVoxelShadow(
             if (!isInternalFace) {
                 // Translucent voxel: reduce transmission and accumulate tint
                 float absorbed = paletteColor.a;
+                // Glass pane glass should cast minimal shadow (mostly transparent for light)
+                // while keeping visual translucency. Reduce absorption to 15% for shadow rays.
+                if (isGlassPane) {
+                    absorbed *= 0.15;
+                }
                 transmission *= (1.0 - absorbed);
                 // Blend voxel color into tint based on how much light it absorbs
                 accumulatedTint *= mix(vec3(1.0), paletteColor.rgb, absorbed);
