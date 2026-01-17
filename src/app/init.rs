@@ -329,8 +329,8 @@ impl App {
                 (x, z)
             };
             let spawn_y = find_ground_level(&world, safe_x, safe_z);
-            // Auto-fly on normal terrain: spawn 10 blocks higher to clear terrain
-            let height_offset = if args.auto_fly { 11.0 } else { 1.0 };
+            // Auto-fly on normal terrain: spawn 15 blocks higher to clear terrain
+            let height_offset = if args.auto_fly { 16.0 } else { 1.0 };
             Vector3::new(safe_x as f64, spawn_y as f64 + height_offset, safe_z as f64)
         };
 
