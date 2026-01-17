@@ -918,7 +918,9 @@ impl App {
         upload_chunks_batched(
             &self.graphics.memory_allocator,
             &self.graphics.command_buffer_allocator,
-            &self.graphics.queue,
+            &self.graphics.transfer_queue,
+            self.graphics.graphics_queue_family,
+            self.graphics.separate_transfer_queue,
             &self.graphics.voxel_image,
             &self.graphics.model_metadata,
             self.sim.texture_origin,

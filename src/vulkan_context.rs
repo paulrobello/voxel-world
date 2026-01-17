@@ -14,7 +14,18 @@ use winit::event_loop::EventLoop;
 pub struct VulkanContext {
     pub instance: Arc<Instance>,
     pub device: Arc<Device>,
+    /// Primary graphics queue (also used for compute and presentation).
     pub queue: Arc<Queue>,
+    /// Dedicated transfer queue for async DMA uploads (beneficial on discrete GPUs).
+    /// Falls back to graphics queue on unified memory architectures.
+    pub transfer_queue: Arc<Queue>,
+    /// Queue family index of the transfer queue (for ownership transfers).
+    pub transfer_queue_family: u32,
+    /// Queue family index of the graphics queue.
+    pub graphics_queue_family: u32,
+    /// Whether transfer and graphics queues are from different families
+    /// (requires ownership transfers on discrete GPUs).
+    pub separate_transfer_queue: bool,
     pub memory_allocator: Arc<vulkano::memory::allocator::StandardMemoryAllocator>,
     pub descriptor_set_allocator:
         Arc<vulkano::descriptor_set::allocator::StandardDescriptorSetAllocator>,
@@ -44,7 +55,8 @@ impl VulkanContext {
             ..DeviceExtensions::empty()
         };
 
-        let (physical_device, queue_family_index) = instance
+        // Find device with graphics queue, prefer discrete GPUs
+        let (physical_device, graphics_queue_family) = instance
             .enumerate_physical_devices()
             .unwrap()
             .filter(|p| {
@@ -71,17 +83,67 @@ impl VulkanContext {
             })
             .unwrap();
 
+        // Find a dedicated transfer queue family (TRANSFER but not GRAPHICS/COMPUTE).
+        // This is beneficial on discrete GPUs where DMA engine can run in parallel.
+        // Falls back to graphics queue on unified memory architectures.
+        let transfer_queue_family = physical_device
+            .queue_family_properties()
+            .iter()
+            .enumerate()
+            .find(|(i, q)| {
+                // Look for transfer-only queue (dedicated DMA engine)
+                q.queue_flags.intersects(QueueFlags::TRANSFER)
+                    && !q.queue_flags.intersects(QueueFlags::GRAPHICS)
+                    && !q.queue_flags.intersects(QueueFlags::COMPUTE)
+                    && *i as u32 != graphics_queue_family
+            })
+            .or_else(|| {
+                // Fallback: any transfer-capable queue that's not the graphics queue
+                physical_device
+                    .queue_family_properties()
+                    .iter()
+                    .enumerate()
+                    .find(|(i, q)| {
+                        q.queue_flags.intersects(QueueFlags::TRANSFER)
+                            && *i as u32 != graphics_queue_family
+                    })
+            })
+            .map(|(i, _)| i as u32)
+            .unwrap_or(graphics_queue_family);
+
+        let separate_transfer_queue = transfer_queue_family != graphics_queue_family;
+
+        // Log queue configuration
+        let device_name = physical_device.properties().device_name.clone();
+        let device_type = physical_device.properties().device_type;
+        eprintln!("Vulkan device: {} ({:?})", device_name, device_type);
+        eprintln!(
+            "Queue families: graphics={}, transfer={} (separate={})",
+            graphics_queue_family, transfer_queue_family, separate_transfer_queue
+        );
+
         if physical_device.api_version() < Version::V1_3 {
             device_extensions.khr_dynamic_rendering = true;
+        }
+
+        // Create queue infos for both graphics and transfer queues
+        let mut queue_create_infos = vec![QueueCreateInfo {
+            queue_family_index: graphics_queue_family,
+            ..Default::default()
+        }];
+
+        // Only add separate transfer queue info if it's a different family
+        if separate_transfer_queue {
+            queue_create_infos.push(QueueCreateInfo {
+                queue_family_index: transfer_queue_family,
+                ..Default::default()
+            });
         }
 
         let (device, mut queues) = Device::new(
             physical_device,
             DeviceCreateInfo {
-                queue_create_infos: vec![QueueCreateInfo {
-                    queue_family_index,
-                    ..Default::default()
-                }],
+                queue_create_infos,
                 enabled_extensions: device_extensions,
                 enabled_features: DeviceFeatures {
                     dynamic_rendering: true,
@@ -93,14 +155,24 @@ impl VulkanContext {
         )
         .unwrap();
 
-        let queue = queues.next().unwrap();
+        let graphics_queue = queues.next().unwrap();
+        // Use separate transfer queue if available, otherwise share graphics queue
+        let transfer_queue = if separate_transfer_queue {
+            queues.next().unwrap()
+        } else {
+            graphics_queue.clone()
+        };
         let (memory_allocator, descriptor_set_allocator, command_buffer_allocator) =
             get_allocators(&device);
 
         Self {
             instance,
             device,
-            queue,
+            queue: graphics_queue,
+            transfer_queue,
+            transfer_queue_family,
+            graphics_queue_family,
+            separate_transfer_queue,
             memory_allocator,
             descriptor_set_allocator,
             command_buffer_allocator,

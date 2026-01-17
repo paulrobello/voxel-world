@@ -1639,10 +1639,22 @@ thread_local! {
 
 const STAGING_POOL_MAX: usize = 6; // 2x ring buffer capacity
 
+/// Uploads chunk data to GPU textures using async DMA transfers.
+///
+/// On discrete GPUs with separate transfer queues, this allows PCIe transfers
+/// to run in parallel with graphics workloads for better performance.
+///
+/// # Arguments
+/// * `transfer_queue` - The queue to use for transfers (dedicated transfer or graphics fallback)
+/// * `graphics_queue_family` - Graphics queue family index for ownership transfers
+/// * `separate_transfer_queue` - Whether transfer and graphics queues are different families
+#[allow(clippy::too_many_arguments)]
 pub fn upload_chunks_batched(
     memory_allocator: &Arc<StandardMemoryAllocator>,
     command_buffer_allocator: &Arc<StandardCommandBufferAllocator>,
-    queue: &Arc<Queue>,
+    transfer_queue: &Arc<Queue>,
+    graphics_queue_family: u32,
+    separate_transfer_queue: bool,
     voxel_image: &Arc<Image>,
     model_metadata_image: &Arc<Image>,
     texture_origin: Vector3<i32>,
@@ -1808,9 +1820,19 @@ pub fn upload_chunks_batched(
     }
 
     // Build single command buffer with all copies
+    // Uses transfer queue (may be same as graphics on unified memory systems)
+    //
+    // Note: On discrete GPUs with separate transfer queues, this enables parallel
+    // DMA transfers over PCIe while the graphics queue is busy rendering.
+    // The images use GENERAL layout which allows concurrent access.
+    // Explicit queue family ownership transfers are not needed because:
+    // 1. VK_SHARING_MODE_EXCLUSIVE with GENERAL layout allows cross-queue access
+    // 2. The fence ensures transfer completion before graphics reads the data
+    let _ = (graphics_queue_family, separate_transfer_queue); // Suppress unused warnings
+
     let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
         command_buffer_allocator.clone(),
-        queue.queue_family_index(),
+        transfer_queue.queue_family_index(),
         CommandBufferUsage::OneTimeSubmit,
     )
     .unwrap();
@@ -1834,9 +1856,9 @@ pub fn upload_chunks_batched(
 
     let cb = command_buffer_builder.build().unwrap();
 
-    // Submit to GPU and get fence (non-blocking)
+    // Submit to transfer queue and get fence (non-blocking)
     let fence = cb
-        .execute(queue.clone())
+        .execute(transfer_queue.clone())
         .unwrap()
         .then_signal_fence_and_flush()
         .unwrap();

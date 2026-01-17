@@ -550,10 +550,13 @@ fn render_icon(
         meta_buf[idx * 2 + 1] = idx_val;
     }
 
+    // For sprite generation, use graphics queue directly (one-time operation, no async needed)
     upload_chunks_batched(
         memory_allocator,
         command_buffer_allocator,
         queue,
+        queue.queue_family_index(), // Same family, no ownership transfer needed
+        false,                      // No separate transfer queue
         voxel_image,
         model_metadata_image,
         Vector3::zeros(),

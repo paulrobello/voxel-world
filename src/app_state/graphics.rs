@@ -19,7 +19,19 @@ use crate::particles;
 pub struct Graphics {
     pub instance: Arc<Instance>,
     pub device: Arc<Device>,
+    /// Primary graphics queue (rendering, compute, presentation).
     pub queue: Arc<Queue>,
+    /// Dedicated transfer queue for async DMA uploads.
+    /// On discrete GPUs, this is a separate queue for parallel PCIe transfers.
+    /// On unified memory systems, this may be the same as the graphics queue.
+    pub transfer_queue: Arc<Queue>,
+    /// Queue family index of the graphics queue.
+    pub graphics_queue_family: u32,
+    /// Queue family index of the transfer queue.
+    #[allow(dead_code)] // Reserved for future queue ownership transfers
+    pub transfer_queue_family: u32,
+    /// Whether transfer and graphics queues are from different families.
+    pub separate_transfer_queue: bool,
 
     pub memory_allocator: Arc<StandardMemoryAllocator>,
     pub descriptor_set_allocator: Arc<StdDescriptorSetAllocator>,
