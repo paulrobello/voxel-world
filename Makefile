@@ -111,10 +111,10 @@ reset-p2:
 	rm -rf data_p2
 
 # Benchmark targets for controlled profiling
-# Benchmark flat terrain, straight flight, 60s (matches manual fly speed)
+# Benchmark flat terrain, straight flight, 60s at 2x speed (flat terrain is simple)
 benchmark: reset build-release
 	./target/release/voxel_world --world-gen benchmark --auto-fly \
-		--profile --benchmark-duration 60 --view-distance 8 --seed $(SEED) $(ARGS)
+		--auto-fly-speed 40 --profile --benchmark-duration 60 --view-distance 8 --seed $(SEED) $(ARGS)
 
 # Benchmark with hills for more realistic GPU load
 benchmark-hills: reset build-release
