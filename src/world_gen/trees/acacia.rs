@@ -35,6 +35,7 @@ pub fn generate_acacia(
     let height = 5 + (hash % 3); // 5-7 blocks tall
     let bend_direction = hash % 4; // 0=+x, 1=-x, 2=+z, 3=-z
     let bend_amount = 1 + (hash / 13) % 2; // 1-2 blocks offset
+    let bend_point = height / 2;
 
     // Calculate bend offset
     let (bend_dx, bend_dz) = match bend_direction {
@@ -44,8 +45,19 @@ pub fn generate_acacia(
         _ => (0, -bend_amount),
     };
 
+    // Check if the bent trunk position is clear
+    // This prevents partial trees when two acacias bend toward each other
+    let bent_x = x + bend_dx;
+    let bent_z = z + bend_dz;
+    for check_dy in (bend_point + 1)..=height {
+        if let Some(block) = get_block_safe(chunk, bent_x, y + check_dy, bent_z) {
+            if block == BlockType::Log {
+                return; // Another tree's trunk is in the way, skip this tree entirely
+            }
+        }
+    }
+
     // Generate bent trunk
-    let bend_point = height / 2;
     let mut trunk_x = x;
     let mut trunk_z = z;
 
@@ -62,23 +74,29 @@ pub fn generate_acacia(
             overflow_blocks,
         );
 
-        // Apply bend at midpoint
+        // Apply bend at midpoint - add horizontal connector blocks
         if dy == bend_point {
+            // Fill in all blocks between old position and new position
+            let steps = bend_amount.abs();
+            let step_dx = bend_dx.signum();
+            let step_dz = bend_dz.signum();
+
+            for step in 1..=steps {
+                set_block_safe(
+                    chunk,
+                    trunk_x + step_dx * step,
+                    y + dy,
+                    trunk_z + step_dz * step,
+                    BlockType::Log,
+                    chunk_world_x,
+                    chunk_world_y,
+                    chunk_world_z,
+                    overflow_blocks,
+                );
+            }
+
             trunk_x += bend_dx;
             trunk_z += bend_dz;
-
-            // Add diagonal connector block
-            set_block_safe(
-                chunk,
-                trunk_x,
-                y + dy,
-                trunk_z,
-                BlockType::Log,
-                chunk_world_x,
-                chunk_world_y,
-                chunk_world_z,
-                overflow_blocks,
-            );
         }
     }
 

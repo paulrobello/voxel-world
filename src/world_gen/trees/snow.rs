@@ -29,6 +29,33 @@ pub fn generate_dead_tree(
 
     let height = 6 + (hash % 7);
 
+    // Pre-check: verify branch positions won't collide with existing trees
+    // This prevents partial trees when two dead trees have branches pointing at each other
+    let num_branches = 2 + (hash % 3);
+    for branch_idx in 0..num_branches {
+        let branch_y = y + (height * 2 / 5) + branch_idx;
+        if branch_y >= y + height {
+            break;
+        }
+
+        let direction = (hash.wrapping_add(branch_idx * 13)) % 4;
+        let length = 1 + ((hash.wrapping_add(branch_idx * 17)) % 4);
+
+        let (dx, dz) = match direction {
+            0 => (1, 0),
+            1 => (-1, 0),
+            2 => (0, 1),
+            _ => (0, -1),
+        };
+
+        // Check if branch endpoint has existing logs
+        if let Some(block) = get_block_safe(chunk, x + dx * length, branch_y, z + dz * length) {
+            if block == BlockType::PineLog || block == BlockType::Log {
+                return; // Another tree is in the way, skip this tree entirely
+            }
+        }
+    }
+
     // Build the trunk
     for dy in 1..height {
         set_block_safe(

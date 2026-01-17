@@ -370,6 +370,29 @@ fn generate_forking_trunk_oak(
     let fork_ratio = 40 + (hash / 19) % 21; // 40-60
     let fork_height = (height * fork_ratio) / 100;
 
+    // Number of major limbs: 2-4
+    let num_limbs = 2 + (hash / 23) % 3;
+
+    // Pre-check: verify limb positions won't collide with existing trees
+    // This prevents partial trees when two forking oaks grow toward each other
+    for limb_idx in 0..num_limbs {
+        let angle_offset = (limb_idx * 360 / num_limbs) + (hash / (29 + limb_idx)) % 45;
+        let angle_rad = (angle_offset as f32) * std::f32::consts::PI / 180.0;
+        let limb_rise = 3 + (hash / (31 + limb_idx * 7)) % 4;
+        let limb_spread = 2 + (hash / (37 + limb_idx * 5)) % 3;
+
+        let dx = (angle_rad.cos() * limb_spread as f32).round() as i32;
+        let dz = (angle_rad.sin() * limb_spread as f32).round() as i32;
+        let limb_end_y = y + fork_height + limb_rise;
+
+        // Check if limb endpoint has existing logs
+        if let Some(block) = get_block_safe(chunk, x + dx, limb_end_y, z + dz) {
+            if block == BlockType::Log {
+                return; // Another tree is in the way, skip this tree entirely
+            }
+        }
+    }
+
     // Build main trunk up to fork point with cross-shaped pattern
     for dy in 1..=fork_height {
         place_trunk_cross(
@@ -383,9 +406,6 @@ fn generate_forking_trunk_oak(
             overflow_blocks,
         );
     }
-
-    // Number of major limbs: 2-4
-    let num_limbs = 2 + (hash / 23) % 3;
 
     // Generate major limbs from fork point
     let mut limb_endpoints: Vec<(i32, i32, i32)> = Vec::new();
