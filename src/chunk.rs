@@ -711,6 +711,19 @@ pub struct Chunk {
 
     /// Whether cached_is_empty/cached_is_fully_solid need recalculation.
     metadata_dirty: bool,
+
+    /// Cached SVT brick mask (64-bit mask for 4x4x4 bricks).
+    cached_brick_mask: u64,
+
+    /// Cached SVT brick distances (64 bytes, one per brick).
+    cached_brick_distances: [u8; 64],
+
+    /// Whether the cached SVT data needs recalculation.
+    svt_dirty: bool,
+
+    /// Bitmask of which bricks have changed (for incremental SVT updates).
+    /// Each bit corresponds to one of the 64 bricks in the chunk.
+    dirty_bricks: u64,
 }
 
 impl Default for Chunk {
@@ -737,6 +750,10 @@ impl Chunk {
             cached_is_empty: true,
             cached_is_fully_solid: false,
             metadata_dirty: false,
+            cached_brick_mask: 0,
+            cached_brick_distances: [255; 64], // 255 = max distance (all air)
+            svt_dirty: false,                  // Empty chunk has valid SVT (mask=0)
+            dirty_bricks: 0,
         }
     }
 
@@ -748,6 +765,12 @@ impl Chunk {
             CHUNK_VOLUME
         } else {
             0
+        };
+        // For a filled chunk, all bricks are either empty (air) or solid
+        let (brick_mask, brick_distances) = if is_empty {
+            (0u64, [255u8; 64]) // All empty, max distance
+        } else {
+            (u64::MAX, [0u8; 64]) // All solid, zero distance
         };
         Self {
             blocks: Box::new([block_type; CHUNK_VOLUME]),
@@ -764,6 +787,10 @@ impl Chunk {
             cached_is_empty: is_empty,
             cached_is_fully_solid: is_solid,
             metadata_dirty: false,
+            cached_brick_mask: brick_mask,
+            cached_brick_distances: brick_distances,
+            svt_dirty: false, // Filled chunk has valid SVT
+            dirty_bricks: 0,
         }
     }
 
@@ -834,6 +861,15 @@ impl Chunk {
                 self.persistence_dirty = true;
             }
             self.metadata_dirty = true;
+
+            // Track which brick is dirty for incremental SVT updates
+            // Brick size is 8, chunk has 4x4x4 bricks
+            let brick_x = x / 8;
+            let brick_y = y / 8;
+            let brick_z = z / 8;
+            let brick_idx = brick_x + brick_y * 4 + brick_z * 16;
+            self.dirty_bricks |= 1u64 << brick_idx;
+            self.svt_dirty = true;
 
             // Clean up model data if block is no longer a Model
             if block != BlockType::Model {
@@ -1224,6 +1260,208 @@ impl Chunk {
     /// Marks the chunk as synced with GPU.
     pub fn mark_clean(&mut self) {
         self.dirty = false;
+    }
+
+    /// Returns the cached SVT brick mask (64-bit mask for 4x4x4 bricks).
+    /// Call `update_svt()` first if you need current data.
+    #[inline]
+    pub fn cached_brick_mask(&self) -> u64 {
+        self.cached_brick_mask
+    }
+
+    /// Returns a reference to the cached SVT brick distances (64 bytes).
+    /// Call `update_svt()` first if you need current data.
+    #[inline]
+    pub fn cached_brick_distances(&self) -> &[u8; 64] {
+        &self.cached_brick_distances
+    }
+
+    /// Returns true if the SVT cache needs to be updated.
+    #[inline]
+    pub fn is_svt_dirty(&self) -> bool {
+        self.svt_dirty
+    }
+
+    /// Updates the cached SVT data (brick mask and distances).
+    /// Only recomputes bricks that have changed since the last update.
+    pub fn update_svt(&mut self) {
+        if !self.svt_dirty {
+            return;
+        }
+
+        // If all 64 bricks are dirty (e.g., newly loaded chunk), do a full rebuild
+        if self.dirty_bricks == u64::MAX {
+            self.rebuild_svt_full();
+        } else {
+            self.update_svt_incremental();
+        }
+
+        self.dirty_bricks = 0;
+        self.svt_dirty = false;
+    }
+
+    /// Full SVT rebuild (used for newly loaded chunks or when all bricks dirty).
+    fn rebuild_svt_full(&mut self) {
+        let mut brick_mask = 0u64;
+        let mut brick_has_solid = [false; 64];
+
+        // Check each of the 64 bricks
+        for bz in 0..4 {
+            for by in 0..4 {
+                for bx in 0..4 {
+                    let brick_idx = bx + by * 4 + bz * 16;
+                    let mut has_solid = false;
+
+                    // Check all 512 voxels in this brick
+                    'brick: for vz in 0..8 {
+                        for vy in 0..8 {
+                            for vx in 0..8 {
+                                let world_x = bx * 8 + vx;
+                                let world_y = by * 8 + vy;
+                                let world_z = bz * 8 + vz;
+                                let block = self.get_block(world_x, world_y, world_z);
+                                if block != BlockType::Air {
+                                    has_solid = true;
+                                    break 'brick;
+                                }
+                            }
+                        }
+                    }
+
+                    if has_solid {
+                        brick_mask |= 1u64 << brick_idx;
+                        brick_has_solid[brick_idx] = true;
+                    }
+                }
+            }
+        }
+
+        self.cached_brick_mask = brick_mask;
+        self.cached_brick_distances = Self::calculate_brick_distances(&brick_has_solid);
+    }
+
+    /// Incremental SVT update - only recomputes dirty bricks.
+    fn update_svt_incremental(&mut self) {
+        let dirty = self.dirty_bricks;
+        let mut brick_mask = self.cached_brick_mask;
+        let mut brick_has_solid = [false; 64];
+
+        // Initialize brick_has_solid from current mask
+        for (i, solid) in brick_has_solid.iter_mut().enumerate() {
+            *solid = (brick_mask & (1u64 << i)) != 0;
+        }
+
+        // Update only dirty bricks
+        for (brick_idx, solid) in brick_has_solid.iter_mut().enumerate() {
+            if (dirty & (1u64 << brick_idx)) == 0 {
+                continue;
+            }
+
+            let bx = brick_idx % 4;
+            let by = (brick_idx / 4) % 4;
+            let bz = brick_idx / 16;
+            let mut has_solid = false;
+
+            // Check all 512 voxels in this brick
+            'brick: for vz in 0..8 {
+                for vy in 0..8 {
+                    for vx in 0..8 {
+                        let world_x = bx * 8 + vx;
+                        let world_y = by * 8 + vy;
+                        let world_z = bz * 8 + vz;
+                        let block = self.get_block(world_x, world_y, world_z);
+                        if block != BlockType::Air {
+                            has_solid = true;
+                            break 'brick;
+                        }
+                    }
+                }
+            }
+
+            // Update mask bit
+            if has_solid {
+                brick_mask |= 1u64 << brick_idx;
+            } else {
+                brick_mask &= !(1u64 << brick_idx);
+            }
+            *solid = has_solid;
+        }
+
+        self.cached_brick_mask = brick_mask;
+        // Recalculate distances (unfortunately still needs all bricks for propagation)
+        self.cached_brick_distances = Self::calculate_brick_distances(&brick_has_solid);
+    }
+
+    /// Calculates Manhattan distance from each brick to nearest solid brick.
+    fn calculate_brick_distances(has_solid: &[bool; 64]) -> [u8; 64] {
+        let mut distances = [255u8; 64];
+
+        // Initialize solid bricks with distance 0
+        for (idx, &solid) in has_solid.iter().enumerate() {
+            if solid {
+                distances[idx] = 0;
+            }
+        }
+
+        // Propagate distances (simple 3D BFS-like propagation)
+        for _pass in 0..4 {
+            let mut changed = false;
+            for bz in 0..4 {
+                for by in 0..4 {
+                    for bx in 0..4 {
+                        let idx = bx + by * 4 + bz * 16;
+                        if distances[idx] == 0 {
+                            continue;
+                        }
+
+                        let mut min_neighbor = 255u8;
+
+                        // Check 6-connected neighbors
+                        if bx > 0 {
+                            min_neighbor = min_neighbor.min(distances[(bx - 1) + by * 4 + bz * 16]);
+                        }
+                        if bx < 3 {
+                            min_neighbor = min_neighbor.min(distances[(bx + 1) + by * 4 + bz * 16]);
+                        }
+                        if by > 0 {
+                            min_neighbor = min_neighbor.min(distances[bx + (by - 1) * 4 + bz * 16]);
+                        }
+                        if by < 3 {
+                            min_neighbor = min_neighbor.min(distances[bx + (by + 1) * 4 + bz * 16]);
+                        }
+                        if bz > 0 {
+                            min_neighbor = min_neighbor.min(distances[bx + by * 4 + (bz - 1) * 16]);
+                        }
+                        if bz < 3 {
+                            min_neighbor = min_neighbor.min(distances[bx + by * 4 + (bz + 1) * 16]);
+                        }
+
+                        let new_dist = min_neighbor.saturating_add(1);
+                        if new_dist < distances[idx] {
+                            distances[idx] = new_dist;
+                            changed = true;
+                        }
+                    }
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+
+        distances
+    }
+
+    /// Marks the entire SVT as dirty (e.g., for newly loaded chunks).
+    pub fn mark_svt_fully_dirty(&mut self) {
+        self.dirty_bricks = u64::MAX;
+        self.svt_dirty = true;
+    }
+
+    /// Clears SVT dirty state (e.g., after upload with external SVT calculation).
+    pub fn clear_svt_dirty(&mut self) {
+        self.dirty_bricks = 0;
+        self.svt_dirty = false;
     }
 }
 

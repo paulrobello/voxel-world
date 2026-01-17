@@ -24,7 +24,10 @@ use vulkano::{
     memory::allocator::{AllocationCreateInfo, MemoryTypeFilter, StandardMemoryAllocator},
     pipeline::{ComputePipeline, Pipeline},
     swapchain::{PresentMode, Surface, Swapchain, SwapchainCreateInfo},
-    sync::GpuFuture,
+    sync::{
+        GpuFuture,
+        future::{FenceSignalFuture, NowFuture},
+    },
 };
 use winit::window::{Icon, Window};
 
@@ -53,6 +56,138 @@ fn make_storage_buffer<T: BufferContents>(
         len,
     )
     .unwrap()
+}
+
+/// Helper to allocate a host-local storage buffer for metadata that is updated frequently.
+/// Uses PREFER_HOST | HOST_RANDOM_ACCESS for optimal CPU write performance.
+/// On unified memory systems (like M4 Max), this eliminates sync stalls when
+/// the GPU reads metadata that was just written by the CPU.
+fn make_coherent_storage_buffer<T: BufferContents>(
+    memory_allocator: &Arc<StandardMemoryAllocator>,
+    len: u64,
+) -> Subbuffer<[T]> {
+    Buffer::new_slice::<T>(
+        memory_allocator.clone(),
+        BufferCreateInfo {
+            usage: BufferUsage::STORAGE_BUFFER,
+            ..Default::default()
+        },
+        AllocationCreateInfo {
+            // PREFER_HOST places the buffer in host-local (system) memory, which is:
+            // 1. Optimal for frequent CPU writes (no PCIe transfer overhead)
+            // 2. On unified memory systems, still directly accessible by GPU
+            // HOST_RANDOM_ACCESS allows efficient per-element updates via HOST_CACHED.
+            memory_type_filter: MemoryTypeFilter::PREFER_HOST
+                | MemoryTypeFilter::HOST_RANDOM_ACCESS,
+            ..Default::default()
+        },
+        len,
+    )
+    .unwrap()
+}
+
+/// Type alias for the fence future returned by chunk upload commands.
+/// CommandBuffer execute -> then_signal_fence_and_flush produces this type.
+type ChunkTransferFence =
+    FenceSignalFuture<vulkano::command_buffer::CommandBufferExecFuture<NowFuture>>;
+
+/// Type alias for a pair of staging buffers (block data + model metadata).
+type StagingBufferPair = (Subbuffer<[u8]>, Subbuffer<[u8]>);
+
+/// A slot in the transfer ring buffer holding an in-flight transfer's fence and staging buffers.
+pub(crate) struct TransferSlot {
+    fence: ChunkTransferFence,
+    block_staging: Subbuffer<[u8]>,
+    meta_staging: Subbuffer<[u8]>,
+}
+
+/// Ring buffer for async GPU chunk uploads.
+/// Tracks N in-flight transfers, allowing CPU and GPU to work in parallel.
+/// Only blocks when all slots are busy (rare with 3+ slots).
+pub struct TransferRingBuffer {
+    slots: Vec<Option<TransferSlot>>,
+    capacity: usize,
+}
+
+impl TransferRingBuffer {
+    /// Creates a new ring buffer with the specified number of slots.
+    /// More slots = less blocking, but more staging memory usage.
+    pub fn new(capacity: usize) -> Self {
+        let mut slots = Vec::with_capacity(capacity);
+        slots.resize_with(capacity, || None);
+        Self { slots, capacity }
+    }
+
+    /// Polls all slots and reclaims completed transfers.
+    /// Returns staging buffers from completed slots (block, meta) for reuse.
+    pub fn poll_completed(&mut self) -> Vec<StagingBufferPair> {
+        let mut reclaimed = Vec::new();
+
+        for slot in &mut self.slots {
+            if let Some(transfer) = slot.as_ref() {
+                // Poll the fence without blocking (is_signaled returns immediately)
+                if transfer.fence.is_signaled().unwrap_or(false) {
+                    // Transfer completed, reclaim staging buffers
+                    let transfer = slot.take().unwrap();
+                    reclaimed.push((transfer.block_staging, transfer.meta_staging));
+                }
+            }
+        }
+
+        reclaimed
+    }
+
+    /// Finds an empty slot or waits for the oldest transfer to complete.
+    /// Returns the slot index and any reclaimed staging buffers.
+    pub fn acquire_slot(&mut self) -> (usize, Vec<StagingBufferPair>) {
+        // First, poll all slots to reclaim completed transfers
+        let mut reclaimed = self.poll_completed();
+
+        // Find first empty slot
+        for (i, slot) in self.slots.iter().enumerate() {
+            if slot.is_none() {
+                return (i, reclaimed);
+            }
+        }
+
+        // All slots busy - must wait for the oldest (slot 0)
+        // Rotate the ring: wait on slot 0, then shift all slots left
+        if let Some(transfer) = self.slots[0].take() {
+            transfer.fence.wait(None).unwrap();
+            reclaimed.push((transfer.block_staging, transfer.meta_staging));
+        }
+
+        // Shift all slots left
+        for i in 1..self.capacity {
+            self.slots[i - 1] = self.slots[i].take();
+        }
+
+        // Return the last slot (now empty)
+        (self.capacity - 1, reclaimed)
+    }
+
+    /// Submits a transfer to the specified slot.
+    pub fn submit(&mut self, slot_index: usize, transfer: TransferSlot) {
+        self.slots[slot_index] = Some(transfer);
+    }
+
+    /// Wait for all in-flight transfers to complete.
+    /// Call this before destroying the ring buffer.
+    #[allow(dead_code)]
+    pub fn flush(&mut self) {
+        for slot in &mut self.slots {
+            if let Some(transfer) = slot.take() {
+                transfer.fence.wait(None).unwrap();
+            }
+        }
+    }
+}
+
+impl Default for TransferRingBuffer {
+    fn default() -> Self {
+        // 3 slots provides good CPU/GPU overlap with reasonable memory usage
+        Self::new(3)
+    }
 }
 
 /// Helper to create a descriptor set for a given pipeline set index.
@@ -862,14 +997,16 @@ thread_local! {
 }
 
 /// Creates a storage buffer and descriptor set for chunk metadata (empty/solid flags).
+/// Uses HOST_COHERENT memory for immediate GPU visibility without sync stalls.
 pub fn get_chunk_metadata_set(
     memory_allocator: Arc<StandardMemoryAllocator>,
     descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
     render_pipeline: &ComputePipeline,
 ) -> (Subbuffer<[u32]>, Arc<DescriptorSet>) {
-    // Create a storage buffer for chunk metadata (bit-packed flags)
+    // Create a coherent storage buffer for chunk metadata (bit-packed flags)
+    // HOST_COHERENT eliminates per-frame sync stalls when updating metadata
     let chunk_metadata_buffer =
-        make_storage_buffer::<u32>(&memory_allocator, CHUNK_METADATA_WORDS as u64);
+        make_coherent_storage_buffer::<u32>(&memory_allocator, CHUNK_METADATA_WORDS as u64);
 
     // Create descriptor set at set index 5
     let descriptor_set = make_set(
@@ -922,11 +1059,14 @@ pub fn get_brick_and_model_set(
 ) {
     // === Brick metadata resources (bindings 0-1) ===
 
-    // Create buffers for brick metadata
-    let brick_mask_buffer = make_storage_buffer::<u32>(&memory_allocator, BRICK_MASK_WORDS as u64);
+    // Create coherent buffers for brick metadata to eliminate per-frame sync stalls.
+    // HOST_COHERENT allows CPU writes to be immediately visible to GPU.
+    let brick_mask_buffer =
+        make_coherent_storage_buffer::<u32>(&memory_allocator, BRICK_MASK_WORDS as u64);
 
-    // Create buffer for brick distances (64 bytes per chunk)
-    let brick_dist_buffer = make_storage_buffer::<u32>(&memory_allocator, BRICK_DIST_WORDS as u64);
+    // Create coherent buffer for brick distances (64 bytes per chunk)
+    let brick_dist_buffer =
+        make_coherent_storage_buffer::<u32>(&memory_allocator, BRICK_DIST_WORDS as u64);
 
     // === Model resources (bindings 2-7) ===
 
@@ -1490,6 +1630,15 @@ pub fn upload_model_registry(
     });
 }
 
+// Thread-local transfer ring buffer for async chunk uploads.
+// Using 3 slots allows the GPU to process 2 transfers while CPU prepares the next.
+thread_local! {
+    static TRANSFER_RING: RefCell<TransferRingBuffer> = RefCell::new(TransferRingBuffer::new(3));
+    static STAGING_POOL: RefCell<Vec<StagingBufferPair>> = const { RefCell::new(Vec::new()) };
+}
+
+const STAGING_POOL_MAX: usize = 6; // 2x ring buffer capacity
+
 pub fn upload_chunks_batched(
     memory_allocator: &Arc<StandardMemoryAllocator>,
     command_buffer_allocator: &Arc<StandardCommandBufferAllocator>,
@@ -1549,49 +1698,68 @@ pub fn upload_chunks_batched(
         return;
     }
 
-    // Reuse (or grow) pooled staging buffers to reduce allocations.
-    thread_local! {
-        static BLOCK_POOL: std::cell::RefCell<Vec<Subbuffer<[u8]>>> = const { std::cell::RefCell::new(Vec::new()) };
-        static META_POOL: std::cell::RefCell<Vec<Subbuffer<[u8]>>> = const { std::cell::RefCell::new(Vec::new()) };
-    }
+    // Acquire a slot in the ring buffer (may block if all slots busy)
+    // Also reclaims completed transfers and their staging buffers
+    let (slot_index, reclaimed) = TRANSFER_RING.with(|ring| ring.borrow_mut().acquire_slot());
 
-    const POOL_MAX_BUFFERS: usize = 8;
-
-    fn take_or_alloc(
-        pool: &std::cell::RefCell<Vec<Subbuffer<[u8]>>>,
-        needed: usize,
-        memory_allocator: &Arc<StandardMemoryAllocator>,
-    ) -> Subbuffer<[u8]> {
-        // pop the first buffer big enough; keep simple LIFO
-        let idx_opt = {
-            let borrow = pool.borrow();
-            borrow.iter().position(|b| b.size() as usize >= needed)
-        };
-        if let Some(idx) = idx_opt {
-            return pool.borrow_mut().swap_remove(idx);
+    // Return reclaimed staging buffers to the pool
+    STAGING_POOL.with(|pool| {
+        let mut p = pool.borrow_mut();
+        for buffers in reclaimed {
+            if p.len() < STAGING_POOL_MAX {
+                p.push(buffers);
+            }
         }
+    });
 
-        Buffer::new_slice::<u8>(
-            memory_allocator.clone(),
-            BufferCreateInfo {
-                usage: BufferUsage::TRANSFER_SRC,
-                ..Default::default()
-            },
-            AllocationCreateInfo {
-                memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
-                    | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-                ..Default::default()
-            },
-            needed as u64,
-        )
-        .unwrap()
-    }
+    // Get staging buffers - prefer reusing from pool
+    let (block_staging, meta_staging) = STAGING_POOL.with(|pool| {
+        let mut p = pool.borrow_mut();
 
-    let block_staging =
-        BLOCK_POOL.with(|pool| take_or_alloc(pool, total_block_bytes, memory_allocator));
-    let meta_staging =
-        META_POOL.with(|pool| take_or_alloc(pool, total_meta_bytes, memory_allocator));
+        // Find a pair with sufficient sizes
+        let idx_opt = p.iter().position(|(b, m)| {
+            b.size() as usize >= total_block_bytes && m.size() as usize >= total_meta_bytes
+        });
 
+        if let Some(idx) = idx_opt {
+            p.swap_remove(idx)
+        } else {
+            // Allocate new staging buffers
+            let block_buf = Buffer::new_slice::<u8>(
+                memory_allocator.clone(),
+                BufferCreateInfo {
+                    usage: BufferUsage::TRANSFER_SRC,
+                    ..Default::default()
+                },
+                AllocationCreateInfo {
+                    memory_type_filter: MemoryTypeFilter::PREFER_HOST
+                        | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                    ..Default::default()
+                },
+                total_block_bytes as u64,
+            )
+            .unwrap();
+
+            let meta_buf = Buffer::new_slice::<u8>(
+                memory_allocator.clone(),
+                BufferCreateInfo {
+                    usage: BufferUsage::TRANSFER_SRC,
+                    ..Default::default()
+                },
+                AllocationCreateInfo {
+                    memory_type_filter: MemoryTypeFilter::PREFER_HOST
+                        | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                    ..Default::default()
+                },
+                total_meta_bytes as u64,
+            )
+            .unwrap();
+
+            (block_buf, meta_buf)
+        }
+    });
+
+    // Write data to staging buffers
     {
         let mut block_write = block_staging.write().unwrap();
         let mut meta_write = meta_staging.write().unwrap();
@@ -1666,26 +1834,34 @@ pub fn upload_chunks_batched(
 
     let cb = command_buffer_builder.build().unwrap();
 
-    cb.execute(queue.clone())
+    // Submit to GPU and get fence (non-blocking)
+    let fence = cb
+        .execute(queue.clone())
         .unwrap()
         .then_signal_fence_and_flush()
-        .unwrap()
-        .wait(None)
         .unwrap();
 
-    // Return buffers to pools for reuse
-    BLOCK_POOL.with(|pool| {
-        let mut p = pool.borrow_mut();
-        if p.len() < POOL_MAX_BUFFERS {
-            p.push(block_staging);
-        }
+    // Submit the transfer to the ring buffer (keeps staging buffers alive until GPU completes)
+    TRANSFER_RING.with(|ring| {
+        ring.borrow_mut().submit(
+            slot_index,
+            TransferSlot {
+                fence,
+                block_staging,
+                meta_staging,
+            },
+        );
     });
-    META_POOL.with(|pool| {
-        let mut p = pool.borrow_mut();
-        if p.len() < POOL_MAX_BUFFERS {
-            p.push(meta_staging);
-        }
-    });
+
+    // Note: We do NOT wait here! The fence is polled on the next upload call.
+    // Staging buffers are kept alive in the ring buffer until the transfer completes.
+}
+
+/// Flushes all pending chunk transfers, waiting for GPU completion.
+/// Call this before shutdown or when you need to ensure all uploads are done.
+#[allow(dead_code)]
+pub fn flush_chunk_transfers() {
+    TRANSFER_RING.with(|ring| ring.borrow_mut().flush());
 }
 
 #[allow(dead_code)]
