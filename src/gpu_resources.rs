@@ -417,7 +417,9 @@ pub fn get_swapchain_images(
             min_image_count: caps.min_image_count.max(3),
             image_format,
             image_extent: window.inner_size().into(),
-            image_usage: ImageUsage::COLOR_ATTACHMENT | ImageUsage::TRANSFER_DST,
+            image_usage: ImageUsage::COLOR_ATTACHMENT
+                | ImageUsage::TRANSFER_DST
+                | ImageUsage::TRANSFER_SRC,
             composite_alpha,
             present_mode: PresentMode::Immediate,
             ..Default::default()

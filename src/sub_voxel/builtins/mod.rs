@@ -2,6 +2,7 @@ pub mod basic;
 pub mod caves;
 pub mod doors;
 pub mod fences;
+pub mod glass_panes;
 pub mod lighting;
 pub mod stairs;
 pub mod vegetation;
@@ -36,6 +37,7 @@ use self::doors::{
     create_windowed_door_upper_open_left, create_windowed_door_upper_open_right,
 };
 use self::fences::{create_fence, create_gate_closed, create_gate_open};
+use self::glass_panes::{create_horizontal_glass_pane, create_vertical_glass_pane};
 use self::lighting::{create_crystal, create_torch};
 use self::stairs::{
     create_ladder, create_stairs_inner_left, create_stairs_inner_left_inverted,
@@ -209,4 +211,16 @@ pub fn register_builtins(registry: &mut ModelRegistry) {
     registry.register(create_seagrass());
     // ID 118: Blue Flower (cornflower)
     registry.register(create_flower_blue());
+
+    // === Glass Panes (IDs 119-150) ===
+    // ID 119-134: Horizontal glass panes (16 connection variants)
+    // Connection bitmask: N=1, S=2, E=4, W=8
+    for connections in 0..16u8 {
+        registry.register(create_horizontal_glass_pane(connections));
+    }
+    // ID 135-150: Vertical glass panes (16 connection variants)
+    // Rotatable: rotation 0=XY plane, rotation 1=YZ plane
+    for connections in 0..16u8 {
+        registry.register(create_vertical_glass_pane(connections));
+    }
 }

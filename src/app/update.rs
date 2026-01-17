@@ -31,6 +31,19 @@ impl App {
             }
         }
 
+        // Check for exit delay
+        if let Some(delay) = self.args.exit_delay {
+            let elapsed = now.duration_since(self.start_time).as_secs_f64();
+            if elapsed >= delay {
+                println!("[EXIT] Exiting after {:.1}s delay", elapsed);
+                self.sim
+                    .save_all(&self.ui.measurement_markers, &self.ui.stencil_manager);
+                self.save_preferences();
+                event_loop.exit();
+                return;
+            }
+        }
+
         if now.duration_since(self.ui.last_second) > Duration::from_secs(1) {
             self.ui.fps = self.ui.frames_since_last_second;
             self.ui.frames_since_last_second = 0;

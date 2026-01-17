@@ -792,4 +792,56 @@ impl ModelRegistry {
             .map(|m| m.requires_ground_support)
             .unwrap_or(false)
     }
+
+    // ========================================================================
+    // GLASS PANE HELPERS
+    // ========================================================================
+
+    /// Returns the model ID for a horizontal glass pane with the given connections.
+    /// Connection bitmask: N=1, S=2, E=4, W=8
+    pub fn horizontal_glass_pane_model_id(connections: u8) -> u8 {
+        119 + (connections & 0x0F)
+    }
+
+    /// Returns the model ID for a vertical glass pane with the given connections.
+    /// Connection bitmask: N=1 (+Y), S=2 (-Y), E=4, W=8
+    /// Use rotation to switch between XY and YZ orientations.
+    pub fn vertical_glass_pane_model_id(connections: u8) -> u8 {
+        135 + (connections & 0x0F)
+    }
+
+    /// Checks if a model ID is a horizontal glass pane (IDs 119-134).
+    pub fn is_horizontal_glass_pane_model(model_id: u8) -> bool {
+        (119..135).contains(&model_id)
+    }
+
+    /// Checks if a model ID is a vertical glass pane (IDs 135-150).
+    pub fn is_vertical_glass_pane_model(model_id: u8) -> bool {
+        (135..151).contains(&model_id)
+    }
+
+    /// Checks if a model ID is any glass pane (IDs 119-150).
+    pub fn is_glass_pane_model(model_id: u8) -> bool {
+        (119..151).contains(&model_id)
+    }
+
+    /// Gets the connection mask from a horizontal glass pane model ID.
+    /// Returns None if not a horizontal glass pane model.
+    pub fn horizontal_glass_pane_connections(model_id: u8) -> Option<u8> {
+        if Self::is_horizontal_glass_pane_model(model_id) {
+            Some(model_id - 119)
+        } else {
+            None
+        }
+    }
+
+    /// Gets the connection mask from a vertical glass pane model ID.
+    /// Returns None if not a vertical glass pane model.
+    pub fn vertical_glass_pane_connections(model_id: u8) -> Option<u8> {
+        if Self::is_vertical_glass_pane_model(model_id) {
+            Some(model_id - 135)
+        } else {
+            None
+        }
+    }
 }

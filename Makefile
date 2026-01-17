@@ -8,7 +8,7 @@ export VK_ICD_FILENAMES := /opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json
 export CMAKE_POLICY_VERSION_MINIMUM := 3.5
 export SHADERC_LIB_DIR := /opt/homebrew/lib
 
-.PHONY: build build-release build-debug run run-release run-debug profile run-profile auto-profile-flat auto-profile-normal clean test check fmt lint checkall sprite-gen run-p1 run-p2 reset reset-p1 reset-p2 new-flat new-normal
+.PHONY: build build-release build-debug run run-release run-debug profile run-profile auto-profile-flat auto-profile-normal clean test check fmt lint checkall sprite-gen run-p1 run-p2 reset reset-p1 reset-p2 new-flat new-normal run-cap-exit
 
 # Default target
 all: build-release
@@ -77,6 +77,13 @@ checkall: fmt lint test
 # Generate palette/hotbar sprites to textures/rendered/ and exit
 sprite-gen: build-release
 	./target/release/voxel_world --generate-sprites $(ARGS)
+
+# Run game, take screenshot after 4s, exit after 5s (for visual debugging)
+# Usage: make run-cap-exit
+#        Set up your scene, position camera, wait for capture and auto-exit
+#        Screenshot saved to: voxel_world_screen_shot.png
+run-cap-exit: build-release
+	./target/release/voxel_world --seed $(SEED) --screenshot-delay 4 --exit-delay 5 $(ARGS)
 
 # Reset default data (worlds, prefs, profiles)
 reset:

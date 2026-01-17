@@ -218,6 +218,9 @@ impl PaletteUI {
             push_if(116, "Dead Bush");
             push_if(117, "Seagrass");
             push_if(118, "Blue Flower");
+            // Glass panes
+            push_if(119, "Glass Pane (Horizontal)");
+            push_if(135, "Glass Pane (Vertical)");
 
             // Add custom/user models from the registry
             for model in registry.iter_custom_models() {

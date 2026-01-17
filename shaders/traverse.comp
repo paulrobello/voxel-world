@@ -621,6 +621,20 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
                 vec3 pointLightContrib = calculatePointLights(lightingHit, normal);
                 color += blockColor * pointLightContrib * 0.3;
             }
+        } else if (subVoxelHit && subVoxelAlpha < 0.7) {
+            // Translucent sub-voxels (glass panes, etc.) use simplified lighting
+            // No shadows - glass lets light pass through, shouldn't receive shadow artifacts
+            float sunLight = max(0.0, dot(normal, sunDir));
+            float baseAmbient = mix(pc.ambient_light, pc.ambient_light + 0.25, daylight);
+            float direct = mix(0.3, 0.7, daylight) * sunLight;
+            float lighting = baseAmbient + direct;
+
+            vec3 pointLightContrib = vec3(0.0);
+            if (pc.light_count > 0 && nearEnoughForPointLights) {
+                pointLightContrib = calculatePointLights(lightingHit, normal);
+            }
+
+            color = blockColor * lighting + blockColor * pointLightContrib * 0.7;
         } else {
             // Normal lighting path for non-emissive surfaces
             float shadow = nearEnoughForShadow ? castShadowRayInternal(shadowOrigin, ignoreStartModel, dummyDbg, shadowTint) : 1.0;

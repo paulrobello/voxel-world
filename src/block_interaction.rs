@@ -180,6 +180,7 @@ impl App {
                                 // Update connections for mirrored position
                                 self.sim.world.update_fence_connections(mirrored_pos);
                                 self.sim.world.update_window_connections(mirrored_pos);
+                                self.sim.world.update_pane_connections(mirrored_pos);
                                 self.sim.world.update_adjacent_stair_shapes(mirrored_pos);
 
                                 // Notify water/lava grids
@@ -220,9 +221,9 @@ impl App {
                 self.sim.world.update_fence_connections(target);
                 // Update neighboring window connections
                 self.sim.world.update_window_connections(target);
+                // Update neighboring glass pane connections
+                self.sim.world.update_pane_connections(target);
                 // Update neighboring stair shapes (stair neighbors may straighten)
-                self.sim.world.update_adjacent_stair_shapes(target);
-                // Update neighboring stair corner shapes
                 self.sim.world.update_adjacent_stair_shapes(target);
 
                 // Notify water grid that a block was removed (may trigger flow)
@@ -1050,6 +1051,45 @@ impl App {
                     .set_model_block(place_pos, model_id, 0, waterlogged);
                 self.sim.world.update_window_connections(place_pos);
                 return true;
+            } else if ModelRegistry::is_horizontal_glass_pane_model(base_model_id) {
+                // Horizontal glass pane: calculate connections
+                let connections = self
+                    .sim
+                    .world
+                    .calculate_horizontal_pane_connections(place_pos);
+                let model_id = ModelRegistry::horizontal_glass_pane_model_id(connections);
+                self.sim
+                    .world
+                    .set_model_block(place_pos, model_id, 0, waterlogged);
+                self.sim.world.update_horizontal_pane_connections(place_pos);
+                return true;
+            } else if ModelRegistry::is_vertical_glass_pane_model(base_model_id) {
+                // Vertical glass pane: determine rotation from player view or clicked face
+                let rotation = if let Some(hit) = self.ui.current_hit {
+                    // Determine orientation based on which face was clicked
+                    match (hit.normal.x, hit.normal.z) {
+                        (1, 0) | (-1, 0) => 1u8, // Clicked X face -> YZ plane
+                        (0, 1) | (0, -1) => 0u8, // Clicked Z face -> XY plane
+                        _ => {
+                            // Top/bottom face: use player yaw
+                            let yaw = self.sim.player.camera.rotation.y as f32;
+                            let rot = (yaw / std::f32::consts::FRAC_PI_2).round() as i32;
+                            (rot.rem_euclid(2)) as u8
+                        }
+                    }
+                } else {
+                    0u8
+                };
+                let connections = self
+                    .sim
+                    .world
+                    .calculate_vertical_pane_connections(place_pos, rotation);
+                let model_id = ModelRegistry::vertical_glass_pane_model_id(connections);
+                self.sim
+                    .world
+                    .set_model_block(place_pos, model_id, rotation, waterlogged);
+                self.sim.world.update_vertical_pane_connections(place_pos);
+                return true;
             } else if base_model_id >= FIRST_CUSTOM_MODEL_ID {
                 // Custom models: auto-rotate to face player
                 let yaw = self.sim.player.camera.rotation.y as f32;
@@ -1089,6 +1129,7 @@ impl App {
 
             if block_to_place.is_solid() {
                 self.sim.world.update_fence_connections(place_pos);
+                self.sim.world.update_pane_connections(place_pos);
             }
         }
         self.sim

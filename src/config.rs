@@ -29,6 +29,10 @@ pub struct Args {
     #[arg(long, short = 's')]
     pub screenshot_delay: Option<f64>,
 
+    /// Exit after N seconds (useful with --screenshot-delay for automated captures)
+    #[arg(long, short = 'e')]
+    pub exit_delay: Option<f64>,
+
     /// Print debug info every N frames (0 = off)
     #[arg(long, short = 'd', default_value_t = 0)]
     pub debug_interval: u32,

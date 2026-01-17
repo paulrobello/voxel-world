@@ -273,6 +273,17 @@ impl HotbarUI {
                                     75..=82 => "Paneled Door".to_string(),
                                     83..=90 => "Fancy Door".to_string(),
                                     91..=98 => "Glass Door".to_string(),
+                                    99 => "Crystal".to_string(),
+                                    100 => "Grass Tuft".to_string(),
+                                    101 => "Flower".to_string(),
+                                    102 => "Lily Pad".to_string(),
+                                    103 | 104 => "Mushroom".to_string(),
+                                    105 => "Tall Grass".to_string(),
+                                    106 | 108 => "Stalactite".to_string(),
+                                    107 | 109 => "Stalagmite".to_string(),
+                                    110..=118 => "Model".to_string(),
+                                    119..=134 => "Glass Pane (H)".to_string(),
+                                    135..=150 => "Glass Pane (V)".to_string(),
                                     _ => "Model".to_string(),
                                 }
                             } else if hotbar_blocks[*hotbar_index] == BlockType::Water {

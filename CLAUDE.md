@@ -13,6 +13,7 @@ make fmt            # Format code
 make lint           # Run clippy linter
 make checkall       # Format, lint, and test (run after making changes)
 make sprite-gen     # Generate palette/hotbar sprites
+make run-cap-exit   # Run, screenshot at 4s, exit at 5s (for visual debugging)
 make new-flat       # Reset and create flat world (seed 314159)
 make new-normal     # Reset and create normal world (seed 314159)
 ```
@@ -30,6 +31,8 @@ make run ARGS="--view-distance 8"   # Increase view distance (-v)
 make run ARGS="--render-mode depth" # Start in depth mode (-r)
 make run ARGS="--world-gen flat"    # Flat world generation
 make run ARGS="--verbose"           # Debug output
+make run ARGS="--screenshot-delay 5" # Screenshot after 5s (-s)
+make run ARGS="--exit-delay 10"     # Exit after 10s (-e)
 ```
 
 ## Development Workflow
@@ -279,7 +282,7 @@ BlockType enum in `chunk.rs` must match constants in `common.glsl`:
 Models support three resolutions (8³, 16³, 32³) with 32-color palettes and per-slot emission. Key types in `sub_voxel.rs`:
 - `ModelResolution` - Low (8³), Medium (16³), High (32³)
 - `LightMode` - 10 animated light modes (Steady, Pulse, Flicker, Candle, Strobe, Breathe, Sparkle, Wave, WarmUp, Arc)
-- `FIRST_CUSTOM_MODEL_ID = 110` - IDs 0-109 reserved for built-ins
+- `FIRST_CUSTOM_MODEL_ID = 151` - IDs 0-150 reserved for built-ins
 - Built-in models use Low (8³) resolution for optimal performance
 
 **Model IDs:**
@@ -293,7 +296,10 @@ Models support three resolutions (8³, 16³, 32³) with 32-color palettes and pe
 - 99: Crystal model (tinted by block metadata)
 - 100-105: Vegetation models (grass, flowers, lily pad, mushrooms)
 - 106-109: Cave decorations (stalactite, stalagmite, ice variants)
-- 110+: Custom user models
+- 110-118: Additional vegetation (moss carpet, glow lichen, roots, fern, dead bush, seagrass, blue flower)
+- 119-134: Horizontal glass panes (16 connection variants)
+- 135-150: Vertical glass panes (16 connection variants, rotatable)
+- 151+: Custom user models
 
 **Adding built-in models:** Edit `sub_voxel_builtins.rs`, call `create_*()` functions in `register_builtins()`.
 
