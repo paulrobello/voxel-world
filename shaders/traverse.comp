@@ -630,38 +630,9 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
                 vec3 pointLightContrib = calculatePointLights(lightingHit, normal);
                 color += blockColor * pointLightContrib * 0.3;
             }
-        } else if (subVoxelHit && subVoxelIsGlassPane && subVoxelAlpha < 0.99) {
-            // Glass pane with visible background: light glass and background separately
-            // Glass uses simplified lighting (no shadows) to avoid frame self-shadowing
-            // Background uses full lighting with shadows so ground shadows are visible through glass
-            float sunLight = max(0.0, dot(normal, sunDir));
-            float baseAmbient = mix(pc.ambient_light, pc.ambient_light + 0.25, daylight);
-            float glassDirect = mix(0.3, 0.7, daylight) * sunLight;
-            float glassLighting = baseAmbient + glassDirect;
-
-            vec3 pointLightContrib = vec3(0.0);
-            if (pc.light_count > 0 && nearEnoughForPointLights) {
-                pointLightContrib = calculatePointLights(lightingHit, normal);
-            }
-
-            vec3 glassLitColor = subVoxelColor * glassLighting + subVoxelColor * pointLightContrib * 0.7;
-
-            // Calculate background lighting with full shadows
-            float bgShadow = nearEnoughForShadow ? castShadowRayInternal(shadowOrigin, ignoreStartModel, dummyDbg, shadowTint) : 1.0;
-            float bgSunLight = max(0.0, dot(normal, sunDir));
-            float minAmbient = pc.ambient_light * 0.5;
-            bool isEnclosed = (skyExposure < 0.1) && (bgShadow < 0.1);
-            float bgAmbient = isEnclosed ? minAmbient : baseAmbient;
-            float bgDirect = mix(0.2, 0.65, daylight) * bgSunLight * bgShadow;
-            vec3 bgSunColor = getSunColor() * shadowTint;
-            vec3 bgAmbientColor = backgroundColor * bgAmbient;
-            vec3 bgDirectColor = backgroundColor * bgSunColor * bgDirect;
-            vec3 bgLitColor = bgAmbientColor + bgDirectColor + backgroundColor * pointLightContrib * 0.7;
-
-            // Blend glass (simplified lit) with background (fully lit with shadows)
-            color = glassLitColor * subVoxelAlpha + bgLitColor * (1.0 - subVoxelAlpha);
-        } else if (subVoxelHit && subVoxelAlpha < 0.7) {
-            // Other translucent sub-voxels use simplified lighting
+        } else if (subVoxelHit && (subVoxelAlpha < 0.7 || subVoxelIsGlassPane)) {
+            // Translucent sub-voxels and glass pane models use simplified lighting
+            // No shadows - avoids self-shadowing artifacts on thin frame geometry
             float sunLight = max(0.0, dot(normal, sunDir));
             float baseAmbient = mix(pc.ambient_light, pc.ambient_light + 0.25, daylight);
             float direct = mix(0.3, 0.7, daylight) * sunLight;
