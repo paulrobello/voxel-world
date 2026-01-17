@@ -363,7 +363,7 @@ impl App {
                 || (world_gen == WorldGenType::Benchmark
                     && args.benchmark_terrain == BenchmarkTerrain::Flat);
             player.camera.rotation.x = if is_flat {
-                std::f64::consts::FRAC_PI_6 // 30 degrees down
+                -std::f64::consts::FRAC_PI_6 // 30 degrees down
             } else {
                 0.0 // Look straight ahead
             };

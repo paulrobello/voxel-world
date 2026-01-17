@@ -220,7 +220,7 @@ impl App {
                                                 && self.args.benchmark_terrain
                                                     == BenchmarkTerrain::Flat);
                                         self.sim.player.camera.rotation.x = if is_flat {
-                                            std::f64::consts::FRAC_PI_6 // 30 degrees down
+                                            -std::f64::consts::FRAC_PI_6 // 30 degrees down
                                         } else {
                                             0.0
                                         };
