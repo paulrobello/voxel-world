@@ -10,6 +10,30 @@ pub enum WorldGenType {
     Normal,
     /// Flat world: 2 chunks thick with grass/dirt/stone layers
     Flat,
+    /// Benchmark world: controlled terrain with point lights and glass for profiling
+    Benchmark,
+}
+
+/// Benchmark terrain style
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, ValueEnum, Serialize, Deserialize)]
+pub enum BenchmarkTerrain {
+    /// Flat terrain at Y=100
+    #[default]
+    Flat,
+    /// Rolling hills with sine-wave variation Y=90-110
+    Hills,
+}
+
+/// Auto-fly movement pattern
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, ValueEnum, Serialize, Deserialize)]
+pub enum AutoFlyPattern {
+    /// Move in +X direction
+    #[default]
+    Straight,
+    /// Outward spiral pattern
+    Spiral,
+    /// Zig-zag grid pattern
+    Grid,
 }
 
 /// Voxel Game Engine - A Minecraft-like voxel game with GPU ray-marching rendering.
@@ -89,6 +113,26 @@ pub struct Args {
     /// Data directory for worlds, preferences, and models (default: current directory)
     #[arg(long, short = 'D')]
     pub data_dir: Option<String>,
+
+    /// Auto-fly mode: moves player automatically for benchmarking (implies --fly-mode)
+    #[arg(long)]
+    pub auto_fly: bool,
+
+    /// Auto-fly speed in blocks per second (default: 20.0, matches manual fly speed)
+    #[arg(long, default_value_t = 20.0)]
+    pub auto_fly_speed: f64,
+
+    /// Auto-fly movement pattern: straight, spiral, or grid
+    #[arg(long, value_enum, default_value_t = AutoFlyPattern::Straight)]
+    pub auto_fly_pattern: AutoFlyPattern,
+
+    /// Benchmark duration in seconds before auto-exit
+    #[arg(long)]
+    pub benchmark_duration: Option<f64>,
+
+    /// Benchmark terrain style: flat or hills (only used with --world-gen benchmark)
+    #[arg(long, value_enum, default_value_t = BenchmarkTerrain::Flat)]
+    pub benchmark_terrain: BenchmarkTerrain,
 }
 
 pub const INITIAL_WINDOW_RESOLUTION: PhysicalSize<u32> = PhysicalSize::new(1200, 1080);

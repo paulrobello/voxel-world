@@ -43,6 +43,7 @@
 //! - **Dripstone Caves**: Stalactite/stalagmite formations
 //! - **Deep Dark**: Y < 32, sparse glow mushrooms
 
+pub mod benchmark;
 pub mod biome;
 pub mod caves;
 pub mod climate;

@@ -1,6 +1,6 @@
 use crate::camera::Camera;
 use crate::chunk::{BlockType, CHUNK_SIZE};
-use crate::config::INITIAL_WINDOW_RESOLUTION;
+use crate::config::{AutoFlyPattern, INITIAL_WINDOW_RESOLUTION};
 use crate::constants::*;
 use crate::sub_voxel::ModelRegistry;
 use crate::world::World;
@@ -62,6 +62,16 @@ pub struct Player {
     pub light_enabled: bool,
     /// Spawn position in world coordinates (for respawning when falling out of world)
     spawn_pos: Vector3<f64>,
+
+    // Auto-fly fields for benchmarking
+    /// Whether auto-fly is enabled
+    pub auto_fly_enabled: bool,
+    /// Auto-fly speed in blocks per second
+    pub auto_fly_speed: f64,
+    /// Auto-fly movement pattern
+    pub auto_fly_pattern: AutoFlyPattern,
+    /// Elapsed time for pattern calculation
+    pub auto_fly_time: f64,
 }
 
 impl Player {
@@ -100,6 +110,56 @@ impl Player {
             auto_jump: true,
             light_enabled: false,
             spawn_pos,
+            auto_fly_enabled: false,
+            auto_fly_speed: 20.0,
+            auto_fly_pattern: AutoFlyPattern::Straight,
+            auto_fly_time: 0.0,
+        }
+    }
+
+    /// Calculates the velocity for auto-fly based on the current pattern and elapsed time.
+    pub fn get_auto_fly_velocity(&self) -> Vector3<f64> {
+        match self.auto_fly_pattern {
+            AutoFlyPattern::Straight => {
+                // Move in +X direction
+                Vector3::new(self.auto_fly_speed, 0.0, 0.0)
+            }
+            AutoFlyPattern::Spiral => {
+                // Outward spiral with increasing radius
+                // Radius increases over time, angle increases to create spiral
+                let radius = 10.0 + self.auto_fly_time * 2.0; // Radius grows over time
+                let angle = self.auto_fly_time * 0.5; // Angular velocity
+
+                // Tangent direction for circular motion (perpendicular to radial)
+                let dx = -radius * angle.sin() * 0.5 + angle.cos() * 2.0;
+                let dz = radius * angle.cos() * 0.5 + angle.sin() * 2.0;
+
+                // Normalize and scale to speed
+                let len = (dx * dx + dz * dz).sqrt();
+                if len > 0.001 {
+                    Vector3::new(
+                        dx / len * self.auto_fly_speed,
+                        0.0,
+                        dz / len * self.auto_fly_speed,
+                    )
+                } else {
+                    Vector3::new(self.auto_fly_speed, 0.0, 0.0)
+                }
+            }
+            AutoFlyPattern::Grid => {
+                // Zig-zag pattern: alternate between +X and +Z directions
+                // Each segment lasts 10 seconds
+                let segment_duration = 10.0;
+                let segment = (self.auto_fly_time / segment_duration) as i32;
+
+                if segment % 2 == 0 {
+                    // Move in +X direction
+                    Vector3::new(self.auto_fly_speed, 0.0, 0.0)
+                } else {
+                    // Move in +Z direction
+                    Vector3::new(0.0, 0.0, self.auto_fly_speed)
+                }
+            }
         }
     }
 
@@ -237,10 +297,17 @@ impl Player {
         }
 
         if self.fly_mode {
-            let shift_held = (input.key_held(KeyCode::ShiftLeft)
-                || input.key_held(KeyCode::ShiftRight)) as i32 as f64;
-            let up = t(KeyCode::Space) - shift_held;
-            self.velocity.y = up * current_speed;
+            // Auto-fly mode: use automated velocity instead of keyboard input
+            if self.auto_fly_enabled {
+                self.auto_fly_time += delta_time;
+                self.velocity = self.get_auto_fly_velocity();
+            } else {
+                let shift_held = (input.key_held(KeyCode::ShiftLeft)
+                    || input.key_held(KeyCode::ShiftRight)) as i32
+                    as f64;
+                let up = t(KeyCode::Space) - shift_held;
+                self.velocity.y = up * current_speed;
+            }
 
             // Apply collision if enabled, otherwise move freely
             if collision_enabled {

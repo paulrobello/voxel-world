@@ -17,7 +17,7 @@
 
 use crate::cave_gen::CaveFillType;
 use crate::chunk::{BlockType, CHUNK_SIZE, Chunk};
-use crate::config::WorldGenType;
+use crate::config::{BenchmarkTerrain, WorldGenType};
 use crate::world_gen;
 use nalgebra::Vector3;
 
@@ -32,10 +32,14 @@ pub fn generate_chunk_terrain(
     terrain: &TerrainGenerator,
     chunk_pos: Vector3<i32>,
     world_gen_type: WorldGenType,
+    benchmark_terrain: BenchmarkTerrain,
 ) -> ChunkGenerationResult {
     match world_gen_type {
         WorldGenType::Normal => generate_normal_chunk(terrain, chunk_pos),
         WorldGenType::Flat => generate_flat_chunk(chunk_pos),
+        WorldGenType::Benchmark => {
+            world_gen::benchmark::generate_benchmark_chunk(chunk_pos, benchmark_terrain)
+        }
     }
 }
 

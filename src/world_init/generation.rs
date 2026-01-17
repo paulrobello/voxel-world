@@ -3,7 +3,7 @@ use rayon::prelude::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::chunk::{BlockType, CHUNK_SIZE};
-use crate::config::WorldGenType;
+use crate::config::{BenchmarkTerrain, WorldGenType};
 use crate::constants::{
     LOADED_CHUNKS_X, LOADED_CHUNKS_Z, TEXTURE_SIZE_X, TEXTURE_SIZE_Y, TEXTURE_SIZE_Z,
     VIEW_DISTANCE, WORLD_CHUNKS_Y,
@@ -20,6 +20,7 @@ pub fn create_initial_world_with_seed(
     spawn_chunk: Vector3<i32>,
     seed: u32,
     world_gen_type: WorldGenType,
+    benchmark_terrain: BenchmarkTerrain,
     storage: Option<&storage::worker::StorageSystem>,
 ) -> World {
     use std::io::{Write, stdout};
@@ -106,7 +107,8 @@ pub fn create_initial_world_with_seed(
         let results: Vec<(Vector3<i32>, ChunkGenerationResult)> = chunks_to_generate
             .par_iter()
             .map(|&chunk_pos| {
-                let result = generate_chunk_terrain(&terrain, chunk_pos, world_gen_type);
+                let result =
+                    generate_chunk_terrain(&terrain, chunk_pos, world_gen_type, benchmark_terrain);
 
                 // Update progress (atomic)
                 let count = progress_counter.fetch_add(1, Ordering::Relaxed) + 1;
@@ -170,7 +172,12 @@ pub fn create_game_world_full() -> World {
         for cy in 0..WORLD_CHUNKS_Y {
             for cz in 0..LOADED_CHUNKS_Z {
                 let chunk_pos = vector![cx, cy, cz];
-                let result = generate_chunk_terrain(&terrain, chunk_pos, WorldGenType::Normal);
+                let result = generate_chunk_terrain(
+                    &terrain,
+                    chunk_pos,
+                    WorldGenType::Normal,
+                    BenchmarkTerrain::default(),
+                );
 
                 // Apply overflow blocks (immediate if chunk exists, pending if not)
                 world.apply_overflow_blocks(result.overflow_blocks);

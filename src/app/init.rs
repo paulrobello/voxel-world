@@ -188,9 +188,16 @@ impl App {
         let spawn_chunk = vector![spawn_chunk_x, 0, spawn_chunk_z];
 
         let storage = Arc::new(storage::worker::StorageSystem::new(world_dir.clone()));
+        let benchmark_terrain = args.benchmark_terrain;
 
         // Create world with only chunks near spawn loaded, checking storage first
-        let world = create_initial_world_with_seed(spawn_chunk, seed, world_gen, Some(&storage));
+        let world = create_initial_world_with_seed(
+            spawn_chunk,
+            seed,
+            world_gen,
+            benchmark_terrain,
+            Some(&storage),
+        );
 
         // Texture dimensions (not world bounds - world is infinite)
         let world_extent = [
@@ -296,6 +303,9 @@ impl App {
                 player_data.position[1],
                 player_data.position[2],
             )
+        } else if world_gen == WorldGenType::Benchmark {
+            // Benchmark world: spawn at Y=150 (above terrain at Y=100)
+            Vector3::new(spawn_block_x as f64, 150.0, spawn_block_z as f64)
         } else {
             // If explicit spawn coords provided, use them; otherwise find safe spawn
             let (safe_x, safe_z) = if args.spawn_x.is_some() || args.spawn_z.is_some() {
@@ -315,16 +325,27 @@ impl App {
             Vector3::new(safe_x as f64, spawn_y as f64 + 1.0, safe_z as f64)
         };
 
-        // Fly mode default: CLI flag > saved preference > flat-world convenience default.
-        let fly_mode = if args.fly_mode {
+        // Fly mode default: auto_fly or CLI flag > saved preference > flat-world/benchmark default.
+        let fly_mode = if args.auto_fly || args.fly_mode {
             true
         } else if let Some(pref) = prefs.last_fly_mode {
             pref
         } else {
-            world_gen == WorldGenType::Flat
+            world_gen == WorldGenType::Flat || world_gen == WorldGenType::Benchmark
         };
         let mut player = Player::new(spawn_pos, texture_origin, world_extent, fly_mode);
         player.auto_jump = true;
+
+        // Initialize auto-fly settings from CLI args
+        if args.auto_fly {
+            player.auto_fly_enabled = true;
+            player.auto_fly_speed = args.auto_fly_speed;
+            player.auto_fly_pattern = args.auto_fly_pattern;
+            println!(
+                "[AUTO-FLY] Enabled: speed={:.1} blocks/sec, pattern={:?}",
+                args.auto_fly_speed, args.auto_fly_pattern
+            );
+        }
 
         // Restore rotation if available
         if let Some(ref p) = initial_player_data {
@@ -388,7 +409,7 @@ impl App {
                 ChunkLoader::new(
                     move |pos| {
                         // Generate chunk with overflow blocks for cross-chunk structures
-                        generate_chunk_terrain(&terrain, pos, world_gen)
+                        generate_chunk_terrain(&terrain, pos, world_gen, benchmark_terrain)
                     },
                     Some(world_dir.clone()),
                 )

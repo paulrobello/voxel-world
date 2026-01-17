@@ -109,3 +109,36 @@ reset-p1:
 
 reset-p2:
 	rm -rf data_p2
+
+# Benchmark targets for controlled profiling
+# Benchmark flat terrain, straight flight, 60s (matches manual fly speed)
+benchmark: reset build-release
+	./target/release/voxel_world --world-gen benchmark --auto-fly \
+		--profile --benchmark-duration 60 --view-distance 8 --seed $(SEED) $(ARGS)
+
+# Benchmark with hills for more realistic GPU load
+benchmark-hills: reset build-release
+	./target/release/voxel_world --world-gen benchmark --benchmark-terrain hills \
+		--auto-fly --profile --benchmark-duration 60 --view-distance 8 --seed $(SEED) $(ARGS)
+
+# Benchmark with spiral pattern, 120s
+benchmark-spiral: reset build-release
+	./target/release/voxel_world --world-gen benchmark --auto-fly \
+		--auto-fly-pattern spiral --profile --benchmark-duration 120 \
+		--view-distance 8 --seed $(SEED) $(ARGS)
+
+# Benchmark normal terrain (real-world streaming test)
+benchmark-normal: reset build-release
+	./target/release/voxel_world --world-gen normal --auto-fly \
+		--profile --benchmark-duration 60 --view-distance 8 --seed $(SEED) $(ARGS)
+
+# Stress test at 2x speed
+benchmark-stress: reset build-release
+	./target/release/voxel_world --world-gen benchmark --auto-fly \
+		--auto-fly-speed 40 --profile --benchmark-duration 60 \
+		--view-distance 8 --seed $(SEED) $(ARGS)
+
+# Quick benchmark with screenshot
+benchmark-cap: reset build-release
+	./target/release/voxel_world --world-gen benchmark --auto-fly \
+		--benchmark-duration 30 --screenshot-delay 25 --seed $(SEED) $(ARGS)

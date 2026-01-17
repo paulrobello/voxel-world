@@ -44,6 +44,19 @@ impl App {
             }
         }
 
+        // Check for benchmark duration (auto-exit for profiling runs)
+        if let Some(duration) = self.args.benchmark_duration {
+            let elapsed = now.duration_since(self.start_time).as_secs_f64();
+            if elapsed >= duration {
+                println!("[BENCHMARK] Complete after {:.1}s", duration);
+                self.sim
+                    .save_all(&self.ui.measurement_markers, &self.ui.stencil_manager);
+                self.save_preferences();
+                event_loop.exit();
+                return;
+            }
+        }
+
         if now.duration_since(self.ui.last_second) > Duration::from_secs(1) {
             self.ui.fps = self.ui.frames_since_last_second;
             self.ui.frames_since_last_second = 0;

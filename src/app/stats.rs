@@ -91,6 +91,7 @@ pub fn print_stats(ui: &mut UiState, sim: &mut WorldSim, verbose: bool) {
             let world_gen_str = match sim.world_gen {
                 crate::config::WorldGenType::Normal => "normal",
                 crate::config::WorldGenType::Flat => "flat",
+                crate::config::WorldGenType::Benchmark => "benchmark",
             };
             let _ = writeln!(
                 file,
