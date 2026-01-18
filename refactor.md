@@ -137,6 +137,33 @@ redundant chunkPos division is retained.
 
 **Impact**: Reduces metadata_ms overhead during chunk streaming, especially during flight
 
+#### 7. Increase Transfer Ring Buffer Size
+**Files Modified**: `src/gpu_resources.rs`
+
+- Increased transfer ring buffer from 3 to 6 slots
+- Each frame can have up to 3 upload calls (completed, unloaded, dirty chunks)
+- With only 3 slots, if any previous transfer was in-flight, main thread would block
+- 6 slots provides 2 frames of headroom before blocking occurs
+- Also increased staging buffer pool size from 6 to 12
+
+**Impact**: Reduces potential main thread blocking during chunk streaming
+
+## Performance Analysis: Flight vs Stationary
+
+**Key Finding**: The FPS difference between flight and stationary is primarily due to:
+
+1. **Scene complexity dominates**: Normal terrain (caves, trees, lighting) takes 20-27ms to render vs 8ms for flat terrain
+2. **Streaming overhead**: ~2-5ms additional render time during flight (visible in flat terrain: 8ms→13ms)
+3. **GPU memory bandwidth**: Chunk uploads compete with shader texture reads on unified memory
+
+| Scenario | Stationary FPS | Flying FPS | Render (stationary) | Render (flying) |
+|----------|----------------|------------|---------------------|-----------------|
+| Flat     | 120            | 72-89      | 8ms                 | 10-13ms         |
+| Normal   | 40-50          | 35-50      | 18-24ms             | 17-27ms         |
+
+**Conclusion**: The render_ms variance (17-27ms on normal terrain) is inherent to ray marching
+complex geometry. Further optimization requires shader-level improvements or level-of-detail systems
+
 ## Success Metrics
 
 - Sustained 50+ FPS at view_distance=8
