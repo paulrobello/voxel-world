@@ -6,7 +6,7 @@
 #![allow(dead_code)] // WIP: Editor integration pending
 
 use crate::sub_voxel::{
-    Color, LightBlocking, LightMode, ModelResolution, PALETTE_SIZE, SubVoxelModel,
+    Color, LightBlocking, LightMode, ModelResolution, PALETTE_SIZE, SimpleDoorPair, SubVoxelModel,
 };
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
@@ -381,6 +381,77 @@ impl WorldModelStore {
     /// Returns true if there are no custom models.
     pub fn is_empty(&self) -> bool {
         self.models.is_empty()
+    }
+}
+
+/// Persisted custom door pairs for a world.
+/// Stores door pairs to door_pairs.dat.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct DoorPairStore {
+    pub version: u16,
+    /// Custom door pairs, stored in order. ID = index.
+    pub door_pairs: Vec<SimpleDoorPair>,
+}
+
+impl DoorPairStore {
+    /// Creates an empty store.
+    pub fn new() -> Self {
+        Self {
+            version: 1,
+            door_pairs: Vec::new(),
+        }
+    }
+
+    /// Adds a door pair to the store. Returns the assigned ID.
+    pub fn add_door_pair(&mut self, mut door_pair: SimpleDoorPair) -> u16 {
+        let id = self.door_pairs.len() as u16;
+        door_pair.id = id;
+        self.door_pairs.push(door_pair);
+        id
+    }
+
+    /// Gets all door pairs.
+    pub fn get_all(&self) -> &[SimpleDoorPair] {
+        &self.door_pairs
+    }
+
+    /// Saves the store to door_pairs.dat in the given world directory.
+    pub fn save(&self, world_dir: &std::path::Path) -> io::Result<()> {
+        let path = world_dir.join("door_pairs.dat");
+        let file = File::create(path)?;
+        let writer = BufWriter::new(file);
+        bincode::serialize_into(writer, self).map_err(io::Error::other)?;
+        Ok(())
+    }
+
+    /// Loads the store from door_pairs.dat in the given world directory.
+    /// Returns None if the file doesn't exist.
+    pub fn load(world_dir: &std::path::Path) -> io::Result<Option<Self>> {
+        let path = world_dir.join("door_pairs.dat");
+        if !path.exists() {
+            return Ok(None);
+        }
+        let file = File::open(path)?;
+        let reader = BufReader::new(file);
+        let store: Self = bincode::deserialize_from(reader)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+        Ok(Some(store))
+    }
+
+    /// Returns the number of door pairs.
+    pub fn len(&self) -> usize {
+        self.door_pairs.len()
+    }
+
+    /// Returns true if there are no door pairs.
+    pub fn is_empty(&self) -> bool {
+        self.door_pairs.is_empty()
+    }
+}
+
+impl Default for DoorPairStore {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

@@ -325,3 +325,129 @@ pub enum StairShape {
     OuterLeft,
     OuterRight,
 }
+
+// =============================================================================
+// CUSTOM DOOR PAIRS
+// =============================================================================
+
+/// A simplified door pair linking 4 custom models together as a functional door.
+///
+/// This allows users to create custom door models in the editor and link them
+/// to create fully functional doors that open/close when right-clicked.
+///
+/// Unlike built-in doors which have 8 variants (hinge left/right), custom doors
+/// use a simple 4-model system:
+/// - lower_closed: Bottom half when door is closed
+/// - upper_closed: Top half when door is closed
+/// - lower_open: Bottom half when door is open
+/// - upper_open: Top half when door is open
+///
+/// The door pair itself doesn't have a model ID - it references 4 existing models
+/// and provides the toggle logic to swap between closed/open states.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SimpleDoorPair {
+    /// Unique identifier for this door pair (auto-assigned, starts at 0).
+    pub id: u16,
+    /// Display name for the door pair (shown in palette).
+    pub name: String,
+    /// Model ID for the lower half when closed.
+    pub lower_closed: u8,
+    /// Model ID for the upper half when closed.
+    pub upper_closed: u8,
+    /// Model ID for the lower half when open.
+    pub lower_open: u8,
+    /// Model ID for the upper half when open.
+    pub upper_open: u8,
+}
+
+impl SimpleDoorPair {
+    /// Creates a new door pair with the given models.
+    pub fn new(
+        name: impl Into<String>,
+        lower_closed: u8,
+        upper_closed: u8,
+        lower_open: u8,
+        upper_open: u8,
+    ) -> Self {
+        Self {
+            id: 0, // Will be set by registry
+            name: name.into(),
+            lower_closed,
+            upper_closed,
+            lower_open,
+            upper_open,
+        }
+    }
+
+    /// Returns true if the given model ID is part of this door pair.
+    pub fn contains_model(&self, model_id: u8) -> bool {
+        model_id == self.lower_closed
+            || model_id == self.upper_closed
+            || model_id == self.lower_open
+            || model_id == self.upper_open
+    }
+
+    /// Returns true if the given model ID is the upper half of the door.
+    pub fn is_upper(&self, model_id: u8) -> bool {
+        model_id == self.upper_closed || model_id == self.upper_open
+    }
+
+    /// Returns true if the given model ID represents the open state.
+    pub fn is_open(&self, model_id: u8) -> bool {
+        model_id == self.lower_open || model_id == self.upper_open
+    }
+
+    /// Returns the toggled version of a door model (open <-> closed).
+    pub fn toggle(&self, model_id: u8) -> u8 {
+        if model_id == self.lower_closed {
+            self.lower_open
+        } else if model_id == self.upper_closed {
+            self.upper_open
+        } else if model_id == self.lower_open {
+            self.lower_closed
+        } else if model_id == self.upper_open {
+            self.upper_closed
+        } else {
+            model_id // Not part of this door
+        }
+    }
+
+    /// Returns the other half of the door (upper <-> lower), in the same state.
+    pub fn other_half(&self, model_id: u8) -> u8 {
+        if model_id == self.lower_closed {
+            self.upper_closed
+        } else if model_id == self.upper_closed {
+            self.lower_closed
+        } else if model_id == self.lower_open {
+            self.upper_open
+        } else if model_id == self.upper_open {
+            self.lower_open
+        } else {
+            model_id // Not part of this door
+        }
+    }
+
+    /// Returns all model IDs that should be placed in the palette.
+    /// (Returns the lower_closed ID for initial placement.)
+    pub fn palette_model_id(&self) -> u8 {
+        self.lower_closed
+    }
+
+    /// Validates that all referenced model IDs exist in the registry.
+    pub fn validate(&self, registry: &super::registry::ModelRegistry) -> Result<(), String> {
+        for (model_id, role) in [
+            (self.lower_closed, "lower_closed"),
+            (self.upper_closed, "upper_closed"),
+            (self.lower_open, "lower_open"),
+            (self.upper_open, "upper_open"),
+        ] {
+            if registry.get(model_id).is_none() {
+                return Err(format!(
+                    "Model ID {} ({}) not found in registry",
+                    model_id, role
+                ));
+            }
+        }
+        Ok(())
+    }
+}

@@ -339,6 +339,7 @@ impl App {
     }
 
     /// Toggles a door open/closed. Returns true if door was toggled.
+    /// Handles both built-in doors and custom door pairs.
     pub fn toggle_door_at(&mut self, pos: Vector3<i32>) -> bool {
         // Check if target is a Model block
         let Some(BlockType::Model) = self.sim.world.get_block(pos) else {
@@ -353,41 +354,83 @@ impl App {
         let model_id = model_data.model_id;
         let rotation = model_data.rotation;
 
-        // Check if it's a door
-        if !ModelRegistry::is_door_model(model_id) {
-            return false;
-        }
+        // Check if it's a built-in door
+        if ModelRegistry::is_door_model(model_id) {
+            // Find the other half of the door
+            let other_pos = if ModelRegistry::is_door_upper(model_id) {
+                pos + Vector3::new(0, -1, 0) // Upper -> Lower
+            } else {
+                pos + Vector3::new(0, 1, 0) // Lower -> Upper
+            };
 
-        // Find the other half of the door
-        let other_pos = if ModelRegistry::is_door_upper(model_id) {
-            pos + Vector3::new(0, -1, 0) // Upper -> Lower
-        } else {
-            pos + Vector3::new(0, 1, 0) // Lower -> Upper
-        };
+            // Get other half's data
+            let other_model_data = self.sim.world.get_model_data(other_pos);
 
-        // Get other half's data
-        let other_model_data = self.sim.world.get_model_data(other_pos);
+            // Toggle this half
+            let new_model_id = ModelRegistry::door_toggled(model_id);
+            self.sim
+                .world
+                .set_model_block(pos, new_model_id, rotation, model_data.waterlogged);
 
-        // Toggle this half
-        let new_model_id = ModelRegistry::door_toggled(model_id);
-        self.sim
-            .world
-            .set_model_block(pos, new_model_id, rotation, model_data.waterlogged);
-
-        // Toggle other half
-        if let Some(other_data) = other_model_data {
-            if ModelRegistry::is_door_model(other_data.model_id) {
-                let new_other_id = ModelRegistry::door_toggled(other_data.model_id);
-                self.sim.world.set_model_block(
-                    other_pos,
-                    new_other_id,
-                    other_data.rotation,
-                    other_data.waterlogged,
-                );
+            // Toggle other half
+            if let Some(other_data) = other_model_data {
+                if ModelRegistry::is_door_model(other_data.model_id) {
+                    let new_other_id = ModelRegistry::door_toggled(other_data.model_id);
+                    self.sim.world.set_model_block(
+                        other_pos,
+                        new_other_id,
+                        other_data.rotation,
+                        other_data.waterlogged,
+                    );
+                }
             }
+
+            return true;
         }
 
-        true
+        // Check if it's a custom door pair
+        if self.sim.model_registry.is_custom_door_model(model_id) {
+            // Find the other half of the door
+            let is_upper = self.sim.model_registry.is_custom_door_upper(model_id);
+            let other_pos = if is_upper {
+                pos + Vector3::new(0, -1, 0) // Upper -> Lower
+            } else {
+                pos + Vector3::new(0, 1, 0) // Lower -> Upper
+            };
+
+            // Get other half's data
+            let other_model_data = self.sim.world.get_model_data(other_pos);
+
+            // Toggle this half
+            let new_model_id = self.sim.model_registry.custom_door_toggled(model_id);
+            self.sim
+                .world
+                .set_model_block(pos, new_model_id, rotation, model_data.waterlogged);
+
+            // Toggle other half
+            if let Some(other_data) = other_model_data {
+                if self
+                    .sim
+                    .model_registry
+                    .is_custom_door_model(other_data.model_id)
+                {
+                    let new_other_id = self
+                        .sim
+                        .model_registry
+                        .custom_door_toggled(other_data.model_id);
+                    self.sim.world.set_model_block(
+                        other_pos,
+                        new_other_id,
+                        other_data.rotation,
+                        other_data.waterlogged,
+                    );
+                }
+            }
+
+            return true;
+        }
+
+        false
     }
 
     /// Toggles a trapdoor open/closed. Returns true if trapdoor was toggled.

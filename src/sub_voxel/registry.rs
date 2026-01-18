@@ -2,10 +2,13 @@ use super::builtins;
 use super::model::SubVoxelModel;
 use super::types::{
     FIRST_CUSTOM_MODEL_ID, LightBlocking, MAX_MODELS, ModelResolution, NUM_RESOLUTION_TIERS,
-    PALETTE_SIZE, StairShape,
+    PALETTE_SIZE, SimpleDoorPair, StairShape,
 };
 use std::collections::HashMap;
 use std::path::Path;
+
+/// Maximum number of custom door pairs.
+pub const MAX_CUSTOM_DOOR_PAIRS: usize = 64;
 
 /// Supports three resolution tiers (Low/8³, Medium/16³, High/32³).
 pub struct ModelRegistry {
@@ -21,6 +24,12 @@ pub struct ModelRegistry {
     /// Per-tier dirty flags [Low, Medium, High].
     /// Each tier's atlas is updated independently for efficiency.
     tier_dirty: [bool; NUM_RESOLUTION_TIERS],
+
+    /// Custom door pairs (user-created doors).
+    custom_door_pairs: Vec<SimpleDoorPair>,
+
+    /// Lookup from model ID to custom door pair ID.
+    model_to_door_pair: HashMap<u8, u16>,
 }
 
 impl Default for ModelRegistry {
@@ -37,6 +46,8 @@ impl ModelRegistry {
             name_to_id: HashMap::new(),
             gpu_dirty: true,
             tier_dirty: [true; NUM_RESOLUTION_TIERS], // All tiers need initial upload
+            custom_door_pairs: Vec::new(),
+            model_to_door_pair: HashMap::new(),
         };
 
         // Register built-in models
@@ -842,6 +853,170 @@ impl ModelRegistry {
             Some(model_id - 135)
         } else {
             None
+        }
+    }
+
+    // ========================================================================
+    // CUSTOM DOOR PAIR HELPERS
+    // ========================================================================
+
+    /// Registers a custom door pair and returns its ID.
+    /// Returns None if the maximum number of door pairs has been reached.
+    pub fn register_door_pair(&mut self, mut door_pair: SimpleDoorPair) -> Option<u16> {
+        if self.custom_door_pairs.len() >= MAX_CUSTOM_DOOR_PAIRS {
+            return None;
+        }
+
+        // Check for duplicate name
+        if self
+            .custom_door_pairs
+            .iter()
+            .any(|dp| dp.name == door_pair.name)
+        {
+            return None;
+        }
+
+        let id = self.custom_door_pairs.len() as u16;
+        door_pair.id = id;
+
+        // Build reverse lookup from model IDs to this door pair
+        for model_id in [
+            door_pair.lower_closed,
+            door_pair.upper_closed,
+            door_pair.lower_open,
+            door_pair.upper_open,
+        ] {
+            self.model_to_door_pair.insert(model_id, id);
+        }
+
+        self.custom_door_pairs.push(door_pair);
+        Some(id)
+    }
+
+    /// Gets a custom door pair by ID.
+    pub fn get_door_pair(&self, id: u16) -> Option<&SimpleDoorPair> {
+        self.custom_door_pairs.get(id as usize)
+    }
+
+    /// Gets a custom door pair by name.
+    pub fn get_door_pair_by_name(&self, name: &str) -> Option<&SimpleDoorPair> {
+        self.custom_door_pairs.iter().find(|dp| dp.name == name)
+    }
+
+    /// Finds the custom door pair containing a model ID.
+    pub fn get_door_pair_for_model(&self, model_id: u8) -> Option<&SimpleDoorPair> {
+        self.model_to_door_pair
+            .get(&model_id)
+            .and_then(|&id| self.get_door_pair(id))
+    }
+
+    /// Checks if a model ID is part of any custom door pair.
+    pub fn is_custom_door_model(&self, model_id: u8) -> bool {
+        self.model_to_door_pair.contains_key(&model_id)
+    }
+
+    /// Returns an iterator over all custom door pairs.
+    pub fn iter_door_pairs(&self) -> impl Iterator<Item = &SimpleDoorPair> {
+        self.custom_door_pairs.iter()
+    }
+
+    /// Returns the number of registered custom door pairs.
+    pub fn door_pair_count(&self) -> usize {
+        self.custom_door_pairs.len()
+    }
+
+    /// Removes a custom door pair by ID.
+    /// Returns the removed door pair, or None if not found.
+    pub fn remove_door_pair(&mut self, id: u16) -> Option<SimpleDoorPair> {
+        if id as usize >= self.custom_door_pairs.len() {
+            return None;
+        }
+
+        let removed = self.custom_door_pairs.remove(id as usize);
+
+        // Remove model mappings
+        for model_id in [
+            removed.lower_closed,
+            removed.upper_closed,
+            removed.lower_open,
+            removed.upper_open,
+        ] {
+            self.model_to_door_pair.remove(&model_id);
+        }
+
+        // Update IDs for remaining door pairs
+        for (idx, dp) in self.custom_door_pairs.iter_mut().enumerate() {
+            if dp.id > id {
+                dp.id = idx as u16;
+                // Update model mappings
+                for model_id in [
+                    dp.lower_closed,
+                    dp.upper_closed,
+                    dp.lower_open,
+                    dp.upper_open,
+                ] {
+                    self.model_to_door_pair.insert(model_id, dp.id);
+                }
+            }
+        }
+
+        Some(removed)
+    }
+
+    /// Toggles a custom door model and returns the new model ID.
+    /// Returns the original model_id if not part of a custom door.
+    pub fn custom_door_toggled(&self, model_id: u8) -> u8 {
+        if let Some(door_pair) = self.get_door_pair_for_model(model_id) {
+            door_pair.toggle(model_id)
+        } else {
+            model_id
+        }
+    }
+
+    /// Returns the other half of a custom door model.
+    /// Returns the original model_id if not part of a custom door.
+    pub fn custom_door_other_half(&self, model_id: u8) -> u8 {
+        if let Some(door_pair) = self.get_door_pair_for_model(model_id) {
+            door_pair.other_half(model_id)
+        } else {
+            model_id
+        }
+    }
+
+    /// Checks if a custom door model is the upper half.
+    pub fn is_custom_door_upper(&self, model_id: u8) -> bool {
+        if let Some(door_pair) = self.get_door_pair_for_model(model_id) {
+            door_pair.is_upper(model_id)
+        } else {
+            false
+        }
+    }
+
+    /// Checks if a custom door model is in the open state.
+    pub fn is_custom_door_open(&self, model_id: u8) -> bool {
+        if let Some(door_pair) = self.get_door_pair_for_model(model_id) {
+            door_pair.is_open(model_id)
+        } else {
+            false
+        }
+    }
+
+    /// Gets custom door pairs data for persistence.
+    pub fn get_custom_door_pairs(&self) -> &[SimpleDoorPair] {
+        &self.custom_door_pairs
+    }
+
+    /// Loads custom door pairs from saved data.
+    /// This should be called after loading the model registry.
+    pub fn load_door_pairs(&mut self, door_pairs: Vec<SimpleDoorPair>) {
+        for dp in door_pairs {
+            if let Err(e) = dp.validate(self) {
+                eprintln!("Warning: Skipping invalid door pair '{}': {}", dp.name, e);
+                continue;
+            }
+            if self.register_door_pair(dp).is_none() {
+                eprintln!("Warning: Failed to register door pair (max reached or duplicate)");
+            }
         }
     }
 }
