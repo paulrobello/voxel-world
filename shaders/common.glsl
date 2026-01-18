@@ -356,3 +356,10 @@ const float SUB_VOXEL_MIN_DISTANCE = 0.4;
 layout(set = 0, binding = 0, rgba8) writeonly uniform image2D targetImage;
 layout(set = 1, binding = 0, r8ui) readonly uniform uimage3D blockImage;
 layout(set = 2, binding = 0) uniform sampler2D textureAtlas;
+layout(set = 2, binding = 1) uniform sampler2D customTextureAtlas;
+
+// Custom texture atlas has 16 slots (indices 0-15)
+// Custom texture indices are flagged by having bit 7 set (128+)
+const uint CUSTOM_TEXTURE_FLAG = 128u;
+const float CUSTOM_ATLAS_TILE_COUNT = 16.0;
+const float CUSTOM_ATLAS_TILE_SIZE = 1.0 / 16.0;

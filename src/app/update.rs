@@ -338,6 +338,12 @@ impl App {
 
         self.handle_global_shortcuts();
 
+        // Sync custom textures to GPU if needed
+        if self.ui.texture_generator.needs_gpu_sync {
+            self.sync_custom_textures();
+            self.ui.texture_generator.needs_gpu_sync = false;
+        }
+
         // Restore focus if palette was closed externally and no other panel is open
         let other_panel_open = self.ui.editor.active || self.ui.console.active;
         if !self.ui.palette_open

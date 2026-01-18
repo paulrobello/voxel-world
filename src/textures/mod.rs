@@ -7,5 +7,8 @@
 pub mod generator;
 pub mod patterns;
 
-pub use generator::{CustomTexture, TextureColor, TextureLibrary};
+pub use generator::{
+    CustomTexture, TextureColor, TextureLibrary, CUSTOM_TEXTURE_FLAG, MAX_CUSTOM_TEXTURES,
+    TEXTURE_SIZE, is_custom_texture, slot_to_texture_index, texture_index_to_slot,
+};
 pub use patterns::TexturePattern;

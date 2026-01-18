@@ -869,6 +869,252 @@ pub fn load_texture_atlas(
     (descriptor_set, sampler, image_view)
 }
 
+/// Custom texture atlas dimensions (16 slots × 64×64 pixels each)
+pub const CUSTOM_TEXTURE_SLOTS: u32 = 16;
+pub const CUSTOM_TEXTURE_SIZE: u32 = 64;
+pub const CUSTOM_ATLAS_WIDTH: u32 = CUSTOM_TEXTURE_SLOTS * CUSTOM_TEXTURE_SIZE; // 1024
+pub const CUSTOM_ATLAS_HEIGHT: u32 = CUSTOM_TEXTURE_SIZE; // 64
+
+/// Load both texture atlases (main and custom) and create a combined descriptor set.
+/// Returns (descriptor_set, sampler, main_image_view, custom_image_view, custom_image)
+/// The custom_image is returned so it can be updated dynamically with generated textures.
+#[allow(clippy::type_complexity)]
+pub fn load_texture_atlases(
+    memory_allocator: Arc<StandardMemoryAllocator>,
+    command_buffer_allocator: Arc<StandardCommandBufferAllocator>,
+    descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
+    render_pipeline: &ComputePipeline,
+    queue: &Arc<Queue>,
+    texture_path: &std::path::Path,
+) -> (Arc<DescriptorSet>, Arc<Sampler>, Arc<ImageView>, Arc<ImageView>, Arc<Image>) {
+    // Load the main texture atlas
+    let img = image::open(texture_path)
+        .expect("Failed to load texture")
+        .to_rgba8();
+    let (width, height) = img.dimensions();
+    let image_data: Vec<u8> = img.into_raw();
+
+    println!(
+        "Loaded main texture atlas: {}x{} from {:?}",
+        width, height, texture_path
+    );
+
+    // Create the main GPU image
+    let main_image = Image::new(
+        memory_allocator.clone(),
+        ImageCreateInfo {
+            image_type: ImageType::Dim2d,
+            format: Format::R8G8B8A8_UNORM,
+            extent: [width, height, 1],
+            usage: ImageUsage::SAMPLED | ImageUsage::TRANSFER_DST,
+            ..Default::default()
+        },
+        AllocationCreateInfo::default(),
+    )
+    .unwrap();
+
+    // Upload main atlas data
+    let src_buffer = Buffer::from_iter(
+        memory_allocator.clone(),
+        BufferCreateInfo {
+            usage: BufferUsage::TRANSFER_SRC,
+            ..Default::default()
+        },
+        AllocationCreateInfo {
+            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+            ..Default::default()
+        },
+        image_data,
+    )
+    .unwrap();
+
+    // Create the custom texture atlas (initially empty/gray)
+    let custom_image = Image::new(
+        memory_allocator.clone(),
+        ImageCreateInfo {
+            image_type: ImageType::Dim2d,
+            format: Format::R8G8B8A8_UNORM,
+            extent: [CUSTOM_ATLAS_WIDTH, CUSTOM_ATLAS_HEIGHT, 1],
+            usage: ImageUsage::SAMPLED | ImageUsage::TRANSFER_DST,
+            ..Default::default()
+        },
+        AllocationCreateInfo::default(),
+    )
+    .unwrap();
+
+    // Initialize custom atlas with a default pattern (gray checkerboard)
+    let custom_data: Vec<u8> = (0..CUSTOM_ATLAS_WIDTH * CUSTOM_ATLAS_HEIGHT)
+        .flat_map(|i| {
+            let x = i % CUSTOM_ATLAS_WIDTH;
+            let y = i / CUSTOM_ATLAS_WIDTH;
+            let checker = ((x / 8) + (y / 8)) % 2;
+            if checker == 0 {
+                [64u8, 64, 64, 255] // Dark gray
+            } else {
+                [96u8, 96, 96, 255] // Light gray
+            }
+        })
+        .collect();
+
+    let custom_src_buffer = Buffer::from_iter(
+        memory_allocator.clone(),
+        BufferCreateInfo {
+            usage: BufferUsage::TRANSFER_SRC,
+            ..Default::default()
+        },
+        AllocationCreateInfo {
+            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+            ..Default::default()
+        },
+        custom_data,
+    )
+    .unwrap();
+
+    println!(
+        "Created custom texture atlas: {}x{}",
+        CUSTOM_ATLAS_WIDTH, CUSTOM_ATLAS_HEIGHT
+    );
+
+    // Upload both atlases
+    let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
+        command_buffer_allocator.clone(),
+        queue.queue_family_index(),
+        CommandBufferUsage::OneTimeSubmit,
+    )
+    .unwrap();
+
+    command_buffer_builder
+        .copy_buffer_to_image(CopyBufferToImageInfo::buffer_image(
+            src_buffer,
+            main_image.clone(),
+        ))
+        .unwrap()
+        .copy_buffer_to_image(CopyBufferToImageInfo::buffer_image(
+            custom_src_buffer,
+            custom_image.clone(),
+        ))
+        .unwrap();
+
+    command_buffer_builder
+        .build()
+        .unwrap()
+        .execute(queue.clone())
+        .unwrap()
+        .then_signal_fence_and_flush()
+        .unwrap()
+        .wait(None)
+        .unwrap();
+
+    let main_image_view =
+        ImageView::new(main_image.clone(), ImageViewCreateInfo::from_image(&main_image)).unwrap();
+    let custom_image_view =
+        ImageView::new(custom_image.clone(), ImageViewCreateInfo::from_image(&custom_image)).unwrap();
+
+    // Create sampler with nearest-neighbor filtering for pixel art
+    let sampler = Sampler::new(
+        memory_allocator.device().clone(),
+        SamplerCreateInfo {
+            mag_filter: Filter::Nearest,
+            min_filter: Filter::Nearest,
+            address_mode: [SamplerAddressMode::Repeat; 3],
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    // Create descriptor set with both atlases
+    let descriptor_set = make_set(
+        &descriptor_set_allocator,
+        render_pipeline,
+        2,
+        [
+            WriteDescriptorSet::image_view_sampler(
+                0,
+                main_image_view.clone(),
+                sampler.clone(),
+            ),
+            WriteDescriptorSet::image_view_sampler(
+                1,
+                custom_image_view.clone(),
+                sampler.clone(),
+            ),
+        ],
+    );
+
+    (descriptor_set, sampler, main_image_view, custom_image_view, custom_image)
+}
+
+/// Update a slot in the custom texture atlas with new pixel data.
+/// slot: 0-15, pixels: 64×64 RGBA data (16384 bytes)
+pub fn update_custom_texture_slot(
+    memory_allocator: Arc<StandardMemoryAllocator>,
+    command_buffer_allocator: Arc<StandardCommandBufferAllocator>,
+    queue: &Arc<Queue>,
+    custom_image: &Arc<Image>,
+    slot: u32,
+    pixels: &[u8],
+) {
+    assert!(slot < CUSTOM_TEXTURE_SLOTS, "Invalid custom texture slot");
+    assert_eq!(
+        pixels.len(),
+        (CUSTOM_TEXTURE_SIZE * CUSTOM_TEXTURE_SIZE * 4) as usize,
+        "Invalid pixel data size"
+    );
+
+    let src_buffer = Buffer::from_iter(
+        memory_allocator.clone(),
+        BufferCreateInfo {
+            usage: BufferUsage::TRANSFER_SRC,
+            ..Default::default()
+        },
+        AllocationCreateInfo {
+            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+            ..Default::default()
+        },
+        pixels.to_vec(),
+    )
+    .unwrap();
+
+    let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
+        command_buffer_allocator.clone(),
+        queue.queue_family_index(),
+        CommandBufferUsage::OneTimeSubmit,
+    )
+    .unwrap();
+
+    // Copy to the specific slot region in the atlas
+    command_buffer_builder
+        .copy_buffer_to_image(CopyBufferToImageInfo {
+            regions: vec![BufferImageCopy {
+                buffer_offset: 0,
+                buffer_row_length: CUSTOM_TEXTURE_SIZE,
+                buffer_image_height: CUSTOM_TEXTURE_SIZE,
+                image_subresource: custom_image.subresource_layers(),
+                image_offset: [slot * CUSTOM_TEXTURE_SIZE, 0, 0],
+                image_extent: [CUSTOM_TEXTURE_SIZE, CUSTOM_TEXTURE_SIZE, 1],
+                ..Default::default()
+            }]
+            .into(),
+            ..CopyBufferToImageInfo::buffer_image(src_buffer, custom_image.clone())
+        })
+        .unwrap();
+
+    command_buffer_builder
+        .build()
+        .unwrap()
+        .execute(queue.clone())
+        .unwrap()
+        .then_signal_fence_and_flush()
+        .unwrap()
+        .wait(None)
+        .unwrap();
+
+    println!("Updated custom texture slot {}", slot);
+}
+
 /// Maximum number of water/lava sources to show in debug mode.
 pub const MAX_WATER_SOURCES: usize = 512;
 

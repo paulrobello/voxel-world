@@ -12,6 +12,7 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 #include "overlays.glsl"
 
 // Sample painted block using per-voxel metadata (texture_idx, tint_idx)
+// Supports both main atlas textures (0-44) and custom textures (128+)
 vec3 getPaintedColor(uvec2 metadata, vec3 local_hit, vec3 normal, uint stepped_axis, vec3 worldPos) {
     uint textureIndex = metadata.r;
     uint tintIndex = metadata.g & 0x1Fu;
@@ -25,7 +26,7 @@ vec3 getPaintedColor(uvec2 metadata, vec3 local_hit, vec3 normal, uint stepped_a
         uv = vec2(local_hit.x, 1.0 - local_hit.y);
     }
 
-    vec3 base = sampleTexture(textureIndex, uv);
+    vec3 base = sampleTextureAuto(textureIndex, uv);
     return base * TINT_PALETTE[tintIndex];
 }
 

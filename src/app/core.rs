@@ -131,6 +131,24 @@ impl App {
         );
     }
 
+    /// Uploads the custom texture library to the GPU.
+    /// Call this after generating or modifying custom textures.
+    pub fn sync_custom_textures(&self) {
+        // Upload each texture slot individually for efficiency
+        for texture in self.ui.texture_library.iter() {
+            if !texture.pixels.is_empty() {
+                crate::gpu_resources::update_custom_texture_slot(
+                    self.graphics.memory_allocator.clone(),
+                    self.graphics.command_buffer_allocator.clone(),
+                    &self.graphics.queue,
+                    &self.graphics.custom_texture_atlas,
+                    texture.id as u32,
+                    &texture.pixels,
+                );
+            }
+        }
+    }
+
     /// Saves user preferences to disk.
     pub fn save_preferences(&mut self) {
         self.prefs.settings = self.ui.settings.clone();

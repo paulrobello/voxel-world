@@ -43,6 +43,8 @@ pub struct Graphics {
     pub voxel_set: Arc<DescriptorSet>,
     pub texture_set: Arc<DescriptorSet>,
     pub texture_atlas_view: Arc<ImageView>,
+    /// Custom texture atlas for procedurally generated textures (16 slots × 64×64).
+    pub custom_texture_atlas: Arc<Image>,
 
     pub particle_buffer: Subbuffer<[particles::GpuParticle]>,
     pub particle_set: Arc<DescriptorSet>,

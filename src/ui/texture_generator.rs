@@ -19,6 +19,8 @@ pub struct TextureGeneratorState {
     pub color1_picker_open: bool,
     /// Color picker state for color2.
     pub color2_picker_open: bool,
+    /// Flag indicating custom textures need GPU sync.
+    pub needs_gpu_sync: bool,
 }
 
 impl Default for TextureGeneratorState {
@@ -43,6 +45,7 @@ impl TextureGeneratorState {
             preview_texture_id: None,
             color1_picker_open: false,
             color2_picker_open: false,
+            needs_gpu_sync: false,
         }
     }
 
@@ -346,22 +349,37 @@ impl TextureGeneratorUI {
 
     /// Saves the current texture to the library.
     fn save_texture(state: &mut TextureGeneratorState, library: &mut TextureLibrary) {
-        if let Some(slot) = state.selected_slot {
+        let success = if let Some(slot) = state.selected_slot {
             // Update existing
-            if let Err(e) = library.update(slot, state.editing.clone()) {
-                eprintln!("Failed to update texture: {}", e);
+            match library.update(slot, state.editing.clone()) {
+                Ok(()) => {
+                    println!("[Texture] Updated custom texture '{}' in slot {}", state.editing.name, slot);
+                    true
+                }
+                Err(e) => {
+                    eprintln!("Failed to update texture: {}", e);
+                    false
+                }
             }
         } else {
             // Add new
             match library.add(state.editing.clone()) {
                 Ok(slot) => {
+                    println!("[Texture] Added custom texture '{}' to slot {}", state.editing.name, slot);
                     state.selected_slot = Some(slot);
                     state.editing.id = slot;
+                    true
                 }
                 Err(e) => {
                     eprintln!("Failed to add texture: {}", e);
+                    false
                 }
             }
+        };
+
+        // Signal that GPU sync is needed
+        if success {
+            state.needs_gpu_sync = true;
         }
     }
 }

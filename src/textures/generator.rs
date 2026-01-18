@@ -1,5 +1,4 @@
 //! Custom texture generation and storage.
-#![allow(dead_code)] // Will be integrated into main UI later
 
 use super::patterns::TexturePattern;
 use crate::user_prefs::get_data_dir;
@@ -12,6 +11,25 @@ pub const MAX_CUSTOM_TEXTURES: usize = 16;
 
 /// Texture size in pixels.
 pub const TEXTURE_SIZE: u32 = 64;
+
+/// Flag bit for custom texture indices (128+).
+/// When this bit is set in a texture index, the shader samples from the custom atlas.
+pub const CUSTOM_TEXTURE_FLAG: u8 = 128;
+
+/// Converts a custom texture slot ID (0-15) to a paint texture index (128-143).
+pub fn slot_to_texture_index(slot: u8) -> u8 {
+    CUSTOM_TEXTURE_FLAG | (slot & 0x0F)
+}
+
+/// Checks if a texture index refers to a custom texture.
+pub fn is_custom_texture(texture_idx: u8) -> bool {
+    texture_idx >= CUSTOM_TEXTURE_FLAG
+}
+
+/// Extracts the custom slot ID from a texture index (128-143 -> 0-15).
+pub fn texture_index_to_slot(texture_idx: u8) -> u8 {
+    texture_idx & 0x0F
+}
 
 /// Color for texture generation (RGB).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]

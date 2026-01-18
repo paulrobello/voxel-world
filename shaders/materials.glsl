@@ -38,6 +38,39 @@ const uint TEX_ROOTED_DIRT = 42;
 const uint TEX_BIRCH_LOG = 43;
 const uint TEX_BIRCH_LEAVES = 44;
 
+// ============================================================================
+// Texture Sampling (must be defined early for use by other functions)
+// ============================================================================
+
+// Sample a specific texture from the main atlas
+vec3 sampleTexture(uint textureIndex, vec2 uv) {
+    float atlasU = (float(textureIndex) + fract(uv.x)) * ATLAS_TILE_SIZE;
+    float atlasV = fract(uv.y);
+    return texture(textureAtlas, vec2(atlasU, atlasV)).rgb;
+}
+
+// Sample from custom texture atlas (16 slots, 64x64 each)
+vec3 sampleCustomTexture(uint customIndex, vec2 uv) {
+    float atlasU = (float(customIndex) + fract(uv.x)) * CUSTOM_ATLAS_TILE_SIZE;
+    float atlasV = fract(uv.y);
+    return texture(customTextureAtlas, vec2(atlasU, atlasV)).rgb;
+}
+
+// Sample texture with automatic atlas selection
+// If textureIndex has CUSTOM_TEXTURE_FLAG set (128+), sample from custom atlas
+vec3 sampleTextureAuto(uint textureIndex, vec2 uv) {
+    if ((textureIndex & CUSTOM_TEXTURE_FLAG) != 0u) {
+        // Custom texture: strip flag to get 0-15 index
+        uint customIndex = textureIndex & 0x0Fu;
+        return sampleCustomTexture(customIndex, uv);
+    }
+    return sampleTexture(textureIndex, uv);
+}
+
+// ============================================================================
+// Block Type Mapping
+// ============================================================================
+
 // Map BlockType enum values to texture atlas positions
 // This is needed because enum values don't directly correspond to atlas positions
 uint blockTypeToAtlasIndex(uint blockType) {
@@ -294,13 +327,12 @@ vec3 applyBlendMode(vec3 texture, vec3 tint, uint mode) {
 // ============================================================================
 
 // Get painted block color with blend mode and HSV adjustment
-// textureIdx: texture atlas index (0-44)
+// textureIdx: texture atlas index (0-44) or custom texture (128+)
 // tintIdx: tint palette index (0-31)
 // blendMode: blend mode (0-4)
-// hsvPacked: packed HSV adjustment (or 0 for defaults)
 vec3 getPaintedBlockColor(uint textureIdx, uint tintIdx, uint blendMode, vec2 uv) {
-    // Sample texture
-    vec3 texColor = sampleTexture(textureIdx, uv);
+    // Sample texture (auto-selects between main and custom atlas)
+    vec3 texColor = sampleTextureAuto(textureIdx, uv);
 
     // Get tint color from palette
     vec3 tintColor = tintIdx < 32u ? TINT_PALETTE[tintIdx] : vec3(1.0);
@@ -313,20 +345,9 @@ vec3 getPaintedBlockColor(uint textureIdx, uint tintIdx, uint blendMode, vec2 uv
 
 // Simplified version for basic painted blocks (multiply blend, no HSV)
 vec3 getPaintedBlockColorSimple(uint textureIdx, uint tintIdx, vec2 uv) {
-    vec3 texColor = sampleTexture(textureIdx, uv);
+    vec3 texColor = sampleTextureAuto(textureIdx, uv);
     vec3 tintColor = tintIdx < 32u ? TINT_PALETTE[tintIdx] : vec3(1.0);
     return texColor * tintColor;
-}
-
-// ============================================================================
-// Texture Sampling
-// ============================================================================
-
-// Sample a specific texture from the atlas
-vec3 sampleTexture(uint textureIndex, vec2 uv) {
-    float atlasU = (float(textureIndex) + fract(uv.x)) * ATLAS_TILE_SIZE;
-    float atlasV = fract(uv.y);
-    return texture(textureAtlas, vec2(atlasU, atlasV)).rgb;
 }
 
 // Lightweight 3-octave FBM (shared for water)

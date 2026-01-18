@@ -16,7 +16,7 @@ use crate::editor::EditorState;
 use crate::falling_block::FallingBlockSystem;
 use crate::gpu_resources::{
     create_empty_voxel_texture, get_brick_and_model_set, get_chunk_metadata_set, get_light_set,
-    get_particle_and_falling_block_set, load_texture_atlas,
+    get_particle_and_falling_block_set, load_texture_atlases,
 };
 use crate::hot_reload::HotReloadComputePipeline;
 use crate::hud::Minimap;
@@ -216,18 +216,19 @@ impl App {
             world_extent,
         );
 
-        // Load texture atlas
+        // Load texture atlases (main and custom)
         let texture_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("textures")
             .join("texture_atlas.png");
-        let (texture_set, _sampler, texture_atlas_view) = load_texture_atlas(
-            vk.memory_allocator.clone(),
-            vk.command_buffer_allocator.clone(),
-            vk.descriptor_set_allocator.clone(),
-            &render_pipeline,
-            &vk.queue,
-            &texture_path,
-        );
+        let (texture_set, _sampler, texture_atlas_view, _custom_atlas_view, custom_texture_atlas) =
+            load_texture_atlases(
+                vk.memory_allocator.clone(),
+                vk.command_buffer_allocator.clone(),
+                vk.descriptor_set_allocator.clone(),
+                &render_pipeline,
+                &vk.queue,
+                &texture_path,
+            );
 
         // Create particle, falling block, water source, template block, and stencil block buffers (share set 3)
         let (
@@ -388,6 +389,7 @@ impl App {
             voxel_set,
             texture_set,
             texture_atlas_view,
+            custom_texture_atlas,
             particle_buffer,
             particle_set,
             light_buffer,
