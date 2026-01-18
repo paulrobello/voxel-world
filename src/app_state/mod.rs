@@ -10,5 +10,5 @@ pub use graphics::Graphics;
 pub use input_state::InputState;
 pub use palette::{PaletteItem, PaletteTab};
 pub use profiling::AutoProfileFeature;
-pub use simulation::WorldSim;
+pub use simulation::{ClearFence, WorldSim};
 pub use ui_state::UiState;

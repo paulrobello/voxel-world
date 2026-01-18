@@ -17,6 +17,10 @@ use std::cell::Ref;
 use std::collections::{HashSet, VecDeque};
 use std::sync::OnceLock;
 use std::time::Instant;
+use vulkano::command_buffer::{
+    AutoCommandBufferBuilder, ClearColorImageInfo, CommandBufferUsage, PrimaryCommandBufferAbstract,
+};
+use vulkano::sync::GpuFuture;
 
 const METADATA_DEFAULT_BUDGET: usize = 256;
 const METADATA_MIN_BUDGET: usize = 96;
@@ -325,14 +329,9 @@ impl App {
         // Save old origin to adjust camera position
         let old_origin = self.sim.texture_origin;
         self.sim.texture_origin = new_origin;
-
-        // Update metadata origin without clearing brick masks - we'll sync them below
-        self.sim.metadata_state.last_origin = new_origin;
-        self.sim.metadata_state.pending.clear();
-        self.sim.metadata_state.pending_set.clear();
-        self.sim.metadata_state.cursor = 0;
-        self.sim.metadata_state.full_refresh = false;
-        self.sim.metadata_state.dirty = false;
+        self.sim
+            .metadata_state
+            .reset_for_origin(self.sim.texture_origin);
 
         // Cancel all in-flight chunk generation requests - they were requested for the old
         // texture origin and may complete at positions outside the new texture bounds.
@@ -353,68 +352,58 @@ impl App {
         self.sim.player.camera.position.y += origin_delta.y as f64 / scale.y;
         self.sim.player.camera.position.z += origin_delta.z as f64 / scale.z;
 
-        // Collect all loaded chunk positions and compute their metadata at new texture positions.
-        // First, reset metadata arrays to empty (chunks not in bounds will remain empty).
-        self.sim.metadata_state.chunk_bits.fill(u32::MAX);
-        self.sim.metadata_state.brick_masks.fill(0);
-        self.sim.metadata_state.brick_distances.fill(0xFFFF_FFFF);
+        // Re-upload all loaded chunks to their new texture positions (slice-backed, no alloc).
+        // Clear GPU textures so old data doesn't flash while we repopulate.
+        // Use async clear - uploads are delayed until fence signals completion.
+        let clear_fence = self.clear_voxel_texture_async();
+        self.sim.pending_clear_fence = Some(clear_fence);
 
-        // Compute metadata for all loaded chunks at their NEW texture positions.
-        // This is an immediate sync to prevent the flash that would occur if we
-        // gradually re-uploaded metadata over multiple frames.
-        let positions: Vec<_> = self.sim.world.chunks().map(|(pos, _)| *pos).collect();
-        {
-            let mut chunk_meta_write = self.graphics.chunk_metadata_buffer.write().unwrap();
-            let mut brick_mask_write = self.graphics.brick_mask_buffer.write().unwrap();
-            let mut brick_dist_write = self.graphics.brick_dist_buffer.write().unwrap();
-
-            for &pos in &positions {
-                if let Some(idx) = world_pos_to_chunk_index(self.sim.texture_origin, pos) {
-                    if let Some(chunk) = self.sim.world.get_chunk(pos) {
-                        let block_data = chunk.to_block_data();
-                        let svt = ChunkSVT::from_bytes(&block_data);
-
-                        // Update CPU metadata state
-                        let word_idx = idx / 32;
-                        let bit_idx = idx % 32;
-                        if svt.brick_mask == 0 {
-                            self.sim.metadata_state.chunk_bits[word_idx] |= 1u32 << bit_idx;
-                        } else {
-                            self.sim.metadata_state.chunk_bits[word_idx] &= !(1u32 << bit_idx);
-                        }
-                        chunk_meta_write[word_idx] = self.sim.metadata_state.chunk_bits[word_idx];
-
-                        // Update brick masks
-                        let mask_offset = idx * 2;
-                        self.sim.metadata_state.brick_masks[mask_offset] = svt.brick_mask as u32;
-                        self.sim.metadata_state.brick_masks[mask_offset + 1] =
-                            (svt.brick_mask >> 32) as u32;
-                        brick_mask_write[mask_offset] = svt.brick_mask as u32;
-                        brick_mask_write[mask_offset + 1] = (svt.brick_mask >> 32) as u32;
-
-                        // Update brick distances
-                        let dist_offset = idx * 16;
-                        let packed_dist = pack_distances(&svt.brick_distances);
-                        for (i, word) in packed_dist.iter().enumerate() {
-                            self.sim.metadata_state.brick_distances[dist_offset + i] = *word;
-                            brick_dist_write[dist_offset + i] = *word;
-                        }
-                    }
-                }
-            }
+        // Prepare prioritized re-upload queue (nearest first).
+        self.sim.reupload_queue.clear();
+        let mut positions: Vec<_> = self.sim.world.chunks().map(|(pos, _)| *pos).collect();
+        positions.sort_by_key(|p| {
+            let dx = p.x - player_chunk.x;
+            let dy = p.y - player_chunk.y;
+            let dz = p.z - player_chunk.z;
+            dx * dx + dy * dy + dz * dz
+        });
+        for pos in positions {
+            self.sim.reupload_queue.push_back(pos);
         }
-
-        // Mark all loaded chunks dirty for voxel data re-upload to new texture positions
-        for &pos in &positions {
-            if let Some(chunk) = self.sim.world.get_chunk_mut(pos) {
-                chunk.mark_dirty();
-            }
-        }
-
-        // Force all dirty chunks back into the dirty queue for upload
-        self.sim.world.requeue_dirty(&positions);
 
         true
+    }
+
+    /// Clears the voxel and model metadata textures asynchronously.
+    /// Returns a fence that signals when the clear is complete.
+    /// Uploads should be delayed until this fence signals.
+    pub fn clear_voxel_texture_async(&self) -> crate::app_state::ClearFence {
+        let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
+            self.graphics.command_buffer_allocator.clone(),
+            self.graphics.queue.queue_family_index(),
+            CommandBufferUsage::OneTimeSubmit,
+        )
+        .unwrap();
+
+        command_buffer_builder
+            .clear_color_image(ClearColorImageInfo::image(
+                self.graphics.voxel_image.clone(),
+            ))
+            .unwrap();
+
+        command_buffer_builder
+            .clear_color_image(ClearColorImageInfo::image(
+                self.graphics.model_metadata.clone(),
+            ))
+            .unwrap();
+
+        command_buffer_builder
+            .build()
+            .unwrap()
+            .execute(self.graphics.queue.clone())
+            .unwrap()
+            .then_signal_fence_and_flush()
+            .unwrap()
     }
 
     pub fn update_chunk_loading(&mut self) -> (usize, usize) {
@@ -490,6 +479,9 @@ impl App {
             let to_defer = completed.split_off(MAX_COMPLETED_UPLOADS_PER_FRAME);
             self.sim.deferred_uploads.extend(to_defer);
         }
+
+        // Wait for any pending texture clear before uploading
+        self.wait_for_pending_clear();
 
         // Metadata updates computed during chunk processing (avoids 32KB clone per chunk)
         struct MetadataUpdate {
@@ -791,6 +783,9 @@ impl App {
     }
 
     pub fn upload_world_to_gpu(&mut self) {
+        // Ensure any pending texture clear is complete before uploading
+        self.wait_for_pending_clear();
+
         // Gradually mark chunks dirty after origin shifts to avoid stalls.
         let reupload_budget = reupload_per_frame();
         for _ in 0..reupload_budget {
@@ -946,6 +941,22 @@ impl App {
                 .metadata_state
                 .queue_many(self.sim.texture_origin, uploaded_positions.iter().copied());
             self.sim.world.remove_dirty_positions(&uploaded_positions);
+        }
+    }
+
+    /// Waits for any pending texture clear to complete before uploading.
+    /// This blocks until the GPU finishes the clear operation, but since we only
+    /// wait when uploads are ready (not immediately after issuing the clear),
+    /// CPU work can overlap with the GPU clear in the meantime.
+    /// Call this before any GPU upload operations.
+    fn wait_for_pending_clear(&mut self) {
+        if let Some(fence) = self.sim.pending_clear_fence.take() {
+            // Wait for the clear to complete - typically 1-5ms
+            // We must wait fully because vulkano's FenceSignalFuture requires
+            // complete cleanup before the command buffer can be released.
+            if let Err(e) = fence.wait(None) {
+                eprintln!("[GPU] Texture clear fence error: {:?}", e);
+            }
         }
     }
 

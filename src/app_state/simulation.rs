@@ -3,6 +3,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use nalgebra::Vector3;
+use vulkano::command_buffer::CommandBufferExecFuture;
+use vulkano::sync::future::{FenceSignalFuture, NowFuture};
 
 use crate::atmosphere;
 use crate::block_update::BlockUpdateQueue;
@@ -20,6 +22,9 @@ use crate::utils::{ChunkStats, Profiler};
 use crate::water::WaterGrid;
 use crate::world::World;
 use crate::world_streaming::MetadataState;
+
+/// Type alias for the fence future returned by texture clear commands.
+pub type ClearFence = FenceSignalFuture<CommandBufferExecFuture<NowFuture>>;
 
 pub struct WorldSim {
     pub world: World,
@@ -57,6 +62,9 @@ pub struct WorldSim {
     /// Deferred chunk uploads when too many complete in one frame.
     /// Stores (position, chunk) pairs to be inserted and uploaded next frame.
     pub deferred_uploads: std::collections::VecDeque<crate::chunk_loader::ChunkResult>,
+    /// Pending texture clear fence from async origin shift.
+    /// Uploads are delayed until this fence signals completion.
+    pub pending_clear_fence: Option<ClearFence>,
     /// Most recent texture origin shift positions for HUD/debug.
     pub last_origin_shift: Option<Vector3<i32>>,
     /// Count of origin shifts in this session.
