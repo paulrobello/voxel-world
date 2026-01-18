@@ -354,50 +354,50 @@ impl App {
 
         // Re-upload ALL loaded chunks to their new texture positions immediately.
         // This causes a brief stall but avoids the flash that would occur with gradual re-upload.
-        // Clear GPU textures synchronously, then upload all chunks in one batch.
+        // We parallelize SVT computation to minimize stall time.
         self.sim.reupload_queue.clear();
 
-        // Clear texture synchronously (we need it done before uploading)
+        // Collect chunk data (sequential - needs world access)
+        let texture_origin = self.sim.texture_origin;
+        let mut raw_data: Vec<(Vector3<i32>, Vec<u8>, Vec<u8>)> = Vec::new();
+        for (pos, chunk) in self.sim.world.chunks() {
+            if world_pos_to_chunk_index(texture_origin, *pos).is_some() {
+                raw_data.push((
+                    *pos,
+                    chunk.to_block_data().to_vec(),
+                    chunk.to_model_metadata(),
+                ));
+            }
+        }
+
+        // Parallel: Compute SVT metadata for all chunks (CPU-intensive)
+        let svt_data: Vec<ChunkSVT> = raw_data
+            .par_iter()
+            .map(|(_, block_data, _)| ChunkSVT::from_bytes(block_data))
+            .collect();
+
+        // Clear texture synchronously
         let clear_fence = self.clear_voxel_texture_async();
         if let Err(e) = clear_fence.wait(None) {
             eprintln!("[GPU] Origin shift texture clear error: {:?}", e);
         }
 
-        // Collect all loaded chunks for immediate upload
-        let positions: Vec<_> = self.sim.world.chunks().map(|(pos, _)| *pos).collect();
-        let chunk_count = positions.len();
-
-        // Build upload data for all chunks
-        let mut uploads: Vec<(Vector3<i32>, Vec<u8>, Vec<u8>)> = Vec::with_capacity(chunk_count);
-        for &pos in &positions {
-            if world_pos_to_chunk_index(self.sim.texture_origin, pos).is_some() {
-                if let Some(chunk) = self.sim.world.get_chunk(pos) {
-                    uploads.push((
-                        pos,
-                        chunk.to_block_data().to_vec(),
-                        chunk.to_model_metadata(),
-                    ));
-                }
-            }
-        }
-
-        // Upload all chunks to GPU
-        if !uploads.is_empty() {
-            let upload_refs: Vec<_> = uploads
+        // Upload all chunks to GPU (sequential - GPU operation)
+        if !raw_data.is_empty() {
+            let upload_refs: Vec<_> = raw_data
                 .iter()
                 .map(|(pos, block, meta)| (*pos, block.as_slice(), meta.as_slice()))
                 .collect();
             self.upload_chunk_refs(&upload_refs);
 
-            // Update metadata for all uploaded chunks immediately
+            // Update metadata buffers using pre-computed SVT data
             {
                 let mut chunk_meta_write = self.graphics.chunk_metadata_buffer.write().unwrap();
                 let mut brick_mask_write = self.graphics.brick_mask_buffer.write().unwrap();
                 let mut brick_dist_write = self.graphics.brick_dist_buffer.write().unwrap();
 
-                for (pos, block_data, _meta) in &uploads {
+                for ((pos, _, _), svt) in raw_data.iter().zip(svt_data.iter()) {
                     if let Some(idx) = world_pos_to_chunk_index(self.sim.texture_origin, *pos) {
-                        let svt = ChunkSVT::from_bytes(block_data);
                         let word_idx = idx / 32;
                         let bit_idx = idx % 32;
                         if svt.brick_mask == 0 {
@@ -425,8 +425,8 @@ impl App {
             }
 
             println!(
-                "[Origin Shift] Uploaded {} chunks immediately",
-                uploads.len()
+                "[Origin Shift] Uploaded {} chunks (parallel SVT)",
+                raw_data.len()
             );
         }
 
