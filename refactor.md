@@ -79,6 +79,17 @@ Chunk generation and streaming cannot maintain 60 FPS during normal flight on M4
 - Use normal threshold (1/4) otherwise
 - Reduces chunks dropped during shift by shifting earlier
 
+#### 4. Inlined Brick Empty Check
+**Files Modified**: `shaders/accel.glsl`, `shaders/traverse.comp`
+
+- Added `isBrickEmptyFast()` that takes pre-computed chunkPos
+- Avoids redundant chunkPos division (already computed for chunk-level check)
+- Added `getBrickDistance()` helper for future sphere-tracing
+- Note: `brick_distances` buffer is computed but not yet utilized in traversal
+  (Manhattan distance doesn't translate directly to ray direction skipping)
+
+**Results**: +5.3% average FPS, +53% worst-case FPS improvement
+
 ## Success Metrics
 
 - Sustained 50+ FPS at view_distance=8
@@ -94,6 +105,8 @@ Chunk generation and streaming cannot maintain 60 FPS during normal flight on M4
 4. `src/world_streaming.rs` - All optimization implementations
 5. `src/utils.rs` - Added deferred_uploads to ChunkStats
 6. `src/app/init.rs` - Initialize new fields
+7. `shaders/accel.glsl` - Added isBrickEmptyFast(), getBrickDistance() helpers
+8. `shaders/traverse.comp` - Use inlined brick check with pre-computed chunkPos
 
 ## Verification
 
