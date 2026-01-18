@@ -235,6 +235,21 @@ impl PaletteUI {
                     model.name.clone(),
                 ));
             }
+
+            // Add custom door pairs from the registry
+            // Door pairs appear with their name and use the lower_closed model for placement
+            for door_pair in registry.iter_door_pairs() {
+                items.push((
+                    PaletteItem {
+                        block: BlockType::Model,
+                        model_id: door_pair.palette_model_id(),
+                        tint_index: 0,
+                        paint_texture_idx: 0,
+                        water_type: WaterType::Ocean,
+                    },
+                    format!("🚪 {}", door_pair.name),
+                ));
+            }
         }
 
         items
