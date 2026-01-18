@@ -52,6 +52,7 @@ pub mod sphere_tool;
 pub mod stairs_tool;
 pub mod stats;
 pub mod terrain_brush_tool;
+pub mod texture_generator;
 pub mod time;
 pub mod tools;
 pub mod torus_tool;

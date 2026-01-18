@@ -68,6 +68,7 @@ mod sub_voxel;
 mod svt;
 mod templates;
 mod terrain_gen;
+mod textures;
 mod ui;
 mod user_prefs;
 mod utils;
