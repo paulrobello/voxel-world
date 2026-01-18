@@ -462,7 +462,7 @@ impl App {
         true
     }
 
-    /// Repaints a Painted block with current hotbar texture/tint. Returns true if repainted.
+    /// Repaints a Painted block with current hotbar texture/tint/blend. Returns true if repainted.
     pub fn repaint_painted_block_at(&mut self, pos: Vector3<i32>) -> bool {
         // Check if target is a Painted block
         let Some(BlockType::Painted) = self.sim.world.get_block(pos) else {
@@ -472,9 +472,12 @@ impl App {
         // Get current hotbar paint settings
         let texture_idx = self.ui.hotbar_paint_textures[self.ui.hotbar_index];
         let tint_idx = self.ui.hotbar_tint_indices[self.ui.hotbar_index];
+        let blend_mode = self.ui.paint_panel.current_config.blend_mode as u8;
 
-        // Repaint the block
-        self.sim.world.set_painted_block(pos, texture_idx, tint_idx);
+        // Repaint the block with blend mode
+        self.sim
+            .world
+            .set_painted_block_full(pos, texture_idx, tint_idx, blend_mode);
 
         true
     }
@@ -1164,9 +1167,10 @@ impl App {
         } else if block_to_place == BlockType::Painted {
             let texture_idx = self.ui.hotbar_paint_textures[self.ui.hotbar_index];
             let tint_idx = self.ui.hotbar_tint_indices[self.ui.hotbar_index];
+            let blend_mode = self.ui.paint_panel.current_config.blend_mode as u8;
             self.sim
                 .world
-                .set_painted_block(place_pos, texture_idx, tint_idx);
+                .set_painted_block_full(place_pos, texture_idx, tint_idx, blend_mode);
         } else {
             self.sim.world.set_block(place_pos, block_to_place);
 
@@ -2325,9 +2329,12 @@ impl App {
                     }
                     BlockType::Painted => {
                         if let Some(p) = paint {
-                            self.sim
-                                .world
-                                .set_painted_block(target_pos, p.texture_idx, p.tint_idx);
+                            self.sim.world.set_painted_block_full(
+                                target_pos,
+                                p.texture_idx,
+                                p.tint_idx,
+                                p.blend_mode,
+                            );
                         } else {
                             self.sim.world.set_painted_block(target_pos, 0, 0);
                         }
@@ -2433,9 +2440,14 @@ impl App {
                                 self.sim.world.set_crystal_block(pos, target_tint);
                             }
                             BlockType::Painted => {
-                                self.sim
-                                    .world
-                                    .set_painted_block(pos, target_texture, target_tint);
+                                let blend_mode =
+                                    self.ui.paint_panel.current_config.blend_mode as u8;
+                                self.sim.world.set_painted_block_full(
+                                    pos,
+                                    target_texture,
+                                    target_tint,
+                                    blend_mode,
+                                );
                             }
                             BlockType::Water => {
                                 let water_type = WaterType::from_u8(target_tint);

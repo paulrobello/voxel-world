@@ -503,14 +503,29 @@ impl World {
     ///
     /// This sets the block type to Painted and stores the paint metadata.
     /// If the chunk doesn't exist, it will be created.
+    /// Uses default multiply blend mode.
     pub fn set_painted_block(&mut self, world_pos: WorldPos, texture_idx: u8, tint_idx: u8) {
+        self.set_painted_block_full(world_pos, texture_idx, tint_idx, 0);
+    }
+
+    /// Sets a painted block at world coordinates with full metadata including blend mode.
+    ///
+    /// This sets the block type to Painted and stores the paint metadata.
+    /// If the chunk doesn't exist, it will be created.
+    pub fn set_painted_block_full(
+        &mut self,
+        world_pos: WorldPos,
+        texture_idx: u8,
+        tint_idx: u8,
+        blend_mode: u8,
+    ) {
         let chunk_pos = Self::world_to_chunk(world_pos);
         let (lx, ly, lz) = Self::world_to_local(world_pos);
 
         let is_new_chunk = !self.chunks.contains_key(&chunk_pos);
         let chunk = self.chunks.entry(chunk_pos).or_default();
         let was_dirty = chunk.dirty;
-        chunk.set_painted_block(lx, ly, lz, texture_idx, tint_idx);
+        chunk.set_painted_block_full(lx, ly, lz, texture_idx, tint_idx, blend_mode);
 
         if is_new_chunk || (chunk.dirty && !was_dirty) {
             self.push_dirty(chunk_pos);

@@ -194,13 +194,41 @@ pub struct BlockModelData {
     pub waterlogged: bool,
 }
 
-/// Metadata for a paintable block (per-block texture + tint).
+/// Metadata for a paintable block (per-block texture + tint + blend mode).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct BlockPaintData {
-    /// Atlas texture index to sample (0-based).
+    /// Atlas texture index to sample (0-based, or 128+ for custom textures).
     pub texture_idx: u8,
     /// Tint palette index (0-31).
     pub tint_idx: u8,
+    /// Blend mode (0=Multiply, 1=Overlay, 2=SoftLight, 3=Screen, 4=ColorOnly).
+    pub blend_mode: u8,
+}
+
+impl BlockPaintData {
+    /// Creates new paint data with all parameters.
+    pub fn new(texture_idx: u8, tint_idx: u8, blend_mode: u8) -> Self {
+        Self {
+            texture_idx,
+            tint_idx: tint_idx & 0x1F,
+            blend_mode: blend_mode.min(4),
+        }
+    }
+
+    /// Creates simple paint data with default multiply blend.
+    pub fn simple(texture_idx: u8, tint_idx: u8) -> Self {
+        Self {
+            texture_idx,
+            tint_idx: tint_idx & 0x1F,
+            blend_mode: 0,
+        }
+    }
+
+    /// Packs tint_idx and blend_mode into a single byte for GPU metadata.
+    /// bits 0-4: tint_idx, bits 5-7: blend_mode
+    pub fn packed_tint_blend(&self) -> u8 {
+        (self.tint_idx & 0x1F) | ((self.blend_mode & 0x07) << 5)
+    }
 }
 
 impl BlockType {
@@ -973,6 +1001,7 @@ impl Chunk {
     }
 
     /// Sets a painted block with its texture + tint metadata at the given local coordinates.
+    /// Uses default multiply blend mode.
     #[inline]
     pub fn set_painted_block(
         &mut self,
@@ -982,15 +1011,24 @@ impl Chunk {
         texture_idx: u8,
         tint_idx: u8,
     ) {
+        self.set_painted_block_full(x, y, z, texture_idx, tint_idx, 0);
+    }
+
+    /// Sets a painted block with full metadata including blend mode.
+    #[inline]
+    pub fn set_painted_block_full(
+        &mut self,
+        x: usize,
+        y: usize,
+        z: usize,
+        texture_idx: u8,
+        tint_idx: u8,
+        blend_mode: u8,
+    ) {
         let idx = Self::index(x, y, z);
         self.blocks[idx] = BlockType::Painted;
-        self.painted_data.insert(
-            idx,
-            BlockPaintData {
-                texture_idx,
-                tint_idx: tint_idx & 0x1F,
-            },
-        );
+        self.painted_data
+            .insert(idx, BlockPaintData::new(texture_idx, tint_idx, blend_mode));
         self.dirty = true;
         self.persistence_dirty = true;
         self.metadata_dirty = true;
@@ -1172,11 +1210,11 @@ impl Chunk {
                     buf[offset] = 0; // R = 0 (no model_id)
                     buf[offset + 1] = tint_index & 0x1F; // G = tint_index (bits 0-4)
                 }
-                // Pack painted block data
+                // Pack painted block data (texture_idx in R, tint+blend in G)
                 for (idx, data) in &self.painted_data {
                     let offset = idx * 2;
                     buf[offset] = data.texture_idx;
-                    buf[offset + 1] = data.tint_idx & 0x1F;
+                    buf[offset + 1] = data.packed_tint_blend();
                 }
                 // Pack water data
                 for (idx, &water_type) in &self.water_data {

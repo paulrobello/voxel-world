@@ -176,7 +176,8 @@ mod tests {
             deserialized.get_paint_data(6, 6, 6),
             Some(crate::chunk::BlockPaintData {
                 texture_idx: 12,
-                tint_idx: 5
+                tint_idx: 5,
+                blend_mode: 0,
             })
         );
     }
