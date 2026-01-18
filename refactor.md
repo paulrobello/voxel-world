@@ -21,12 +21,18 @@ Chunk generation and streaming cannot maintain 60 FPS during normal flight on M4
 - **Fix**: Async fence polling, delay re-upload until complete
 - **Status**: IMPLEMENTED
 
-### 3. Double SVT Computation
+### 3. Duplicate Metadata Queue Calls
 **File**: `src/world_streaming.rs`
-- Workers compute SVT in chunk_loader.rs:235
-- Main thread recomputes same SVT for metadata (~130K ops/chunk)
-- **Issue**: Pre-computed SVT is invalid if overflow blocks modify chunk during insert
-- **Status**: SKIPPED (complexity vs benefit - metadata_ms only 0.5-1ms normally)
+- After immediate metadata update (SVT computation + GPU buffer write), chunks were
+  being queued for background refresh via `queue_many()`
+- This caused `update_metadata_buffers()` to recompute SVT redundantly
+- **Fix**: Removed `queue_many()` calls after immediate updates since CPU and GPU
+  buffers are already correctly updated
+- **Status**: IMPLEMENTED
+
+**Note on pre-computed SVT from workers**: Workers compute SVT in chunk_loader.rs:235,
+but this cannot be reused on main thread because overflow blocks may modify the chunk
+after worker computation. The main thread computes SVT after all overflow is applied.
 
 ### 4. Origin Shift Queue Drops
 **Profile**: 462-1123 chunks dropped per shift
@@ -118,6 +124,18 @@ redundant chunkPos division is retained.
 - Previously brick skipping was incorrectly disabled when model shadows were on
 
 **Impact**: Reduces shadow ray iterations in empty areas (sky, caves, etc.)
+
+#### 6. Eliminate Duplicate Metadata Queue Calls
+**Files Modified**: `src/world_streaming.rs`
+
+- Removed redundant `queue_many()` calls after immediate metadata updates
+- In `update_chunk_loading()`: After immediate SVT computation and GPU buffer update,
+  chunks were being queued for background refresh which would recompute SVT again
+- In `upload_world_to_gpu()`: Same issue for dirty chunk uploads
+- The immediate update already writes to both CPU `metadata_state` and GPU buffers,
+  so queueing for background refresh caused duplicate ~130K operations per chunk
+
+**Impact**: Reduces metadata_ms overhead during chunk streaming, especially during flight
 
 ## Success Metrics
 

@@ -559,11 +559,10 @@ impl App {
                     }
                 }
 
-                // CRITICAL: Queue metadata update for newly loaded chunks.
-                // Without this, chunk_bits stays as "empty" and shader skips the chunk.
-                self.sim
-                    .metadata_state
-                    .queue_many(self.sim.texture_origin, uploaded_positions.iter().copied());
+                // NOTE: We intentionally do NOT queue for background metadata refresh here.
+                // The immediate update above (lines 730-760) already computed SVT and updated
+                // both CPU metadata_state and GPU buffers. Calling queue_many would cause
+                // update_metadata_buffers() to recompute SVT redundantly.
 
                 // Already uploaded this frame; avoid a second upload in upload_world_to_gpu
                 self.sim.world.remove_dirty_positions(&uploaded_positions);
@@ -892,10 +891,11 @@ impl App {
                     chunk.mark_clean();
                 }
             }
-            // Refresh metadata for the chunks we just uploaded (amortized later this frame)
-            self.sim
-                .metadata_state
-                .queue_many(self.sim.texture_origin, uploaded_positions.iter().copied());
+            // NOTE: We intentionally do NOT queue for background metadata refresh here.
+            // The immediate update above (lines 852-884) already computed SVT and updated
+            // both CPU metadata_state and GPU buffers. Calling queue_many would cause
+            // update_metadata_buffers() to recompute SVT redundantly.
+
             // Avoid re-upload if any positions remain queued
             if !uploaded_positions.is_empty() {
                 self.sim.world.remove_dirty_positions(&uploaded_positions);
