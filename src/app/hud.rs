@@ -915,5 +915,12 @@ pub fn render_hud(
         StencilBrowserAction::None => {}
     }
 
+    // Render texture generator UI
+    crate::ui::texture_generator::TextureGeneratorUI::draw(
+        &ctx,
+        &mut ui.texture_generator,
+        &mut ui.texture_library,
+    );
+
     scale_changed
 }

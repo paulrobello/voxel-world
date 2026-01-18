@@ -26,6 +26,15 @@ impl App {
             return true;
         }
 
+        // Close texture generator with Escape
+        if self.input.key_pressed(KeyCode::Escape) && self.ui.texture_generator.open {
+            self.ui.texture_generator.open = false;
+            self.input.focused = true;
+            self.input.pending_grab = Some(true);
+            self.input.skip_input_frame = true;
+            return true;
+        }
+
         // Close editor with Escape (restores focus if it was focused before opening)
         if self.input.key_pressed(KeyCode::Escape) && self.ui.editor.active {
             self.ui.editor.active = false;
@@ -1227,6 +1236,11 @@ impl App {
         // Toggle tools palette (T key)
         if self.input.key_pressed(KeyCode::KeyT) {
             self.toggle_tools_palette();
+        }
+
+        // Toggle texture generator (X key for teXtures)
+        if self.input.key_pressed(KeyCode::KeyX) {
+            self.toggle_texture_generator();
         }
 
         // Toggle template browser (L key for Library)

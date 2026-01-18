@@ -17,6 +17,8 @@ use crate::shape_tools::{
     WallToolState,
 };
 use crate::templates::{TemplateLibrary, TemplatePlacement, TemplateSelection, TemplateUi};
+use crate::textures::TextureLibrary;
+use crate::ui::texture_generator::TextureGeneratorState;
 use crate::ui::tools::ToolsPaletteState;
 
 use super::{AutoProfileFeature, PaletteItem, PaletteTab};
@@ -186,4 +188,10 @@ pub struct UiState {
 
     /// Terrain brush tool state.
     pub terrain_brush: TerrainBrushState,
+
+    /// Texture generator UI state.
+    pub texture_generator: TextureGeneratorState,
+
+    /// Custom texture library.
+    pub texture_library: TextureLibrary,
 }

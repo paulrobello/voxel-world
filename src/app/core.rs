@@ -63,6 +63,24 @@ impl App {
         }
     }
 
+    /// Toggles the texture generator panel on/off.
+    /// When opened, releases the cursor so user can interact with UI.
+    pub fn toggle_texture_generator(&mut self) {
+        self.ui.texture_generator.open = !self.ui.texture_generator.open;
+        if self.ui.texture_generator.open {
+            // Release cursor when opening
+            if self.input.focused {
+                self.input.focused = false;
+                self.input.pending_grab = Some(false);
+            }
+        } else {
+            // Restore focus when closing
+            self.input.focused = true;
+            self.input.pending_grab = Some(true);
+            self.input.skip_input_frame = true;
+        }
+    }
+
     /// Toggles the tools palette on/off.
     /// When opened, releases the cursor so user can interact with UI.
     pub fn toggle_tools_palette(&mut self) {

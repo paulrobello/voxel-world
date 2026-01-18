@@ -642,6 +642,8 @@ impl App {
             scatter_tool: crate::shape_tools::ScatterToolState::default(),
             hollow_tool: crate::shape_tools::HollowToolState::default(),
             terrain_brush: crate::shape_tools::TerrainBrushState::default(),
+            texture_generator: crate::ui::texture_generator::TextureGeneratorState::new(),
+            texture_library: crate::textures::TextureLibrary::load(),
         };
 
         let input = InputState {
