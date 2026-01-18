@@ -3,7 +3,8 @@ use crate::chunk::{BlockType, CHUNK_SIZE, CHUNK_VOLUME, Chunk};
 use crate::chunk_loader::RequestStats;
 use crate::constants::{
     CHUNKS_PER_FRAME, EMPTY_CHUNK_DATA, EMPTY_MODEL_METADATA, LOADED_CHUNKS_X, LOADED_CHUNKS_Z,
-    TEXTURE_SIZE_X, TEXTURE_SIZE_Y, TEXTURE_SIZE_Z, WORLD_CHUNKS_Y,
+    MAX_COMPLETED_UPLOADS_PER_FRAME, TEXTURE_SIZE_X, TEXTURE_SIZE_Y, TEXTURE_SIZE_Z,
+    WORLD_CHUNKS_Y,
 };
 use crate::gpu_resources::{
     BRICK_DIST_WORDS, BRICK_MASK_WORDS, CHUNK_METADATA_WORDS, TOTAL_CHUNKS, upload_chunks_batched,
@@ -278,9 +279,28 @@ impl App {
         let dx = player_chunk.x - texture_center_chunk.x;
         let dz = player_chunk.z - texture_center_chunk.z;
 
-        // Shift threshold: when player is more than 1/4 of texture size from center
-        let shift_threshold_x = LOADED_CHUNKS_X / 4;
-        let shift_threshold_z = LOADED_CHUNKS_Z / 4;
+        // Predictive shifting: if player is moving toward an edge, shift earlier.
+        // This reduces the number of chunks dropped when the shift occurs because
+        // we start loading chunks at the new origin before reaching the boundary.
+        let velocity = self.sim.player.velocity;
+        let vel_x = velocity.x.signum() as i32;
+        let vel_z = velocity.z.signum() as i32;
+
+        // Check if player is moving toward the current offset direction
+        let moving_toward_edge_x = vel_x != 0 && vel_x == dx.signum();
+        let moving_toward_edge_z = vel_z != 0 && vel_z == dz.signum();
+
+        // Use smaller threshold (1/6) when moving toward edge, otherwise 1/4
+        let shift_threshold_x = if moving_toward_edge_x {
+            LOADED_CHUNKS_X / 6
+        } else {
+            LOADED_CHUNKS_X / 4
+        };
+        let shift_threshold_z = if moving_toward_edge_z {
+            LOADED_CHUNKS_Z / 6
+        } else {
+            LOADED_CHUNKS_Z / 4
+        };
 
         if dx.abs() <= shift_threshold_x && dz.abs() <= shift_threshold_z {
             return false; // No shift needed
@@ -318,6 +338,9 @@ impl App {
         // They'll be re-requested with the correct origin in the next frame.
         self.sim.chunk_loader.reset_epoch_and_clear();
 
+        // Also clear deferred uploads - they were for the old texture origin
+        self.sim.deferred_uploads.clear();
+
         // Adjust camera position to maintain the same world position
         let origin_delta = old_origin - new_origin;
         let scale = Vector3::new(
@@ -331,7 +354,9 @@ impl App {
 
         // Re-upload all loaded chunks to their new texture positions (slice-backed, no alloc).
         // Clear GPU textures so old data doesn't flash while we repopulate.
-        self.clear_voxel_texture();
+        // Use async clear - uploads are delayed until fence signals completion.
+        let clear_fence = self.clear_voxel_texture_async();
+        self.sim.pending_clear_fence = Some(clear_fence);
 
         // Prepare prioritized re-upload queue (nearest first).
         self.sim.reupload_queue.clear();
@@ -349,8 +374,10 @@ impl App {
         true
     }
 
-    #[allow(dead_code)]
-    pub fn clear_voxel_texture(&self) {
+    /// Clears the voxel and model metadata textures asynchronously.
+    /// Returns a fence that signals when the clear is complete.
+    /// Uploads should be delayed until this fence signals.
+    pub fn clear_voxel_texture_async(&self) -> crate::app_state::ClearFence {
         let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
             self.graphics.command_buffer_allocator.clone(),
             self.graphics.queue.queue_family_index(),
@@ -377,8 +404,6 @@ impl App {
             .unwrap()
             .then_signal_fence_and_flush()
             .unwrap()
-            .wait(None)
-            .unwrap();
     }
 
     pub fn update_chunk_loading(&mut self) -> (usize, usize) {
@@ -408,10 +433,15 @@ impl App {
         ];
 
         // === STEP 1: Receive completed chunks from background threads ===
-        let completed_all = self.sim.chunk_loader.receive_chunks();
-        let (mut completed, dropped_oob): (Vec<_>, Vec<_>) = completed_all
+        // First, drain any deferred uploads from previous frames
+        let mut completed: Vec<_> = self.sim.deferred_uploads.drain(..).collect();
+
+        // Then receive newly completed chunks
+        let completed_new = self.sim.chunk_loader.receive_chunks();
+        let (mut completed_in_bounds, dropped_oob): (Vec<_>, Vec<_>) = completed_new
             .into_iter()
             .partition(|r| world_pos_to_chunk_index(self.sim.texture_origin, r.position).is_some());
+
         // If any completed chunks are now out-of-bounds, re-request them at the new origin.
         if !dropped_oob.is_empty() {
             let mut retry_positions = Vec::with_capacity(dropped_oob.len());
@@ -421,6 +451,9 @@ impl App {
             // Drop silent errors; just requeue.
             let _ = self.sim.chunk_loader.request_chunks(&retry_positions);
         }
+
+        // Append new completions to deferred (which we already drained)
+        completed.append(&mut completed_in_bounds);
 
         // Sort completed chunks by distance to player (closer chunks processed first)
         // This ensures nearby chunks become visible before distant chunks, even when
@@ -434,6 +467,21 @@ impl App {
                 + (b.position.z - player_chunk.z).pow(2);
             dist_sq_a.cmp(&dist_sq_b)
         });
+
+        // Budget: only process up to MAX_COMPLETED_UPLOADS_PER_FRAME chunks this frame.
+        // Defer the rest to the next frame to prevent GPU upload spikes.
+        let deferred_count = completed
+            .len()
+            .saturating_sub(MAX_COMPLETED_UPLOADS_PER_FRAME);
+        if deferred_count > 0 {
+            // Move excess chunks to deferred queue (they're already sorted by distance,
+            // so we defer the farthest chunks)
+            let to_defer = completed.split_off(MAX_COMPLETED_UPLOADS_PER_FRAME);
+            self.sim.deferred_uploads.extend(to_defer);
+        }
+
+        // Wait for any pending texture clear before uploading
+        self.wait_for_pending_clear();
 
         let mut meta_inputs: Vec<(Vector3<i32>, Vec<u8>)> = Vec::new();
         let mut loaded = 0;
@@ -732,6 +780,7 @@ impl App {
             queue_full_events: loader_stats.queue_full_events,
             dropped_results: loader_stats.dropped_stale_results,
             reupload_pending: self.sim.reupload_queue.len(),
+            deferred_uploads: self.sim.deferred_uploads.len(),
             metadata_pending: self.sim.metadata_state.pending_len(),
             upload_budget: uploads_per_frame(),
             reupload_budget: reupload_per_frame(),
@@ -750,6 +799,9 @@ impl App {
     }
 
     pub fn upload_world_to_gpu(&mut self) {
+        // Ensure any pending texture clear is complete before uploading
+        self.wait_for_pending_clear();
+
         // Gradually mark chunks dirty after origin shifts to avoid stalls.
         let reupload_budget = reupload_per_frame();
         for _ in 0..reupload_budget {
@@ -904,6 +956,22 @@ impl App {
                 .metadata_state
                 .queue_many(self.sim.texture_origin, uploaded_positions.iter().copied());
             self.sim.world.remove_dirty_positions(&uploaded_positions);
+        }
+    }
+
+    /// Waits for any pending texture clear to complete before uploading.
+    /// This blocks until the GPU finishes the clear operation, but since we only
+    /// wait when uploads are ready (not immediately after issuing the clear),
+    /// CPU work can overlap with the GPU clear in the meantime.
+    /// Call this before any GPU upload operations.
+    fn wait_for_pending_clear(&mut self) {
+        if let Some(fence) = self.sim.pending_clear_fence.take() {
+            // Wait for the clear to complete - typically 1-5ms
+            // We must wait fully because vulkano's FenceSignalFuture requires
+            // complete cleanup before the command buffer can be released.
+            if let Err(e) = fence.wait(None) {
+                eprintln!("[GPU] Texture clear fence error: {:?}", e);
+            }
         }
     }
 

@@ -15,6 +15,9 @@ pub struct ChunkStats {
     pub dropped_results: u32,
     /// Pending reupload queue length (post-origin shift).
     pub reupload_pending: usize,
+    /// Deferred uploads awaiting processing (budget overflow from previous frames).
+    #[allow(dead_code)]
+    pub deferred_uploads: usize,
     /// Pending metadata updates in queue.
     pub metadata_pending: usize,
     /// Per-frame budgets (runtime for debugging).
