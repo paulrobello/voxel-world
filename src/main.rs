@@ -53,6 +53,7 @@ mod gpu_resources;
 mod hot_reload;
 mod hud;
 mod lava;
+mod paint;
 mod particles;
 mod placement;
 mod player;

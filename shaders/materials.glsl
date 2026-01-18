@@ -192,6 +192,136 @@ float getWaterClarity(uint waterType) {
     return WATER_CLARITY;
 }
 
+// ============================================================================
+// HSV Color Space Functions
+// ============================================================================
+
+// Convert RGB to HSV
+// Input: RGB in 0-1 range
+// Output: HSV where H is 0-1 (representing 0-360°), S and V are 0-1
+vec3 rgb2hsv(vec3 c) {
+    vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
+    vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));
+    vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));
+    float d = q.x - min(q.w, q.y);
+    float e = 1.0e-10;
+    return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
+}
+
+// Convert HSV to RGB
+// Input: HSV where H is 0-1 (representing 0-360°), S and V are 0-1
+// Output: RGB in 0-1 range
+vec3 hsv2rgb(vec3 c) {
+    vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+    vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+    return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+}
+
+// Apply HSV adjustment to a color
+// hueShift: degrees (-180 to 180)
+// satMult: saturation multiplier (0-2, 1 = no change)
+// valMult: value multiplier (0-2, 1 = no change)
+vec3 applyHsvAdjust(vec3 color, float hueShift, float satMult, float valMult) {
+    vec3 hsv = rgb2hsv(color);
+    hsv.x = fract(hsv.x + hueShift / 360.0);
+    hsv.y = clamp(hsv.y * satMult, 0.0, 1.0);
+    hsv.z = clamp(hsv.z * valMult, 0.0, 1.0);
+    return hsv2rgb(hsv);
+}
+
+// ============================================================================
+// Blend Mode Functions
+// ============================================================================
+
+// Blend mode constants (must match Rust BlendMode enum)
+const uint BLEND_MULTIPLY = 0u;
+const uint BLEND_OVERLAY = 1u;
+const uint BLEND_SOFT_LIGHT = 2u;
+const uint BLEND_SCREEN = 3u;
+const uint BLEND_COLOR_ONLY = 4u;
+
+// Overlay blend: enhances contrast while preserving highlights/shadows
+vec3 blendOverlay(vec3 base, vec3 blend) {
+    return mix(
+        2.0 * base * blend,
+        1.0 - 2.0 * (1.0 - base) * (1.0 - blend),
+        step(0.5, base)
+    );
+}
+
+// Soft light blend: gentle highlight/shadow adjustment
+vec3 blendSoftLight(vec3 base, vec3 blend) {
+    return mix(
+        2.0 * base * blend + base * base * (1.0 - 2.0 * blend),
+        sqrt(base) * (2.0 * blend - 1.0) + 2.0 * base * (1.0 - blend),
+        step(0.5, blend)
+    );
+}
+
+// Screen blend: lightens the result
+vec3 blendScreen(vec3 base, vec3 blend) {
+    return 1.0 - (1.0 - base) * (1.0 - blend);
+}
+
+// Color only blend: applies blend hue/saturation, keeps base luminance
+vec3 blendColorOnly(vec3 base, vec3 blend) {
+    vec3 baseHsv = rgb2hsv(base);
+    vec3 blendHsv = rgb2hsv(blend);
+    // Keep base value, use blend hue and partial saturation
+    return hsv2rgb(vec3(blendHsv.x, mix(baseHsv.y, blendHsv.y, 0.7), baseHsv.z));
+}
+
+// Apply blend mode to combine texture color with tint
+vec3 applyBlendMode(vec3 texture, vec3 tint, uint mode) {
+    switch (mode) {
+        case BLEND_MULTIPLY:
+            return texture * tint;
+        case BLEND_OVERLAY:
+            return blendOverlay(texture, tint);
+        case BLEND_SOFT_LIGHT:
+            return blendSoftLight(texture, tint);
+        case BLEND_SCREEN:
+            return blendScreen(texture, tint);
+        case BLEND_COLOR_ONLY:
+            return blendColorOnly(texture, tint);
+        default:
+            return texture * tint;
+    }
+}
+
+// ============================================================================
+// Enhanced Painted Block Color
+// ============================================================================
+
+// Get painted block color with blend mode and HSV adjustment
+// textureIdx: texture atlas index (0-44)
+// tintIdx: tint palette index (0-31)
+// blendMode: blend mode (0-4)
+// hsvPacked: packed HSV adjustment (or 0 for defaults)
+vec3 getPaintedBlockColor(uint textureIdx, uint tintIdx, uint blendMode, vec2 uv) {
+    // Sample texture
+    vec3 texColor = sampleTexture(textureIdx, uv);
+
+    // Get tint color from palette
+    vec3 tintColor = tintIdx < 32u ? TINT_PALETTE[tintIdx] : vec3(1.0);
+
+    // Apply blend mode
+    vec3 result = applyBlendMode(texColor, tintColor, blendMode);
+
+    return result;
+}
+
+// Simplified version for basic painted blocks (multiply blend, no HSV)
+vec3 getPaintedBlockColorSimple(uint textureIdx, uint tintIdx, vec2 uv) {
+    vec3 texColor = sampleTexture(textureIdx, uv);
+    vec3 tintColor = tintIdx < 32u ? TINT_PALETTE[tintIdx] : vec3(1.0);
+    return texColor * tintColor;
+}
+
+// ============================================================================
+// Texture Sampling
+// ============================================================================
+
 // Sample a specific texture from the atlas
 vec3 sampleTexture(uint textureIndex, vec2 uv) {
     float atlasU = (float(textureIndex) + fract(uv.x)) * ATLAS_TILE_SIZE;

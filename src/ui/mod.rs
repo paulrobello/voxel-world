@@ -41,6 +41,7 @@ pub mod hollow_tool;
 pub mod hotbar;
 pub mod minimap;
 pub mod mirror_tool;
+pub mod paint_panel;
 pub mod palette;
 pub mod pattern_tool;
 pub mod polygon_tool;
