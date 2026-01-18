@@ -84,11 +84,29 @@ Chunk generation and streaming cannot maintain 60 FPS during normal flight on M4
 
 - Added `isBrickEmptyFast()` that takes pre-computed chunkPos
 - Avoids redundant chunkPos division (already computed for chunk-level check)
-- Added `getBrickDistance()` helper for future sphere-tracing
-- Note: `brick_distances` buffer is computed but not yet utilized in traversal
-  (Manhattan distance doesn't translate directly to ray direction skipping)
+- `getBrickDistance()` helper exists but sphere-tracing is **not usable** (see below)
 
 **Results**: +5.3% average FPS, +53% worst-case FPS improvement
+
+#### Sphere-Tracing Investigation (Not Implemented)
+**Status**: INVESTIGATED - NOT VIABLE WITH CURRENT ARCHITECTURE
+
+Attempted to use `brick_distances` for sphere-tracing (skipping multiple bricks at once).
+This caused severe visual artifacts (black grid patterns, missing geometry).
+
+**Root Cause**: The `brick_distances` field is computed per-chunk only (`svt.rs:191`).
+It calculates Manhattan distance to the nearest solid brick **within the same chunk**.
+Empty chunks have all distances = 255, but neighboring chunks may have solid blocks
+directly adjacent. Sphere-tracing based on these distances skips into solid geometry.
+
+**Required for sphere-tracing to work**:
+- Cross-chunk distance field propagation
+- Or: Clamp distance based on proximity to chunk boundaries
+- Both add significant complexity and CPU overhead
+
+**Conclusion**: Keep the simple brick-skip (one brick at a time) which is already
+optimized with `isBrickEmptyFast()`. The +5.3% FPS improvement from avoiding
+redundant chunkPos division is retained.
 
 ## Success Metrics
 

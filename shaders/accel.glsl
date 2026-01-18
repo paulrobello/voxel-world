@@ -40,6 +40,7 @@ bool isBrickEmpty(ivec3 coord) {
 }
 
 // Optimized: Check brick empty with pre-computed chunk position (avoids redundant division)
+// This saves the chunkPos division that isBrickEmpty() would redo
 bool isBrickEmptyFast(ivec3 coord, ivec3 chunkPos) {
     ivec3 localVoxel = coord - chunkPos * int(CHUNK_SIZE);
     ivec3 brickPos = localVoxel / int(BRICK_SIZE);
@@ -49,7 +50,6 @@ bool isBrickEmptyFast(ivec3 coord, ivec3 chunkPos) {
     uint chunkIdx = uint(chunkPos.x) + uint(chunkPos.z) * CHUNKS_X
                   + uint(chunkPos.y) * CHUNKS_X * CHUNKS_Z;
 
-    // Check brick mask
     uint maskOffset = chunkIdx * 2u;
     uint wordIdx = brickIdx / 32u;
     uint bitIdx = brickIdx % 32u;
@@ -57,6 +57,10 @@ bool isBrickEmptyFast(ivec3 coord, ivec3 chunkPos) {
 
     return (mask & (1u << bitIdx)) == 0u;
 }
+
+// NOTE: Sphere-tracing with brick_distances is not currently usable because
+// the distance field is per-chunk only (doesn't account for neighboring chunks).
+// A cross-chunk distance field would be needed for correct sphere-tracing.
 
 // Get brick distance to nearest solid brick (in brick units)
 // Returns 0 if brick is solid, 1+ for distance to nearest solid
