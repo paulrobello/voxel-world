@@ -352,23 +352,82 @@ impl App {
         self.sim.player.camera.position.y += origin_delta.y as f64 / scale.y;
         self.sim.player.camera.position.z += origin_delta.z as f64 / scale.z;
 
-        // Re-upload all loaded chunks to their new texture positions (slice-backed, no alloc).
-        // Clear GPU textures so old data doesn't flash while we repopulate.
-        // Use async clear - uploads are delayed until fence signals completion.
-        let clear_fence = self.clear_voxel_texture_async();
-        self.sim.pending_clear_fence = Some(clear_fence);
-
-        // Prepare prioritized re-upload queue (nearest first).
+        // Re-upload ALL loaded chunks to their new texture positions immediately.
+        // This causes a brief stall but avoids the flash that would occur with gradual re-upload.
+        // Clear GPU textures synchronously, then upload all chunks in one batch.
         self.sim.reupload_queue.clear();
-        let mut positions: Vec<_> = self.sim.world.chunks().map(|(pos, _)| *pos).collect();
-        positions.sort_by_key(|p| {
-            let dx = p.x - player_chunk.x;
-            let dy = p.y - player_chunk.y;
-            let dz = p.z - player_chunk.z;
-            dx * dx + dy * dy + dz * dz
-        });
-        for pos in positions {
-            self.sim.reupload_queue.push_back(pos);
+
+        // Clear texture synchronously (we need it done before uploading)
+        let clear_fence = self.clear_voxel_texture_async();
+        if let Err(e) = clear_fence.wait(None) {
+            eprintln!("[GPU] Origin shift texture clear error: {:?}", e);
+        }
+
+        // Collect all loaded chunks for immediate upload
+        let positions: Vec<_> = self.sim.world.chunks().map(|(pos, _)| *pos).collect();
+        let chunk_count = positions.len();
+
+        // Build upload data for all chunks
+        let mut uploads: Vec<(Vector3<i32>, Vec<u8>, Vec<u8>)> = Vec::with_capacity(chunk_count);
+        for &pos in &positions {
+            if world_pos_to_chunk_index(self.sim.texture_origin, pos).is_some() {
+                if let Some(chunk) = self.sim.world.get_chunk(pos) {
+                    uploads.push((
+                        pos,
+                        chunk.to_block_data().to_vec(),
+                        chunk.to_model_metadata(),
+                    ));
+                }
+            }
+        }
+
+        // Upload all chunks to GPU
+        if !uploads.is_empty() {
+            let upload_refs: Vec<_> = uploads
+                .iter()
+                .map(|(pos, block, meta)| (*pos, block.as_slice(), meta.as_slice()))
+                .collect();
+            self.upload_chunk_refs(&upload_refs);
+
+            // Update metadata for all uploaded chunks immediately
+            {
+                let mut chunk_meta_write = self.graphics.chunk_metadata_buffer.write().unwrap();
+                let mut brick_mask_write = self.graphics.brick_mask_buffer.write().unwrap();
+                let mut brick_dist_write = self.graphics.brick_dist_buffer.write().unwrap();
+
+                for (pos, block_data, _meta) in &uploads {
+                    if let Some(idx) = world_pos_to_chunk_index(self.sim.texture_origin, *pos) {
+                        let svt = ChunkSVT::from_bytes(block_data);
+                        let word_idx = idx / 32;
+                        let bit_idx = idx % 32;
+                        if svt.brick_mask == 0 {
+                            self.sim.metadata_state.chunk_bits[word_idx] |= 1u32 << bit_idx;
+                        } else {
+                            self.sim.metadata_state.chunk_bits[word_idx] &= !(1u32 << bit_idx);
+                        }
+                        chunk_meta_write[word_idx] = self.sim.metadata_state.chunk_bits[word_idx];
+
+                        let mask_offset = idx * 2;
+                        self.sim.metadata_state.brick_masks[mask_offset] = svt.brick_mask as u32;
+                        self.sim.metadata_state.brick_masks[mask_offset + 1] =
+                            (svt.brick_mask >> 32) as u32;
+                        brick_mask_write[mask_offset] = svt.brick_mask as u32;
+                        brick_mask_write[mask_offset + 1] = (svt.brick_mask >> 32) as u32;
+
+                        let dist_offset = idx * 16;
+                        let packed_dist = pack_distances(&svt.brick_distances);
+                        for (i, word) in packed_dist.iter().enumerate() {
+                            self.sim.metadata_state.brick_distances[dist_offset + i] = *word;
+                            brick_dist_write[dist_offset + i] = *word;
+                        }
+                    }
+                }
+            }
+
+            println!(
+                "[Origin Shift] Uploaded {} chunks immediately",
+                uploads.len()
+            );
         }
 
         true
