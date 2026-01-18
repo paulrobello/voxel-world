@@ -483,7 +483,17 @@ impl App {
         // Wait for any pending texture clear before uploading
         self.wait_for_pending_clear();
 
-        let mut meta_inputs: Vec<(Vector3<i32>, Vec<u8>)> = Vec::new();
+        // Metadata updates computed during chunk processing (avoids 32KB clone per chunk)
+        struct MetadataUpdate {
+            idx: usize,
+            word_idx: usize,
+            bit_idx: usize,
+            is_empty: bool,
+            mask_low: u32,
+            mask_high: u32,
+            packed_dist: [u32; 16],
+        }
+        let mut metadata_updates: Vec<MetadataUpdate> = Vec::new();
         let mut loaded = 0;
         {
             struct Upload {
@@ -537,9 +547,30 @@ impl App {
                 loaded += 1;
             }
 
-            // Batch upload completed chunks to GPU
+            // Batch upload completed chunks to GPU and compute metadata updates
+            // Computing SVT here avoids cloning block_data (32KB per chunk savings)
             if !uploads.is_empty() {
-                let uploaded_positions: Vec<Vector3<i32>> = uploads.iter().map(|u| u.pos).collect();
+                let uploaded_positions: Vec<_> = uploads.iter().map(|u| u.pos).collect();
+
+                // Compute metadata updates BEFORE upload (uses block_data without clone)
+                for upload in &uploads {
+                    if let Some(idx) = world_pos_to_chunk_index(self.sim.texture_origin, upload.pos)
+                    {
+                        let svt = ChunkSVT::from_bytes(&upload.block);
+                        let word_idx = idx / 32;
+                        let bit_idx = idx % 32;
+                        metadata_updates.push(MetadataUpdate {
+                            idx,
+                            word_idx,
+                            bit_idx,
+                            is_empty: svt.brick_mask == 0,
+                            mask_low: svt.brick_mask as u32,
+                            mask_high: (svt.brick_mask >> 32) as u32,
+                            packed_dist: pack_distances(&svt.brick_distances),
+                        });
+                    }
+                }
+
                 // Convert to slice references for upload
                 let upload_slices: Vec<_> = uploads
                     .iter()
@@ -547,10 +578,7 @@ impl App {
                     .collect();
                 self.upload_chunk_refs(&upload_slices);
 
-                // Collect inputs for immediate metadata update (owned copies).
-                meta_inputs = uploads.iter().map(|u| (u.pos, u.block.clone())).collect();
-
-                // Release borrows before marking clean
+                // Release uploads (block_data no longer needed - metadata already computed)
                 drop(uploads);
 
                 for pos in &uploaded_positions {
@@ -558,11 +586,6 @@ impl App {
                         chunk.mark_clean();
                     }
                 }
-
-                // NOTE: We intentionally do NOT queue for background metadata refresh here.
-                // The immediate update above (lines 730-760) already computed SVT and updated
-                // both CPU metadata_state and GPU buffers. Calling queue_many would cause
-                // update_metadata_buffers() to recompute SVT redundantly.
 
                 // Already uploaded this frame; avoid a second upload in upload_world_to_gpu
                 self.sim.world.remove_dirty_positions(&uploaded_positions);
@@ -688,74 +711,36 @@ impl App {
             self.upload_chunk_refs(&chunks_to_clear);
         }
 
-        // Update chunk metadata if any chunks were loaded or unloaded
-        if !meta_inputs.is_empty() {
-            // IMMEDIATE metadata update for newly loaded chunks to prevent invisible chunks.
-            // CRITICAL: Use the block_data we already have from chunks_to_upload, NOT a lookup
-            // into the World. The World lookup can fail if the chunk was modified/unloaded
-            // between upload and metadata update, causing invisible chunks.
-            struct MetadataUpdate {
-                idx: usize,
-                word_idx: usize,
-                bit_idx: usize,
-                is_empty: bool,
-                mask_low: u32,
-                mask_high: u32,
-                packed_dist: [u32; 16],
-            }
+        // Apply pre-computed metadata updates to GPU buffers
+        // These were computed during chunk processing to avoid 32KB clone per chunk
+        if !metadata_updates.is_empty() {
+            let mut chunk_meta_write = self.graphics.chunk_metadata_buffer.write().unwrap();
+            let mut brick_mask_write = self.graphics.brick_mask_buffer.write().unwrap();
+            let mut brick_dist_write = self.graphics.brick_dist_buffer.write().unwrap();
 
-            let mut updates: Vec<MetadataUpdate> = Vec::with_capacity(meta_inputs.len());
-
-            for (pos, block_data) in &meta_inputs {
-                if let Some(idx) = world_pos_to_chunk_index(self.sim.texture_origin, *pos) {
-                    // Compute SVT directly from block_data we already have
-                    let svt = ChunkSVT::from_bytes(block_data);
-                    let word_idx = idx / 32;
-                    let bit_idx = idx % 32;
-
-                    updates.push(MetadataUpdate {
-                        idx,
-                        word_idx,
-                        bit_idx,
-                        is_empty: svt.brick_mask == 0,
-                        mask_low: svt.brick_mask as u32,
-                        mask_high: (svt.brick_mask >> 32) as u32,
-                        packed_dist: pack_distances(&svt.brick_distances),
-                    });
+            for update in &metadata_updates {
+                // Update chunk empty bit
+                if update.is_empty {
+                    self.sim.metadata_state.chunk_bits[update.word_idx] |= 1u32 << update.bit_idx;
+                } else {
+                    self.sim.metadata_state.chunk_bits[update.word_idx] &=
+                        !(1u32 << update.bit_idx);
                 }
-            }
+                chunk_meta_write[update.word_idx] =
+                    self.sim.metadata_state.chunk_bits[update.word_idx];
 
-            // Now acquire locks once and apply all updates atomically
-            if !updates.is_empty() {
-                let mut chunk_meta_write = self.graphics.chunk_metadata_buffer.write().unwrap();
-                let mut brick_mask_write = self.graphics.brick_mask_buffer.write().unwrap();
-                let mut brick_dist_write = self.graphics.brick_dist_buffer.write().unwrap();
+                // Update brick mask
+                let mask_offset = update.idx * 2;
+                self.sim.metadata_state.brick_masks[mask_offset] = update.mask_low;
+                self.sim.metadata_state.brick_masks[mask_offset + 1] = update.mask_high;
+                brick_mask_write[mask_offset] = update.mask_low;
+                brick_mask_write[mask_offset + 1] = update.mask_high;
 
-                for update in &updates {
-                    // Update chunk empty bit
-                    if update.is_empty {
-                        self.sim.metadata_state.chunk_bits[update.word_idx] |=
-                            1u32 << update.bit_idx;
-                    } else {
-                        self.sim.metadata_state.chunk_bits[update.word_idx] &=
-                            !(1u32 << update.bit_idx);
-                    }
-                    chunk_meta_write[update.word_idx] =
-                        self.sim.metadata_state.chunk_bits[update.word_idx];
-
-                    // Update brick mask
-                    let mask_offset = update.idx * 2;
-                    self.sim.metadata_state.brick_masks[mask_offset] = update.mask_low;
-                    self.sim.metadata_state.brick_masks[mask_offset + 1] = update.mask_high;
-                    brick_mask_write[mask_offset] = update.mask_low;
-                    brick_mask_write[mask_offset + 1] = update.mask_high;
-
-                    // Update brick distances
-                    let dist_offset = update.idx * 16;
-                    for (i, word) in update.packed_dist.iter().enumerate() {
-                        self.sim.metadata_state.brick_distances[dist_offset + i] = *word;
-                        brick_dist_write[dist_offset + i] = *word;
-                    }
+                // Update brick distances
+                let dist_offset = update.idx * 16;
+                for (i, word) in update.packed_dist.iter().enumerate() {
+                    self.sim.metadata_state.brick_distances[dist_offset + i] = *word;
+                    brick_dist_write[dist_offset + i] = *word;
                 }
             }
 
