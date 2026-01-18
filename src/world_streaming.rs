@@ -643,8 +643,6 @@ impl App {
 
         // Update chunk metadata if any chunks were loaded or unloaded
         if !meta_inputs.is_empty() {
-            let positions: Vec<_> = meta_inputs.iter().map(|(pos, _)| *pos).collect();
-
             // IMMEDIATE metadata update for newly loaded chunks to prevent invisible chunks.
             // CRITICAL: Use the block_data we already have from chunks_to_upload, NOT a lookup
             // into the World. The World lookup can fail if the chunk was modified/unloaded
@@ -714,10 +712,9 @@ impl App {
                 }
             }
 
-            // Also queue for the regular update path (in case immediate update failed)
-            self.sim
-                .metadata_state
-                .queue_many(self.sim.texture_origin, positions.iter().copied());
+            // NOTE: We intentionally do NOT queue for background refresh here.
+            // The immediate update above already wrote to GPU buffers directly,
+            // so queueing would cause duplicate SVT computation in update_metadata_buffers().
         }
         if !positions_to_clear.is_empty() {
             self.sim

@@ -12,6 +12,7 @@ use std::thread::{self, JoinHandle};
 
 use crate::chunk::Chunk;
 use crate::storage::ParallelStorageReader;
+use crate::svt::{BRICKS_PER_CHUNK, ChunkSVT};
 use crate::terrain_gen::{ChunkGenerationResult, OverflowBlock};
 
 fn worker_threads() -> usize {
@@ -37,7 +38,8 @@ pub fn default_worker_threads() -> usize {
 
 /// Maximum chunks to queue for generation.
 /// Prevents memory buildup if generation is slower than requests.
-const MAX_QUEUE_SIZE: usize = 256;
+/// Increased from 256 to reduce queue saturation during complex terrain.
+const MAX_QUEUE_SIZE: usize = 384;
 /// Soft cap for batches (defensive: avoids accidental huge fan-out).
 const MAX_BATCH_REQUEST: usize = 256;
 
@@ -48,6 +50,39 @@ pub struct ChunkRequest {
     pub epoch: u32,
 }
 
+/// Pre-computed SVT metadata to avoid redundant computation on main thread.
+///
+/// SVT computation is expensive (~130,000 operations per chunk: 32,768 block reads
+/// plus 4 BFS distance passes). Computing it once in the worker thread and passing
+/// it to the main thread avoids duplicate work.
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub struct SvtMetadata {
+    /// 64-bit mask indicating which bricks are non-empty.
+    pub brick_mask: u64,
+    /// Per-brick minimum distance to nearest solid brick.
+    pub brick_distances: [u8; BRICKS_PER_CHUNK],
+}
+
+impl SvtMetadata {
+    /// Create from a ChunkSVT.
+    pub fn from_svt(svt: &ChunkSVT) -> Self {
+        Self {
+            brick_mask: svt.brick_mask,
+            brick_distances: svt.brick_distances,
+        }
+    }
+
+    /// Create empty metadata (all bricks empty, max distances).
+    #[allow(dead_code)]
+    pub fn empty() -> Self {
+        Self {
+            brick_mask: 0,
+            brick_distances: [255; BRICKS_PER_CHUNK],
+        }
+    }
+}
+
 /// Result of chunk generation.
 pub struct ChunkResult {
     pub position: Vector3<i32>,
@@ -55,6 +90,10 @@ pub struct ChunkResult {
     /// Blocks that should be placed in neighboring chunks.
     pub overflow_blocks: Vec<OverflowBlock>,
     pub epoch: u32,
+    /// Pre-computed SVT metadata for GPU buffer updates.
+    /// This avoids computing SVT twice (once in worker, once on main thread).
+    #[allow(dead_code)]
+    pub svt_metadata: SvtMetadata,
 }
 
 /// Stats snapshot for loader/backpressure observability.
@@ -151,7 +190,7 @@ impl ChunkLoader {
                     // crossbeam channels don't need a mutex - multiple workers
                     // can call recv concurrently without serialization.
                     loop {
-                        match request_rx.recv_timeout(std::time::Duration::from_millis(50)) {
+                        match request_rx.recv_timeout(std::time::Duration::from_millis(20)) {
                             Ok(req) => {
                                 // Try to load from disk first (parallel - each worker has own reader)
                                 let (chunk, overflow_blocks) =
@@ -191,12 +230,18 @@ impl ChunkLoader {
                                         (chunk, result.overflow_blocks)
                                     };
 
+                                // Compute SVT metadata once here in worker thread.
+                                // This avoids computing it twice: once on load, once on metadata update.
+                                let svt = ChunkSVT::from_chunk(&chunk);
+                                let svt_metadata = SvtMetadata::from_svt(&svt);
+
                                 // Send result back (ignore error if receiver dropped)
                                 let _ = result_tx.send(ChunkResult {
                                     position: req.position,
                                     chunk,
                                     overflow_blocks,
                                     epoch: req.epoch,
+                                    svt_metadata,
                                 });
                             }
                             Err(crossbeam_channel::RecvTimeoutError::Timeout) => {

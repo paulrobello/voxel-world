@@ -19,6 +19,7 @@ use crate::cave_gen::CaveFillType;
 use crate::chunk::{BlockType, CHUNK_SIZE, Chunk};
 use crate::config::{BenchmarkTerrain, WorldGenType};
 use crate::world_gen;
+use crate::world_gen::cache::ColumnDataCache;
 use nalgebra::Vector3;
 
 // Re-export types for backward compatibility
@@ -102,25 +103,36 @@ fn generate_normal_chunk(
     let chunk_world_y = chunk_pos.y * CHUNK_SIZE as i32;
     let chunk_world_z = chunk_pos.z * CHUNK_SIZE as i32;
 
+    // Pre-compute all column data for this chunk plus 1-block overlap.
+    // This reduces noise evaluations from ~40,000 to ~1,156 per chunk.
+    let column_cache = ColumnDataCache::for_chunk(terrain, chunk_world_x, chunk_world_z);
+
     // Generate terrain for this chunk
     for lx in 0..CHUNK_SIZE {
         for lz in 0..CHUNK_SIZE {
             let world_x = chunk_world_x + lx as i32;
             let world_z = chunk_world_z + lz as i32;
 
-            // Use optimized single-call column data lookup
-            let col = terrain.get_column_data(world_x, world_z);
+            // Use cached column data (much faster than calling terrain.get_column_data each time)
+            let col = column_cache.get_local(lx, lz);
             let height = col.height;
             let biome = col.biome;
             let river_water_level = col.river_water_level;
 
+            // Early cave rejection: fast 2D check before expensive per-block 3D checks.
+            // This single noise lookup can skip ~32 3D cave checks for columns with no caves.
+            let column_can_have_caves = terrain
+                .cave_generator()
+                .column_has_caves(world_x, world_z, biome);
+
             for ly in 0..CHUNK_SIZE {
                 let world_y = chunk_world_y + ly as i32;
 
-                // Check if this is a cave first
-                let is_cave = terrain
-                    .cave_generator()
-                    .is_cave(world_x, world_y, world_z, height, biome);
+                // Check if this is a cave (only if column passed pre-filter)
+                let is_cave = column_can_have_caves
+                    && terrain
+                        .cave_generator()
+                        .is_cave(world_x, world_y, world_z, height, biome);
 
                 let block_type = if world_y == 0 {
                     BlockType::Bedrock

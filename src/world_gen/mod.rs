@@ -45,6 +45,7 @@
 
 pub mod benchmark;
 pub mod biome;
+pub mod cache;
 pub mod caves;
 pub mod climate;
 pub mod rivers;

@@ -12,8 +12,8 @@ pub struct SpaghettiCaves {
     noise1: Perlin,
     /// Second noise layer for intersection
     noise2: Perlin,
-    /// Regional density variation noise
-    density_noise: Perlin,
+    /// Regional density variation noise (public for column_has_caves optimization)
+    pub density_noise: Perlin,
 }
 
 impl SpaghettiCaves {
