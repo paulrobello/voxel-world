@@ -186,6 +186,22 @@ redundant chunkPos division is retained.
 **Conclusion**: The render_ms variance (17-27ms on normal terrain) is inherent to ray marching
 complex geometry. Further optimization requires shader-level improvements or level-of-detail systems
 
+#### 9. Fix Origin Shift Flash (Immediate Metadata Sync)
+**Files Modified**: `src/world_streaming.rs`, `src/app_state/simulation.rs`, `src/app_state/mod.rs`, `src/app/init.rs`
+
+**Problem**: During origin shifts, distant chunks would flash (disappear and reappear) because:
+1. `reset_for_origin()` cleared all `brick_masks` to 0 (shader treats chunks as empty)
+2. Metadata was re-uploaded gradually over multiple frames
+3. Until metadata re-uploaded, chunks appeared empty
+
+**Solution**:
+- Perform immediate metadata sync during origin shift instead of gradual update
+- Compute SVT for all loaded chunks at their NEW texture positions in the same frame
+- Write directly to GPU buffers (both CPU metadata state and GPU buffers)
+- Remove unused `clear_voxel_texture_async()` and `pending_clear_fence` infrastructure
+
+**Impact**: Eliminates visible flash during origin shifts - chunks remain visible throughout the transition
+
 ## Success Metrics
 
 - Sustained 50+ FPS at view_distance=8
@@ -196,16 +212,15 @@ complex geometry. Further optimization requires shader-level improvements or lev
 ## Files Changed
 
 1. `src/constants.rs` - Added MAX_COMPLETED_UPLOADS_PER_FRAME
-2. `src/app_state/simulation.rs` - Added ClearFence, deferred_uploads, pending_clear_fence
-3. `src/app_state/mod.rs` - Exported ClearFence
-4. `src/world_streaming.rs` - All optimization implementations
-5. `src/utils.rs` - Added deferred_uploads to ChunkStats, generation timing output
-6. `src/app/init.rs` - Initialize new fields
-7. `shaders/accel.glsl` - Added isBrickEmptyFast(), getBrickDistance() helpers
-8. `shaders/traverse.comp` - Use inlined brick check with pre-computed chunkPos
-9. `src/world_gen/vegetation/mod.rs` - Optimized vegetation generation with column cache
-10. `src/terrain_gen.rs` - Pass column cache to vegetation functions, added phase timing
-11. `src/chunk_loader.rs` - Added generation timing instrumentation
+2. `src/app_state/simulation.rs` - Added deferred_uploads field
+3. `src/world_streaming.rs` - All optimization implementations, immediate metadata sync on origin shift
+4. `src/utils.rs` - Added deferred_uploads to ChunkStats, generation timing output
+5. `src/app/init.rs` - Initialize new fields
+6. `shaders/accel.glsl` - Added isBrickEmptyFast(), getBrickDistance() helpers
+7. `shaders/traverse.comp` - Use inlined brick check with pre-computed chunkPos
+8. `src/world_gen/vegetation/mod.rs` - Optimized vegetation generation with column cache
+9. `src/terrain_gen.rs` - Pass column cache to vegetation functions, added phase timing
+10. `src/chunk_loader.rs` - Added generation timing instrumentation
 
 ## Verification
 

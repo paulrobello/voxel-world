@@ -462,7 +462,6 @@ impl App {
             metadata_state: MetadataState::new(texture_origin),
             reupload_queue: std::collections::VecDeque::new(),
             deferred_uploads: std::collections::VecDeque::new(),
-            pending_clear_fence: None,
             last_origin_shift: None,
             origin_shift_count: 0,
             last_save: Instant::now(),
