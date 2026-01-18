@@ -148,6 +148,28 @@ redundant chunkPos division is retained.
 
 **Impact**: Reduces potential main thread blocking during chunk streaming
 
+#### 8. Optimize Vegetation Generation (30x Speedup)
+**Files Modified**: `src/world_gen/vegetation/mod.rs`, `src/terrain_gen.rs`
+
+**Root Cause**: The vegetation generation functions were doing redundant expensive noise lookups:
+- `generate_ground_cover()` called `terrain.get_height()` and `terrain.get_biome()` for each of 1,024 columns, despite this data already being cached in `ColumnDataCache`
+- `generate_cave_decorations()` called `terrain.get_biome_3d()` for ALL 32,768 blocks in the chunk, even when no cave ceiling/floor was present
+
+**Optimizations**:
+1. Modified `generate_ground_cover()` to accept the pre-computed `ColumnDataCache` and use cached height/biome/hash values
+2. Restructured `generate_cave_decorations()` to:
+   - First check if block is Stone/Deepslate (early exit for most blocks)
+   - Only call `get_biome_3d()` when an actual ceiling/floor is found (after confirming solid block + adjacent air)
+
+**Results**:
+| Phase | Before | After | Speedup |
+|-------|--------|-------|---------|
+| Vegetation | 155-171ms | 3.0-3.5ms | **55x** |
+| Total chunk | 170-220ms | 7.2-7.5ms | **30x** |
+| Max chunk | 1,400-1,600ms | 62-73ms | **22x** |
+
+**Impact**: Chunk generation throughput increased from ~75 chunks/sec to ~2,100 chunks/sec (with 15 workers)
+
 ## Performance Analysis: Flight vs Stationary
 
 **Key Finding**: The FPS difference between flight and stationary is primarily due to:
@@ -177,10 +199,13 @@ complex geometry. Further optimization requires shader-level improvements or lev
 2. `src/app_state/simulation.rs` - Added ClearFence, deferred_uploads, pending_clear_fence
 3. `src/app_state/mod.rs` - Exported ClearFence
 4. `src/world_streaming.rs` - All optimization implementations
-5. `src/utils.rs` - Added deferred_uploads to ChunkStats
+5. `src/utils.rs` - Added deferred_uploads to ChunkStats, generation timing output
 6. `src/app/init.rs` - Initialize new fields
 7. `shaders/accel.glsl` - Added isBrickEmptyFast(), getBrickDistance() helpers
 8. `shaders/traverse.comp` - Use inlined brick check with pre-computed chunkPos
+9. `src/world_gen/vegetation/mod.rs` - Optimized vegetation generation with column cache
+10. `src/terrain_gen.rs` - Pass column cache to vegetation functions, added phase timing
+11. `src/chunk_loader.rs` - Added generation timing instrumentation
 
 ## Verification
 
