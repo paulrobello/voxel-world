@@ -185,8 +185,11 @@ impl TransferRingBuffer {
 
 impl Default for TransferRingBuffer {
     fn default() -> Self {
-        // 3 slots provides good CPU/GPU overlap with reasonable memory usage
-        Self::new(3)
+        // 6 slots provides good CPU/GPU overlap with reasonable memory usage.
+        // Each frame can have up to 3 upload calls (completed chunks, unloaded chunks, dirty chunks).
+        // With only 3 slots, if any previous transfer is still in-flight, we block.
+        // 6 slots gives 2 frames of headroom before blocking occurs.
+        Self::new(6)
     }
 }
 
@@ -1631,13 +1634,14 @@ pub fn upload_model_registry(
 }
 
 // Thread-local transfer ring buffer for async chunk uploads.
-// Using 3 slots allows the GPU to process 2 transfers while CPU prepares the next.
+// Using 6 slots provides headroom for 2 frames worth of transfers before blocking.
+// Each frame can have up to 3 upload calls (completed chunks, unloaded chunks, dirty chunks).
 thread_local! {
-    static TRANSFER_RING: RefCell<TransferRingBuffer> = RefCell::new(TransferRingBuffer::new(3));
+    static TRANSFER_RING: RefCell<TransferRingBuffer> = RefCell::new(TransferRingBuffer::new(6));
     static STAGING_POOL: RefCell<Vec<StagingBufferPair>> = const { RefCell::new(Vec::new()) };
 }
 
-const STAGING_POOL_MAX: usize = 6; // 2x ring buffer capacity
+const STAGING_POOL_MAX: usize = 12; // 2x ring buffer capacity
 
 /// Uploads chunk data to GPU textures using async DMA transfers.
 ///
