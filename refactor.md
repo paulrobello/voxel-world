@@ -108,6 +108,17 @@ directly adjacent. Sphere-tracing based on these distances skips into solid geom
 optimized with `isBrickEmptyFast()`. The +5.3% FPS improvement from avoiding
 redundant chunkPos division is retained.
 
+#### 5. Shadow Ray Brick Skipping
+**Files Modified**: `shaders/lighting.glsl`
+
+- Enabled brick skipping for shadow rays even with model shadows enabled
+- Models (BLOCK_MODEL=11) are non-zero, so they make bricks non-empty
+- Empty bricks are safe to skip regardless of model shadow setting
+- Used `isBrickEmptyFast()` with pre-computed chunkPos to avoid redundant division
+- Previously brick skipping was incorrectly disabled when model shadows were on
+
+**Impact**: Reduces shadow ray iterations in empty areas (sky, caves, etc.)
+
 ## Success Metrics
 
 - Sustained 50+ FPS at view_distance=8
