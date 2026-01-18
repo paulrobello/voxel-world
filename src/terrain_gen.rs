@@ -21,6 +21,45 @@ use crate::config::{BenchmarkTerrain, WorldGenType};
 use crate::world_gen;
 use crate::world_gen::cache::ColumnDataCache;
 use nalgebra::Vector3;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+
+/// Timing stats for terrain generation phases (for debugging).
+static GEN_PHASE_COLUMN_CACHE_US: AtomicU64 = AtomicU64::new(0);
+static GEN_PHASE_BLOCKS_US: AtomicU64 = AtomicU64::new(0);
+static GEN_PHASE_TREES_US: AtomicU64 = AtomicU64::new(0);
+static GEN_PHASE_VEGETATION_US: AtomicU64 = AtomicU64::new(0);
+static GEN_PHASE_CAVES_US: AtomicU64 = AtomicU64::new(0);
+static GEN_PHASE_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+/// Get terrain generation phase timing statistics.
+/// Returns (count, column_cache_ms, blocks_ms, trees_ms, veg_ms, caves_ms).
+#[allow(dead_code)]
+pub fn get_gen_phase_timing() -> (usize, f64, f64, f64, f64, f64) {
+    let count = GEN_PHASE_COUNT.load(Ordering::Relaxed);
+    if count == 0 {
+        return (0, 0.0, 0.0, 0.0, 0.0, 0.0);
+    }
+    let n = count as f64;
+    (
+        count,
+        GEN_PHASE_COLUMN_CACHE_US.load(Ordering::Relaxed) as f64 / 1000.0 / n,
+        GEN_PHASE_BLOCKS_US.load(Ordering::Relaxed) as f64 / 1000.0 / n,
+        GEN_PHASE_TREES_US.load(Ordering::Relaxed) as f64 / 1000.0 / n,
+        GEN_PHASE_VEGETATION_US.load(Ordering::Relaxed) as f64 / 1000.0 / n,
+        GEN_PHASE_CAVES_US.load(Ordering::Relaxed) as f64 / 1000.0 / n,
+    )
+}
+
+/// Reset phase timing statistics.
+#[allow(dead_code)]
+pub fn reset_gen_phase_timing() {
+    GEN_PHASE_COLUMN_CACHE_US.store(0, Ordering::Relaxed);
+    GEN_PHASE_BLOCKS_US.store(0, Ordering::Relaxed);
+    GEN_PHASE_TREES_US.store(0, Ordering::Relaxed);
+    GEN_PHASE_VEGETATION_US.store(0, Ordering::Relaxed);
+    GEN_PHASE_CAVES_US.store(0, Ordering::Relaxed);
+    GEN_PHASE_COUNT.store(0, Ordering::Relaxed);
+}
 
 // Re-export types for backward compatibility
 pub use crate::world_gen::SEA_LEVEL;
@@ -97,15 +136,26 @@ fn generate_normal_chunk(
     terrain: &TerrainGenerator,
     chunk_pos: Vector3<i32>,
 ) -> ChunkGenerationResult {
+    use std::time::Instant;
+
     let mut chunk = Chunk::new();
     let mut overflow_blocks = Vec::new();
     let chunk_world_x = chunk_pos.x * CHUNK_SIZE as i32;
     let chunk_world_y = chunk_pos.y * CHUNK_SIZE as i32;
     let chunk_world_z = chunk_pos.z * CHUNK_SIZE as i32;
 
+    // --- Timing: Column cache creation ---
+    let t0 = Instant::now();
+
     // Pre-compute all column data for this chunk plus 1-block overlap.
     // This reduces noise evaluations from ~40,000 to ~1,156 per chunk.
     let column_cache = ColumnDataCache::for_chunk(terrain, chunk_world_x, chunk_world_z);
+
+    let column_cache_time = t0.elapsed();
+
+    // --- Timing: Block iteration with cave checks ---
+    let t1 = Instant::now();
+    let mut cave_check_time = std::time::Duration::ZERO;
 
     // Generate terrain for this chunk
     for lx in 0..CHUNK_SIZE {
@@ -129,10 +179,12 @@ fn generate_normal_chunk(
                 let world_y = chunk_world_y + ly as i32;
 
                 // Check if this is a cave (only if column passed pre-filter)
+                let cave_t = Instant::now();
                 let is_cave = column_can_have_caves
                     && terrain
                         .cave_generator()
                         .is_cave(world_x, world_y, world_z, height, biome);
+                cave_check_time += cave_t.elapsed();
 
                 let block_type = if world_y == 0 {
                     BlockType::Bedrock
@@ -440,6 +492,11 @@ fn generate_normal_chunk(
         }
     }
 
+    let blocks_time = t1.elapsed();
+
+    // --- Timing: Trees ---
+    let t2 = Instant::now();
+
     // Generate trees
     world_gen::generate_trees(
         &mut chunk,
@@ -450,7 +507,12 @@ fn generate_normal_chunk(
         &mut overflow_blocks,
     );
 
-    // Generate ground cover
+    let trees_time = t2.elapsed();
+
+    // --- Timing: Vegetation ---
+    let t3 = Instant::now();
+
+    // Generate ground cover (pass column cache to avoid redundant noise lookups)
     world_gen::generate_ground_cover(
         &mut chunk,
         terrain,
@@ -458,6 +520,7 @@ fn generate_normal_chunk(
         chunk_world_y,
         chunk_world_z,
         &mut overflow_blocks,
+        Some(&column_cache),
     );
 
     // Generate cave decorations
@@ -469,6 +532,16 @@ fn generate_normal_chunk(
         chunk_world_z,
         &mut overflow_blocks,
     );
+
+    let vegetation_time = t3.elapsed();
+
+    // Update timing stats
+    GEN_PHASE_COLUMN_CACHE_US.fetch_add(column_cache_time.as_micros() as u64, Ordering::Relaxed);
+    GEN_PHASE_BLOCKS_US.fetch_add(blocks_time.as_micros() as u64, Ordering::Relaxed);
+    GEN_PHASE_TREES_US.fetch_add(trees_time.as_micros() as u64, Ordering::Relaxed);
+    GEN_PHASE_VEGETATION_US.fetch_add(vegetation_time.as_micros() as u64, Ordering::Relaxed);
+    GEN_PHASE_CAVES_US.fetch_add(cave_check_time.as_micros() as u64, Ordering::Relaxed);
+    GEN_PHASE_COUNT.fetch_add(1, Ordering::Relaxed);
 
     chunk.update_metadata();
     chunk.persistence_dirty = false;

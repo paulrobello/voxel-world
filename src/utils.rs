@@ -65,6 +65,10 @@ impl Profiler {
             return;
         }
         let n = self.sample_count as f64;
+
+        // Get worker thread generation timing stats
+        let (gen_count, gen_avg_ms, gen_max_ms) = crate::chunk_loader::get_gen_timing_stats();
+
         println!(
             "[PROFILE] ChunkLoad: {:.2}ms | Upload: {:.2}ms ({} chunks) | Metadata: {:.2}ms | Render: {:.2}ms",
             self.chunk_loading_us as f64 / 1000.0 / n,
@@ -73,6 +77,24 @@ impl Profiler {
             self.metadata_update_us as f64 / 1000.0 / n,
             self.render_us as f64 / 1000.0 / n,
         );
+
+        // Print generation timing if chunks were generated
+        if gen_count > 0 {
+            println!(
+                "[GEN] {} chunks | Avg: {:.2}ms | Max: {:.2}ms",
+                gen_count, gen_avg_ms, gen_max_ms
+            );
+
+            // Print phase breakdown
+            let (phase_count, col_ms, blocks_ms, trees_ms, veg_ms, caves_ms) =
+                crate::terrain_gen::get_gen_phase_timing();
+            if phase_count > 0 {
+                println!(
+                    "[GEN PHASES] Column: {:.2}ms | Blocks: {:.2}ms | Trees: {:.2}ms | Veg: {:.2}ms | Caves: {:.2}ms",
+                    col_ms, blocks_ms, trees_ms, veg_ms, caves_ms
+                );
+            }
+        }
     }
 }
 

@@ -7,8 +7,38 @@ use crossbeam_channel::{Receiver, Sender, TryRecvError, bounded, unbounded};
 use nalgebra::Vector3;
 use std::collections::HashSet;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::thread::{self, JoinHandle};
+use std::time::Instant;
+
+/// Global timing stats for chunk generation (for debugging/profiling).
+static CHUNKS_GENERATED: AtomicUsize = AtomicUsize::new(0);
+static TOTAL_GEN_TIME_US: AtomicU64 = AtomicU64::new(0);
+static MAX_GEN_TIME_US: AtomicU64 = AtomicU64::new(0);
+
+/// Get chunk generation timing statistics.
+/// Returns (count, avg_ms, max_ms).
+#[allow(dead_code)]
+pub fn get_gen_timing_stats() -> (usize, f64, f64) {
+    let count = CHUNKS_GENERATED.load(Ordering::Relaxed);
+    let total_us = TOTAL_GEN_TIME_US.load(Ordering::Relaxed);
+    let max_us = MAX_GEN_TIME_US.load(Ordering::Relaxed);
+    let avg_ms = if count > 0 {
+        (total_us as f64 / count as f64) / 1000.0
+    } else {
+        0.0
+    };
+    (count, avg_ms, max_us as f64 / 1000.0)
+}
+
+/// Reset timing statistics.
+#[allow(dead_code)]
+pub fn reset_gen_timing_stats() {
+    CHUNKS_GENERATED.store(0, Ordering::Relaxed);
+    TOTAL_GEN_TIME_US.store(0, Ordering::Relaxed);
+    MAX_GEN_TIME_US.store(0, Ordering::Relaxed);
+}
 
 use crate::chunk::Chunk;
 use crate::storage::ParallelStorageReader;
@@ -193,42 +223,52 @@ impl ChunkLoader {
                         match request_rx.recv_timeout(std::time::Duration::from_millis(20)) {
                             Ok(req) => {
                                 // Try to load from disk first (parallel - each worker has own reader)
-                                let (chunk, overflow_blocks) =
-                                    if let Some(ref mut reader) = storage_reader {
-                                        match reader.load_chunk(req.position) {
-                                            Ok(Some(mut chunk)) => {
-                                                chunk.update_metadata();
-                                                // Mark dirty for GPU upload
-                                                chunk.mark_dirty();
-                                                // Loaded from disk, so it's clean for persistence
-                                                chunk.persistence_dirty = false;
-                                                // Loaded chunks have no overflow blocks
-                                                (chunk, Vec::new())
-                                            }
-                                            Ok(None) => {
-                                                let result = generator(req.position);
-                                                let mut chunk = result.chunk;
-                                                // New procedural chunk, clean for persistence until modified
-                                                chunk.persistence_dirty = false;
-                                                (chunk, result.overflow_blocks)
-                                            }
-                                            Err(e) => {
-                                                eprintln!(
-                                                    "[Storage] Load error for {:?}: {}",
-                                                    req.position, e
-                                                );
-                                                let result = generator(req.position);
-                                                let mut chunk = result.chunk;
-                                                chunk.persistence_dirty = false;
-                                                (chunk, result.overflow_blocks)
-                                            }
+                                let (chunk, overflow_blocks) = if let Some(ref mut reader) =
+                                    storage_reader
+                                {
+                                    match reader.load_chunk(req.position) {
+                                        Ok(Some(mut chunk)) => {
+                                            chunk.update_metadata();
+                                            // Mark dirty for GPU upload
+                                            chunk.mark_dirty();
+                                            // Loaded from disk, so it's clean for persistence
+                                            chunk.persistence_dirty = false;
+                                            // Loaded chunks have no overflow blocks
+                                            (chunk, Vec::new())
                                         }
-                                    } else {
-                                        let result = generator(req.position);
-                                        let mut chunk = result.chunk;
-                                        chunk.persistence_dirty = false;
-                                        (chunk, result.overflow_blocks)
-                                    };
+                                        Ok(None) => {
+                                            let gen_start = Instant::now();
+                                            let result = generator(req.position);
+                                            let gen_time = gen_start.elapsed();
+
+                                            // Update timing stats
+                                            let gen_us = gen_time.as_micros() as u64;
+                                            CHUNKS_GENERATED.fetch_add(1, Ordering::Relaxed);
+                                            TOTAL_GEN_TIME_US.fetch_add(gen_us, Ordering::Relaxed);
+                                            MAX_GEN_TIME_US.fetch_max(gen_us, Ordering::Relaxed);
+
+                                            let mut chunk = result.chunk;
+                                            // New procedural chunk, clean for persistence until modified
+                                            chunk.persistence_dirty = false;
+                                            (chunk, result.overflow_blocks)
+                                        }
+                                        Err(e) => {
+                                            eprintln!(
+                                                "[Storage] Load error for {:?}: {}",
+                                                req.position, e
+                                            );
+                                            let result = generator(req.position);
+                                            let mut chunk = result.chunk;
+                                            chunk.persistence_dirty = false;
+                                            (chunk, result.overflow_blocks)
+                                        }
+                                    }
+                                } else {
+                                    let result = generator(req.position);
+                                    let mut chunk = result.chunk;
+                                    chunk.persistence_dirty = false;
+                                    (chunk, result.overflow_blocks)
+                                };
 
                                 // Compute SVT metadata once here in worker thread.
                                 // This avoids computing it twice: once on load, once on metadata update.

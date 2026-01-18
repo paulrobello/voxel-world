@@ -5,6 +5,7 @@
 use crate::chunk::{BlockType, CHUNK_SIZE, Chunk};
 use crate::world_gen::SEA_LEVEL;
 use crate::world_gen::biome::BiomeType;
+use crate::world_gen::cache::ColumnDataCache;
 use crate::world_gen::terrain::TerrainGenerator;
 use crate::world_gen::utils::OverflowBlock;
 
@@ -30,6 +31,8 @@ const MODEL_SEAGRASS: u8 = 117;
 const MODEL_FLOWER_BLUE: u8 = 118;
 
 /// Generates ground cover (grass, flowers, etc.) based on biome.
+///
+/// Uses the pre-computed column cache to avoid expensive noise evaluations.
 pub fn generate_ground_cover(
     chunk: &mut Chunk,
     terrain: &TerrainGenerator,
@@ -37,13 +40,26 @@ pub fn generate_ground_cover(
     chunk_world_y: i32,
     chunk_world_z: i32,
     _overflow_blocks: &mut Vec<OverflowBlock>,
+    column_cache: Option<&ColumnDataCache>,
 ) {
     for lx in 0..CHUNK_SIZE {
         for lz in 0..CHUNK_SIZE {
             let world_x = chunk_world_x + lx as i32;
             let world_z = chunk_world_z + lz as i32;
-            let height = terrain.get_height(world_x, world_z);
-            let biome = terrain.get_biome(world_x, world_z);
+
+            // Use cached column data if available (much faster)
+            let (height, biome, hash) = if let Some(cache) = column_cache {
+                let col = cache.get_local(lx, lz);
+                (col.height, col.biome, col.hash)
+            } else {
+                // Fallback for backward compatibility
+                (
+                    terrain.get_height(world_x, world_z),
+                    terrain.get_biome(world_x, world_z),
+                    terrain.hash(world_x, world_z),
+                )
+            };
+
             let local_y = height - chunk_world_y;
 
             // Check if surface is in this chunk
@@ -56,7 +72,7 @@ pub fn generate_ground_cover(
                     continue;
                 }
 
-                let hash = terrain.hash(world_x, world_z);
+                // Note: hash is already computed above (from cache or terrain.hash)
 
                 #[allow(deprecated)]
                 match biome {
@@ -260,6 +276,9 @@ pub fn generate_ground_cover(
 /// - Lush caves: Moss carpet, hanging roots, glow berries, glow lichen
 /// - Dripstone caves: Denser stalactite/stalagmite formations
 /// - Deep dark: Sparse decorations, glow mushrooms
+///
+/// Performance: Only evaluates 3D biome when a ceiling/floor is found (rare).
+/// This reduces biome lookups from 32,768 per chunk to ~100-500.
 pub fn generate_cave_decorations(
     chunk: &mut Chunk,
     terrain: &TerrainGenerator,
@@ -279,17 +298,23 @@ pub fn generate_cave_decorations(
             let world_z = chunk_world_z + lz as i32;
 
             for ly in 0..CHUNK_SIZE {
-                let world_y = chunk_world_y + ly as i32;
                 let block = chunk.get_block(lx, ly, lz);
 
-                // Use 3D biome for underground biome-aware decoration
-                let biome = terrain.get_biome_3d(world_x, world_y, world_z);
-                let hash = terrain.hash(world_x + world_y * 17, world_z);
+                // Early exit: only process stone/deepslate blocks
+                if block != BlockType::Stone && block != BlockType::Deepslate {
+                    continue;
+                }
+
+                let world_y = chunk_world_y + ly as i32;
 
                 // Check for cave ceiling (solid block with air below)
-                if (block == BlockType::Stone || block == BlockType::Deepslate) && ly > 0 {
+                if ly > 0 {
                     let below = chunk.get_block(lx, ly - 1, lz);
                     if below == BlockType::Air {
+                        // Only now compute 3D biome (rare - only for actual cave surfaces)
+                        let biome = terrain.get_biome_3d(world_x, world_y, world_z);
+                        let hash = terrain.hash(world_x + world_y * 17, world_z);
+
                         // This is a cave ceiling - try biome-specific decorations first
                         if let Some(model_id) =
                             get_ceiling_decoration(biome, hash, terrain, world_x, world_y, world_z)
@@ -300,11 +325,13 @@ pub fn generate_cave_decorations(
                 }
 
                 // Check for cave floor (solid block with air above)
-                if (block == BlockType::Stone || block == BlockType::Deepslate)
-                    && ly < CHUNK_SIZE - 1
-                {
+                if ly < CHUNK_SIZE - 1 {
                     let above = chunk.get_block(lx, ly + 1, lz);
                     if above == BlockType::Air {
+                        // Only now compute 3D biome (rare - only for actual cave surfaces)
+                        let biome = terrain.get_biome_3d(world_x, world_y, world_z);
+                        let hash = terrain.hash(world_x + world_y * 17, world_z);
+
                         // This is a cave floor - try biome-specific decorations first
                         if let Some(model_id) =
                             get_floor_decoration(biome, hash, terrain, world_x, world_y, world_z)
