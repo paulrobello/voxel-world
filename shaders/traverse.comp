@@ -207,7 +207,8 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
             coord = uvec3(clamp(floor(newPos), vec3(0), worldSize() - 1.0));
             t = (vec3(coord) + 0.5 * (1.0 + sgn_dir) - origin) * inv_dir;
         }
-        else if (isBrickEmpty(ivec3(coord))) {
+        else if (isBrickEmptyFast(ivec3(coord), chunkPos)) {
+            // Use optimized check with pre-computed chunkPos (avoids redundant division)
             vec3 currentPos = origin + dir * min(min(t.x, t.y), t.z);
             ivec3 brickWorldPos = getBrickWorldPos(ivec3(coord));
             vec3 brickMin = vec3(brickWorldPos);

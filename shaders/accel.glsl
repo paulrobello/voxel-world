@@ -39,6 +39,50 @@ bool isBrickEmpty(ivec3 coord) {
     return (mask & (1u << bitIdx)) == 0u;
 }
 
+// Optimized: Check brick empty with pre-computed chunk position (avoids redundant division)
+bool isBrickEmptyFast(ivec3 coord, ivec3 chunkPos) {
+    ivec3 localVoxel = coord - chunkPos * int(CHUNK_SIZE);
+    ivec3 brickPos = localVoxel / int(BRICK_SIZE);
+    uint brickIdx = uint(brickPos.x) + uint(brickPos.y) * BRICKS_PER_AXIS
+                  + uint(brickPos.z) * BRICKS_PER_AXIS * BRICKS_PER_AXIS;
+
+    uint chunkIdx = uint(chunkPos.x) + uint(chunkPos.z) * CHUNKS_X
+                  + uint(chunkPos.y) * CHUNKS_X * CHUNKS_Z;
+
+    // Check brick mask
+    uint maskOffset = chunkIdx * 2u;
+    uint wordIdx = brickIdx / 32u;
+    uint bitIdx = brickIdx % 32u;
+    uint mask = brick_masks[maskOffset + wordIdx];
+
+    return (mask & (1u << bitIdx)) == 0u;
+}
+
+// Get brick distance to nearest solid brick (in brick units)
+// Returns 0 if brick is solid, 1+ for distance to nearest solid
+uint getBrickDistance(ivec3 coord) {
+    ivec3 chunkPos = coord / int(CHUNK_SIZE);
+    if (chunkPos.x < 0 || chunkPos.x >= int(CHUNKS_X) ||
+        chunkPos.y < 0 || chunkPos.y >= int(CHUNKS_Y) ||
+        chunkPos.z < 0 || chunkPos.z >= int(CHUNKS_Z)) {
+        return 255u; // Max distance for out-of-bounds
+    }
+
+    ivec3 localVoxel = coord - chunkPos * int(CHUNK_SIZE);
+    ivec3 brickPos = localVoxel / int(BRICK_SIZE);
+    uint brickIdx = uint(brickPos.x) + uint(brickPos.y) * BRICKS_PER_AXIS
+                  + uint(brickPos.z) * BRICKS_PER_AXIS * BRICKS_PER_AXIS;
+
+    uint chunkIdx = uint(chunkPos.x) + uint(chunkPos.z) * CHUNKS_X
+                  + uint(chunkPos.y) * CHUNKS_X * CHUNKS_Z;
+
+    // Brick distances are packed: 4 bytes per u32, 16 u32s per chunk (64 bytes total)
+    uint distOffset = chunkIdx * 16u + brickIdx / 4u;
+    uint distWord = brick_distances[distOffset];
+    uint byteIdx = brickIdx % 4u;
+    return (distWord >> (byteIdx * 8u)) & 0xFFu;
+}
+
 // Get the world position of the brick containing this voxel
 ivec3 getBrickWorldPos(ivec3 voxelCoord) {
     return (voxelCoord / int(BRICK_SIZE)) * int(BRICK_SIZE);
