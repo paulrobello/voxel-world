@@ -155,6 +155,61 @@ if (chunks[chunkID].isEmpty) {
 ❌ **Don't**: Rebuild entire chunk for one block change
 ✅ **Do**: Mark dirty and batch updates
 
+❌ **Don't**: Call noise functions redundantly in generation passes
+✅ **Do**: Cache column data (height, biome) once and reuse
+
+❌ **Don't**: Call expensive 3D functions unconditionally for all blocks
+✅ **Do**: Early exit on block type checks, only compute when needed
+
+## Terrain Generation Optimization
+
+### Column Data Caching (30x Speedup)
+```rust
+// BEFORE: Redundant noise lookups (170-220ms per chunk)
+fn generate_vegetation(chunk: &mut Chunk, terrain: &TerrainGenerator) {
+    for lx in 0..32 {
+        for lz in 0..32 {
+            let height = terrain.get_height(x, z);  // Expensive!
+            let biome = terrain.get_biome(x, z);    // Expensive!
+            // ... place vegetation
+        }
+    }
+}
+
+// AFTER: Use pre-computed cache (7ms per chunk)
+fn generate_vegetation(chunk: &mut Chunk, cache: &ColumnDataCache) {
+    for lx in 0..32 {
+        for lz in 0..32 {
+            let col = cache.get_local(lx, lz);  // Free lookup!
+            // ... place vegetation using col.height, col.biome
+        }
+    }
+}
+```
+
+### Conditional 3D Biome Lookup
+```rust
+// BEFORE: 32,768 expensive biome lookups per chunk
+for ly in 0..32 {
+    let biome = terrain.get_biome_3d(x, y, z);  // Called for EVERY block!
+    // ... maybe place decoration
+}
+
+// AFTER: ~100-500 lookups only when needed
+for ly in 0..32 {
+    let block = chunk.get_block(lx, ly, lz);
+    if block != BlockType::Stone { continue; }  // Early exit!
+
+    if chunk.get_block(lx, ly - 1, lz) == BlockType::Air {
+        // Only NOW compute expensive biome
+        let biome = terrain.get_biome_3d(x, y, z);
+        // ... place ceiling decoration
+    }
+}
+```
+
+**Result**: Chunk generation reduced from 170-220ms to 7ms (30x faster)
+
 ## Performance Targets
 
 ### Render Distance Scaling

@@ -935,7 +935,11 @@ Before adding new features, restructure existing code for maintainability.
 - ✅ Eliminate duplicate SVT computation (SvtMetadata in worker thread)
 - ✅ Queue tuning (increased MAX_QUEUE_SIZE to 384, reduced timeout to 20ms)
 - ✅ Remove redundant metadata queueing after immediate update
-- Result: ~29% reduction in metadata_ms, smoother chunk streaming
+- ✅ **Vegetation generation optimization (30x speedup)**:
+  - `generate_ground_cover()` now uses ColumnDataCache instead of 1,024 redundant noise lookups
+  - `generate_cave_decorations()` only calls `get_biome_3d()` when ceiling/floor found (reduced from 32,768 to ~100-500 calls per chunk)
+  - Result: chunk generation time reduced from 170-220ms to 7.2-7.5ms average
+- Result: ~29% reduction in metadata_ms, smoother chunk streaming, 30x faster chunk generation
 
 **6.4 Final cleanup**
 - Remove deprecated facades
