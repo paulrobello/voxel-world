@@ -1,4 +1,5 @@
 //! Custom texture generation and storage.
+#![allow(dead_code)] // Many helpers will be used once texture generator is fully integrated
 
 use super::patterns::TexturePattern;
 use crate::user_prefs::get_data_dir;

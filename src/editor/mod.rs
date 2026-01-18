@@ -217,6 +217,15 @@ pub struct EditorState {
 
     /// First point for Bridge tool (set on first click, cleared on second or tool change).
     pub bridge_first_point: Option<Vector3<i32>>,
+
+    /// Whether to show the door pair creation panel.
+    pub show_door_pair_panel: bool,
+
+    /// Name for new door pair being created.
+    pub door_pair_name: String,
+
+    /// Selected model IDs for door pair [lower_closed, upper_closed, lower_open, upper_open].
+    pub door_pair_models: [Option<u8>; 4],
 }
 
 impl Default for EditorState {
@@ -269,6 +278,9 @@ impl EditorState {
             history: UndoHistory::new(),
             shape_size: 3, // Default 3x3 cube/sphere
             bridge_first_point: None,
+            show_door_pair_panel: false,
+            door_pair_name: String::new(),
+            door_pair_models: [None; 4],
         }
     }
 

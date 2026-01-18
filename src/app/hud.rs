@@ -491,6 +491,38 @@ pub fn render_hud(
 
             // GPU resources will be updated automatically next frame since registry is dirty
         }
+        EditorAction::DoorPairCreated {
+            name,
+            lower_closed,
+            upper_closed,
+            lower_open,
+            upper_open,
+        } => {
+            // Create and register the custom door pair
+            let door_pair = crate::sub_voxel::SimpleDoorPair {
+                id: 0, // Will be auto-assigned by registry
+                name: name.clone(),
+                lower_closed,
+                upper_closed,
+                lower_open,
+                upper_open,
+            };
+
+            match sim.model_registry.register_door_pair(door_pair) {
+                Some(pair_id) => {
+                    println!(
+                        "[Editor] Registered door pair '{}' as ID {} (models: lower={}/{}, upper={}/{})",
+                        name, pair_id, lower_closed, lower_open, upper_closed, upper_open
+                    );
+                }
+                None => {
+                    eprintln!(
+                        "[Editor] Failed to register door pair '{}' - max pairs reached or duplicate name",
+                        name
+                    );
+                }
+            }
+        }
         EditorAction::ModelLoaded | EditorAction::None => {}
     }
 
@@ -923,10 +955,7 @@ pub fn render_hud(
     );
 
     // Render paint panel UI
-    crate::ui::paint_panel::PaintPanelUI::draw_window(
-        &ctx,
-        &mut ui.paint_panel,
-    );
+    crate::ui::paint_panel::PaintPanelUI::draw_window(&ctx, &mut ui.paint_panel);
 
     scale_changed
 }

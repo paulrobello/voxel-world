@@ -886,7 +886,13 @@ pub fn load_texture_atlases(
     render_pipeline: &ComputePipeline,
     queue: &Arc<Queue>,
     texture_path: &std::path::Path,
-) -> (Arc<DescriptorSet>, Arc<Sampler>, Arc<ImageView>, Arc<ImageView>, Arc<Image>) {
+) -> (
+    Arc<DescriptorSet>,
+    Arc<Sampler>,
+    Arc<ImageView>,
+    Arc<ImageView>,
+    Arc<Image>,
+) {
     // Load the main texture atlas
     let img = image::open(texture_path)
         .expect("Failed to load texture")
@@ -1007,10 +1013,16 @@ pub fn load_texture_atlases(
         .wait(None)
         .unwrap();
 
-    let main_image_view =
-        ImageView::new(main_image.clone(), ImageViewCreateInfo::from_image(&main_image)).unwrap();
-    let custom_image_view =
-        ImageView::new(custom_image.clone(), ImageViewCreateInfo::from_image(&custom_image)).unwrap();
+    let main_image_view = ImageView::new(
+        main_image.clone(),
+        ImageViewCreateInfo::from_image(&main_image),
+    )
+    .unwrap();
+    let custom_image_view = ImageView::new(
+        custom_image.clone(),
+        ImageViewCreateInfo::from_image(&custom_image),
+    )
+    .unwrap();
 
     // Create sampler with nearest-neighbor filtering for pixel art
     let sampler = Sampler::new(
@@ -1030,20 +1042,18 @@ pub fn load_texture_atlases(
         render_pipeline,
         2,
         [
-            WriteDescriptorSet::image_view_sampler(
-                0,
-                main_image_view.clone(),
-                sampler.clone(),
-            ),
-            WriteDescriptorSet::image_view_sampler(
-                1,
-                custom_image_view.clone(),
-                sampler.clone(),
-            ),
+            WriteDescriptorSet::image_view_sampler(0, main_image_view.clone(), sampler.clone()),
+            WriteDescriptorSet::image_view_sampler(1, custom_image_view.clone(), sampler.clone()),
         ],
     );
 
-    (descriptor_set, sampler, main_image_view, custom_image_view, custom_image)
+    (
+        descriptor_set,
+        sampler,
+        main_image_view,
+        custom_image_view,
+        custom_image,
+    )
 }
 
 /// Update a slot in the custom texture atlas with new pixel data.

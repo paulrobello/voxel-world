@@ -353,7 +353,10 @@ impl TextureGeneratorUI {
             // Update existing
             match library.update(slot, state.editing.clone()) {
                 Ok(()) => {
-                    println!("[Texture] Updated custom texture '{}' in slot {}", state.editing.name, slot);
+                    println!(
+                        "[Texture] Updated custom texture '{}' in slot {}",
+                        state.editing.name, slot
+                    );
                     true
                 }
                 Err(e) => {
@@ -365,7 +368,10 @@ impl TextureGeneratorUI {
             // Add new
             match library.add(state.editing.clone()) {
                 Ok(slot) => {
-                    println!("[Texture] Added custom texture '{}' to slot {}", state.editing.name, slot);
+                    println!(
+                        "[Texture] Added custom texture '{}' to slot {}",
+                        state.editing.name, slot
+                    );
                     state.selected_slot = Some(slot);
                     state.editing.id = slot;
                     true

@@ -2,6 +2,7 @@
 //!
 //! Press Y to open the paint customization panel.
 //! Provides HSV adjustment, blend modes, and preset management.
+#![allow(dead_code)] // Many features will be used once paint panel is fully integrated
 
 use crate::paint::{BlendMode, HsvAdjustment, PaintConfig, PaintPreset, PaintPresetLibrary};
 use egui_winit_vulkano::egui;

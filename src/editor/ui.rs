@@ -8,11 +8,13 @@ use egui_winit_vulkano::egui;
 
 /// Draws all editor UI panels.
 /// Returns true if a model was saved or loaded (for potential registry updates).
+/// model_names: list of (model_id, name) for custom models available for door pair linking
 pub fn draw_editor_ui(
     ctx: &egui::Context,
     editor: &mut EditorState,
     library: &LibraryManager,
     author_name: &str,
+    custom_model_names: &[(u8, String)],
 ) -> EditorAction {
     if !editor.active {
         return EditorAction::None;
@@ -398,10 +400,19 @@ pub fn draw_editor_ui(
     // Library window
     egui::Window::new("Library")
         .default_pos(egui::pos2(270.0, 10.0))
-        .default_size(egui::vec2(200.0, 300.0))
+        .default_size(egui::vec2(200.0, 400.0))
         .show(ctx, |ui| {
             if let Some(loaded_action) = draw_library_list(ui, editor, library) {
                 action = loaded_action;
+            }
+
+            ui.add_space(10.0);
+            ui.separator();
+            ui.add_space(5.0);
+
+            // Door pair creation panel
+            if let Some(door_action) = draw_door_pair_panel(ui, editor, custom_model_names) {
+                action = door_action;
             }
         });
 
@@ -706,7 +717,7 @@ fn draw_library_list(
 }
 
 /// Actions that can result from editor UI interactions.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EditorAction {
     None,
     ModelSaved,
@@ -714,6 +725,14 @@ pub enum EditorAction {
     ModelDeleted,
     /// Place the edited model in the world and close the editor.
     PlaceInWorld,
+    /// Create a door pair with the specified models.
+    DoorPairCreated {
+        name: String,
+        lower_closed: u8,
+        upper_closed: u8,
+        lower_open: u8,
+        upper_open: u8,
+    },
 }
 
 /// Draws the interactive 3D model editor viewport using software rasterizer with z-buffer.
@@ -976,4 +995,93 @@ fn save_model_to_library(
 
     // Sprite generation is now handled in app_hud.rs after model ID is assigned
     EditorAction::ModelSaved
+}
+
+/// Draws the door pair creation panel.
+/// Returns EditorAction::DoorPairCreated if a door pair was created.
+fn draw_door_pair_panel(
+    ui: &mut egui::Ui,
+    editor: &mut EditorState,
+    model_names: &[(u8, String)],
+) -> Option<EditorAction> {
+    let mut action = None;
+
+    ui.checkbox(&mut editor.show_door_pair_panel, "🚪 Create Door Pair");
+
+    if !editor.show_door_pair_panel {
+        return None;
+    }
+
+    ui.separator();
+
+    // Door pair name
+    ui.horizontal(|ui| {
+        ui.label("Name:");
+        ui.text_edit_singleline(&mut editor.door_pair_name);
+    });
+
+    ui.add_space(8.0);
+
+    // Model selection labels
+    let labels = [
+        "Lower (Closed)",
+        "Upper (Closed)",
+        "Lower (Open)",
+        "Upper (Open)",
+    ];
+
+    for (i, label) in labels.iter().enumerate() {
+        ui.horizontal(|ui| {
+            ui.label(format!("{}:", label));
+            let current = editor.door_pair_models[i];
+            let current_name = current
+                .and_then(|id| model_names.iter().find(|(mid, _)| *mid == id))
+                .map(|(_, name)| name.as_str())
+                .unwrap_or("(Select)");
+
+            egui::ComboBox::from_id_salt(format!("door_model_{}", i))
+                .selected_text(current_name)
+                .show_ui(ui, |ui| {
+                    if ui.selectable_label(current.is_none(), "(None)").clicked() {
+                        editor.door_pair_models[i] = None;
+                    }
+                    for (id, name) in model_names {
+                        if ui.selectable_label(current == Some(*id), name).clicked() {
+                            editor.door_pair_models[i] = Some(*id);
+                        }
+                    }
+                });
+        });
+    }
+
+    ui.add_space(8.0);
+
+    // Create button
+    let all_selected = editor.door_pair_models.iter().all(|m| m.is_some());
+    let name_valid = !editor.door_pair_name.trim().is_empty();
+
+    if !all_selected {
+        ui.colored_label(egui::Color32::YELLOW, "Select all 4 models");
+    } else if !name_valid {
+        ui.colored_label(egui::Color32::YELLOW, "Enter a name");
+    }
+
+    ui.add_enabled_ui(all_selected && name_valid, |ui| {
+        if ui.button("✓ Create Door Pair").clicked() {
+            let models = editor.door_pair_models;
+            action = Some(EditorAction::DoorPairCreated {
+                name: editor.door_pair_name.trim().to_string(),
+                lower_closed: models[0].unwrap(),
+                upper_closed: models[1].unwrap(),
+                lower_open: models[2].unwrap(),
+                upper_open: models[3].unwrap(),
+            });
+            // Reset form
+            editor.door_pair_name.clear();
+            editor.door_pair_models = [None; 4];
+            editor.show_door_pair_panel = false;
+        }
+    });
+
+    action
 }

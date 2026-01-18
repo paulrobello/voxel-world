@@ -487,7 +487,18 @@ impl HUDRenderer {
             if editor.active {
                 let library = crate::storage::model_format::LibraryManager::new("user_models");
                 let _ = library.init();
-                editor_action = crate::editor::draw_editor_ui(&ctx, editor, &library, "Player");
+                // Collect custom model names for door pair linking UI
+                let custom_model_names: Vec<(u8, String)> = model_registry
+                    .iter_custom_models()
+                    .map(|m| (m.id, m.name.clone()))
+                    .collect();
+                editor_action = crate::editor::draw_editor_ui(
+                    &ctx,
+                    editor,
+                    &library,
+                    "Player",
+                    &custom_model_names,
+                );
                 crate::editor::draw_model_preview(&ctx, editor);
             }
 
