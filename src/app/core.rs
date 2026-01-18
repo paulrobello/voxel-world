@@ -81,6 +81,24 @@ impl App {
         }
     }
 
+    /// Toggles the paint panel on/off.
+    /// When opened, releases the cursor so user can interact with UI.
+    pub fn toggle_paint_panel(&mut self) {
+        self.ui.paint_panel.open = !self.ui.paint_panel.open;
+        if self.ui.paint_panel.open {
+            // Release cursor when opening
+            if self.input.focused {
+                self.input.focused = false;
+                self.input.pending_grab = Some(false);
+            }
+        } else {
+            // Restore focus when closing
+            self.input.focused = true;
+            self.input.pending_grab = Some(true);
+            self.input.skip_input_frame = true;
+        }
+    }
+
     /// Toggles the tools palette on/off.
     /// When opened, releases the cursor so user can interact with UI.
     pub fn toggle_tools_palette(&mut self) {

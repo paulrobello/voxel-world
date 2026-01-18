@@ -1,8 +1,7 @@
 //! Paint customization panel UI with HSV sliders, blend modes, and presets.
 //!
-//! TODO: Integrate this panel into the palette window for full paint customization.
-
-#![allow(dead_code)]
+//! Press Y to open the paint customization panel.
+//! Provides HSV adjustment, blend modes, and preset management.
 
 use crate::paint::{BlendMode, HsvAdjustment, PaintConfig, PaintPreset, PaintPresetLibrary};
 use egui_winit_vulkano::egui;
@@ -10,6 +9,8 @@ use egui_winit_vulkano::egui;
 /// State for the paint panel UI.
 #[derive(Debug)]
 pub struct PaintPanelState {
+    /// Whether the paint panel window is open.
+    pub open: bool,
     /// Current paint configuration being edited.
     pub current_config: PaintConfig,
     /// Whether the paint panel is expanded.
@@ -25,6 +26,7 @@ pub struct PaintPanelState {
 impl Default for PaintPanelState {
     fn default() -> Self {
         Self {
+            open: false,
             current_config: PaintConfig::default(),
             expanded: false,
             presets: PaintPresetLibrary::load(),
@@ -73,6 +75,28 @@ impl PaintPanelState {
 pub struct PaintPanelUI;
 
 impl PaintPanelUI {
+    /// Draws the paint panel as a standalone window.
+    /// Call this from the HUD rendering code.
+    pub fn draw_window(ctx: &egui::Context, state: &mut PaintPanelState) {
+        if !state.open {
+            return;
+        }
+
+        let texture_names = get_texture_names();
+        let mut window_open = state.open;
+
+        egui::Window::new("🎨 Paint Customization")
+            .open(&mut window_open)
+            .default_size(egui::vec2(280.0, 400.0))
+            .resizable(true)
+            .collapsible(true)
+            .show(ctx, |ui| {
+                Self::draw_inner(ui, state, &texture_names);
+            });
+
+        state.open = window_open;
+    }
+
     /// Draws the paint panel within a parent UI.
     /// Returns true if the paint config was changed.
     pub fn draw(ui: &mut egui::Ui, state: &mut PaintPanelState, texture_names: &[&str]) -> bool {

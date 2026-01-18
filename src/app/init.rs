@@ -644,6 +644,7 @@ impl App {
             terrain_brush: crate::shape_tools::TerrainBrushState::default(),
             texture_generator: crate::ui::texture_generator::TextureGeneratorState::new(),
             texture_library: crate::textures::TextureLibrary::load(),
+            paint_panel: crate::ui::paint_panel::PaintPanelState::new(),
         };
 
         let input = InputState {

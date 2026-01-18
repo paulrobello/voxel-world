@@ -35,6 +35,15 @@ impl App {
             return true;
         }
 
+        // Close paint panel with Escape
+        if self.input.key_pressed(KeyCode::Escape) && self.ui.paint_panel.open {
+            self.ui.paint_panel.open = false;
+            self.input.focused = true;
+            self.input.pending_grab = Some(true);
+            self.input.skip_input_frame = true;
+            return true;
+        }
+
         // Close editor with Escape (restores focus if it was focused before opening)
         if self.input.key_pressed(KeyCode::Escape) && self.ui.editor.active {
             self.ui.editor.active = false;
@@ -1241,6 +1250,11 @@ impl App {
         // Toggle texture generator (X key for teXtures)
         if self.input.key_pressed(KeyCode::KeyX) {
             self.toggle_texture_generator();
+        }
+
+        // Toggle paint panel (Y key for paYnt)
+        if self.input.key_pressed(KeyCode::KeyY) {
+            self.toggle_paint_panel();
         }
 
         // Toggle template browser (L key for Library)

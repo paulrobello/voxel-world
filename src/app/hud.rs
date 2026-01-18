@@ -922,5 +922,11 @@ pub fn render_hud(
         &mut ui.texture_library,
     );
 
+    // Render paint panel UI
+    crate::ui::paint_panel::PaintPanelUI::draw_window(
+        &ctx,
+        &mut ui.paint_panel,
+    );
+
     scale_changed
 }
