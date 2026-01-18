@@ -85,10 +85,10 @@ float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFl
 
     vec3 dir = sunDir;
     vec3 inv_dir = clamp(1.0 / dir, vec3(-FLT_MAX), vec3(FLT_MAX));
-    // Always allow chunk skipping - model check happens per-position
-    // Brick skipping is disabled when model shadows enabled (models can be anywhere in brick)
+    // Allow chunk and brick skipping for shadow acceleration
+    // Models (BLOCK_MODEL != 0) make bricks non-empty, so empty bricks are safe to skip
     bool allowChunkSkip = SHADOW_SKIP;
-    bool allowBrickSkip = SHADOW_SKIP && (pc.enable_model_shadows == 0u);
+    bool allowBrickSkip = SHADOW_SKIP;
 
     // Track accumulated shadow from partial blockers - only applies if ray reaches sky
     float accumulatedPartialShadow = 1.0;
@@ -130,9 +130,11 @@ float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFl
     int maxSteps = int(clamp(min(maxTravel * maxAbsDir + 4.0, baseSteps), 32.0, float(pc.shadow_max_steps)));
 
     for (int i = 0; i < maxSteps; i++) {
+        // Compute chunkPos once per iteration (used for both chunk and brick skipping)
+        ivec3 chunkPos = pos / int(CHUNK_SIZE);
+
         // Chunk skipping: check chunk emptiness FIRST (cheap), then model metadata only if needed
         if (allowChunkSkip) {
-            ivec3 chunkPos = pos / int(CHUNK_SIZE);
             if (isChunkEmpty(chunkPos)) {
                 // Empty chunk - check for standalone model only if model shadows enabled
                 bool hasModelHere = false;
@@ -155,8 +157,9 @@ float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFl
                 }
             }
         }
-        // Brick skipping disabled when model shadows enabled (models can be anywhere in brick)
-        if (allowBrickSkip && isBrickEmpty(pos)) {
+        // Brick skipping: empty bricks contain no blocks (including models)
+        // Use isBrickEmptyFast with pre-computed chunkPos to avoid redundant division
+        if (allowBrickSkip && isBrickEmptyFast(pos, chunkPos)) {
             ivec3 brickWorldPos = getBrickWorldPos(pos);
             vec3 brickMin = vec3(brickWorldPos);
             vec3 brickMax = brickMin + float(BRICK_SIZE);
