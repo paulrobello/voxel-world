@@ -8,7 +8,7 @@ export VK_ICD_FILENAMES := /opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json
 export CMAKE_POLICY_VERSION_MINIMUM := 3.5
 export SHADERC_LIB_DIR := /opt/homebrew/lib
 
-.PHONY: build build-release build-debug run run-release run-debug profile run-profile auto-profile-flat auto-profile-normal clean test check fmt lint checkall sprite-gen run-p1 run-p2 reset reset-p1 reset-p2 new-flat new-normal run-cap-exit
+.PHONY: build build-release build-debug run run-release run-debug profile run-profile auto-profile-flat auto-profile-normal clean test check fmt lint checkall sprite-gen run-p1 run-p2 reset reset-world reset-p1 reset-p2 new-flat new-normal run-cap-exit
 
 # Default target
 all: build-release
@@ -47,12 +47,11 @@ run-profile: build-release
 	./target/release/voxel_world --verbose --profile --debug-interval 120 --view-distance 8 --fly-mode $(ARGS)
 
 # Auto-profile: automated 45s test cycling through each feature flag
-# Use auto-profile-flat or auto-profile-normal for clean world tests
-# Note: Does not reset profiles - use 'make reset' first if you want a clean slate
-auto-profile-flat: build-release
+# Resets world but preserves profiles for comparison
+auto-profile-flat: reset-world build-release
 	./target/release/voxel_world --auto-profile --world-gen flat --seed $(SEED) --fly-mode $(ARGS)
 
-auto-profile-normal: build-release
+auto-profile-normal: reset-world build-release
 	./target/release/voxel_world --auto-profile --world-gen normal --seed $(SEED) --fly-mode $(ARGS)
 
 # Development targets
@@ -86,7 +85,11 @@ sprite-gen: build-release
 run-cap-exit: build-release
 	./target/release/voxel_world --seed $(SEED) --screenshot-delay 4 --exit-delay 5 $(ARGS)
 
-# Reset default data (worlds, prefs, profiles) - requires confirmation
+# Reset world data only (preserves profiles for comparison)
+reset-world:
+	rm -rf worlds user_prefs.json
+
+# Reset ALL data (worlds, prefs, profiles) - requires confirmation
 reset:
 	@echo "This will delete: worlds/, user_prefs.json, profiles/"
 	@read -p "Are you sure? [y/N] " confirm && [ "$$confirm" = "y" ] || [ "$$confirm" = "Y" ] || (echo "Aborted." && exit 1)
@@ -115,35 +118,35 @@ reset-p2:
 	rm -rf data_p2
 
 # Benchmark targets for controlled profiling
-# Note: Profiles are preserved across runs for comparison. Use 'make reset' to clear.
+# Resets world but preserves profiles for comparison. Use 'make reset' to clear profiles.
 # Benchmark flat terrain, straight flight, 60s at 2x speed (flat terrain is simple)
-benchmark: build-release
+benchmark: reset-world build-release
 	./target/release/voxel_world --world-gen benchmark --auto-fly \
 		--auto-fly-speed 40 --profile --benchmark-duration 60 --view-distance 8 --seed $(SEED) $(ARGS)
 
 # Benchmark with hills for more realistic GPU load
-benchmark-hills: build-release
+benchmark-hills: reset-world build-release
 	./target/release/voxel_world --world-gen benchmark --benchmark-terrain hills \
 		--auto-fly --profile --benchmark-duration 60 --view-distance 8 --seed $(SEED) $(ARGS)
 
 # Benchmark with spiral pattern, 120s
-benchmark-spiral: build-release
+benchmark-spiral: reset-world build-release
 	./target/release/voxel_world --world-gen benchmark --auto-fly \
 		--auto-fly-pattern spiral --profile --benchmark-duration 120 \
 		--view-distance 8 --seed $(SEED) $(ARGS)
 
 # Benchmark normal terrain (real-world streaming test)
-benchmark-normal: build-release
+benchmark-normal: reset-world build-release
 	./target/release/voxel_world --world-gen normal --auto-fly \
 		--profile --benchmark-duration 60 --view-distance 8 --seed $(SEED) $(ARGS)
 
 # Stress test at 2x speed
-benchmark-stress: build-release
+benchmark-stress: reset-world build-release
 	./target/release/voxel_world --world-gen benchmark --auto-fly \
 		--auto-fly-speed 40 --profile --benchmark-duration 60 \
 		--view-distance 8 --seed $(SEED) $(ARGS)
 
 # Quick benchmark with screenshot
-benchmark-cap: build-release
+benchmark-cap: reset-world build-release
 	./target/release/voxel_world --world-gen benchmark --auto-fly \
 		--benchmark-duration 30 --screenshot-delay 25 --seed $(SEED) $(ARGS)
