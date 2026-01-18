@@ -354,10 +354,13 @@ impl App {
 
         // Re-upload ALL loaded chunks to their new texture positions immediately.
         // This causes a brief stall but avoids the flash that would occur with gradual re-upload.
-        // We parallelize SVT computation to minimize stall time.
+        // We overlap GPU clear with CPU work, and parallelize SVT computation.
         self.sim.reupload_queue.clear();
 
-        // Collect chunk data (sequential - needs world access)
+        // Start GPU texture clear FIRST (async) - runs on GPU while CPU collects data
+        let clear_fence = self.clear_voxel_texture_async();
+
+        // Collect chunk data (sequential - needs world access) while GPU is clearing
         let texture_origin = self.sim.texture_origin;
         let mut raw_data: Vec<(Vector3<i32>, Vec<u8>, Vec<u8>)> = Vec::new();
         for (pos, chunk) in self.sim.world.chunks() {
@@ -376,8 +379,7 @@ impl App {
             .map(|(_, block_data, _)| ChunkSVT::from_bytes(block_data))
             .collect();
 
-        // Clear texture synchronously
-        let clear_fence = self.clear_voxel_texture_async();
+        // NOW wait for texture clear (should be done by now since CPU work overlapped)
         if let Err(e) = clear_fence.wait(None) {
             eprintln!("[GPU] Origin shift texture clear error: {:?}", e);
         }
