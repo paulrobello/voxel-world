@@ -1,0 +1,23 @@
+{
+  "textures": [
+    {
+      "id": 0,
+      "name": "Capybara",
+      "pattern": "Solid",
+      "color1": {
+        "r": 255,
+        "g": 255,
+        "b": 255
+      },
+      "color2": {
+        "r": 0,
+        "g": 0,
+        "b": 0
+      },
+      "scale": 1.0,
+      "rotation": 0,
+      "seed": 0
+    }
+  ],
+  "next_id": 1
+}

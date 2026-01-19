@@ -2,11 +2,15 @@
 //!
 //! Press Y to open the paint customization panel.
 //! Provides HSV adjustment, blend modes, and preset management.
+//! Supports both standard atlas textures and custom textures from the texture generator.
 #![allow(dead_code)] // Many features will be used once paint panel is fully integrated
 
 use crate::paint::{
     BlendMode, HsvAdjustment, PaintConfig, PaintPreset, PaintPresetLibrary, apply_blend_mode,
     apply_hsv_adjustment,
+};
+use crate::textures::{
+    TextureLibrary, is_custom_texture, slot_to_texture_index, texture_index_to_slot,
 };
 use egui_winit_vulkano::egui;
 use std::path::PathBuf;
@@ -15,11 +19,16 @@ use std::path::PathBuf;
 const ATLAS_TEXTURE_COUNT: usize = 45;
 /// Size of each texture in the atlas.
 const TEXTURE_SIZE: usize = 64;
+/// Maximum number of custom textures.
+const MAX_CUSTOM_TEXTURES: usize = 16;
 
 /// Pre-loaded texture atlas data for CPU-side preview rendering.
 pub struct TextureAtlasData {
     /// RGBA pixels for each texture (45 textures × 64×64×4 bytes).
     textures: Vec<Vec<u8>>,
+    /// Custom texture pixel cache (up to 16 textures × 64×64×4 bytes).
+    /// Updated from TextureLibrary when needed.
+    custom_textures: Vec<Option<Vec<u8>>>,
 }
 
 impl TextureAtlasData {
@@ -56,19 +65,67 @@ impl TextureAtlasData {
             textures.push(tex_data);
         }
 
-        Some(Self { textures })
+        // Initialize custom texture slots as empty
+        let custom_textures = (0..MAX_CUSTOM_TEXTURES).map(|_| None).collect();
+
+        Some(Self {
+            textures,
+            custom_textures,
+        })
+    }
+
+    /// Updates custom texture cache from the texture library.
+    pub fn update_custom_textures(&mut self, library: &TextureLibrary) {
+        // Clear all slots first
+        for slot in &mut self.custom_textures {
+            *slot = None;
+        }
+
+        // Copy pixels from library textures
+        for (slot, _name) in library.names() {
+            if let Some(tex) = library.get(slot) {
+                if !tex.pixels.is_empty() && (slot as usize) < MAX_CUSTOM_TEXTURES {
+                    self.custom_textures[slot as usize] = Some(tex.pixels.clone());
+                }
+            }
+        }
+    }
+
+    /// Checks if a custom texture slot has data.
+    pub fn has_custom_texture(&self, slot: u8) -> bool {
+        (slot as usize) < MAX_CUSTOM_TEXTURES && self.custom_textures[slot as usize].is_some()
     }
 
     /// Gets the RGB pixel at the given position in a texture.
     /// Returns (r, g, b) as floats in 0.0-1.0 range.
+    /// Supports both standard atlas textures (0-127) and custom textures (128-143).
     pub fn get_pixel(&self, texture_idx: u8, x: u32, y: u32) -> (f32, f32, f32) {
+        let pixel_idx = ((y as usize) * TEXTURE_SIZE + (x as usize)) * 4;
+
+        // Check if this is a custom texture
+        if is_custom_texture(texture_idx) {
+            let slot = texture_index_to_slot(texture_idx) as usize;
+            if slot < self.custom_textures.len() {
+                if let Some(tex) = &self.custom_textures[slot] {
+                    if pixel_idx + 2 < tex.len() {
+                        return (
+                            tex[pixel_idx] as f32 / 255.0,
+                            tex[pixel_idx + 1] as f32 / 255.0,
+                            tex[pixel_idx + 2] as f32 / 255.0,
+                        );
+                    }
+                }
+            }
+            return (0.5, 0.5, 0.5); // Gray for missing custom texture
+        }
+
+        // Standard atlas texture
         let idx = texture_idx as usize;
         if idx >= self.textures.len() {
             return (1.0, 0.0, 1.0); // Magenta for missing
         }
 
         let tex = &self.textures[idx];
-        let pixel_idx = ((y as usize) * TEXTURE_SIZE + (x as usize)) * 4;
         if pixel_idx + 2 >= tex.len() {
             return (1.0, 0.0, 1.0); // Magenta for out of bounds
         }
@@ -206,9 +263,18 @@ pub struct PaintPanelUI;
 impl PaintPanelUI {
     /// Draws the paint panel as a standalone window.
     /// Call this from the HUD rendering code.
-    pub fn draw_window(ctx: &egui::Context, state: &mut PaintPanelState) {
+    pub fn draw_window(
+        ctx: &egui::Context,
+        state: &mut PaintPanelState,
+        texture_library: &TextureLibrary,
+    ) {
         if !state.open {
             return;
+        }
+
+        // Update custom texture cache if library changed
+        if let Some(atlas) = &mut state.atlas_data {
+            atlas.update_custom_textures(texture_library);
         }
 
         let texture_names = get_texture_names();
@@ -216,11 +282,11 @@ impl PaintPanelUI {
 
         egui::Window::new("🎨 Paint Customization")
             .open(&mut window_open)
-            .default_size(egui::vec2(280.0, 400.0))
+            .default_size(egui::vec2(320.0, 480.0))
             .resizable(true)
             .collapsible(true)
             .show(ctx, |ui| {
-                Self::draw_inner(ui, state, &texture_names);
+                Self::draw_inner(ui, state, &texture_names, texture_library);
             });
 
         state.open = window_open;
@@ -228,12 +294,17 @@ impl PaintPanelUI {
 
     /// Draws the paint panel within a parent UI.
     /// Returns true if the paint config was changed.
-    pub fn draw(ui: &mut egui::Ui, state: &mut PaintPanelState, texture_names: &[&str]) -> bool {
+    pub fn draw(
+        ui: &mut egui::Ui,
+        state: &mut PaintPanelState,
+        texture_names: &[&str],
+        texture_library: &TextureLibrary,
+    ) -> bool {
         let mut changed = false;
 
         // Collapsible header
         let header_response = ui.collapsing("🎨 Paint Customization", |ui| {
-            changed |= Self::draw_inner(ui, state, texture_names);
+            changed |= Self::draw_inner(ui, state, texture_names, texture_library);
         });
 
         state.expanded = header_response.fully_open();
@@ -245,17 +316,23 @@ impl PaintPanelUI {
         ui: &mut egui::Ui,
         state: &mut PaintPanelState,
         texture_names: &[&str],
+        texture_library: &TextureLibrary,
     ) -> bool {
-        Self::draw_inner(ui, state, texture_names)
+        Self::draw_inner(ui, state, texture_names, texture_library)
     }
 
-    fn draw_inner(ui: &mut egui::Ui, state: &mut PaintPanelState, texture_names: &[&str]) -> bool {
+    fn draw_inner(
+        ui: &mut egui::Ui,
+        state: &mut PaintPanelState,
+        texture_names: &[&str],
+        texture_library: &TextureLibrary,
+    ) -> bool {
         let mut changed = false;
 
         ui.add_space(4.0);
 
         // Texture and Tint selectors (basic)
-        changed |= Self::draw_basic_selectors(ui, state, texture_names);
+        changed |= Self::draw_basic_selectors(ui, state, texture_names, texture_library);
 
         ui.add_space(8.0);
         ui.separator();
@@ -316,20 +393,34 @@ impl PaintPanelUI {
         ui: &mut egui::Ui,
         state: &mut PaintPanelState,
         texture_names: &[&str],
+        texture_library: &TextureLibrary,
     ) -> bool {
         let mut changed = false;
 
         ui.horizontal(|ui| {
             ui.label("Texture:");
 
-            let current_name = texture_names
-                .get(state.current_config.texture_idx as usize)
-                .unwrap_or(&"Unknown");
+            // Determine current texture name
+            let current_idx = state.current_config.texture_idx;
+            let current_name = if is_custom_texture(current_idx) {
+                let slot = texture_index_to_slot(current_idx);
+                texture_library
+                    .get(slot)
+                    .map(|t| t.name.as_str())
+                    .unwrap_or("Custom (missing)")
+            } else {
+                texture_names
+                    .get(current_idx as usize)
+                    .copied()
+                    .unwrap_or("Unknown")
+            };
 
             egui::ComboBox::from_id_salt("paint_texture")
-                .selected_text(*current_name)
-                .width(120.0)
+                .selected_text(current_name)
+                .width(140.0)
                 .show_ui(ui, |ui| {
+                    // Standard atlas textures
+                    ui.label(egui::RichText::new("Standard Textures").strong().size(11.0));
                     for (idx, name) in texture_names.iter().enumerate() {
                         if ui
                             .selectable_value(
@@ -340,6 +431,26 @@ impl PaintPanelUI {
                             .changed()
                         {
                             changed = true;
+                        }
+                    }
+
+                    // Custom textures section (if any exist)
+                    let custom_names = texture_library.names();
+                    if !custom_names.is_empty() {
+                        ui.separator();
+                        ui.label(egui::RichText::new("Custom Textures").strong().size(11.0));
+                        for (slot, name) in custom_names {
+                            let tex_idx = slot_to_texture_index(slot);
+                            if ui
+                                .selectable_value(
+                                    &mut state.current_config.texture_idx,
+                                    tex_idx,
+                                    format!("★ {}", name),
+                                )
+                                .changed()
+                            {
+                                changed = true;
+                            }
                         }
                     }
                 });
