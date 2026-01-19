@@ -107,12 +107,14 @@ impl TextureGeneratorUI {
         let mut open = state.open;
         egui::Window::new("Texture Generator")
             .open(&mut open)
-            .default_size(egui::vec2(400.0, 500.0))
+            .default_size(egui::vec2(340.0, 480.0))
+            .max_width(360.0)
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     // Left panel: texture list
                     ui.vertical(|ui| {
-                        ui.set_min_width(120.0);
+                        ui.set_min_width(100.0);
+                        ui.set_max_width(100.0);
                         ui.label("Custom Textures");
                         ui.separator();
 
@@ -151,6 +153,7 @@ impl TextureGeneratorUI {
 
                     // Right panel: editor
                     ui.vertical(|ui| {
+                        ui.set_max_width(220.0);
                         Self::draw_editor(ui, state);
                     });
                 });
