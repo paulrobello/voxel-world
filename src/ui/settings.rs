@@ -56,22 +56,25 @@ impl SettingsUI {
                             ui.collapsing("Building", |ui| {
                                 ui.label("  Left Click - Break block");
                                 ui.label("  Right Click - Place block");
-                                ui.label("  Scroll - Select block");
+                                ui.label("  Shift+RClick - Repaint painted block");
+                                ui.label("  Scroll - Select hotbar slot");
                                 ui.label("  1-9 - Select hotbar slot");
                                 ui.label("  E - Open block/model palette");
                                 ui.label("  N - Open model editor");
-                                ui.label("  P - Repaint painted block");
+                                ui.label("  P - Repaint painted block (eyedropper)");
                                 ui.label("  [ ] - Cycle paint texture/stencil opacity");
                                 ui.label("  , . - Cycle tint color");
                             });
 
-                            ui.collapsing("Tools (T key)", |ui| {
+                            ui.collapsing("Creative Tools", |ui| {
+                                ui.label("  X - Texture generator panel");
+                                ui.label("  Y - Paint customization panel");
                                 ui.label("  T - Toggle tools palette");
                                 ui.label("  V - Toggle selection mode");
                                 ui.label("  G - Toggle rangefinder (distance)");
                                 ui.label("  L - Open template library");
                                 ui.label("  K - Open stencil browser");
-                                ui.label("  R - Rotate template/stencil");
+                                ui.label("  R - Rotate template/stencil/model");
                                 ui.label("  \\ - Toggle stencil render mode");
                             });
 
@@ -102,6 +105,8 @@ impl SettingsUI {
                                 ui.label("  M - Toggle minimap");
                                 ui.label("  B - Toggle chunk boundaries");
                                 ui.label("  C - Toggle debug cutaway");
+                                ui.label("  Ctrl+Z - Undo (templates/stencils)");
+                                ui.label("  Ctrl+Shift+Z - Redo");
                                 ui.label("  Esc - Release cursor/close panels");
                                 ui.label("  F12 - Screenshot");
                             });
