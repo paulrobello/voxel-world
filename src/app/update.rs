@@ -345,7 +345,10 @@ impl App {
         }
 
         // Restore focus if palette was closed externally and no other panel is open
-        let other_panel_open = self.ui.editor.active || self.ui.console.active;
+        let other_panel_open = self.ui.editor.active
+            || self.ui.console.active
+            || self.ui.texture_generator.open
+            || self.ui.paint_panel.open;
         if !self.ui.palette_open
             && self.ui.palette_previously_focused
             && !self.input.focused

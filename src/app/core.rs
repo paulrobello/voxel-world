@@ -53,7 +53,10 @@ impl App {
             self.ui.dragging_item = None;
         } else {
             // Closing palette: restore focus if we were focused before and no other panel is open
-            let other_panel_open = self.ui.editor.active || self.ui.console.active;
+            let other_panel_open = self.ui.editor.active
+                || self.ui.console.active
+                || self.ui.texture_generator.open
+                || self.ui.paint_panel.open;
             if !other_panel_open && self.ui.palette_previously_focused {
                 self.input.focused = true;
                 self.input.pending_grab = Some(true);

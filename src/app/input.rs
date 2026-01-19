@@ -16,7 +16,10 @@ impl App {
             self.ui.palette_open = false;
             self.ui.dragging_item = None;
             // Only restore focus if no other cursor-needing panels are still open
-            let other_panel_open = self.ui.editor.active || self.ui.console.active;
+            let other_panel_open = self.ui.editor.active
+                || self.ui.console.active
+                || self.ui.texture_generator.open
+                || self.ui.paint_panel.open;
             if !other_panel_open && self.ui.palette_previously_focused {
                 self.input.focused = true;
                 self.input.pending_grab = Some(true);
@@ -48,7 +51,10 @@ impl App {
         if self.input.key_pressed(KeyCode::Escape) && self.ui.editor.active {
             self.ui.editor.active = false;
             // Only restore focus if no other cursor-needing panels are still open
-            let other_panel_open = self.ui.palette_open || self.ui.console.active;
+            let other_panel_open = self.ui.palette_open
+                || self.ui.console.active
+                || self.ui.texture_generator.open
+                || self.ui.paint_panel.open;
             if !other_panel_open && self.ui.editor_previously_focused {
                 self.input.focused = true;
                 self.input.pending_grab = Some(true);
@@ -63,7 +69,10 @@ impl App {
         if self.input.key_pressed(KeyCode::Escape) && self.ui.console.active {
             self.ui.console.close();
             // Only restore focus if no other cursor-needing panels are still open
-            let other_panel_open = self.ui.palette_open || self.ui.editor.active;
+            let other_panel_open = self.ui.palette_open
+                || self.ui.editor.active
+                || self.ui.texture_generator.open
+                || self.ui.paint_panel.open;
             if !other_panel_open && self.ui.console_previously_focused {
                 self.input.focused = true;
                 self.input.pending_grab = Some(true);
@@ -133,7 +142,9 @@ impl App {
             || self.ui.editor.active
             || self.ui.console.active
             || self.ui.template_ui.browser_open
-            || self.ui.stencil_ui.browser_open;
+            || self.ui.stencil_ui.browser_open
+            || self.ui.texture_generator.open
+            || self.ui.paint_panel.open;
 
         if !self.input.focused && self.input.mouse_pressed(MouseButton::Left) && !panel_open {
             println!("Focus click...");
@@ -1433,7 +1444,10 @@ impl App {
             println!("Model editor: ON");
         } else {
             // Closing editor: restore focus if we were focused before and no other panel is open
-            let other_panel_open = self.ui.palette_open || self.ui.console.active;
+            let other_panel_open = self.ui.palette_open
+                || self.ui.console.active
+                || self.ui.texture_generator.open
+                || self.ui.paint_panel.open;
             if !other_panel_open && self.ui.editor_previously_focused {
                 self.input.focused = true;
                 self.input.pending_grab = Some(true);
@@ -1454,7 +1468,10 @@ impl App {
             self.input.pending_grab = Some(false);
         } else {
             // Closing console: restore focus if we were focused before and no other panel is open
-            let other_panel_open = self.ui.palette_open || self.ui.editor.active;
+            let other_panel_open = self.ui.palette_open
+                || self.ui.editor.active
+                || self.ui.texture_generator.open
+                || self.ui.paint_panel.open;
             if !other_panel_open && self.ui.console_previously_focused {
                 self.input.focused = true;
                 self.input.pending_grab = Some(true);
@@ -1475,8 +1492,11 @@ impl App {
             println!("Template browser: ON");
         } else {
             // Closing template browser: restore focus if we were focused before and no other panel is open
-            let other_panel_open =
-                self.ui.palette_open || self.ui.editor.active || self.ui.console.active;
+            let other_panel_open = self.ui.palette_open
+                || self.ui.editor.active
+                || self.ui.console.active
+                || self.ui.texture_generator.open
+                || self.ui.paint_panel.open;
             if !other_panel_open && self.ui.template_previously_focused {
                 self.input.focused = true;
                 self.input.pending_grab = Some(true);
@@ -1498,8 +1518,11 @@ impl App {
             println!("Stencil browser: ON");
         } else {
             // Closing stencil browser: restore focus if we were focused before and no other panel is open
-            let other_panel_open =
-                self.ui.palette_open || self.ui.editor.active || self.ui.console.active;
+            let other_panel_open = self.ui.palette_open
+                || self.ui.editor.active
+                || self.ui.console.active
+                || self.ui.texture_generator.open
+                || self.ui.paint_panel.open;
             if !other_panel_open && self.ui.stencil_previously_focused {
                 self.input.focused = true;
                 self.input.pending_grab = Some(true);
