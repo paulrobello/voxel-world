@@ -107,8 +107,9 @@ impl TextureGeneratorUI {
         let mut open = state.open;
         egui::Window::new("Texture Generator")
             .open(&mut open)
-            .default_size(egui::vec2(340.0, 480.0))
-            .max_width(360.0)
+            .default_size(egui::vec2(380.0, 500.0))
+            .min_size(egui::vec2(340.0, 400.0))
+            .resizable(true)
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     // Left panel: texture list
@@ -153,7 +154,6 @@ impl TextureGeneratorUI {
 
                     // Right panel: editor
                     ui.vertical(|ui| {
-                        ui.set_max_width(220.0);
                         Self::draw_editor(ui, state);
                     });
                 });
@@ -255,20 +255,23 @@ impl TextureGeneratorUI {
                 );
                 changed = true;
             }
-            // Preset colors
+        });
+        // Color 1 presets on separate row
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing.x = 2.0;
             for (color, name) in Self::color_presets() {
-                if ui.small_button("●").on_hover_text(name).clicked() {
+                let btn_color = egui::Color32::from_rgb(color.r, color.g, color.b);
+                let btn = egui::Button::new("")
+                    .fill(btn_color)
+                    .min_size(egui::vec2(16.0, 16.0));
+                if ui.add(btn).on_hover_text(name).clicked() {
                     state.editing.color1 = color;
                     changed = true;
                 }
-                ui.painter().rect_filled(
-                    ui.cursor().shrink(2.0),
-                    0.0,
-                    egui::Color32::from_rgb(color.r, color.g, color.b),
-                );
             }
         });
 
+        ui.add_space(4.0);
         ui.horizontal(|ui| {
             ui.label("Color 2:");
             let mut rgb = [
@@ -283,6 +286,20 @@ impl TextureGeneratorUI {
                     (rgb[2] * 255.0) as u8,
                 );
                 changed = true;
+            }
+        });
+        // Color 2 presets on separate row
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing.x = 2.0;
+            for (color, name) in Self::color_presets() {
+                let btn_color = egui::Color32::from_rgb(color.r, color.g, color.b);
+                let btn = egui::Button::new("")
+                    .fill(btn_color)
+                    .min_size(egui::vec2(16.0, 16.0));
+                if ui.add(btn).on_hover_text(name).clicked() {
+                    state.editing.color2 = color;
+                    changed = true;
+                }
             }
         });
 
