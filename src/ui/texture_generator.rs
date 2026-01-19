@@ -3,7 +3,10 @@
 
 use crate::textures::{CustomTexture, TextureColor, TextureLibrary, TexturePattern};
 use egui_winit_vulkano::egui;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
+
+/// Duration to show status messages.
+const STATUS_DURATION_SECS: f32 = 2.0;
 
 /// State for the texture generator UI panel.
 pub struct TextureGeneratorState {
@@ -21,6 +24,10 @@ pub struct TextureGeneratorState {
     pub color2_picker_open: bool,
     /// Flag indicating custom textures need GPU sync.
     pub needs_gpu_sync: bool,
+    /// Status message to display.
+    status_message: Option<String>,
+    /// When the status message was set.
+    status_time: Option<Instant>,
 }
 
 impl Default for TextureGeneratorState {
@@ -46,7 +53,25 @@ impl TextureGeneratorState {
             color1_picker_open: false,
             color2_picker_open: false,
             needs_gpu_sync: false,
+            status_message: None,
+            status_time: None,
         }
+    }
+
+    /// Sets a status message that will display briefly.
+    pub fn set_status(&mut self, message: impl Into<String>) {
+        self.status_message = Some(message.into());
+        self.status_time = Some(Instant::now());
+    }
+
+    /// Gets the current status message if it hasn't expired.
+    pub fn get_status(&self) -> Option<&str> {
+        if let (Some(msg), Some(time)) = (&self.status_message, self.status_time) {
+            if time.elapsed().as_secs_f32() < STATUS_DURATION_SECS {
+                return Some(msg.as_str());
+            }
+        }
+        None
     }
 
     /// Starts editing a new texture.
@@ -55,6 +80,7 @@ impl TextureGeneratorState {
         self.editing.name = "New Texture".to_string();
         self.editing.regenerate();
         self.selected_slot = None;
+        self.set_status("Started new texture");
     }
 
     /// Starts editing an existing texture.
@@ -139,15 +165,25 @@ impl TextureGeneratorUI {
                     if state.selected_slot.is_some() && ui.button("🗑 Delete").clicked() {
                         if let Some(slot) = state.selected_slot {
                             let _ = library.remove(slot);
+                            state.set_status("Deleted texture");
                             state.new_texture();
                         }
                     }
                     if ui.button("📋 Save Library").clicked() {
                         if let Err(e) = library.save() {
                             eprintln!("Failed to save texture library: {}", e);
+                            state.set_status(format!("Save failed: {}", e));
+                        } else {
+                            state.set_status("Library saved to disk");
                         }
                     }
                 });
+
+                // Show status message if any
+                if let Some(status) = state.get_status() {
+                    ui.add_space(4.0);
+                    ui.colored_label(egui::Color32::from_rgb(100, 200, 255), status);
+                }
             });
         state.open = open;
     }
@@ -376,10 +412,12 @@ impl TextureGeneratorUI {
                         "[Texture] Updated custom texture '{}' in slot {}",
                         state.editing.name, slot
                     );
+                    state.set_status(format!("Updated '{}'", state.editing.name));
                     true
                 }
                 Err(e) => {
                     eprintln!("Failed to update texture: {}", e);
+                    state.set_status(format!("Error: {}", e));
                     false
                 }
             }
@@ -393,10 +431,12 @@ impl TextureGeneratorUI {
                     );
                     state.selected_slot = Some(slot);
                     state.editing.id = slot;
+                    state.set_status(format!("Created '{}' in slot {}", state.editing.name, slot));
                     true
                 }
                 Err(e) => {
                     eprintln!("Failed to add texture: {}", e);
+                    state.set_status(format!("Error: {}", e));
                     false
                 }
             }
