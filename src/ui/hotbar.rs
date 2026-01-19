@@ -24,11 +24,11 @@ impl HotbarUI {
                     egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
                 )
             } else {
-                const ATLAS_TILE_COUNT: f32 = 27.0;
+                let atlas_tile_count = HudHelpers::ATLAS_TILE_COUNT;
                 let block_idx =
                     HudHelpers::atlas_tile_for(item.block, item.model_id, item.paint_texture_idx);
-                let uv_left = block_idx / ATLAS_TILE_COUNT;
-                let uv_right = (block_idx + 1.0) / ATLAS_TILE_COUNT;
+                let uv_left = block_idx / atlas_tile_count;
+                let uv_right = (block_idx + 1.0) / atlas_tile_count;
                 (
                     atlas_texture_id,
                     egui::Rect::from_min_max(egui::pos2(uv_left, 0.0), egui::pos2(uv_right, 1.0)),
@@ -83,7 +83,7 @@ impl HotbarUI {
         sprite_icons: Option<&SpriteIcons>,
         dragging_item: &mut Option<PaletteItem>,
     ) {
-        const ATLAS_TILE_COUNT: f32 = 27.0;
+        let atlas_tile_count = HudHelpers::ATLAS_TILE_COUNT;
         const SLOT_SIZE: f32 = 40.0;
         let pointer_released =
             ctx.input(|i| i.pointer.button_released(egui::PointerButton::Primary));
@@ -133,8 +133,8 @@ impl HotbarUI {
                                         hotbar_model_ids[i],
                                         hotbar_paint_textures[i],
                                     );
-                                    let uv_left = block_idx / ATLAS_TILE_COUNT;
-                                    let uv_right = (block_idx + 1.0) / ATLAS_TILE_COUNT;
+                                    let uv_left = block_idx / atlas_tile_count;
+                                    let uv_right = (block_idx + 1.0) / atlas_tile_count;
                                     (
                                         atlas_texture_id,
                                         egui::Rect::from_min_max(
@@ -296,15 +296,19 @@ impl HotbarUI {
                                 }
                             } else if selected_block == BlockType::Painted {
                                 let tex = hotbar_paint_textures[*hotbar_index];
-                                match tex {
-                                    23 => "Cactus".to_string(),
-                                    24 => "Mud".to_string(),
-                                    25 => "Sandstone".to_string(),
-                                    26 => "Ice".to_string(),
-                                    _ => format!(
-                                        "Painted (tex {}, tint {})",
-                                        tex, hotbar_tint_indices[*hotbar_index]
-                                    ),
+                                let tint = hotbar_tint_indices[*hotbar_index];
+                                if HudHelpers::is_custom_texture(tex) {
+                                    // Custom texture (128+)
+                                    let custom_idx = tex - HudHelpers::CUSTOM_TEXTURE_FLAG;
+                                    format!("Custom #{} (tint {})", custom_idx, tint)
+                                } else {
+                                    match tex {
+                                        23 => "Cactus".to_string(),
+                                        24 => "Mud".to_string(),
+                                        25 => "Sandstone".to_string(),
+                                        26 => "Ice".to_string(),
+                                        _ => format!("Painted (tex {}, tint {})", tex, tint),
+                                    }
                                 }
                             } else {
                                 format!("{:?}", selected_block)

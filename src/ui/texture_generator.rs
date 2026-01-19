@@ -709,16 +709,20 @@ impl TextureGeneratorUI {
         // Bottom: Save buttons
         ui.horizontal(|ui| {
             if ui.button("Save as Texture").clicked() {
-                // Create a CustomTexture from canvas pixels
-                let mut tex = state.editing.clone();
-                tex.pixels = state.canvas.pixels.clone();
-                if tex.name.is_empty() || tex.name == "New Texture" {
-                    tex.name = format!("Canvas {}", library.count() + 1);
-                }
+                // Create a raw CustomTexture from canvas pixels
+                let name = if state.editing.name.is_empty() || state.editing.name == "New Texture" {
+                    format!("Canvas {}", library.count() + 1)
+                } else {
+                    state.editing.name.clone()
+                };
+                let tex = CustomTexture::from_pixels(name, state.canvas.pixels.clone());
 
                 if let Some(slot) = state.selected_slot {
                     // Update existing
-                    if library.update(slot, tex).is_ok() {
+                    let mut tex = tex;
+                    tex.id = slot;
+                    if library.update(slot, tex.clone()).is_ok() {
+                        state.editing = tex;
                         state.set_status("Updated texture");
                         state.needs_gpu_sync = true;
                     }
@@ -727,8 +731,9 @@ impl TextureGeneratorUI {
                     match library.add(tex.clone()) {
                         Ok(slot) => {
                             state.selected_slot = Some(slot);
+                            let mut tex = tex;
+                            tex.id = slot;
                             state.editing = tex;
-                            state.editing.id = slot;
                             state.set_status(format!("Saved to slot {}", slot));
                             state.needs_gpu_sync = true;
                         }

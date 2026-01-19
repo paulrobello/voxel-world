@@ -6,7 +6,7 @@ use nalgebra::Vector3;
 use winit::event::MouseButton;
 use winit::keyboard::KeyCode;
 
-const ATLAS_TILE_COUNT: u8 = 19;
+const ATLAS_TILE_COUNT: u8 = 45;
 
 impl App {
     /// Handle focus/unfocus toggles. Returns true if we should early-return from update.

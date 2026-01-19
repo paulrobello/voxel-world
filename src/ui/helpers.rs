@@ -43,9 +43,22 @@ impl HudHelpers {
         }
     }
 
+    /// Custom texture flag - textures with index >= 128 are custom textures.
+    pub const CUSTOM_TEXTURE_FLAG: u8 = 128;
+    /// Number of tiles in the main texture atlas.
+    pub const ATLAS_TILE_COUNT: f32 = 45.0;
+
+    /// Returns the atlas tile index for a block.
+    /// For custom textures (128+), returns a placeholder since they're in a separate atlas.
     pub fn atlas_tile_for(block: BlockType, model_id: u8, paint_texture_idx: u8) -> f32 {
         if block == BlockType::Painted {
-            paint_texture_idx as f32
+            // Custom textures (128+) are in a separate atlas, use stone as placeholder
+            if paint_texture_idx >= Self::CUSTOM_TEXTURE_FLAG {
+                1.0 // Stone texture as placeholder
+            } else {
+                // Clamp to valid atlas range
+                (paint_texture_idx as f32).min(Self::ATLAS_TILE_COUNT - 1.0)
+            }
         } else if block == BlockType::Model {
             match model_id {
                 1 => 11.0,     // Torch
@@ -56,6 +69,11 @@ impl HudHelpers {
         } else {
             block as u8 as f32
         }
+    }
+
+    /// Returns true if the paint texture index refers to a custom texture.
+    pub fn is_custom_texture(paint_texture_idx: u8) -> bool {
+        paint_texture_idx >= Self::CUSTOM_TEXTURE_FLAG
     }
 
     pub fn apply_item_to_slot(

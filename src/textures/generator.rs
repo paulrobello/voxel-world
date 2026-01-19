@@ -128,18 +128,18 @@ impl TextureColor {
     }
 }
 
-/// A custom procedurally-generated texture.
+/// A custom texture (either procedurally generated or raw pixel data).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CustomTexture {
     /// Slot ID (0-15).
     pub id: u8,
     /// Display name for the texture.
     pub name: String,
-    /// Pattern type.
+    /// Pattern type (only used if not raw).
     pub pattern: TexturePattern,
-    /// Primary color.
+    /// Primary color (only used if not raw).
     pub color1: TextureColor,
-    /// Secondary color.
+    /// Secondary color (only used if not raw).
     pub color2: TextureColor,
     /// Pattern scale (0.5 = larger, 2.0 = smaller).
     pub scale: f32,
@@ -147,7 +147,11 @@ pub struct CustomTexture {
     pub rotation: u8,
     /// Random seed for noise patterns.
     pub seed: u32,
-    /// Cached pixel data (64×64 RGBA, not serialized).
+    /// Whether this is a raw pixel texture (painted/imported) vs procedural.
+    /// Raw textures save/load pixel data to/from PNG files.
+    #[serde(default)]
+    pub is_raw: bool,
+    /// Cached pixel data (64×64 RGBA, not serialized directly).
     #[serde(skip)]
     pub pixels: Vec<u8>,
 }
@@ -163,6 +167,7 @@ impl Default for CustomTexture {
             scale: 1.0,
             rotation: 0,
             seed: 0,
+            is_raw: false,
             pixels: Vec::new(),
         }
     }
@@ -185,10 +190,27 @@ impl CustomTexture {
             scale: 1.0,
             rotation: 0,
             seed: 0,
+            is_raw: false,
             pixels: Vec::new(),
         };
         tex.regenerate();
         tex
+    }
+
+    /// Creates a new raw texture from pixel data (for painted/imported textures).
+    pub fn from_pixels(name: impl Into<String>, pixels: Vec<u8>) -> Self {
+        Self {
+            id: 0,
+            name: name.into(),
+            pattern: TexturePattern::Solid, // Unused for raw textures
+            color1: TextureColor::WHITE,
+            color2: TextureColor::BLACK,
+            scale: 1.0,
+            rotation: 0,
+            seed: 0,
+            is_raw: true,
+            pixels,
+        }
     }
 
     /// Regenerates the pixel data from current settings.
@@ -233,9 +255,67 @@ impl CustomTexture {
         &self.pixels
     }
 
-    /// Returns true if pixel data needs regeneration.
+    /// Returns true if pixel data needs regeneration (procedural) or loading (raw).
     pub fn needs_regeneration(&self) -> bool {
         self.pixels.is_empty()
+    }
+
+    /// Gets the path for raw pixel data file.
+    fn raw_pixel_path(data_dir: &std::path::Path, slot: u8) -> PathBuf {
+        data_dir.join(format!("custom_texture_{}.png", slot))
+    }
+
+    /// Saves raw pixel data to a PNG file.
+    pub fn save_raw_pixels(&self, data_dir: &std::path::Path) -> Result<(), String> {
+        if !self.is_raw || self.pixels.is_empty() {
+            return Ok(());
+        }
+
+        let path = Self::raw_pixel_path(data_dir, self.id);
+        let img = image::RgbaImage::from_raw(TEXTURE_SIZE, TEXTURE_SIZE, self.pixels.clone())
+            .ok_or_else(|| "Failed to create image from pixels".to_string())?;
+
+        img.save(&path)
+            .map_err(|e| format!("Failed to save raw texture: {}", e))?;
+
+        Ok(())
+    }
+
+    /// Loads raw pixel data from a PNG file.
+    pub fn load_raw_pixels(&mut self, data_dir: &std::path::Path) -> Result<(), String> {
+        if !self.is_raw {
+            return Ok(());
+        }
+
+        let path = Self::raw_pixel_path(data_dir, self.id);
+        if !path.exists() {
+            // Create empty pixels if file doesn't exist
+            self.pixels = vec![255u8; (TEXTURE_SIZE * TEXTURE_SIZE * 4) as usize];
+            return Ok(());
+        }
+
+        let img = image::open(&path)
+            .map_err(|e| format!("Failed to load raw texture: {}", e))?
+            .to_rgba8();
+
+        if img.width() != TEXTURE_SIZE || img.height() != TEXTURE_SIZE {
+            return Err(format!(
+                "Raw texture wrong size: {}x{}, expected {}x{}",
+                img.width(),
+                img.height(),
+                TEXTURE_SIZE,
+                TEXTURE_SIZE
+            ));
+        }
+
+        self.pixels = img.into_raw();
+        Ok(())
+    }
+
+    /// Deletes the raw pixel data file if it exists.
+    pub fn delete_raw_pixels(data_dir: &std::path::Path, slot: u8) {
+        let path = Self::raw_pixel_path(data_dir, slot);
+        let _ = fs::remove_file(path);
     }
 }
 
@@ -351,9 +431,24 @@ impl TextureLibrary {
         if path.exists() {
             if let Ok(data) = fs::read_to_string(&path) {
                 if let Ok(mut lib) = serde_json::from_str::<Self>(&data) {
-                    // Regenerate pixel data since it's not serialized
+                    let data_dir = get_data_dir();
+                    // Load or regenerate pixel data since it's not serialized
                     for tex in &mut lib.textures {
-                        tex.regenerate();
+                        if tex.is_raw {
+                            // Raw textures load from PNG file
+                            if let Err(e) = tex.load_raw_pixels(&data_dir) {
+                                eprintln!(
+                                    "Warning: Failed to load raw texture '{}': {}",
+                                    tex.name, e
+                                );
+                                // Create empty white pixels as fallback
+                                tex.pixels =
+                                    vec![255u8; (TEXTURE_SIZE * TEXTURE_SIZE * 4) as usize];
+                            }
+                        } else {
+                            // Procedural textures regenerate from pattern settings
+                            tex.regenerate();
+                        }
                     }
                     return lib;
                 }
@@ -368,6 +463,15 @@ impl TextureLibrary {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
+
+        // Save raw pixel data to PNG files
+        let data_dir = get_data_dir();
+        for tex in &self.textures {
+            if tex.is_raw {
+                tex.save_raw_pixels(&data_dir)?;
+            }
+        }
+
         let json = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
         fs::write(&path, json).map_err(|e| e.to_string())
     }
@@ -433,6 +537,11 @@ impl TextureLibrary {
     /// Removes a texture by slot ID.
     pub fn remove(&mut self, slot: u8) -> Result<(), String> {
         if let Some(idx) = self.textures.iter().position(|t| t.id == slot) {
+            let tex = &self.textures[idx];
+            // Clean up raw pixel file if it exists
+            if tex.is_raw {
+                CustomTexture::delete_raw_pixels(&get_data_dir(), slot);
+            }
             self.textures.remove(idx);
             Ok(())
         } else {
