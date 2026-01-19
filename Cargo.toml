@@ -30,6 +30,7 @@ serde_json = "1.0.148"
 crossbeam-channel = "0.5.15"
 num_cpus = "1.16.0"
 dirs = "6.0.0"
+rfd = "0.15"
 
 # macOS cursor handling (winit's set_cursor_visible crashes)
 [target.'cfg(target_os = "macos")'.dependencies]

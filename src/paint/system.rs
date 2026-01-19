@@ -249,6 +249,77 @@ pub fn apply_hsv_adjustment(r: f32, g: f32, b: f32, adj: &HsvAdjustment) -> (f32
     hsv_to_rgb(h_adjusted, s_adjusted, v_adjusted)
 }
 
+/// Apply blend mode to combine texture color with tint (CPU version for preview).
+/// All values should be in 0.0-1.0 range.
+pub fn apply_blend_mode(
+    texture: (f32, f32, f32),
+    tint: (f32, f32, f32),
+    mode: BlendMode,
+) -> (f32, f32, f32) {
+    match mode {
+        BlendMode::Multiply => blend_multiply(texture, tint),
+        BlendMode::Overlay => blend_overlay(texture, tint),
+        BlendMode::SoftLight => blend_soft_light(texture, tint),
+        BlendMode::Screen => blend_screen(texture, tint),
+        BlendMode::ColorOnly => blend_color_only(texture, tint),
+    }
+}
+
+/// Multiply blend: darkens by multiplying colors.
+fn blend_multiply(base: (f32, f32, f32), blend: (f32, f32, f32)) -> (f32, f32, f32) {
+    (base.0 * blend.0, base.1 * blend.1, base.2 * blend.2)
+}
+
+/// Overlay blend: enhances contrast while preserving highlights/shadows.
+fn blend_overlay(base: (f32, f32, f32), blend: (f32, f32, f32)) -> (f32, f32, f32) {
+    fn overlay_channel(b: f32, l: f32) -> f32 {
+        if b < 0.5 {
+            2.0 * b * l
+        } else {
+            1.0 - 2.0 * (1.0 - b) * (1.0 - l)
+        }
+    }
+    (
+        overlay_channel(base.0, blend.0),
+        overlay_channel(base.1, blend.1),
+        overlay_channel(base.2, blend.2),
+    )
+}
+
+/// Soft light blend: gentle highlight/shadow adjustment.
+fn blend_soft_light(base: (f32, f32, f32), blend: (f32, f32, f32)) -> (f32, f32, f32) {
+    fn soft_light_channel(b: f32, l: f32) -> f32 {
+        if l < 0.5 {
+            2.0 * b * l + b * b * (1.0 - 2.0 * l)
+        } else {
+            b.sqrt() * (2.0 * l - 1.0) + 2.0 * b * (1.0 - l)
+        }
+    }
+    (
+        soft_light_channel(base.0, blend.0),
+        soft_light_channel(base.1, blend.1),
+        soft_light_channel(base.2, blend.2),
+    )
+}
+
+/// Screen blend: lightens by inverting, multiplying, and inverting again.
+fn blend_screen(base: (f32, f32, f32), blend: (f32, f32, f32)) -> (f32, f32, f32) {
+    (
+        1.0 - (1.0 - base.0) * (1.0 - blend.0),
+        1.0 - (1.0 - base.1) * (1.0 - blend.1),
+        1.0 - (1.0 - base.2) * (1.0 - blend.2),
+    )
+}
+
+/// Color only blend: applies tint hue/saturation, keeps texture luminance.
+fn blend_color_only(base: (f32, f32, f32), blend: (f32, f32, f32)) -> (f32, f32, f32) {
+    let (_, base_s, v) = rgb_to_hsv(base.0, base.1, base.2);
+    let (h, blend_s, _) = rgb_to_hsv(blend.0, blend.1, blend.2);
+    // Mix base saturation with blend saturation for subtle effect
+    let s = base_s * 0.3 + blend_s * 0.7;
+    hsv_to_rgb(h, s, v)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -339,5 +410,58 @@ mod tests {
             BlendMode::Multiply,
         );
         assert!(!complex.is_basic());
+    }
+
+    #[test]
+    fn test_blend_multiply() {
+        let tex = (0.8, 0.6, 0.4);
+        let tint = (1.0, 0.5, 0.5);
+        let result = apply_blend_mode(tex, tint, BlendMode::Multiply);
+
+        assert!((result.0 - 0.8).abs() < 0.001);
+        assert!((result.1 - 0.3).abs() < 0.001);
+        assert!((result.2 - 0.2).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_blend_screen() {
+        // Screen with white should give white
+        let tex = (0.5, 0.5, 0.5);
+        let tint = (1.0, 1.0, 1.0);
+        let result = apply_blend_mode(tex, tint, BlendMode::Screen);
+
+        assert!((result.0 - 1.0).abs() < 0.001);
+        assert!((result.1 - 1.0).abs() < 0.001);
+        assert!((result.2 - 1.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_blend_modes_different_results() {
+        let tex = (0.6, 0.4, 0.3);
+        let tint = (0.8, 0.3, 0.5);
+
+        let multiply = apply_blend_mode(tex, tint, BlendMode::Multiply);
+        let overlay = apply_blend_mode(tex, tint, BlendMode::Overlay);
+        let screen = apply_blend_mode(tex, tint, BlendMode::Screen);
+        let soft_light = apply_blend_mode(tex, tint, BlendMode::SoftLight);
+        let color_only = apply_blend_mode(tex, tint, BlendMode::ColorOnly);
+
+        // All blend modes should produce different results
+        assert!(
+            (multiply.0 - overlay.0).abs() > 0.01 || (multiply.1 - overlay.1).abs() > 0.01,
+            "Multiply and Overlay should differ"
+        );
+        assert!(
+            (multiply.0 - screen.0).abs() > 0.01 || (multiply.1 - screen.1).abs() > 0.01,
+            "Multiply and Screen should differ"
+        );
+        assert!(
+            (multiply.0 - soft_light.0).abs() > 0.01 || (multiply.1 - soft_light.1).abs() > 0.01,
+            "Multiply and SoftLight should differ"
+        );
+        assert!(
+            (multiply.0 - color_only.0).abs() > 0.01 || (multiply.1 - color_only.1).abs() > 0.01,
+            "Multiply and ColorOnly should differ"
+        );
     }
 }

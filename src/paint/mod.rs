@@ -15,4 +15,4 @@ pub mod presets;
 pub mod system;
 
 pub use presets::{PaintPreset, PaintPresetLibrary};
-pub use system::{BlendMode, HsvAdjustment, PaintConfig};
+pub use system::{BlendMode, HsvAdjustment, PaintConfig, apply_blend_mode, apply_hsv_adjustment};

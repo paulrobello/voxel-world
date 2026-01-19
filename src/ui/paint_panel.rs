@@ -4,11 +4,84 @@
 //! Provides HSV adjustment, blend modes, and preset management.
 #![allow(dead_code)] // Many features will be used once paint panel is fully integrated
 
-use crate::paint::{BlendMode, HsvAdjustment, PaintConfig, PaintPreset, PaintPresetLibrary};
+use crate::paint::{
+    BlendMode, HsvAdjustment, PaintConfig, PaintPreset, PaintPresetLibrary, apply_blend_mode,
+    apply_hsv_adjustment,
+};
 use egui_winit_vulkano::egui;
+use std::path::PathBuf;
+
+/// Number of textures in the atlas (must match ATLAS_TILE_COUNT in shaders).
+const ATLAS_TEXTURE_COUNT: usize = 45;
+/// Size of each texture in the atlas.
+const TEXTURE_SIZE: usize = 64;
+
+/// Pre-loaded texture atlas data for CPU-side preview rendering.
+pub struct TextureAtlasData {
+    /// RGBA pixels for each texture (45 textures × 64×64×4 bytes).
+    textures: Vec<Vec<u8>>,
+}
+
+impl TextureAtlasData {
+    /// Loads the texture atlas from disk and splits it into individual textures.
+    pub fn load() -> Option<Self> {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let atlas_path = root.join("textures").join("texture_atlas.png");
+
+        let img = image::open(&atlas_path).ok()?.to_rgba8();
+        let (width, height) = img.dimensions();
+
+        // Atlas should be (ATLAS_TEXTURE_COUNT * 64) x 64
+        let expected_width = (ATLAS_TEXTURE_COUNT * TEXTURE_SIZE) as u32;
+        if width != expected_width || height != TEXTURE_SIZE as u32 {
+            eprintln!(
+                "Texture atlas dimensions mismatch: expected {}x{}, got {}x{}",
+                expected_width, TEXTURE_SIZE, width, height
+            );
+            return None;
+        }
+
+        let raw = img.into_raw();
+
+        // Split into individual 64x64 textures
+        let mut textures = Vec::with_capacity(ATLAS_TEXTURE_COUNT);
+        for i in 0..ATLAS_TEXTURE_COUNT {
+            let mut tex_data = vec![0u8; TEXTURE_SIZE * TEXTURE_SIZE * 4];
+            for y in 0..TEXTURE_SIZE {
+                let src_start = (y * width as usize + i * TEXTURE_SIZE) * 4;
+                let dst_start = y * TEXTURE_SIZE * 4;
+                tex_data[dst_start..dst_start + TEXTURE_SIZE * 4]
+                    .copy_from_slice(&raw[src_start..src_start + TEXTURE_SIZE * 4]);
+            }
+            textures.push(tex_data);
+        }
+
+        Some(Self { textures })
+    }
+
+    /// Gets the RGB pixel at the given position in a texture.
+    /// Returns (r, g, b) as floats in 0.0-1.0 range.
+    pub fn get_pixel(&self, texture_idx: u8, x: u32, y: u32) -> (f32, f32, f32) {
+        let idx = texture_idx as usize;
+        if idx >= self.textures.len() {
+            return (1.0, 0.0, 1.0); // Magenta for missing
+        }
+
+        let tex = &self.textures[idx];
+        let pixel_idx = ((y as usize) * TEXTURE_SIZE + (x as usize)) * 4;
+        if pixel_idx + 2 >= tex.len() {
+            return (1.0, 0.0, 1.0); // Magenta for out of bounds
+        }
+
+        (
+            tex[pixel_idx] as f32 / 255.0,
+            tex[pixel_idx + 1] as f32 / 255.0,
+            tex[pixel_idx + 2] as f32 / 255.0,
+        )
+    }
+}
 
 /// State for the paint panel UI.
-#[derive(Debug)]
 pub struct PaintPanelState {
     /// Whether the paint panel window is open.
     pub open: bool,
@@ -22,18 +95,36 @@ pub struct PaintPanelState {
     pub new_preset_name: String,
     /// Whether to show the preset save dialog.
     pub show_save_dialog: bool,
+    /// Cached preview pixels (64×64 RGBA = 16,384 bytes).
+    pub preview_pixels: Vec<u8>,
+    /// Texture atlas data for previewing (loaded once).
+    pub atlas_data: Option<TextureAtlasData>,
+    /// Flag to regenerate preview.
+    pub preview_dirty: bool,
 }
 
 impl Default for PaintPanelState {
     fn default() -> Self {
-        Self {
+        let atlas_data = TextureAtlasData::load();
+        if atlas_data.is_none() {
+            eprintln!("[PaintPanel] Warning: Failed to load texture atlas for preview");
+        }
+
+        let mut state = Self {
             open: false,
             current_config: PaintConfig::default(),
             expanded: false,
             presets: PaintPresetLibrary::load(),
             new_preset_name: String::new(),
             show_save_dialog: false,
-        }
+            preview_pixels: vec![0u8; TEXTURE_SIZE * TEXTURE_SIZE * 4],
+            atlas_data,
+            preview_dirty: true,
+        };
+
+        // Generate initial preview
+        state.regenerate_preview();
+        state
     }
 }
 
@@ -47,12 +138,14 @@ impl PaintPanelState {
     pub fn set_texture_and_tint(&mut self, texture_idx: u8, tint_idx: u8) {
         self.current_config.texture_idx = texture_idx;
         self.current_config.tint_idx = tint_idx;
+        self.preview_dirty = true;
     }
 
     /// Applies a preset to the current configuration.
     pub fn apply_preset(&mut self, preset: &PaintPreset) {
         if let Some(config) = preset.primary_config() {
             self.current_config = *config;
+            self.preview_dirty = true;
         }
     }
 
@@ -70,6 +163,41 @@ impl PaintPanelState {
         if let Err(e) = self.presets.save() {
             eprintln!("Failed to save paint presets: {}", e);
         }
+    }
+
+    /// Regenerates the preview pixels based on current paint configuration.
+    pub fn regenerate_preview(&mut self) {
+        let Some(atlas) = &self.atlas_data else {
+            return;
+        };
+
+        self.preview_pixels
+            .resize(TEXTURE_SIZE * TEXTURE_SIZE * 4, 0);
+
+        let tint = get_tint_color_f32(self.current_config.tint_idx);
+
+        for y in 0..TEXTURE_SIZE {
+            for x in 0..TEXTURE_SIZE {
+                // Get texture color
+                let tex = atlas.get_pixel(self.current_config.texture_idx, x as u32, y as u32);
+
+                // Apply blend mode
+                let blended = apply_blend_mode(tex, tint, self.current_config.blend_mode);
+
+                // Apply HSV adjustment
+                let (r, g, b): (f32, f32, f32) =
+                    apply_hsv_adjustment(blended.0, blended.1, blended.2, &self.current_config.hsv);
+
+                // Store result
+                let idx = (y * TEXTURE_SIZE + x) * 4;
+                self.preview_pixels[idx] = (r.clamp(0.0, 1.0) * 255.0) as u8;
+                self.preview_pixels[idx + 1] = (g.clamp(0.0, 1.0) * 255.0) as u8;
+                self.preview_pixels[idx + 2] = (b.clamp(0.0, 1.0) * 255.0) as u8;
+                self.preview_pixels[idx + 3] = 255;
+            }
+        }
+
+        self.preview_dirty = false;
     }
 }
 
@@ -150,7 +278,38 @@ impl PaintPanelUI {
         // Presets section
         Self::draw_presets(ui, state);
 
+        ui.add_space(8.0);
+        ui.separator();
+        ui.add_space(4.0);
+
+        // Preview section
+        Self::draw_preview_section(ui, state);
+
+        // Regenerate preview if settings changed
+        if changed {
+            state.preview_dirty = true;
+        }
+
+        // Regenerate preview if dirty
+        if state.preview_dirty {
+            state.regenerate_preview();
+        }
+
         changed
+    }
+
+    fn draw_preview_section(ui: &mut egui::Ui, state: &PaintPanelState) {
+        ui.label(egui::RichText::new("Preview").strong().size(13.0));
+        ui.add_space(4.0);
+
+        if state.atlas_data.is_some() {
+            draw_preview(ui, &state.preview_pixels);
+        } else {
+            ui.colored_label(
+                egui::Color32::from_rgb(200, 100, 100),
+                "Preview unavailable - atlas not loaded",
+            );
+        }
     }
 
     fn draw_basic_selectors(
@@ -397,47 +556,88 @@ impl PaintPanelUI {
     }
 }
 
+/// Tint palette colors (mirrors TINT_PALETTE from common.glsl).
+const TINT_PALETTE: [[f32; 3]; 32] = [
+    [1.0, 0.2, 0.2],    // 0: Red
+    [1.0, 0.5, 0.2],    // 1: Orange
+    [1.0, 1.0, 0.2],    // 2: Yellow
+    [0.5, 1.0, 0.2],    // 3: Lime
+    [0.2, 1.0, 0.2],    // 4: Green
+    [0.2, 1.0, 0.5],    // 5: Teal
+    [0.2, 1.0, 1.0],    // 6: Cyan
+    [0.2, 0.5, 1.0],    // 7: Sky blue
+    [0.2, 0.2, 1.0],    // 8: Blue
+    [0.5, 0.2, 1.0],    // 9: Purple
+    [1.0, 0.2, 1.0],    // 10: Magenta
+    [1.0, 0.2, 0.5],    // 11: Pink
+    [0.95, 0.95, 0.95], // 12: White
+    [0.6, 0.6, 0.6],    // 13: Light gray
+    [0.3, 0.3, 0.3],    // 14: Dark gray
+    [0.4, 0.25, 0.1],   // 15: Brown
+    [0.8, 0.4, 0.4],    // 16: Light red
+    [0.8, 0.6, 0.4],    // 17: Peach
+    [0.8, 0.8, 0.4],    // 18: Light yellow
+    [0.6, 0.8, 0.4],    // 19: Light lime
+    [0.4, 0.8, 0.4],    // 20: Light green
+    [0.4, 0.8, 0.6],    // 21: Light teal
+    [0.4, 0.8, 0.8],    // 22: Light cyan
+    [0.4, 0.6, 0.8],    // 23: Light sky
+    [0.4, 0.4, 0.8],    // 24: Light blue
+    [0.6, 0.4, 0.8],    // 25: Light purple
+    [0.8, 0.4, 0.8],    // 26: Light magenta
+    [0.8, 0.4, 0.6],    // 27: Light pink
+    [0.2, 0.15, 0.1],   // 28: Dark brown
+    [0.1, 0.2, 0.1],    // 29: Dark green
+    [0.1, 0.1, 0.2],    // 30: Dark blue
+    [0.2, 0.1, 0.2],    // 31: Dark purple
+];
+
 /// Convert tint index to egui Color32.
 fn tint_to_color32(tint_idx: u8) -> egui::Color32 {
-    // Mirror the TINT_PALETTE from common.glsl
-    const TINT_PALETTE: [[f32; 3]; 32] = [
-        [1.0, 0.2, 0.2],    // 0: Red
-        [1.0, 0.5, 0.2],    // 1: Orange
-        [1.0, 1.0, 0.2],    // 2: Yellow
-        [0.5, 1.0, 0.2],    // 3: Lime
-        [0.2, 1.0, 0.2],    // 4: Green
-        [0.2, 1.0, 0.5],    // 5: Teal
-        [0.2, 1.0, 1.0],    // 6: Cyan
-        [0.2, 0.5, 1.0],    // 7: Sky blue
-        [0.2, 0.2, 1.0],    // 8: Blue
-        [0.5, 0.2, 1.0],    // 9: Purple
-        [1.0, 0.2, 1.0],    // 10: Magenta
-        [1.0, 0.2, 0.5],    // 11: Pink
-        [0.95, 0.95, 0.95], // 12: White
-        [0.6, 0.6, 0.6],    // 13: Light gray
-        [0.3, 0.3, 0.3],    // 14: Dark gray
-        [0.4, 0.25, 0.1],   // 15: Brown
-        [0.8, 0.4, 0.4],    // 16: Light red
-        [0.8, 0.6, 0.4],    // 17: Peach
-        [0.8, 0.8, 0.4],    // 18: Light yellow
-        [0.6, 0.8, 0.4],    // 19: Light lime
-        [0.4, 0.8, 0.4],    // 20: Light green
-        [0.4, 0.8, 0.6],    // 21: Light teal
-        [0.4, 0.8, 0.8],    // 22: Light cyan
-        [0.4, 0.6, 0.8],    // 23: Light sky
-        [0.4, 0.4, 0.8],    // 24: Light blue
-        [0.6, 0.4, 0.8],    // 25: Light purple
-        [0.8, 0.4, 0.8],    // 26: Light magenta
-        [0.8, 0.4, 0.6],    // 27: Light pink
-        [0.2, 0.15, 0.1],   // 28: Dark brown
-        [0.1, 0.2, 0.1],    // 29: Dark green
-        [0.1, 0.1, 0.2],    // 30: Dark blue
-        [0.2, 0.1, 0.2],    // 31: Dark purple
-    ];
-
     let idx = (tint_idx as usize).min(31);
     let [r, g, b] = TINT_PALETTE[idx];
     egui::Color32::from_rgb((r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8)
+}
+
+/// Convert tint index to f32 tuple for blend operations.
+fn get_tint_color_f32(tint_idx: u8) -> (f32, f32, f32) {
+    let idx = (tint_idx as usize).min(31);
+    let [r, g, b] = TINT_PALETTE[idx];
+    (r, g, b)
+}
+
+/// Draws a preview of the paint effect using precomputed pixels.
+fn draw_preview(ui: &mut egui::Ui, pixels: &[u8]) {
+    let preview_size = 128.0;
+    let (rect, _) =
+        ui.allocate_exact_size(egui::vec2(preview_size, preview_size), egui::Sense::hover());
+    let painter = ui.painter_at(rect);
+
+    // Draw as 32x32 grid sampling every 2nd pixel for performance
+    let cell_size = preview_size / 32.0;
+    for gy in 0..32 {
+        for gx in 0..32 {
+            let x = gx * 2;
+            let y = gy * 2;
+            let idx = (y * TEXTURE_SIZE + x) * 4;
+            if idx + 2 < pixels.len() {
+                let color = egui::Color32::from_rgb(pixels[idx], pixels[idx + 1], pixels[idx + 2]);
+                let cell_rect = egui::Rect::from_min_size(
+                    rect.min + egui::vec2(gx as f32 * cell_size, gy as f32 * cell_size),
+                    egui::vec2(cell_size, cell_size),
+                );
+                painter.rect_filled(cell_rect, 0.0, color);
+            }
+        }
+    }
+
+    // Border
+    painter.rect_stroke(
+        rect,
+        0.0,
+        egui::Stroke::new(1.0, egui::Color32::GRAY),
+        egui::StrokeKind::Outside,
+    );
 }
 
 /// Get texture names for the UI dropdown.
