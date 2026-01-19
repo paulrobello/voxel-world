@@ -959,6 +959,9 @@ pub fn render_hud(
         &ctx,
         &mut ui.paint_panel,
         &ui.texture_library,
+        &mut ui.hotbar_paint_textures,
+        &mut ui.hotbar_tint_indices,
+        &mut ui.hotbar_index,
     );
 
     scale_changed

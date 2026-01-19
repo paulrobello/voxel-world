@@ -2,6 +2,7 @@ use super::App;
 use crate::chunk::BlockType;
 use crate::preview::update_all_tool_previews;
 use crate::raycast::get_place_position;
+use crate::textures::slot_to_texture_index;
 use nalgebra::Vector3;
 use winit::event::MouseButton;
 use winit::keyboard::KeyCode;
@@ -9,6 +10,28 @@ use winit::keyboard::KeyCode;
 const ATLAS_TILE_COUNT: u8 = 45;
 
 impl App {
+    /// Cycles paint texture index across standard and custom textures.
+    fn next_paint_texture(&self, current: u8, step: i8) -> u8 {
+        let mut indices: Vec<u8> = (0..ATLAS_TILE_COUNT).collect();
+
+        // Append custom textures sorted by slot for stable order
+        let mut custom_slots = self.ui.texture_library.names();
+        custom_slots.sort_by_key(|(slot, _)| *slot);
+        for (slot, _) in custom_slots {
+            indices.push(slot_to_texture_index(slot));
+        }
+
+        if indices.is_empty() {
+            return current;
+        }
+
+        let current_pos = indices.iter().position(|&t| t == current).unwrap_or(0);
+        let delta = step.signum() as isize;
+        let len = indices.len() as isize;
+        let next_pos = (current_pos as isize + delta).rem_euclid(len) as usize;
+        indices[next_pos]
+    }
+
     /// Handle focus/unfocus toggles. Returns true if we should early-return from update.
     pub fn handle_focus_toggles(&mut self) -> bool {
         // Close palette with Escape (restores focus if it was focused before opening)
@@ -1343,19 +1366,16 @@ impl App {
         if self.input.key_pressed(KeyCode::BracketRight)
             && self.ui.hotbar_blocks[self.ui.hotbar_index] == BlockType::Painted
         {
-            let tex = (self.ui.hotbar_paint_textures[self.ui.hotbar_index] + 1) % ATLAS_TILE_COUNT;
+            let current = self.ui.hotbar_paint_textures[self.ui.hotbar_index];
+            let tex = self.next_paint_texture(current, 1);
             self.ui.hotbar_paint_textures[self.ui.hotbar_index] = tex;
             println!("Paint texture -> {}", tex);
         }
         if self.input.key_pressed(KeyCode::BracketLeft)
             && self.ui.hotbar_blocks[self.ui.hotbar_index] == BlockType::Painted
         {
-            let tex = self.ui.hotbar_paint_textures[self.ui.hotbar_index];
-            let tex = if tex == 0 {
-                ATLAS_TILE_COUNT - 1
-            } else {
-                tex - 1
-            };
+            let current = self.ui.hotbar_paint_textures[self.ui.hotbar_index];
+            let tex = self.next_paint_texture(current, -1);
             self.ui.hotbar_paint_textures[self.ui.hotbar_index] = tex;
             println!("Paint texture -> {}", tex);
         }

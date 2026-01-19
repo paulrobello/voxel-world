@@ -198,6 +198,19 @@ impl PaintPanelState {
         self.preview_dirty = true;
     }
 
+    /// Applies the current paint configuration to the given hotbar slot.
+    pub fn apply_to_hotbar_slot(
+        &self,
+        hotbar_index: usize,
+        hotbar_paint_textures: &mut [u8; 9],
+        hotbar_tint_indices: &mut [u8; 9],
+    ) {
+        if hotbar_index < hotbar_paint_textures.len() {
+            hotbar_paint_textures[hotbar_index] = self.current_config.texture_idx;
+            hotbar_tint_indices[hotbar_index] = self.current_config.tint_idx;
+        }
+    }
+
     /// Applies a preset to the current configuration.
     pub fn apply_preset(&mut self, preset: &PaintPreset) {
         if let Some(config) = preset.primary_config() {
@@ -267,6 +280,9 @@ impl PaintPanelUI {
         ctx: &egui::Context,
         state: &mut PaintPanelState,
         texture_library: &TextureLibrary,
+        hotbar_paint_textures: &mut [u8; 9],
+        hotbar_tint_indices: &mut [u8; 9],
+        hotbar_index: &mut usize,
     ) {
         if !state.open {
             return;
@@ -286,6 +302,18 @@ impl PaintPanelUI {
             .resizable(true)
             .collapsible(true)
             .show(ctx, |ui| {
+                // Quick apply to current hotbar slot
+                ui.horizontal(|ui| {
+                    ui.label(format!("Hotbar slot {}", *hotbar_index + 1));
+                    if ui.button("Apply to slot").clicked() {
+                        state.apply_to_hotbar_slot(
+                            *hotbar_index,
+                            hotbar_paint_textures,
+                            hotbar_tint_indices,
+                        );
+                    }
+                });
+                ui.add_space(6.0);
                 Self::draw_inner(ui, state, &texture_names, texture_library);
             });
 
