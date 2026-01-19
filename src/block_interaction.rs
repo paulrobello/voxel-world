@@ -118,6 +118,8 @@ impl App {
 
                 // Check if breaking a door - need to break both halves
                 let mut other_door_half: Option<Vector3<i32>> = None;
+                // Check if breaking a frame - need to break all frame blocks
+                let mut frame_blocks: Vec<Vector3<i32>> = Vec::new();
                 if block_type == BlockType::Model {
                     if let Some(model_data) = self.sim.world.get_model_data(target) {
                         if ModelRegistry::is_door_model(model_data.model_id) {
@@ -126,6 +128,16 @@ impl App {
                             } else {
                                 Some(target + Vector3::new(0, 1, 0))
                             };
+                        } else if ModelRegistry::is_frame_model(model_data.model_id) {
+                            // Get all blocks in this frame (excluding target)
+                            frame_blocks = ModelRegistry::frame_block_positions(
+                                target,
+                                model_data.model_id,
+                                model_data.custom_data,
+                            )
+                            .into_iter()
+                            .filter(|&p| p != target)
+                            .collect();
                         }
                     }
                 }
@@ -211,6 +223,37 @@ impl App {
                                     self.sim
                                         .world
                                         .invalidate_minimap_cache(other_pos.x, other_pos.z);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Break other frame blocks if present
+                for frame_pos in frame_blocks {
+                    if frame_pos.y >= 0 && frame_pos.y < TEXTURE_SIZE_Y as i32 {
+                        if let Some(BlockType::Model) = self.sim.world.get_block(frame_pos) {
+                            if let Some(frame_data) = self.sim.world.get_model_data(frame_pos) {
+                                if ModelRegistry::is_frame_model(frame_data.model_id) {
+                                    // Spawn particles for frame block break
+                                    let frame_color = BlockType::Model.color();
+                                    let particle_color = nalgebra::Vector3::new(
+                                        frame_color[0],
+                                        frame_color[1],
+                                        frame_color[2],
+                                    );
+                                    self.sim
+                                        .particles
+                                        .spawn_block_break(frame_pos.cast::<f32>(), particle_color);
+
+                                    if frame_data.waterlogged {
+                                        self.sim.world.set_block(frame_pos, BlockType::Water);
+                                    } else {
+                                        self.sim.world.set_block(frame_pos, BlockType::Air);
+                                    }
+                                    self.sim
+                                        .world
+                                        .invalidate_minimap_cache(frame_pos.x, frame_pos.z);
                                 }
                             }
                         }

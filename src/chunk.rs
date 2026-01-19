@@ -192,6 +192,10 @@ pub struct BlockModelData {
 
     /// Whether this block is waterlogged (contains water in the same space).
     pub waterlogged: bool,
+
+    /// Custom data for special model types (e.g., picture frames).
+    /// For frames: picture_id (20 bits) | offset_x (2 bits) | offset_y (2 bits) | facing (2 bits)
+    pub custom_data: u32,
 }
 
 /// Metadata for a paintable block (per-block texture + tint + blend mode).
@@ -943,6 +947,36 @@ impl Chunk {
                 model_id,
                 rotation,
                 waterlogged,
+                custom_data: 0,
+            },
+        );
+        self.dirty = true;
+        self.persistence_dirty = true;
+        self.metadata_dirty = true;
+        self.model_metadata_dirty.set(true);
+    }
+
+    /// Sets a model block with custom data (for frames, etc.).
+    #[allow(clippy::too_many_arguments)]
+    pub fn set_model_block_with_data(
+        &mut self,
+        x: usize,
+        y: usize,
+        z: usize,
+        model_id: u8,
+        rotation: u8,
+        waterlogged: bool,
+        custom_data: u32,
+    ) {
+        let idx = Self::index(x, y, z);
+        self.blocks[idx] = BlockType::Model;
+        self.model_data.insert(
+            idx,
+            BlockModelData {
+                model_id,
+                rotation,
+                waterlogged,
+                custom_data,
             },
         );
         self.dirty = true;
@@ -957,6 +991,18 @@ impl Chunk {
     pub fn get_model_data(&self, x: usize, y: usize, z: usize) -> Option<BlockModelData> {
         let idx = Self::index(x, y, z);
         self.model_data.get(&idx).copied()
+    }
+
+    /// Sets the custom_data field for an existing model block.
+    /// Does nothing if the block is not a Model type.
+    pub fn set_model_custom_data(&mut self, x: usize, y: usize, z: usize, custom_data: u32) {
+        let idx = Self::index(x, y, z);
+        if let Some(data) = self.model_data.get_mut(&idx) {
+            data.custom_data = custom_data;
+            self.dirty = true;
+            self.persistence_dirty = true;
+            self.model_metadata_dirty.set(true);
+        }
     }
 
     /// Sets the model data for a block at the given local coordinates.

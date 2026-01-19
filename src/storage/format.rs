@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
 
 /// Version of the serialization format.
-pub const FORMAT_VERSION: u8 = 2;
+/// v2: Added tinted and painted metadata
+/// v3: Added frame metadata (custom_data for models)
+pub const FORMAT_VERSION: u8 = 3;
 
 /// Metadata for a single block in a chunk.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -50,6 +52,15 @@ pub struct PaintMeta {
     pub tint: u8,
 }
 
+/// Metadata for model blocks with custom data (e.g., picture frames).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct FrameMeta {
+    /// Flattened index in the chunk.
+    pub index: u16,
+    /// Custom data (for frames: picture_id, offset, facing).
+    pub custom_data: u32,
+}
+
 /// A chunk serialized for storage or network transmission.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SerializedChunk {
@@ -67,6 +78,9 @@ pub struct SerializedChunk {
     /// Sparse metadata for painted blocks.
     #[serde(default)]
     pub painted: Vec<PaintMeta>,
+    /// Sparse metadata for model blocks with custom data (frames, etc.).
+    #[serde(default)]
+    pub frames: Vec<FrameMeta>,
 }
 
 impl SerializedChunk {

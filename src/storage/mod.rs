@@ -7,7 +7,7 @@ pub mod stencil_state;
 pub mod worker;
 
 pub use crate::chunk::Chunk;
-pub use format::{BlockMeta, FORMAT_VERSION, PaintMeta, SerializedChunk, TintMeta};
+pub use format::{BlockMeta, FORMAT_VERSION, FrameMeta, PaintMeta, SerializedChunk, TintMeta};
 pub use worker::ParallelStorageReader;
 
 use crate::chunk::{BlockType, CHUNK_VOLUME};
@@ -40,11 +40,20 @@ impl From<&Chunk> for SerializedChunk {
         let mut metadata = Vec::new();
         let mut tinted = Vec::new();
         let mut painted = Vec::new();
+        let mut frames = Vec::new();
 
         for (idx, data) in chunk.model_entries() {
             let mut meta = BlockMeta::pack(data.model_id, data.rotation, data.waterlogged);
             meta.index = *idx as u16;
             metadata.push(meta);
+
+            // Save custom_data for frames (models with non-zero custom_data)
+            if data.custom_data != 0 {
+                frames.push(FrameMeta {
+                    index: *idx as u16,
+                    custom_data: data.custom_data,
+                });
+            }
         }
 
         for (idx, tint) in chunk.tinted_entries() {
@@ -66,6 +75,7 @@ impl From<&Chunk> for SerializedChunk {
         metadata.sort_by_key(|m| m.index);
         tinted.sort_by_key(|m| m.index);
         painted.sort_by_key(|m| m.index);
+        frames.sort_by_key(|m| m.index);
 
         Self {
             version: FORMAT_VERSION,
@@ -74,6 +84,7 @@ impl From<&Chunk> for SerializedChunk {
             metadata,
             tinted,
             painted,
+            frames,
         }
     }
 }
@@ -121,6 +132,12 @@ impl TryFrom<SerializedChunk> for Chunk {
         for meta in serialized.painted {
             let (x, y, z) = Chunk::index_to_coords(meta.index as usize);
             chunk.set_painted_block(x, y, z, meta.texture, meta.tint);
+        }
+
+        // Set frame/custom model metadata (version >=3)
+        for meta in serialized.frames {
+            let (x, y, z) = Chunk::index_to_coords(meta.index as usize);
+            chunk.set_model_custom_data(x, y, z, meta.custom_data);
         }
 
         chunk.update_metadata();

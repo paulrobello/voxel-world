@@ -55,6 +55,7 @@ mod hud;
 mod lava;
 mod paint;
 mod particles;
+mod pictures;
 mod placement;
 mod player;
 mod preview;

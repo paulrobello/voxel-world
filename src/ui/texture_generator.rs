@@ -108,10 +108,15 @@ impl TextureGeneratorUI {
                             });
 
                         ui.separator();
-                        if ui.button("➕ New").clicked() && !library.is_full() {
+                        let can_add = !library.is_full();
+                        if ui
+                            .add_enabled(can_add, egui::Button::new("➕ New"))
+                            .clicked()
+                        {
                             state.new_texture();
+                            println!("[Texture] Started new texture");
                         }
-                        if library.is_full() {
+                        if !can_add {
                             ui.small("(Max 16 textures)");
                         }
                     });
@@ -150,6 +155,20 @@ impl TextureGeneratorUI {
     /// Draws the texture editor panel.
     fn draw_editor(ui: &mut egui::Ui, state: &mut TextureGeneratorState) {
         let mut changed = false;
+
+        // Show editing mode indicator
+        if state.selected_slot.is_none() {
+            ui.colored_label(
+                egui::Color32::from_rgb(100, 200, 100),
+                "✨ Creating New Texture",
+            );
+        } else {
+            ui.colored_label(
+                egui::Color32::from_rgb(100, 150, 255),
+                format!("✏ Editing Slot {}", state.selected_slot.unwrap()),
+            );
+        }
+        ui.add_space(4.0);
 
         // Name
         ui.horizontal(|ui| {

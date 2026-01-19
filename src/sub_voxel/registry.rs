@@ -1001,6 +1001,109 @@ impl ModelRegistry {
         }
     }
 
+    // ========================================================================
+    // PICTURE FRAME HELPERS
+    // ========================================================================
+
+    /// First picture frame model ID.
+    pub const FIRST_FRAME_ID: u8 = 160;
+
+    /// Last picture frame model ID.
+    pub const LAST_FRAME_ID: u8 = 168;
+
+    /// Checks if a model ID is a picture frame (IDs 160-168).
+    pub fn is_frame_model(model_id: u8) -> bool {
+        (Self::FIRST_FRAME_ID..=Self::LAST_FRAME_ID).contains(&model_id)
+    }
+
+    /// Returns the frame size for a given model ID.
+    /// Returns (width, height) in blocks, or None if not a frame.
+    pub fn frame_size(model_id: u8) -> Option<(u8, u8)> {
+        match model_id {
+            160 => Some((1, 1)),
+            161 => Some((1, 2)),
+            162 => Some((1, 3)),
+            163 => Some((2, 1)),
+            164 => Some((2, 2)),
+            165 => Some((2, 3)),
+            166 => Some((3, 1)),
+            167 => Some((3, 2)),
+            168 => Some((3, 3)),
+            _ => None,
+        }
+    }
+
+    /// Returns the frame model ID for a given size.
+    /// Returns None if size is invalid (not 1-3 in each dimension).
+    pub fn frame_model_id(width: u8, height: u8) -> Option<u8> {
+        match (width, height) {
+            (1, 1) => Some(160),
+            (1, 2) => Some(161),
+            (1, 3) => Some(162),
+            (2, 1) => Some(163),
+            (2, 2) => Some(164),
+            (2, 3) => Some(165),
+            (3, 1) => Some(166),
+            (3, 2) => Some(167),
+            (3, 3) => Some(168),
+            _ => None,
+        }
+    }
+
+    /// Returns all block positions for a frame, given one block's position and its metadata.
+    /// Uses the frame's size and the block's offset within the frame to find all blocks.
+    ///
+    /// # Arguments
+    /// * `pos` - World position of the known frame block
+    /// * `model_id` - Model ID of the frame (160-168)
+    /// * `custom_data` - The block's custom_data containing offset and facing
+    ///
+    /// # Returns
+    /// A Vec of all world positions that make up this frame (including the input position).
+    pub fn frame_block_positions(
+        pos: nalgebra::Vector3<i32>,
+        model_id: u8,
+        custom_data: u32,
+    ) -> Vec<nalgebra::Vector3<i32>> {
+        use crate::sub_voxel::builtins::frames::metadata;
+
+        let Some((width, height)) = Self::frame_size(model_id) else {
+            return vec![pos];
+        };
+
+        let offset_x = metadata::decode_offset_x(custom_data);
+        let offset_y = metadata::decode_offset_y(custom_data);
+        let facing = metadata::decode_facing(custom_data);
+
+        // Calculate anchor position (bottom-left of frame)
+        let (dx, dz): (i32, i32) = match facing {
+            0 => (1, 0),  // +X direction
+            1 => (0, 1),  // +Z direction
+            2 => (-1, 0), // -X direction
+            3 => (0, -1), // -Z direction
+            _ => (1, 0),
+        };
+
+        // Calculate anchor from known block position and its offset
+        let anchor_x = pos.x - (offset_x as i32 * dx);
+        let anchor_y = pos.y - offset_y as i32;
+        let anchor_z = pos.z - (offset_x as i32 * dz);
+
+        // Generate all block positions
+        let mut positions = Vec::with_capacity((width * height) as usize);
+        for ox in 0..width {
+            for oy in 0..height {
+                positions.push(nalgebra::Vector3::new(
+                    anchor_x + (ox as i32 * dx),
+                    anchor_y + oy as i32,
+                    anchor_z + (ox as i32 * dz),
+                ));
+            }
+        }
+
+        positions
+    }
+
     /// Gets custom door pairs data for persistence.
     pub fn get_custom_door_pairs(&self) -> &[SimpleDoorPair] {
         &self.custom_door_pairs

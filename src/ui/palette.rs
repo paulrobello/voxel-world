@@ -221,6 +221,16 @@ impl PaletteUI {
             // Glass panes
             push_if(119, "Glass Pane (Horizontal)");
             push_if(135, "Glass Pane (Vertical)");
+            // Picture frames (9 sizes)
+            push_if(160, "Frame 1×1");
+            push_if(161, "Frame 1×2");
+            push_if(162, "Frame 1×3");
+            push_if(163, "Frame 2×1");
+            push_if(164, "Frame 2×2");
+            push_if(165, "Frame 2×3");
+            push_if(166, "Frame 3×1");
+            push_if(167, "Frame 3×2");
+            push_if(168, "Frame 3×3");
 
             // Add custom/user models from the registry
             for model in registry.iter_custom_models() {
