@@ -419,33 +419,31 @@ bool marchSubVoxelModel(
         uint palette_idx = sampleModelVoxel(model_id, rotatedPos);
 
         // Frame border masking for merged frames
+        bool is_border_voxel = isFrame && (palette_idx >= 1u && palette_idx <= 3u);
+
         // Check if this edge should be stripped based on frame_mask
         bool should_strip = false;
         if (isFrame) {
             if (voxel.x == 0 && (frame_mask & 1u) == 0u) {
                 should_strip = true;
-            }
-            if (voxel.x == int(res) - 1 && (frame_mask & 2u) == 0u) {
+            } else if (voxel.x == int(res) - 1 && (frame_mask & 2u) == 0u) {
                 should_strip = true;
-            }
-            if (voxel.y == 0 && (frame_mask & 4u) == 0u) {
+            } else if (voxel.y == 0 && (frame_mask & 4u) == 0u) {
                 should_strip = true;
-            }
-            if (voxel.y == int(res) - 1 && (frame_mask & 8u) == 0u) {
+            } else if (voxel.y == int(res) - 1 && (frame_mask & 8u) == 0u) {
                 should_strip = true;
             }
         }
 
-        // Strip ALL voxels (border and picture) at interior edges
-        if (should_strip && isFrame) {
-            continue;  // Skip this voxel, treating it as transparent
+        // Strip border voxels at interior edges of merged frames
+        if (should_strip && is_border_voxel) {
+            continue;  // Skip this voxel, allowing ray to reach picture area behind
         }
 
-        // Normal wood color for borders
+        // Default brown color for frame borders
         vec3 frame_debug_color = vec3(0.5, 0.3, 0.1);
-        bool is_border_voxel = isFrame && (palette_idx >= 1u && palette_idx <= 3u);
         if (is_border_voxel) {
-            frame_debug_color = vec3(0.5, 0.3, 0.1);
+            frame_debug_color = vec3(0.5, 0.3, 0.1);  // Normal wood color
         }
 
         // Hit if not air (palette index 0 = transparent)
