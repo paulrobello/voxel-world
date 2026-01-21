@@ -516,6 +516,15 @@ impl World {
         for offset in neighbors {
             self.update_frame_cluster(center_pos + offset);
         }
+
+        // Mark chunks as dirty to ensure metadata is uploaded to GPU
+        for offset in neighbors {
+            let pos = center_pos + offset;
+            let chunk_pos = Self::world_to_chunk(pos);
+            if let Some(chunk) = self.chunks.get_mut(&chunk_pos) {
+                chunk.mark_dirty();
+            }
+        }
     }
 
     /// Recomputes all frame clusters in the world.
