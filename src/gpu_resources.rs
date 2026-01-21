@@ -766,6 +766,7 @@ pub fn load_icon(icon: &[u8]) -> Icon {
 
 /// Load a texture atlas from a file and create a GPU texture with sampler.
 /// Returns (descriptor_set, sampler, image_view) for binding to the shader and egui.
+#[allow(dead_code)]
 pub fn load_texture_atlas(
     memory_allocator: Arc<StandardMemoryAllocator>,
     command_buffer_allocator: Arc<StandardCommandBufferAllocator>,

@@ -194,7 +194,8 @@ pub struct BlockModelData {
     pub waterlogged: bool,
 
     /// Custom data for special model types (e.g., picture frames).
-    /// For frames: picture_id (20 bits) | offset_x (2 bits) | offset_y (2 bits) | facing (2 bits)
+    /// For frames: picture_id (20 bits) | offset_x (2 bits) | offset_y (2 bits)
+    /// | width_minus_one (2 bits) | height_minus_one (2 bits) | facing (2 bits)
     pub custom_data: u32,
 }
 
@@ -236,6 +237,56 @@ impl BlockPaintData {
 }
 
 impl BlockType {
+    /// Canonical block names used for parsing and autocomplete (no aliases).
+    pub const NAME_TABLE: &[(Self, &str)] = &[
+        (Self::Air, "air"),
+        (Self::Stone, "stone"),
+        (Self::Dirt, "dirt"),
+        (Self::Grass, "grass"),
+        (Self::Planks, "planks"),
+        (Self::Leaves, "leaves"),
+        (Self::Sand, "sand"),
+        (Self::Gravel, "gravel"),
+        (Self::Water, "water"),
+        (Self::Glass, "glass"),
+        (Self::Log, "log"),
+        (Self::Brick, "brick"),
+        (Self::Snow, "snow"),
+        (Self::Ice, "ice"),
+        (Self::Cobblestone, "cobblestone"),
+        (Self::Iron, "iron"),
+        (Self::Bedrock, "bedrock"),
+        (Self::TintedGlass, "tintedglass"),
+        (Self::Painted, "painted"),
+        (Self::Lava, "lava"),
+        (Self::GlowStone, "glowstone"),
+        (Self::GlowMushroom, "glowmushroom"),
+        (Self::Crystal, "crystal"),
+        (Self::PineLog, "pinelog"),
+        (Self::WillowLog, "willowlog"),
+        (Self::PineLeaves, "pineleaves"),
+        (Self::WillowLeaves, "willowleaves"),
+        (Self::BirchLog, "birchlog"),
+        (Self::BirchLeaves, "birchleaves"),
+        (Self::Mud, "mud"),
+        (Self::Sandstone, "sandstone"),
+        (Self::Cactus, "cactus"),
+        (Self::DecorativeStone, "decorativestone"),
+        (Self::Concrete, "concrete"),
+        (Self::Deepslate, "deepslate"),
+        (Self::Moss, "moss"),
+        (Self::MossyCobblestone, "mossycobblestone"),
+        (Self::Clay, "clay"),
+        (Self::Dripstone, "dripstone"),
+        (Self::Calcite, "calcite"),
+        (Self::Terracotta, "terracotta"),
+        (Self::PackedIce, "packedice"),
+        (Self::Podzol, "podzol"),
+        (Self::Mycelium, "mycelium"),
+        (Self::CoarseDirt, "coarsedirt"),
+        (Self::RootedDirt, "rooteddirt"),
+    ];
+
     /// Returns true if this block type is solid (not air, water, glass, or model blocks).
     /// Note: Model blocks may have sub-voxel collision, but are not solid at block level.
     #[inline]
@@ -524,113 +575,20 @@ impl BlockType {
     /// Parse a block type from its name (case-insensitive).
     ///
     /// Returns `None` for unrecognized names.
-    /// Note: Does not include Model or TintedGlass as they require additional metadata.
+    /// Note: Model blocks still require model metadata to be set separately.
     pub fn from_name(name: &str) -> Option<Self> {
-        match name.to_lowercase().as_str() {
-            "air" => Some(BlockType::Air),
-            "stone" => Some(BlockType::Stone),
-            "dirt" => Some(BlockType::Dirt),
-            "grass" => Some(BlockType::Grass),
-            "planks" | "wood" => Some(BlockType::Planks),
-            "leaves" => Some(BlockType::Leaves),
-            "sand" => Some(BlockType::Sand),
-            "gravel" => Some(BlockType::Gravel),
-            "water" => Some(BlockType::Water),
-            "glass" => Some(BlockType::Glass),
-            "log" => Some(BlockType::Log),
-            "brick" | "bricks" => Some(BlockType::Brick),
-            "snow" => Some(BlockType::Snow),
-            "ice" => Some(BlockType::Ice),
-            "cobblestone" | "cobble" => Some(BlockType::Cobblestone),
-            "iron" => Some(BlockType::Iron),
-            "bedrock" => Some(BlockType::Bedrock),
-            "tintedglass" | "tinted_glass" | "stained_glass" => Some(BlockType::TintedGlass),
-            "painted" | "paint" => Some(BlockType::Painted),
-            "lava" => Some(BlockType::Lava),
-            "glowstone" | "glow_stone" => Some(BlockType::GlowStone),
-            "glowmushroom" | "glow_mushroom" | "mushroom" => Some(BlockType::GlowMushroom),
-            "crystal" => Some(BlockType::Crystal),
-            "pinelog" | "pine_log" => Some(BlockType::PineLog),
-            "willowlog" | "willow_log" => Some(BlockType::WillowLog),
-            "pineleaves" | "pine_leaves" => Some(BlockType::PineLeaves),
-            "willowleaves" | "willow_leaves" => Some(BlockType::WillowLeaves),
-            "birchlog" | "birch_log" => Some(BlockType::BirchLog),
-            "birchleaves" | "birch_leaves" => Some(BlockType::BirchLeaves),
-            "mud" => Some(BlockType::Mud),
-            "sandstone" => Some(BlockType::Sandstone),
-            "cactus" => Some(BlockType::Cactus),
-            "decorativestone" | "decorative_stone" | "decstone" => Some(BlockType::DecorativeStone),
-            "concrete" => Some(BlockType::Concrete),
-            "deepslate" | "deep_slate" => Some(BlockType::Deepslate),
-            "moss" => Some(BlockType::Moss),
-            "mossycobblestone" | "mossy_cobblestone" | "mossycobble" => {
-                Some(BlockType::MossyCobblestone)
-            }
-            "clay" => Some(BlockType::Clay),
-            "dripstone" | "drip_stone" => Some(BlockType::Dripstone),
-            "calcite" => Some(BlockType::Calcite),
-            "terracotta" => Some(BlockType::Terracotta),
-            "packedice" | "packed_ice" => Some(BlockType::PackedIce),
-            "podzol" => Some(BlockType::Podzol),
-            "mycelium" => Some(BlockType::Mycelium),
-            "coarsedirt" | "coarse_dirt" => Some(BlockType::CoarseDirt),
-            "rooteddirt" | "rooted_dirt" => Some(BlockType::RootedDirt),
-            _ => None,
-        }
+        let lower = name.to_lowercase();
+        Self::NAME_TABLE
+            .iter()
+            .find(|(_, n)| *n == lower)
+            .map(|(b, _)| *b)
     }
 
     /// Returns a list of all valid block names for autocomplete.
     ///
     /// Returns primary names only (no aliases).
     pub fn all_block_names() -> Vec<&'static str> {
-        vec![
-            "air",
-            "stone",
-            "dirt",
-            "grass",
-            "planks",
-            "leaves",
-            "sand",
-            "gravel",
-            "water",
-            "glass",
-            "log",
-            "brick",
-            "snow",
-            "ice",
-            "cobblestone",
-            "iron",
-            "bedrock",
-            "tintedglass",
-            "painted",
-            "lava",
-            "glowstone",
-            "glowmushroom",
-            "crystal",
-            "pinelog",
-            "willowlog",
-            "pineleaves",
-            "willowleaves",
-            "mud",
-            "sandstone",
-            "cactus",
-            "decorativestone",
-            "concrete",
-            "deepslate",
-            "moss",
-            "mossycobblestone",
-            "clay",
-            "dripstone",
-            "calcite",
-            "terracotta",
-            "packedice",
-            "podzol",
-            "mycelium",
-            "coarsedirt",
-            "rooteddirt",
-            "birchlog",
-            "birchleaves",
-        ]
+        Self::NAME_TABLE.iter().map(|(_, n)| *n).collect()
     }
 }
 
@@ -1016,6 +974,59 @@ impl Chunk {
         self.model_metadata_dirty.set(true);
     }
 
+    /// Recomputes frame edge masks from custom_data metadata.
+    /// This ensures frames loaded from storage have correct edge masks.
+    pub fn recompute_frame_edge_masks(&mut self) {
+        use crate::sub_voxel::ModelRegistry;
+        use crate::sub_voxel::builtins::frames;
+
+        let mut updates = Vec::new();
+
+        for (&idx, data) in &self.model_data {
+            if ModelRegistry::is_frame_model(data.model_id) {
+                let (_x, _y, _z) = Self::index_to_coords(idx);
+                let custom_data = data.custom_data;
+
+                // Extract frame metadata
+                let offset_x = frames::metadata::decode_offset_x(custom_data);
+                let offset_y = frames::metadata::decode_offset_y(custom_data);
+                let width = frames::metadata::decode_width(custom_data);
+                let height = frames::metadata::decode_height(custom_data);
+                let facing = frames::metadata::decode_facing(custom_data);
+
+                // Compute edge mask from position in cluster
+                let mask_left = offset_x == 0;
+                let mask_right = offset_x + 1 == width;
+                let mask_bottom = offset_y == 0;
+                let mask_top = offset_y + 1 == height;
+                let edge_mask: u8 = (mask_left as u8)
+                    | ((mask_right as u8) << 1)
+                    | ((mask_bottom as u8) << 2)
+                    | ((mask_top as u8) << 3);
+
+                // Update rotation with edge mask
+                let rotation = (facing & 0x03) | (edge_mask << 3);
+
+                if rotation != data.rotation {
+                    updates.push((
+                        idx,
+                        BlockModelData {
+                            model_id: data.model_id,
+                            rotation,
+                            waterlogged: data.waterlogged,
+                            custom_data,
+                        },
+                    ));
+                }
+            }
+        }
+
+        for (idx, data) in updates {
+            self.model_data.insert(idx, data);
+            self.model_metadata_dirty.set(true);
+        }
+    }
+
     /// Sets a tinted glass block with its color index at the given local coordinates.
     #[inline]
     pub fn set_tinted_glass_block(&mut self, x: usize, y: usize, z: usize, tint_index: u8) {
@@ -1243,8 +1254,9 @@ impl Chunk {
                 for (idx, data) in &self.model_data {
                     let offset = idx * 2;
                     buf[offset] = data.model_id;
-                    // Pack rotation (bits 0-1) and waterlogged (bit 2)
-                    let mut packed_meta = data.rotation & 0x03;
+                    // Pack rotation (bits 0-1), frame edge mask (bits 3-6), and waterlogged (bit 2).
+                    // Bit 7 remains unused.
+                    let mut packed_meta = data.rotation & 0xFB; // keep custom flag bits, clear bit 2 (waterlogged slot)
                     if data.waterlogged {
                         packed_meta |= 0x04;
                     }

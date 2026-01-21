@@ -4,6 +4,7 @@ use super::helpers::HudHelpers;
 use crate::app_state::PaletteItem;
 use crate::chunk::{BlockType, WaterType};
 use crate::gpu_resources::SpriteIcons;
+use crate::sub_voxel::ModelRegistry;
 use egui_winit_vulkano::egui;
 
 pub struct HotbarUI;
@@ -81,6 +82,7 @@ impl HotbarUI {
         hotbar_index: &mut usize,
         atlas_texture_id: egui::TextureId,
         sprite_icons: Option<&SpriteIcons>,
+        model_registry: &ModelRegistry,
         dragging_item: &mut Option<PaletteItem>,
     ) {
         let atlas_tile_count = HudHelpers::ATLAS_TILE_COUNT;
@@ -284,7 +286,19 @@ impl HotbarUI {
                                     110..=118 => "Model".to_string(),
                                     119..=134 => "Glass Pane (H)".to_string(),
                                     135..=150 => "Glass Pane (V)".to_string(),
-                                    _ => "Model".to_string(),
+                                    160 => "Frame".to_string(),
+                                    id => model_registry
+                                        .get(id)
+                                        .map(|m| {
+                                            if m.name.starts_with("reserved_") {
+                                                "Model".to_string()
+                                            } else if m.name.starts_with("frame") {
+                                                "Frame".to_string()
+                                            } else {
+                                                m.name.replace('_', " ")
+                                            }
+                                        })
+                                        .unwrap_or_else(|| "Model".to_string()),
                                 }
                             } else if hotbar_blocks[*hotbar_index] == BlockType::Water {
                                 match WaterType::from_u8(hotbar_tint_indices[*hotbar_index]) {

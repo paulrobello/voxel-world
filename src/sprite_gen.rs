@@ -3,7 +3,8 @@ use crate::config::Args;
 use crate::gpu_resources::{
     PushConstants, create_empty_voxel_texture, get_brick_and_model_set, get_chunk_metadata_set,
     get_distance_image_and_set, get_images_and_sets, get_light_set,
-    get_particle_and_falling_block_set, load_texture_atlas, save_screenshot, upload_chunks_batched,
+    get_particle_and_falling_block_set, load_texture_atlases, save_screenshot,
+    upload_chunks_batched,
 };
 use crate::hot_reload::HotReloadComputePipeline;
 use crate::render_mode::RenderMode;
@@ -79,7 +80,7 @@ pub fn run(_args: &Args, event_loop: &EventLoop<()>) -> Result<(), Box<dyn Error
     );
 
     let texture_path = root.join("textures").join("texture_atlas.png");
-    let (texture_set, _sampler, _atlas_view) = load_texture_atlas(
+    let (texture_set, _sampler, _atlas_view, _custom_view, _custom_image) = load_texture_atlases(
         memory_allocator.clone(),
         command_buffer_allocator.clone(),
         descriptor_set_allocator.clone(),
@@ -306,6 +307,10 @@ pub fn run(_args: &Args, event_loop: &EventLoop<()>) -> Result<(), Box<dyn Error
     }
 
     for model_id in 1u8..(model_registry.len() as u8) {
+        // Skip reserved placeholders 151-159
+        if (151..=159).contains(&model_id) {
+            continue;
+        }
         render_icon(
             IconTarget::Model(model_id),
             &vk.queue,

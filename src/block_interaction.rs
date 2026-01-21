@@ -859,6 +859,7 @@ impl App {
         if block_to_place == BlockType::Model {
             let base_model_id = self.ui.hotbar_model_ids[self.ui.hotbar_index];
             let mut rotation = 0u8;
+            let mut custom_data: u32 = 0;
 
             // Determine final model_id based on type and connections
             let model_id = if ModelRegistry::is_fence_model(base_model_id)
@@ -1179,6 +1180,55 @@ impl App {
                     .set_model_block(place_pos, model_id, rotation, waterlogged);
                 self.sim.world.update_vertical_pane_connections(place_pos);
                 return true;
+            } else if ModelRegistry::is_frame_model(base_model_id) {
+                // Picture frame auto-sizing: grow to include existing adjacent frames (up to 3x3).
+                use crate::sub_voxel::builtins::frames;
+
+                // Derive facing from hit normal for stable orientation per wall.
+                let facing = if let Some(hit) = self.ui.current_hit {
+                    let n = hit.normal;
+                    if n.z < 0 {
+                        0 // North wall, width along +X
+                    } else if n.z > 0 {
+                        2 // South wall, width along -X
+                    } else if n.x < 0 {
+                        3 // West wall (negative X normal), width along -Z
+                    } else if n.x > 0 {
+                        1 // East wall (positive X normal), width along +Z
+                    } else {
+                        0
+                    }
+                } else {
+                    0
+                };
+
+                let right = crate::world::World::frame_right_vec(facing);
+                let up = nalgebra::Vector3::new(0, 1, 0);
+
+                // Gather contiguous frame blocks in a 3x3 bounding box anchored at placement.
+                let mut max_w = 1u8;
+                let mut max_h = 1u8;
+                for dx in 0..frames::MAX_FRAME_DIM {
+                    for dy in 0..frames::MAX_FRAME_DIM {
+                        let check_pos = place_pos + right * dx as i32 + up * dy as i32;
+                        if let Some(BlockType::Model) = self.sim.world.get_block(check_pos) {
+                            if let Some(md) = self.sim.world.get_model_data(check_pos) {
+                                if ModelRegistry::is_frame_model(md.model_id) {
+                                    max_w = max_w.max(dx + 1);
+                                    max_h = max_h.max(dy + 1);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                custom_data = frames::metadata::encode(0, 0, 0, max_w, max_h, facing);
+
+                // Encode outer-edge mask (all edges present for initial placement) into rotation high bits.
+                // Bits: 0=left,1=right,2=bottom,3=top.
+                let edge_mask: u8 = 0x0F;
+                rotation = (facing & 0x03) | (edge_mask << 3);
+                frames::FRAME_MODEL_ID
             } else if base_model_id >= FIRST_CUSTOM_MODEL_ID {
                 // Custom models: auto-rotate to face player
                 let yaw = self.sim.player.camera.rotation.y as f32;
@@ -1189,15 +1239,28 @@ impl App {
                 base_model_id
             };
 
-            self.sim
-                .world
-                .set_model_block(place_pos, model_id, rotation, waterlogged);
+            // Use extended setter if custom_data is present (frames), otherwise regular.
+            if custom_data != 0 {
+                self.sim.world.set_model_block_with_data(
+                    place_pos,
+                    model_id,
+                    rotation,
+                    waterlogged,
+                    custom_data,
+                );
+            } else {
+                self.sim
+                    .world
+                    .set_model_block(place_pos, model_id, rotation, waterlogged);
+            }
 
             if ModelRegistry::is_fence_or_gate(model_id) {
                 self.sim.world.update_fence_connections(place_pos);
             } else if ModelRegistry::is_stairs_model(model_id) {
                 // Update placed stair and neighbors to form corners
                 self.sim.world.update_stair_and_neighbors(place_pos);
+            } else if ModelRegistry::is_frame_model(model_id) {
+                self.sim.world.update_adjacent_frame_clusters(place_pos);
             }
         } else if block_to_place == BlockType::TintedGlass {
             // TintedGlass needs the tint_index from the hotbar

@@ -510,4 +510,43 @@ impl World {
             self.update_frame_cluster(center_pos + offset);
         }
     }
+
+    /// Recomputes all frame clusters in the world.
+    /// This scans for all frame blocks and updates their cluster metadata.
+    /// Useful for migrating worlds from before frame clustering was implemented.
+    pub fn recompute_all_frame_clusters(&mut self) {
+        use crate::sub_voxel::ModelRegistry;
+
+        let mut frame_positions = Vec::new();
+
+        // First pass: collect all frame positions
+        let chunk_positions: Vec<_> = self.chunks.keys().copied().collect();
+        for chunk_pos in chunk_positions {
+            let chunk = match self.chunks.get(&chunk_pos) {
+                Some(c) => c,
+                None => continue,
+            };
+
+            // Get all model entries from this chunk
+            for (&idx, _data) in chunk.model_entries() {
+                let (lx, ly, lz) = crate::chunk::Chunk::index_to_coords(idx);
+                let world_pos = crate::world::World::chunk_to_world(chunk_pos);
+
+                // Add local offset
+                let world_pos = world_pos + nalgebra::Vector3::new(lx as i32, ly as i32, lz as i32);
+
+                // Check if this is a frame
+                if let Some(model_data) = chunk.get_model_data(lx, ly, lz) {
+                    if ModelRegistry::is_frame_model(model_data.model_id) {
+                        frame_positions.push(world_pos);
+                    }
+                }
+            }
+        }
+
+        // Second pass: update frame clusters
+        for world_pos in frame_positions {
+            self.update_frame_cluster(world_pos);
+        }
+    }
 }

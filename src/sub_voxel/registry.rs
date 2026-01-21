@@ -100,7 +100,7 @@ impl ModelRegistry {
 
     /// Returns an iterator over custom (user-created) models.
     ///
-    /// Custom models have IDs >= FIRST_CUSTOM_MODEL_ID (39+).
+    /// Custom models have IDs >= FIRST_CUSTOM_MODEL_ID (161+).
     pub fn iter_custom_models(&self) -> impl Iterator<Item = &SubVoxelModel> {
         let start_id = FIRST_CUSTOM_MODEL_ID as usize;
         self.models.iter().skip(start_id)
@@ -1005,47 +1005,30 @@ impl ModelRegistry {
     // PICTURE FRAME HELPERS
     // ========================================================================
 
-    /// First picture frame model ID.
+    /// First picture frame model ID (canonical auto-sizing frame).
     pub const FIRST_FRAME_ID: u8 = 160;
 
-    /// Last picture frame model ID.
-    pub const LAST_FRAME_ID: u8 = 168;
+    /// Last picture frame model ID (no aliases).
+    pub const LAST_FRAME_ID: u8 = 160;
 
-    /// Checks if a model ID is a picture frame (IDs 160-168).
+    /// Checks if a model ID is a picture frame (ID 160).
     pub fn is_frame_model(model_id: u8) -> bool {
         (Self::FIRST_FRAME_ID..=Self::LAST_FRAME_ID).contains(&model_id)
     }
 
     /// Returns the frame size for a given model ID.
-    /// Returns (width, height) in blocks, or None if not a frame.
+    /// Returns (1,1) for the single frame model; actual size comes from metadata.
     pub fn frame_size(model_id: u8) -> Option<(u8, u8)> {
         match model_id {
             160 => Some((1, 1)),
-            161 => Some((1, 2)),
-            162 => Some((1, 3)),
-            163 => Some((2, 1)),
-            164 => Some((2, 2)),
-            165 => Some((2, 3)),
-            166 => Some((3, 1)),
-            167 => Some((3, 2)),
-            168 => Some((3, 3)),
             _ => None,
         }
     }
 
-    /// Returns the frame model ID for a given size.
-    /// Returns None if size is invalid (not 1-3 in each dimension).
+    /// Returns the frame model ID for a given size (all valid sizes map to 160).
     pub fn frame_model_id(width: u8, height: u8) -> Option<u8> {
         match (width, height) {
-            (1, 1) => Some(160),
-            (1, 2) => Some(161),
-            (1, 3) => Some(162),
-            (2, 1) => Some(163),
-            (2, 2) => Some(164),
-            (2, 3) => Some(165),
-            (3, 1) => Some(166),
-            (3, 2) => Some(167),
-            (3, 3) => Some(168),
+            (1..=3, 1..=3) => Some(160),
             _ => None,
         }
     }
@@ -1055,7 +1038,7 @@ impl ModelRegistry {
     ///
     /// # Arguments
     /// * `pos` - World position of the known frame block
-    /// * `model_id` - Model ID of the frame (160-168)
+    /// * `model_id` - Model ID of the frame (160)
     /// * `custom_data` - The block's custom_data containing offset and facing
     ///
     /// # Returns
@@ -1067,8 +1050,18 @@ impl ModelRegistry {
     ) -> Vec<nalgebra::Vector3<i32>> {
         use crate::sub_voxel::builtins::frames::metadata;
 
-        let Some((width, height)) = Self::frame_size(model_id) else {
-            return vec![pos];
+        // Size is stored in metadata; fallback to single model if missing.
+        let meta_width = metadata::decode_width(custom_data);
+        let meta_height = metadata::decode_height(custom_data);
+        let (width, height) = match (meta_width, meta_height) {
+            (w, h) if w > 0 && h > 0 => (w, h),
+            _ => {
+                if let Some((w, h)) = Self::frame_size(model_id) {
+                    (w, h)
+                } else {
+                    return vec![pos];
+                }
+            }
         };
 
         let offset_x = metadata::decode_offset_x(custom_data);

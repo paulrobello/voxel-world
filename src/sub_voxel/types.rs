@@ -150,12 +150,14 @@ pub const PALETTE_SIZE: usize = 32;
 pub const NUM_RESOLUTION_TIERS: usize = 3;
 
 /// First model ID available for custom/user models.
-/// Built-in models occupy IDs 0-150, so custom models start at 151.
+/// Built-in models occupy IDs 0-160; custom models start at 161.
 /// - IDs 0-118: Original built-ins (torch, slabs, fences, doors, etc.)
 /// - IDs 119-134: Horizontal glass panes (16 connection variants)
 /// - IDs 135-150: Vertical glass panes (16 connection variants)
+/// - IDs 151-159: Reserved placeholders
+/// - ID 160: Auto-sizing frame
 pub const CRYSTAL_MODEL_ID: u8 = 99;
-pub const FIRST_CUSTOM_MODEL_ID: u8 = 151;
+pub const FIRST_CUSTOM_MODEL_ID: u8 = 161;
 
 /// RGBA color for sub-voxel palette.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]

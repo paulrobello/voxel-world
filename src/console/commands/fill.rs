@@ -31,8 +31,9 @@ pub fn fill(
         Some(b) => b,
         None => {
             return CommandResult::Error(format!(
-                "Unknown block type: '{}'. Valid types: air, stone, dirt, grass, planks, leaves, sand, gravel, water, glass, log, brick, snow, cobblestone, iron, bedrock",
-                block_name
+                "Unknown block type: '{}'. Valid types: {}",
+                block_name,
+                BlockType::all_block_names().join(", ")
             ));
         }
     };

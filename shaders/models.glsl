@@ -412,78 +412,46 @@ bool marchSubVoxelModel(
         }
 
         // Apply rotation and sample
-    ivec3 rotatedPos = isFrame
-        ? transformFramePos(voxel, rotation, res)
-        : rotateModelPos(voxel, rotation, res);
+        ivec3 rotatedPos = isFrame
+            ? transformFramePos(voxel, rotation, res)
+            : rotateModelPos(voxel, rotation, res);
         rotatedPos = clamp(rotatedPos, ivec3(0), ivec3(int(res) - 1));
         uint palette_idx = sampleModelVoxel(model_id, rotatedPos);
 
-        // Picture frame inner-edge masking: remove interior borders so merged frames
-        // show a continuous picture area at uniform depth (z=7) with border only on outer perimeter.
+        // Frame border masking for merged frames
+        bool is_border_voxel = isFrame && (palette_idx >= 1u && palette_idx <= 3u);
+
+        // Check if this edge should be stripped based on frame_mask
+        bool should_strip = false;
         if (isFrame) {
-            uint fm = (frame_mask == 0u) ? 0x0Fu : frame_mask;
-
-            bool mask_left = (fm & 1u) != 0u;
-            bool mask_right = (fm & 2u) != 0u;
-            bool mask_bottom = (fm & 4u) != 0u;
-            bool mask_top = (fm & 8u) != 0u;
-
-            int maxv = int(res) - 1;
-
-            // After transform, which model edge is at which world position?
-            bool is_left_edge, is_right_edge;
-            bool is_bottom_edge = (voxel.y == 0);
-            bool is_top_edge = (voxel.y == maxv);
-
-            switch (rotation & 3u) {
-                case 0u: // North: (x, y, z)
-                    is_left_edge = (voxel.x == 0);
-                    is_right_edge = (voxel.x == maxv);
-                    break;
-                case 2u: // South: (maxv-x, y, maxv-z)
-                    is_left_edge = (voxel.x == maxv);
-                    is_right_edge = (voxel.x == 0);
-                    break;
-                case 1u: // East: (z, y, maxv-x)
-                    is_left_edge = (voxel.z == 0);
-                    is_right_edge = (voxel.z == maxv);
-                    break;
-                case 3u: // West: (maxv-z, y, x)
-                    is_left_edge = (voxel.z == maxv);
-                    is_right_edge = (voxel.z == 0);
-                    break;
-                default:
-                    is_left_edge = false;
-                    is_right_edge = false;
-                    break;
+            if (voxel.x == 0 && (frame_mask & 1u) == 0u) {
+                should_strip = true;
+            } else if (voxel.x == int(res) - 1 && (frame_mask & 2u) == 0u) {
+                should_strip = true;
+            } else if (voxel.y == 0 && (frame_mask & 4u) == 0u) {
+                should_strip = true;
+            } else if (voxel.y == int(res) - 1 && (frame_mask & 8u) == 0u) {
+                should_strip = true;
             }
+        }
 
-            // Keep outer borders, strip interior borders
-            bool strip_left = (!mask_left) && is_left_edge;
-            bool strip_right = (!mask_right) && is_right_edge;
-            bool strip_bottom = (!mask_bottom) && is_bottom_edge;
-            bool strip_top = (!mask_top) && is_top_edge;
-            bool should_strip = strip_left || strip_right || strip_bottom || strip_top;
-
-            if (should_strip) {
-                bool is_border_voxel = (palette_idx >= 1u && palette_idx <= 3u);
-                if (is_border_voxel) {
-                    continue;  // Skip this border voxel (picture area at z=7 shows through)
-                }
-            }
+        // Strip ALL border voxels at edges that should merge
+        if (should_strip && is_border_voxel) {
+            continue;
         }
 
         // Hit if not air (palette index 0 = transparent)
         if (palette_idx != 0u) {
             // Get color from palette
             vec4 paletteColor = getModelPaletteColor(model_id, palette_idx);
-            vec3 voxelColor = paletteColor.rgb;
+            vec3 final_color = paletteColor.rgb;
 
             // Add per-voxel emission glow (e.g., torch flame)
             float emission = getModelPaletteEmission(model_id, palette_idx);
             if (emission > 0.0) {
-                voxelColor += voxelColor * emission * 0.8;  // Glow using palette color
+                final_color += final_color * emission * 0.8;  // Glow using palette color
             }
+            vec3 voxelColor = final_color;
 
             // Calculate surface info for this voxel
             uint hitAxis = (i == 0) ? entryAxis : stepped_axis;

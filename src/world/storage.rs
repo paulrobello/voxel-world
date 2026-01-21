@@ -439,6 +439,44 @@ impl World {
         }
     }
 
+    /// Sets the custom_data for an existing model block at world coordinates.
+    pub fn set_model_custom_data(&mut self, world_pos: WorldPos, custom_data: u32) {
+        let chunk_pos = Self::world_to_chunk(world_pos);
+        let (lx, ly, lz) = Self::world_to_local(world_pos);
+
+        if let Some(chunk) = self.chunks.get_mut(&chunk_pos) {
+            let was_dirty = chunk.dirty;
+            chunk.set_model_custom_data(lx, ly, lz, custom_data);
+            if chunk.dirty && !was_dirty {
+                self.push_dirty(chunk_pos);
+            }
+        }
+    }
+
+    /// Sets a model block with full metadata (including custom_data) at world coordinates.
+    ///
+    /// This is required for blocks that rely on per-block custom data (e.g., picture frames).
+    pub fn set_model_block_with_data(
+        &mut self,
+        world_pos: WorldPos,
+        model_id: u8,
+        rotation: u8,
+        waterlogged: bool,
+        custom_data: u32,
+    ) {
+        let chunk_pos = Self::world_to_chunk(world_pos);
+        let (lx, ly, lz) = Self::world_to_local(world_pos);
+
+        let is_new_chunk = !self.chunks.contains_key(&chunk_pos);
+        let chunk = self.chunks.entry(chunk_pos).or_default();
+        let was_dirty = chunk.dirty;
+        chunk.set_model_block_with_data(lx, ly, lz, model_id, rotation, waterlogged, custom_data);
+
+        if is_new_chunk || (chunk.dirty && !was_dirty) {
+            self.push_dirty(chunk_pos);
+        }
+    }
+
     /// Gets model data for a block at world coordinates.
     ///
     /// Returns None if the chunk doesn't exist or the block has no model data.

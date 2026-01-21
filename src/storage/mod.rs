@@ -140,6 +140,9 @@ impl TryFrom<SerializedChunk> for Chunk {
             chunk.set_model_custom_data(x, y, z, meta.custom_data);
         }
 
+        // Recompute frame edge masks from custom_data to ensure consistency
+        chunk.recompute_frame_edge_masks();
+
         chunk.update_metadata();
         chunk.mark_dirty();
         chunk.persistence_dirty = false;

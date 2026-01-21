@@ -38,10 +38,7 @@ use self::doors::{
     create_windowed_door_upper_open_left, create_windowed_door_upper_open_right,
 };
 use self::fences::{create_fence, create_gate_closed, create_gate_open};
-use self::frames::{
-    create_frame_1x1, create_frame_1x2, create_frame_1x3, create_frame_2x1, create_frame_2x2,
-    create_frame_2x3, create_frame_3x1, create_frame_3x2, create_frame_3x3,
-};
+use self::frames::{FRAME_MODEL_ID, create_frame_auto};
 use self::glass_panes::{create_horizontal_glass_pane, create_vertical_glass_pane};
 use self::lighting::{create_crystal, create_torch};
 use self::stairs::{
@@ -238,17 +235,6 @@ pub fn register_builtins(registry: &mut ModelRegistry) {
         registry.register(placeholder);
     }
 
-    // === Picture Frames (IDs 160-168) ===
-    // 9 frame sizes from 1×1 to 3×3 blocks.
-    // Each block of a multi-block frame uses the same model ID.
-    // The shader uses block metadata to sample the correct picture region.
-    registry.register(create_frame_1x1()); // ID 160: 1×1
-    registry.register(create_frame_1x2()); // ID 161: 1×2
-    registry.register(create_frame_1x3()); // ID 162: 1×3
-    registry.register(create_frame_2x1()); // ID 163: 2×1
-    registry.register(create_frame_2x2()); // ID 164: 2×2
-    registry.register(create_frame_2x3()); // ID 165: 2×3
-    registry.register(create_frame_3x1()); // ID 166: 3×1
-    registry.register(create_frame_3x2()); // ID 167: 3×2
-    registry.register(create_frame_3x3()); // ID 168: 3×3
+    // === Picture Frame (ID 160) ===
+    registry.register(create_frame_auto()); // ID 160
 }

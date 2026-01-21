@@ -350,13 +350,14 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
 
             if (model_id > 0u && distToBlock < pc.lod_model_distance) {
                 vec3 dirNorm = normalize(dir);
-                // Early out using coarse mask
-                if (modelMaskBlocksRay(localEntry, dirNorm, model_id, rotation)) {
+                uint frameMask = (model_id == FRAME_MODEL_ID) ? ((metadata.g >> 3u) & 0x0Fu) : 0u;
+                bool skipCoarseMask = (model_id == FRAME_MODEL_ID);
+                if (skipCoarseMask || modelMaskBlocksRay(localEntry, dirNorm, model_id, rotation)) {
                     vec3 subColor;
                     vec3 subNormal;
                     float subT;
                     float subAlpha;
-                    if (marchSubVoxelModel(localEntry, dirNorm, model_id, rotation, subColor, subNormal, subT, subAlpha)) {
+                    if (marchSubVoxelModel(localEntry, dirNorm, model_id, rotation, frameMask, subColor, subNormal, subT, subAlpha)) {
                         // Only record the FIRST translucent model hit
                         // Subsequent translucent models are skipped to avoid double-blending artifacts
                         if (!subVoxelHit) {
@@ -427,7 +428,7 @@ bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out floa
                     vec3 subNormal;
                     float subT;
                     float subAlpha;
-                    if (marchSubVoxelModel(localEntry, dirNorm, CRYSTAL_MODEL_ID, rotation, subColor, subNormal, subT, subAlpha)) {
+                    if (marchSubVoxelModel(localEntry, dirNorm, CRYSTAL_MODEL_ID, rotation, 0u, subColor, subNormal, subT, subAlpha)) {
                         subVoxelHit = true;
                         // Apply tint color to the neutral crystal model color
                         subVoxelColor = subColor * TINT_PALETTE[tintIndex];

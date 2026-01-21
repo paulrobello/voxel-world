@@ -78,12 +78,12 @@ checkall: fmt lint test
 sprite-gen: build-release
 	./target/release/voxel_world --generate-sprites $(ARGS)
 
-# Run game, take screenshot after 4s, exit after 5s (for visual debugging)
+# Run game, take screenshot after 3s, exit after 4s (for visual debugging)
 # Usage: make run-cap-exit
 #        Set up your scene, position camera, wait for capture and auto-exit
 #        Screenshot saved to: voxel_world_screen_shot.png
 run-cap-exit: build-release
-	./target/release/voxel_world --seed $(SEED) --screenshot-delay 4 --exit-delay 5 $(ARGS)
+	./target/release/voxel_world --seed $(SEED) --screenshot-delay 3 --exit-delay 4 $(ARGS)
 
 # Reset world data only (preserves profiles for comparison)
 reset-world:

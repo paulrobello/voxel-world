@@ -10,14 +10,18 @@ pub const FORMAT_VERSION: u8 = 3;
 pub struct BlockMeta {
     /// Flattened index in the chunk (0 to CHUNK_VOLUME-1).
     pub index: u16,
-    /// Packed data: model_id (8 bits) | rotation (2 bits) | waterlogged (1 bit) | extra (5 bits).
+    /// Packed data: model_id (8 bits) | rotation (2 bits) | waterlogged (1 bit) | frame mask (4 bits) | extra (4 bits).
     pub data: u16,
 }
 
 impl BlockMeta {
     pub fn pack(model_id: u8, rotation: u8, waterlogged: bool) -> Self {
         let mut data = model_id as u16;
+        // Bits 8-9: rotation (facing)
         data |= (rotation as u16 & 0x03) << 8;
+        // Bits 11-14: frame edge mask (bits 3-6 of rotation value)
+        let frame_mask = ((rotation >> 3) & 0x0F) as u16;
+        data |= frame_mask << 11;
         if waterlogged {
             data |= 1 << 10;
         }
@@ -26,7 +30,9 @@ impl BlockMeta {
 
     pub fn unpack(&self) -> (u8, u8, bool) {
         let model_id = (self.data & 0xFF) as u8;
-        let rotation = ((self.data >> 8) & 0x03) as u8;
+        let rotation_facing = ((self.data >> 8) & 0x03) as u8;
+        let frame_mask = ((self.data >> 11) & 0x0F) as u8;
+        let rotation = rotation_facing | (frame_mask << 3);
         let waterlogged = (self.data & (1 << 10)) != 0;
         (model_id, rotation, waterlogged)
     }

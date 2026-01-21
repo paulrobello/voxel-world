@@ -480,6 +480,7 @@ impl HUDRenderer {
                 hotbar_index,
                 atlas_texture_id,
                 sprite_icons,
+                model_registry,
                 dragging_item,
             );
 
