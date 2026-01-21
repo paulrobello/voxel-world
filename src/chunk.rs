@@ -976,6 +976,7 @@ impl Chunk {
 
     /// Recomputes frame edge masks from custom_data metadata.
     /// This ensures frames loaded from storage have correct edge masks.
+    /// Also forces metadata buffer rebuild even if already clean.
     pub fn recompute_frame_edge_masks(&mut self) {
         use crate::sub_voxel::ModelRegistry;
         use crate::sub_voxel::builtins::frames;
@@ -1023,8 +1024,10 @@ impl Chunk {
 
         for (idx, data) in updates {
             self.model_data.insert(idx, data);
-            self.model_metadata_dirty.set(true);
         }
+
+        // Always mark metadata dirty to force GPU update
+        self.model_metadata_dirty.set(true);
     }
 
     /// Sets a tinted glass block with its color index at the given local coordinates.
