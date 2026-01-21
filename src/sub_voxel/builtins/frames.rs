@@ -1,34 +1,29 @@
-//! Picture frame models for displaying user-created pictures.
+//! Picture frame model for displaying user-created pictures.
 //!
-//! Frame models come in 9 sizes from 1×1 to 3×3 blocks.
-//! Each block of a multi-block frame uses the same model ID.
-//! The shader uses block metadata (offset_x, offset_y) to:
-//! 1. Sample the correct portion of the picture
-//! 2. Draw borders on the appropriate edges
-//!
-//! Model IDs:
-//! - 160: 1×1 frame
-//! - 161: 1×2 frame (1 wide × 2 tall)
-//! - 162: 1×3 frame (1 wide × 3 tall)
-//! - 163: 2×1 frame (2 wide × 1 tall)
-//! - 164: 2×2 frame
-//! - 165: 2×3 frame
-//! - 166: 3×1 frame (3 wide × 1 tall)
-//! - 167: 3×2 frame
-//! - 168: 3×3 frame
+//! A single frame model (ID 160) now auto-sizes itself up to 3×3 blocks by
+//! inspecting neighboring frame blocks. All blocks in a multi-block frame
+//! share the same model ID; per-block metadata records width, height, offsets,
+//! and facing so the shader can sample the correct portion of the picture and
+//! draw only the appropriate border edges.
 
 use crate::sub_voxel::{Color, LightBlocking, ModelResolution, SubVoxelModel};
 
 use super::basic::DESIGN_SIZE;
 
-/// Model ID for the 1×1 picture frame.
-pub const FRAME_1X1_ID: u8 = 160;
+/// Model ID for picture frames (auto-sized via metadata).
+pub const FRAME_MODEL_ID: u8 = 160;
+
+/// Alias for references.
+pub const FRAME_1X1_ID: u8 = FRAME_MODEL_ID;
 
 /// First frame model ID.
 pub const FIRST_FRAME_ID: u8 = 160;
 
-/// Last frame model ID.
-pub const LAST_FRAME_ID: u8 = 168;
+/// Last frame model ID (same as first; legacy multi-ID range removed).
+pub const LAST_FRAME_ID: u8 = 160;
+
+/// Maximum frame dimension (in blocks) supported by auto-sizing.
+pub const MAX_FRAME_DIM: u8 = 3;
 
 /// Frame wood color (dark brown).
 const FRAME_WOOD: Color = Color::rgb(101, 67, 33);
@@ -43,50 +38,20 @@ const FRAME_WOOD_DARK: Color = Color::rgb(71, 47, 23);
 /// Using a distinctive color that's easy to identify in shader.
 const PICTURE_AREA: Color = Color::rgb(255, 0, 255);
 
-/// Frame depth (how far it sticks out from wall) in voxels.
-const FRAME_DEPTH: usize = 1;
+/// Frame depth in voxels.
+/// Border is 2 voxels deep (to reach wall), picture area is 1 voxel deep (recessed).
+const FRAME_DEPTH: usize = 2;
 
 /// Frame border width in voxels.
 const BORDER_WIDTH: usize = 1;
 
-/// Returns the frame size for a given model ID.
-/// Returns (width, height) in blocks.
-pub const fn frame_size(model_id: u8) -> Option<(u8, u8)> {
-    match model_id {
-        160 => Some((1, 1)),
-        161 => Some((1, 2)),
-        162 => Some((1, 3)),
-        163 => Some((2, 1)),
-        164 => Some((2, 2)),
-        165 => Some((2, 3)),
-        166 => Some((3, 1)),
-        167 => Some((3, 2)),
-        168 => Some((3, 3)),
-        _ => None,
-    }
-}
-
-/// Returns the frame model ID for a given size.
-/// Returns None if size is invalid (not 1-3 in each dimension).
-pub const fn frame_model_id(width: u8, height: u8) -> Option<u8> {
-    match (width, height) {
-        (1, 1) => Some(160),
-        (1, 2) => Some(161),
-        (1, 3) => Some(162),
-        (2, 1) => Some(163),
-        (2, 2) => Some(164),
-        (2, 3) => Some(165),
-        (3, 1) => Some(166),
-        (3, 2) => Some(167),
-        (3, 3) => Some(168),
-        _ => None,
-    }
-}
+/// Picture area depth (1 voxel, recessed from frame front)
+const PICTURE_DEPTH: usize = 1;
 
 /// Returns true if this model ID is a picture frame.
 #[inline]
 pub const fn is_frame_model(model_id: u8) -> bool {
-    model_id >= FIRST_FRAME_ID && model_id <= LAST_FRAME_ID
+    model_id == FRAME_MODEL_ID
 }
 
 /// Creates a picture frame model.
@@ -99,7 +64,7 @@ pub const fn is_frame_model(model_id: u8) -> bool {
 /// The shader uses block metadata to determine:
 /// - Which portion of the picture to display
 /// - Which borders to draw (based on position within multi-block frame)
-fn create_frame(name: &str, _width: u8, _height: u8) -> SubVoxelModel {
+fn create_frame(name: &str) -> SubVoxelModel {
     let mut model = SubVoxelModel::with_resolution_and_name(ModelResolution::Low, name);
 
     // Palette setup:
@@ -114,60 +79,60 @@ fn create_frame(name: &str, _width: u8, _height: u8) -> SubVoxelModel {
 
     let max = DESIGN_SIZE - 1; // 7 for 8³
 
-    // Frame is flat on the front face (z = max - FRAME_DEPTH + 1 to z = max)
-    // For a wall-mounted frame, the back is at z=max and faces outward
-    let z_start = max + 1 - FRAME_DEPTH;
+    // Frame has different depths for border vs picture:
+    // - Border: 2 voxels deep (z=6..7) to reach wall
+    // - Picture area: 1 voxel deep (z=7 only) for recessed canvas look
+    let z_start = max - FRAME_DEPTH + 1; // 6 for DEPTH=2
+    let z_picture = max; // 7 (front face, recessed canvas)
 
-    // Fill the entire front with picture area first
+    // Fill picture area (recessed, 1 voxel deep at front)
     for y in 0..DESIGN_SIZE {
         for x in 0..DESIGN_SIZE {
-            for z in z_start..=max {
-                model.set_voxel(x, y, z, 4); // Picture area
-            }
+            model.set_voxel(x, y, z_picture, 4); // Picture area (magenta)
         }
     }
 
-    // Add wooden border on all edges
+    // Add wooden border on all edges (2 voxels deep, reaching wall)
     // This is the complete border for a 1×1 frame
     // For multi-block frames, the shader will mask out inner edges
 
-    // Left border
+    // Left border (2 voxels deep)
     for y in 0..DESIGN_SIZE {
         for z in z_start..=max {
-            model.set_voxel(0, y, z, 1);
+            model.set_voxel(0, y, z, 1); // Wood
         }
     }
 
-    // Right border
+    // Right border (2 voxels deep)
     for y in 0..DESIGN_SIZE {
         for z in z_start..=max {
-            model.set_voxel(max, y, z, 1);
+            model.set_voxel(max, y, z, 1); // Wood
         }
     }
 
-    // Bottom border
+    // Bottom border (2 voxels deep)
     for x in 0..DESIGN_SIZE {
         for z in z_start..=max {
-            model.set_voxel(x, 0, z, 1);
+            model.set_voxel(x, 0, z, 1); // Wood
         }
     }
 
-    // Top border
+    // Top border (2 voxels deep)
     for x in 0..DESIGN_SIZE {
         for z in z_start..=max {
-            model.set_voxel(x, max, z, 1);
+            model.set_voxel(x, max, z, 1); // Wood
         }
     }
 
-    // Add inner highlight on the border
+    // Add inner highlight on the border (at front face z=7)
     let b = BORDER_WIDTH;
     for y in b..(DESIGN_SIZE - b) {
-        model.set_voxel(b, y, max, 2); // Left inner
-        model.set_voxel(max - b, y, max, 2); // Right inner
+        model.set_voxel(b, y, max, 2); // Left inner highlight
+        model.set_voxel(max - b, y, max, 2); // Right inner highlight
     }
     for x in b..(DESIGN_SIZE - b) {
-        model.set_voxel(x, b, max, 2); // Bottom inner
-        model.set_voxel(x, max - b, max, 2); // Top inner
+        model.set_voxel(x, b, max, 2); // Bottom inner highlight
+        model.set_voxel(x, max - b, max, 2); // Top inner highlight
     }
 
     model.light_blocking = LightBlocking::Partial;
@@ -177,64 +142,59 @@ fn create_frame(name: &str, _width: u8, _height: u8) -> SubVoxelModel {
     model
 }
 
-/// Creates the 1×1 picture frame.
-pub fn create_frame_1x1() -> SubVoxelModel {
-    create_frame("frame_1x1", 1, 1)
-}
-
-/// Creates the 1×2 picture frame.
-pub fn create_frame_1x2() -> SubVoxelModel {
-    create_frame("frame_1x2", 1, 2)
-}
-
-/// Creates the 1×3 picture frame.
-pub fn create_frame_1x3() -> SubVoxelModel {
-    create_frame("frame_1x3", 1, 3)
-}
-
-/// Creates the 2×1 picture frame.
-pub fn create_frame_2x1() -> SubVoxelModel {
-    create_frame("frame_2x1", 2, 1)
-}
-
-/// Creates the 2×2 picture frame.
-pub fn create_frame_2x2() -> SubVoxelModel {
-    create_frame("frame_2x2", 2, 2)
-}
-
-/// Creates the 2×3 picture frame.
-pub fn create_frame_2x3() -> SubVoxelModel {
-    create_frame("frame_2x3", 2, 3)
-}
-
-/// Creates the 3×1 picture frame.
-pub fn create_frame_3x1() -> SubVoxelModel {
-    create_frame("frame_3x1", 3, 1)
-}
-
-/// Creates the 3×2 picture frame.
-pub fn create_frame_3x2() -> SubVoxelModel {
-    create_frame("frame_3x2", 3, 2)
-}
-
-/// Creates the 3×3 picture frame.
-pub fn create_frame_3x3() -> SubVoxelModel {
-    create_frame("frame_3x3", 3, 3)
+/// Creates the auto-sizing picture frame (ID 160).
+pub fn create_frame_auto() -> SubVoxelModel {
+    create_frame("frame_auto")
 }
 
 /// Metadata encoding for frame blocks.
-/// custom_data layout (26 bits used):
+/// custom_data layout (30 bits used):
 /// - bits 0-19:  picture_id (20 bits, supports up to 1M pictures)
 /// - bits 20-21: offset_x (2 bits, 0-3)
 /// - bits 22-23: offset_y (2 bits, 0-3)
-/// - bits 24-25: facing (2 bits, 0=North, 1=East, 2=South, 3=West)
+/// - bits 24-25: width_minus_one (2 bits, stores 1-4 → 0-3; clamped to MAX_FRAME_DIM)
+/// - bits 26-27: height_minus_one (2 bits, stores 1-4 → 0-3; clamped to MAX_FRAME_DIM)
+/// - bits 28-29: facing (2 bits, 0=North, 1=East, 2=South, 3=West)
 pub mod metadata {
+    use super::MAX_FRAME_DIM;
+
     /// Encodes frame metadata into a u32.
-    pub const fn encode(picture_id: u32, offset_x: u8, offset_y: u8, facing: u8) -> u32 {
+    /// Width and height are clamped to `MAX_FRAME_DIM` and stored as (value - 1).
+    pub const fn encode(
+        picture_id: u32,
+        offset_x: u8,
+        offset_y: u8,
+        width: u8,
+        height: u8,
+        facing: u8,
+    ) -> u32 {
+        let clamped_w = {
+            let w = if width == 0 {
+                1
+            } else if width > MAX_FRAME_DIM {
+                MAX_FRAME_DIM
+            } else {
+                width
+            };
+            w - 1
+        };
+        let clamped_h = {
+            let h = if height == 0 {
+                1
+            } else if height > MAX_FRAME_DIM {
+                MAX_FRAME_DIM
+            } else {
+                height
+            };
+            h - 1
+        };
+
         (picture_id & 0xFFFFF)
             | ((offset_x as u32 & 0x3) << 20)
             | ((offset_y as u32 & 0x3) << 22)
-            | ((facing as u32 & 0x3) << 24)
+            | ((clamped_w as u32 & 0x3) << 24)
+            | ((clamped_h as u32 & 0x3) << 26)
+            | ((facing as u32 & 0x3) << 28)
     }
 
     /// Decodes picture_id from frame metadata.
@@ -252,9 +212,25 @@ pub mod metadata {
         ((data >> 22) & 0x3) as u8
     }
 
+    /// Decodes width from frame metadata (defaults to 1 if unset/zero).
+    pub const fn decode_width(data: u32) -> u8 {
+        (((data >> 24) & 0x3) as u8) + 1
+    }
+
+    /// Decodes height from frame metadata (defaults to 1 if unset/zero).
+    pub const fn decode_height(data: u32) -> u8 {
+        (((data >> 26) & 0x3) as u8) + 1
+    }
+
     /// Decodes facing direction from frame metadata.
+    /// Supports legacy encoding (bits 24-25) for backward compatibility.
     pub const fn decode_facing(data: u32) -> u8 {
-        ((data >> 24) & 0x3) as u8
+        let new_bits = ((data >> 28) & 0x3) as u8;
+        if new_bits != 0 {
+            new_bits
+        } else {
+            ((data >> 24) & 0x3) as u8
+        }
     }
 
     #[cfg(test)]
@@ -263,17 +239,19 @@ pub mod metadata {
 
         #[test]
         fn test_encode_decode() {
-            let data = encode(12345, 2, 1, 3);
+            let data = encode(12345, 2, 1, 2, 3, 3);
             assert_eq!(decode_picture_id(data), 12345);
             assert_eq!(decode_offset_x(data), 2);
             assert_eq!(decode_offset_y(data), 1);
+            assert_eq!(decode_width(data), 2);
+            assert_eq!(decode_height(data), 3);
             assert_eq!(decode_facing(data), 3);
         }
 
         #[test]
         fn test_max_picture_id() {
             let max_id = 0xFFFFF; // 1,048,575
-            let data = encode(max_id, 3, 3, 3);
+            let data = encode(max_id, 3, 3, 3, 3, 3);
             assert_eq!(decode_picture_id(data), max_id);
         }
     }
@@ -284,38 +262,58 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_frame_sizes() {
-        assert_eq!(frame_size(160), Some((1, 1)));
-        assert_eq!(frame_size(161), Some((1, 2)));
-        assert_eq!(frame_size(168), Some((3, 3)));
-        assert_eq!(frame_size(159), None);
-        assert_eq!(frame_size(169), None);
-    }
-
-    #[test]
-    fn test_frame_model_id() {
-        assert_eq!(frame_model_id(1, 1), Some(160));
-        assert_eq!(frame_model_id(3, 3), Some(168));
-        assert_eq!(frame_model_id(0, 1), None);
-        assert_eq!(frame_model_id(4, 4), None);
-    }
-
-    #[test]
     fn test_is_frame_model() {
-        assert!(is_frame_model(160));
-        assert!(is_frame_model(164));
-        assert!(is_frame_model(168));
+        assert!(is_frame_model(FRAME_MODEL_ID));
+        assert!(is_frame_model(LAST_FRAME_ID));
         assert!(!is_frame_model(159));
-        assert!(!is_frame_model(169));
     }
 
     #[test]
-    fn test_frame_1x1() {
-        let frame = create_frame_1x1();
-        assert_eq!(frame.name, "frame_1x1");
+    fn test_frame_auto() {
+        let frame = create_frame_auto();
+        assert_eq!(frame.name, "frame_auto");
         assert!(frame.rotatable);
         assert!(frame.no_collision);
-        // Check that frame has voxels
         assert!(frame.voxels.iter().any(|&v| v != 0));
+    }
+
+    fn inverse_transform_frame_position(p: [f32; 3], rotation: u8) -> [f32; 3] {
+        match rotation & 3 {
+            0 => p,
+            2 => [1.0 - p[0], p[1], 1.0 - p[2]],
+            1 => [p[2], p[1], 1.0 - p[0]],
+            3 => [1.0 - p[2], p[1], p[0]],
+            _ => p,
+        }
+    }
+
+    #[test]
+    fn frame_inverse_transform_faces_align() {
+        let eps = 1e-6;
+        // North (-Z): wall at z=0
+        let north = inverse_transform_frame_position([0.4, 0.5, 0.0], 0);
+        assert!(north[2].abs() < eps);
+        // South (+Z): wall at z=1
+        let south = inverse_transform_frame_position([0.4, 0.5, 1.0], 2);
+        assert!(south[2].abs() < eps);
+        // East (+X): wall at x=1
+        let east = inverse_transform_frame_position([1.0, 0.5, 0.25], 1);
+        assert!(east[2].abs() < eps);
+        // West (-X): wall at x=0
+        let west = inverse_transform_frame_position([0.0, 0.5, 0.75], 3);
+        assert!(west[2].abs() < eps);
+
+        // Left/right ordering preserves picture orientation per facing
+        let south_left = inverse_transform_frame_position([0.95, 0.5, 1.0], 2)[0];
+        let south_right = inverse_transform_frame_position([0.05, 0.5, 1.0], 2)[0];
+        assert!(south_left < south_right);
+
+        let east_left = inverse_transform_frame_position([1.0, 0.5, 0.0], 1)[0];
+        let east_right = inverse_transform_frame_position([1.0, 0.5, 1.0], 1)[0];
+        assert!(east_left < east_right);
+
+        let west_left = inverse_transform_frame_position([0.0, 0.5, 1.0], 3)[0];
+        let west_right = inverse_transform_frame_position([0.0, 0.5, 0.0], 3)[0];
+        assert!(west_left < west_right);
     }
 }

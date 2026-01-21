@@ -1,6 +1,79 @@
 // Sample voxel from the model atlas (three tiers: 8³, 16³, 32³).
 // Model layout: 16 models per row, 16 rows = 256 models max.
 // Automatically selects the correct atlas based on model resolution.
+const uint FRAME_MODEL_ID = 160u;
+
+// Custom transform for frames: orient voxel coordinates so the frame sits flush against
+// the mounting wall. Frame model has voxels at z=6..7 (2 voxels deep for border), extending toward wall.
+// rotation/facing: 0=North(-Z), 1=East(+X), 2=South(+Z), 3=West(-X)
+//
+// Transform mapping:
+// - North: z preserved, z=7 scales to z=0.875 (close to -Z wall)
+// - South: z flipped (maxv - z), z=7→0 scales to z=0.0 (at +Z wall)
+// - East: z becomes x, z=7→7 at wall, z=6→6 extending in
+// - West: z becomes x, z=7→0 at wall, z=6→1 extending in
+ivec3 transformFramePos(ivec3 pos, uint rotation, uint res) {
+    int maxv = int(res) - 1; // 7 for 8³
+    int x = pos.x;
+    int y = pos.y;
+    int z = pos.z;
+
+    switch (rotation & 3u) {
+        case 0u: // North (-Z wall): frame extends into block (+Z)
+            return ivec3(x, y, z);
+        case 2u: // South (+Z wall): frame extends into block (-Z)
+            return ivec3(maxv - x, y, maxv - z);
+        case 1u: // East (+X wall): frame extends into block (-X)
+            // z becomes x (direct mapping), x becomes z (mirrored)
+            return ivec3(z, y, maxv - x);
+        case 3u: // West (-X wall): frame extends into block (+X)
+            // z becomes x (direct mapping), x becomes z (mirrored)
+            return ivec3(maxv - z, y, x);
+        default:
+            return pos;
+    }
+}
+
+// Inverse transform for block-local positions (0-1 range) back to model base orientation
+vec3 inverseTransformFramePosition(vec3 p, uint rotation, uint res) {
+    switch (rotation & 3u) {
+        case 0u: // North (-Z): identity
+            return p;
+        case 2u: // South (+Z): (maxv-x, y, maxv-z) → (1-x, y, 1-z)
+            return vec3(1.0 - p.x, p.y, 1.0 - p.z);
+        case 1u: // East (+X): (maxv-z-1, y, x) → (z+1 → x, y, x → z)
+            // Forward: u = maxv - z - 1, w = x
+            // Inverse: given p (block space of u, v, w), find original (x, y, z)
+            // p.x = (maxv - z - 1)/res → z/res = 1.0 - p.x
+            // p.z = x/res → x/res = p.z
+            return vec3(1.0 - p.x, p.y, p.z);
+        case 3u: // West (-X): (z+1, y, maxv-x)
+            // Forward: u = z + 1, w = maxv - x
+            // Inverse: p.x = (z+1)/res → z/res = p.x - 1/res
+            //         p.z = (maxv-x)/res → x/res = 1.0 - p.z
+            // Note: the -1/res offset is a sub-voxel shift, approximately p.x - 0.125
+            return vec3(p.x - 1.0, p.y, 1.0 - p.z);
+        default:
+            return p;
+    }
+}
+
+// Inverse transform for directions (no translation component)
+vec3 inverseTransformFrameDirection(vec3 d, uint rotation) {
+    switch (rotation & 3u) {
+        case 0u: // North: identity
+            return d;
+        case 2u: // South: negate x and z
+            return vec3(-d.x, d.y, -d.z);
+        case 1u: // East: swap x and z, negate new x
+            return vec3(-d.z, d.y, d.x);
+        case 3u: // West: swap x and z, negate new z
+            return vec3(d.z, d.y, -d.x);
+        default:
+            return d;
+    }
+}
+
 uint sampleModelVoxel(uint model_id, ivec3 local_pos) {
     uint model_x = model_id % 16u;
     uint model_z = model_id / 16u;
@@ -133,7 +206,9 @@ bool sampleModelFilled(uint model_id, ivec3 local_pos, uint rotation) {
     if (any(lessThan(local_pos, ivec3(0))) || any(greaterThanEqual(local_pos, ivec3(int(res))))) {
         return false;
     }
-    ivec3 rotated = rotateModelPos(local_pos, rotation, res);
+    ivec3 rotated = (model_id == FRAME_MODEL_ID)
+        ? transformFramePos(local_pos, rotation, res)
+        : rotateModelPos(local_pos, rotation, res);
     rotated = clamp(rotated, ivec3(0), ivec3(int(res) - 1));
     return sampleModelVoxel(model_id, rotated) != 0u;
 }
@@ -241,7 +316,8 @@ bool marchSubVoxelModel(
     vec3 origin,
     vec3 dir,
     uint model_id,
-    uint rotation,
+    uint rotation_and_flags,
+    uint frame_mask,
     out vec3 out_color,
     out vec3 out_normal,
     out float out_t,
@@ -249,8 +325,10 @@ bool marchSubVoxelModel(
 ) {
     // Get actual model resolution (8, 16, or 32)
     uint res = model_properties[model_id].resolution;
+    uint rotation = rotation_and_flags & 3u;
     float fres = float(res);
     int maxSteps = int(res) * 3;
+    bool isFrame = (model_id == FRAME_MODEL_ID);
 
     // Initialize alpha for translucency accumulation
     out_alpha = 0.0;
@@ -268,8 +346,10 @@ bool marchSubVoxelModel(
     vec3 invDir = 1.0 / safeDir;
 
     // Calculate entry t (may need to enter the model box from outside)
-    vec3 tMin = (vec3(-SUB_VOXEL_EPS) - pos) * invDir;
-    vec3 tMax = (vec3(fres + SUB_VOXEL_EPS) - pos) * invDir;
+    // Expand bounds more for thin models like frames to ensure entry from all angles
+    float boundsEps = isFrame ? 0.01 : SUB_VOXEL_EPS;
+    vec3 tMin = (vec3(-boundsEps) - pos) * invDir;
+    vec3 tMax = (vec3(fres + boundsEps) - pos) * invDir;
 
     vec3 t1 = min(tMin, tMax);
     vec3 t2 = max(tMin, tMax);
@@ -296,8 +376,8 @@ bool marchSubVoxelModel(
     float startT = max(tNear, 0.0);
     vec3 startPos = pos + dir * startT;
     // Nudge slightly along the ray to land inside first cell and avoid boundary misses
-    startPos += safeDir * SUB_VOXEL_EPS;
-    startPos = clamp(startPos, vec3(SUB_VOXEL_EPS), vec3(fres - SUB_VOXEL_EPS));
+    startPos += safeDir * boundsEps;
+    startPos = clamp(startPos, vec3(boundsEps), vec3(fres - boundsEps));
 
     // Current voxel position
     ivec3 voxel = ivec3(floor(startPos));
@@ -332,9 +412,75 @@ bool marchSubVoxelModel(
         }
 
         // Apply rotation and sample
-        ivec3 rotatedPos = rotateModelPos(voxel, rotation, res);
+    ivec3 rotatedPos = isFrame
+        ? transformFramePos(voxel, rotation, res)
+        : rotateModelPos(voxel, rotation, res);
         rotatedPos = clamp(rotatedPos, ivec3(0), ivec3(int(res) - 1));
         uint palette_idx = sampleModelVoxel(model_id, rotatedPos);
+
+        // Picture frame inner-edge masking: remove interior borders so merged frames
+        // show a continuous picture area at uniform depth (z=7) with border only on outer perimeter.
+        if (isFrame) {
+            uint fm = (frame_mask == 0u) ? 0x0Fu : frame_mask;
+
+            bool mask_left = (fm & 1u) != 0u;
+            bool mask_right = (fm & 2u) != 0u;
+            bool mask_bottom = (fm & 4u) != 0u;
+            bool mask_top = (fm & 8u) != 0u;
+
+            int maxv = int(res) - 1;
+
+            // After transform, which model edge is at which world position?
+            bool is_left_edge, is_right_edge;
+            bool is_bottom_edge = (voxel.y == 0);
+            bool is_top_edge = (voxel.y == maxv);
+
+            switch (rotation & 3u) {
+                case 0u: // North: (x, y, z)
+                    is_left_edge = (voxel.x == 0);
+                    is_right_edge = (voxel.x == maxv);
+                    break;
+                case 2u: // South: (maxv-x, y, maxv-z)
+                    is_left_edge = (voxel.x == maxv);
+                    is_right_edge = (voxel.x == 0);
+                    break;
+                case 1u: // East: (z, y, maxv-x)
+                    is_left_edge = (voxel.z == 0);
+                    is_right_edge = (voxel.z == maxv);
+                    break;
+                case 3u: // West: (maxv-z, y, x)
+                    is_left_edge = (voxel.z == maxv);
+                    is_right_edge = (voxel.z == 0);
+                    break;
+                default:
+                    is_left_edge = false;
+                    is_right_edge = false;
+                    break;
+            }
+
+            // Check if this is a stripped border edge
+            bool strip_left = (!mask_left) && is_left_edge;
+            bool strip_right = (!mask_right) && is_right_edge;
+            bool strip_bottom = (!mask_bottom) && is_bottom_edge;
+            bool strip_top = (!mask_top) && is_top_edge;
+            bool should_strip = strip_left || strip_right || strip_bottom || strip_top;
+
+            if (should_strip) {
+                bool is_border_voxel = (palette_idx >= 1u && palette_idx <= 3u);
+
+                if (is_border_voxel) {
+                    // Replace border with picture area at z=7
+                    // Sample from picture area at the same (x,y) position, z=7
+                    ivec3 picPos = voxel;
+                    picPos.z = maxv;  // Picture area is at z=7
+
+                    // Transform the picture area position and sample
+                    ivec3 rotatedPicPos = transformFramePos(picPos, rotation, res);
+                    rotatedPicPos = clamp(rotatedPicPos, ivec3(0), ivec3(maxv));
+                    palette_idx = sampleModelVoxel(model_id, rotatedPicPos);
+                }
+            }
+        }
 
         // Hit if not air (palette index 0 = transparent)
         if (palette_idx != 0u) {
@@ -442,7 +588,8 @@ float marchSubVoxelShadow(
     vec3 origin,
     vec3 dir,
     uint model_id,
-    uint rotation,
+    uint rotation_and_flags,
+    uint frame_mask,
     int maxSteps,
     out vec3 accumulatedTint
 ) {
@@ -450,12 +597,16 @@ float marchSubVoxelShadow(
 
     // Get actual model resolution (8, 16, or 32)
     uint res = model_properties[model_id].resolution;
+    uint rotation = rotation_and_flags & 3u;
     float fres = float(res);
+
+    bool isFrame = (model_id == FRAME_MODEL_ID);
 
     // Early out using coarse mask - skip for glass pane models (119-150) since their
     // thin frame geometry (1 voxel thick) can be missed by the 4x4x4 coarse mask DDA
     bool isGlassPane = (model_id >= 119u && model_id <= 150u);
-    if (!isGlassPane && !modelMaskBlocksRay(origin, dir, model_id, rotation)) {
+    bool skipCoarse = isFrame;
+    if (!isGlassPane && !skipCoarse && !modelMaskBlocksRay(origin, dir, model_id, rotation)) {
         return 1.0; // No blocking
     }
 
@@ -472,8 +623,10 @@ float marchSubVoxelShadow(
     vec3 invDir = 1.0 / safeDir;
 
     // Calculate entry t into the model cube
-    vec3 tMin = (vec3(-SUB_VOXEL_EPS) - pos) * invDir;
-    vec3 tMax = (vec3(fres + SUB_VOXEL_EPS) - pos) * invDir;
+    // Expand bounds more for thin models like frames
+    float boundsEps = isFrame ? 0.01 : SUB_VOXEL_EPS;
+    vec3 tMin = (vec3(-boundsEps) - pos) * invDir;
+    vec3 tMax = (vec3(fres + boundsEps) - pos) * invDir;
 
     vec3 t1 = min(tMin, tMax);
     vec3 t2 = max(tMin, tMax);
@@ -486,8 +639,8 @@ float marchSubVoxelShadow(
 
     float startT = max(tNear, 0.0);
     vec3 startPos = pos + dir * startT;
-    startPos += safeDir * SUB_VOXEL_EPS;
-    startPos = clamp(startPos, vec3(SUB_VOXEL_EPS), vec3(fres - SUB_VOXEL_EPS));
+    startPos += safeDir * boundsEps;
+    startPos = clamp(startPos, vec3(boundsEps), vec3(fres - boundsEps));
 
     ivec3 voxel = ivec3(clamp(floor(startPos), vec3(0.0), vec3(float(res - 1u))));
 
@@ -513,7 +666,9 @@ float marchSubVoxelShadow(
             break;
         }
 
-        ivec3 rotatedPos = rotateModelPos(voxel, rotation, res);
+        ivec3 rotatedPos = isFrame
+            ? transformFramePos(voxel, rotation, res)
+            : rotateModelPos(voxel, rotation, res);
         rotatedPos = clamp(rotatedPos, ivec3(0), ivec3(int(res) - 1));
         uint palette_idx = sampleModelVoxel(model_id, rotatedPos);
         if (palette_idx != 0u) {
@@ -606,4 +761,3 @@ bool isDoorUpper(uint model_id) {
     uint offset = model_id - base;
     return (offset == 2u || offset == 3u || offset == 6u || offset == 7u);
 }
-
