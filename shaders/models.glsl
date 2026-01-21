@@ -440,19 +440,10 @@ bool marchSubVoxelModel(
             }
         }
 
-        // Strip border voxels at interior edges
+        // Strip ONLY border voxels at interior edges
+        // Do NOT strip picture voxels - they should remain visible
         if (at_interior_edge && is_border_voxel) {
             continue;
-        }
-
-        // Strip picture area voxels ONLY at the exact edge pixel
-        // This creates a 1-voxel gap that allows the ray to pass through
-        if (at_interior_edge && is_picture_voxel) {
-            // Only strip if we're at the EXACT edge (not the whole picture area)
-            if ((rotatedPos.x == 0 || rotatedPos.x == int(res) - 1) ||
-                (rotatedPos.y == 0 || rotatedPos.y == int(res) - 1)) {
-                continue;
-            }
         }
 
         // Hit if not air (palette index 0 = transparent)
