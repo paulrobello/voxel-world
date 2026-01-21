@@ -429,7 +429,12 @@ impl World {
             return;
         }
 
-        println!("[FRAME] Found {} frames at {:?} facing={}", visited.len(), center_pos, facing);
+        println!(
+            "[FRAME] Found {} frames at {:?} facing={}",
+            visited.len(),
+            center_pos,
+            facing
+        );
 
         // Compute bounds along right axis and vertical axis
         let right_axis_is_x = right.x != 0;
@@ -462,7 +467,10 @@ impl World {
         // Use picture_id from first block (default 0).
         let picture_id = frames::metadata::decode_picture_id(data.custom_data);
 
-        println!("[FRAME] Cluster: {}x{}, anchor_right={}, right_sign={}", width, height, anchor_right, right_sign);
+        println!(
+            "[FRAME] Cluster: {}x{}, anchor_right={}, right_sign={}",
+            width, height, anchor_right, right_sign
+        );
 
         for pos in visited {
             let rcoord = if right_axis_is_x { pos.x } else { pos.z };
@@ -481,8 +489,17 @@ impl World {
                     | ((mask_bottom as u8) << 2)
                     | ((mask_top as u8) << 3);
 
-                println!("[FRAME] pos={:?} offset=({}, {}) edge_mask={:04b} ({},{},{},{})",
-                    pos, offset_x, offset_y, edge_mask, mask_left, mask_right, mask_top, mask_bottom);
+                println!(
+                    "[FRAME] pos={:?} offset=({}, {}) edge_mask={:04b} ({},{},{},{})",
+                    pos,
+                    offset_x,
+                    offset_y,
+                    edge_mask,
+                    mask_left,
+                    mask_right,
+                    mask_top,
+                    mask_bottom
+                );
 
                 // Store facing in low bits, edge mask in bits 3-6. Bit 2 is reserved for waterlogged.
                 let rotation = (facing & 0x03) | (edge_mask << 3);
@@ -517,7 +534,7 @@ impl World {
             self.update_frame_cluster(center_pos + offset);
         }
 
-        // Mark affected chunks as dirty to ensure metadata is uploaded to GPU
+        // Mark chunks as dirty AFTER all rotations are updated
         for offset in neighbors {
             let pos = center_pos + offset;
             let chunk_pos = Self::world_to_chunk(pos);
