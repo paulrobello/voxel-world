@@ -458,7 +458,7 @@ bool marchSubVoxelModel(
                     break;
             }
 
-            // Check if this is a stripped border edge
+            // Keep outer borders, strip interior borders
             bool strip_left = (!mask_left) && is_left_edge;
             bool strip_right = (!mask_right) && is_right_edge;
             bool strip_bottom = (!mask_bottom) && is_bottom_edge;
@@ -467,17 +467,8 @@ bool marchSubVoxelModel(
 
             if (should_strip) {
                 bool is_border_voxel = (palette_idx >= 1u && palette_idx <= 3u);
-
                 if (is_border_voxel) {
-                    // Replace border with picture area at z=7
-                    // Sample from picture area at the same (x,y) position, z=7
-                    ivec3 picPos = voxel;
-                    picPos.z = maxv;  // Picture area is at z=7
-
-                    // Transform the picture area position and sample
-                    ivec3 rotatedPicPos = transformFramePos(picPos, rotation, res);
-                    rotatedPicPos = clamp(rotatedPicPos, ivec3(0), ivec3(maxv));
-                    palette_idx = sampleModelVoxel(model_id, rotatedPicPos);
+                    continue;  // Skip this border voxel (picture area at z=7 shows through)
                 }
             }
         }
