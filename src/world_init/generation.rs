@@ -162,10 +162,6 @@ pub fn create_initial_world_with_seed(
     // This is necessary for frames placed before clustering was implemented
     world.recompute_all_frame_clusters();
 
-    // Force metadata buffer update for all chunks containing frames
-    // This ensures the GPU receives the updated edge mask values
-    world.recompute_all_frame_edge_masks();
-
     world
 }
 

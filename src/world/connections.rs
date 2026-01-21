@@ -523,10 +523,8 @@ impl World {
     /// Useful for migrating worlds from before frame clustering was implemented.
     pub fn recompute_all_frame_clusters(&mut self) {
         use crate::sub_voxel::ModelRegistry;
-        use std::collections::HashSet;
 
         let mut frame_positions = Vec::new();
-        let mut affected_chunks = HashSet::new();
 
         // First pass: collect all frame positions
         let chunk_positions: Vec<_> = self.chunks.keys().copied().collect();
@@ -548,33 +546,14 @@ impl World {
                 if let Some(model_data) = chunk.get_model_data(lx, ly, lz) {
                     if ModelRegistry::is_frame_model(model_data.model_id) {
                         frame_positions.push(world_pos);
-                        affected_chunks.insert(chunk_pos);
                     }
                 }
             }
         }
 
         // Second pass: update frame clusters
-        for world_pos in &frame_positions {
-            self.update_frame_cluster(*world_pos);
-        }
-
-        // Mark all affected chunks as dirty to ensure GPU metadata is updated
-        for chunk_pos in affected_chunks {
-            if let Some(chunk) = self.chunks.get_mut(&chunk_pos) {
-                chunk.mark_dirty();
-            }
-        }
-    }
-
-    /// Recomputes edge masks for all frames in all chunks.
-    /// This ensures the metadata buffer is rebuilt with correct values.
-    pub fn recompute_all_frame_edge_masks(&mut self) {
-        let chunk_positions: Vec<_> = self.chunks.keys().copied().collect();
-        for chunk_pos in chunk_positions {
-            if let Some(chunk) = self.chunks.get_mut(&chunk_pos) {
-                chunk.recompute_frame_edge_masks();
-            }
+        for world_pos in frame_positions {
+            self.update_frame_cluster(world_pos);
         }
     }
 }
