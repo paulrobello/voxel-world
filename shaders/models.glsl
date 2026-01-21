@@ -442,14 +442,18 @@ bool marchSubVoxelModel(
 
         // Strip ONLY border voxels at interior edges
         // Do NOT strip picture voxels - they should remain visible
-        if (at_interior_edge && is_border_voxel) {
-            continue;
-        }
+        // (Handled below with paletteColor debug flag)
 
         // Hit if not air (palette index 0 = transparent)
         if (palette_idx != 0u) {
             // Get color from palette
             vec4 paletteColor = getModelPaletteColor(model_id, palette_idx);
+
+            // Strip border voxels at interior edges to create seamless merged frames
+            if (at_interior_edge && is_border_voxel) {
+                continue;
+            }
+
             vec3 final_color = paletteColor.rgb;
 
             // Add per-voxel emission glow (e.g., torch flame)
