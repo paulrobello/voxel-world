@@ -429,6 +429,8 @@ impl World {
             return;
         }
 
+        println!("[FRAME] Found {} frames at {:?} facing={}", visited.len(), center_pos, facing);
+
         // Compute bounds along right axis and vertical axis
         let right_axis_is_x = right.x != 0;
         let right_sign = if right_axis_is_x { right.x } else { right.z }; // ±1
@@ -460,6 +462,8 @@ impl World {
         // Use picture_id from first block (default 0).
         let picture_id = frames::metadata::decode_picture_id(data.custom_data);
 
+        println!("[FRAME] Cluster: {}x{}, anchor_right={}, right_sign={}", width, height, anchor_right, right_sign);
+
         for pos in visited {
             let rcoord = if right_axis_is_x { pos.x } else { pos.z };
             let offset_x = ((rcoord - anchor_right) * right_sign).max(0) as u8;
@@ -476,6 +480,9 @@ impl World {
                     | ((mask_right as u8) << 1)
                     | ((mask_bottom as u8) << 2)
                     | ((mask_top as u8) << 3);
+
+                println!("[FRAME] pos={:?} offset=({}, {}) edge_mask={:04b} ({},{},{},{})",
+                    pos, offset_x, offset_y, edge_mask, mask_left, mask_right, mask_top, mask_bottom);
 
                 // Store facing in low bits, edge mask in bits 3-6. Bit 2 is reserved for waterlogged.
                 let rotation = (facing & 0x03) | (edge_mask << 3);

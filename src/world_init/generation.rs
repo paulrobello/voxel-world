@@ -158,6 +158,10 @@ pub fn create_initial_world_with_seed(
         println!("[World Gen] Throughput: {:.0} chunks/sec", chunks_per_sec);
     }
 
+    // Recompute frame clusters to ensure merged frames have correct edge masks
+    // This is necessary for frames placed before clustering was implemented
+    world.recompute_all_frame_clusters();
+
     world
 }
 

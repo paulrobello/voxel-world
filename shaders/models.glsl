@@ -435,16 +435,29 @@ bool marchSubVoxelModel(
             }
         }
 
-        // Strip ALL border voxels at edges that should merge
+        // Strip border voxels at interior edges of merged frames
         if (should_strip && is_border_voxel) {
-            continue;
+            continue;  // Skip this voxel, allowing ray to reach picture area behind
+        }
+
+        // Default brown color for frame borders
+        vec3 frame_debug_color = vec3(0.5, 0.3, 0.1);
+        if (is_border_voxel) {
+            frame_debug_color = vec3(0.5, 0.3, 0.1);  // Normal wood color
         }
 
         // Hit if not air (palette index 0 = transparent)
         if (palette_idx != 0u) {
             // Get color from palette
             vec4 paletteColor = getModelPaletteColor(model_id, palette_idx);
-            vec3 final_color = paletteColor.rgb;
+
+            // Use debug color for frame borders, otherwise use palette color
+            vec3 final_color;
+            if (is_border_voxel) {
+                final_color = frame_debug_color;
+            } else {
+                final_color = paletteColor.rgb;
+            }
 
             // Add per-voxel emission glow (e.g., torch flame)
             float emission = getModelPaletteEmission(model_id, palette_idx);
