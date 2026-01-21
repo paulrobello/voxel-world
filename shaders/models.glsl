@@ -455,23 +455,11 @@ bool marchSubVoxelModel(
             }
         }
 
-        // Default brown color for frame borders (fallback)
-        if (!(is_border_voxel || is_picture_voxel)) {
-            frame_debug_color = vec3(0.5, 0.3, 0.1);
-        }
-
         // Hit if not air (palette index 0 = transparent)
         if (palette_idx != 0u) {
             // Get color from palette
             vec4 paletteColor = getModelPaletteColor(model_id, palette_idx);
-
-            // Use debug color for frame borders, otherwise use palette color
-            vec3 final_color;
-            if (is_border_voxel) {
-                final_color = frame_debug_color;
-            } else {
-                final_color = paletteColor.rgb;
-            }
+            vec3 final_color = paletteColor.rgb;
 
             // Add per-voxel emission glow (e.g., torch flame)
             float emission = getModelPaletteEmission(model_id, palette_idx);
