@@ -653,6 +653,7 @@ impl App {
             texture_library: crate::textures::TextureLibrary::load(),
             selected_picture_id: None,
             pending_picture_upload: None,
+            pictures_need_upload: true,  // Trigger upload of all pictures on first render
             picture_ui: crate::pictures::PictureUi::new(),
             paint_panel: crate::ui::paint_panel::PaintPanelState::new(),
         };

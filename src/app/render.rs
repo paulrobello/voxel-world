@@ -1475,6 +1475,27 @@ impl App {
             )
             .unwrap();
 
+        // Batch upload all pictures on first render after world load
+        if self.ui.pictures_need_upload {
+            println!("[Render] Batch uploading {} pictures to GPU atlas...", self.sim.picture_library.len());
+            let mut uploaded_count = 0;
+            for picture in self.sim.picture_library.iter() {
+                let success = crate::gpu_resources::upload_picture_to_atlas(
+                    self.graphics.memory_allocator.clone(),
+                    self.graphics.command_buffer_allocator.clone(),
+                    &self.graphics.queue,
+                    &self.graphics.picture_atlas,
+                    &self.sim.picture_library,
+                    picture.id,
+                );
+                if success {
+                    uploaded_count += 1;
+                }
+            }
+            self.ui.pictures_need_upload = false;
+            println!("[Render] Uploaded {} pictures to GPU atlas", uploaded_count);
+        }
+
         // Upload pending picture to GPU atlas if needed
         if let Some(picture_id) = self.ui.pending_picture_upload.take() {
             println!(

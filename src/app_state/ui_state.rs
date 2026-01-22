@@ -203,6 +203,9 @@ pub struct UiState {
     /// Pending picture ID to upload to GPU atlas (Some = needs upload).
     pub pending_picture_upload: Option<u32>,
 
+    /// Flag indicating pictures need to be uploaded to GPU (e.g., after world load).
+    pub pictures_need_upload: bool,
+
     /// Picture browser UI state.
     pub picture_ui: PictureUi,
 
