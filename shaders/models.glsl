@@ -421,10 +421,31 @@ bool marchSubVoxelModel(
         // Frame border masking for merged frames
         bool is_border_voxel = isFrame && (palette_idx >= 1u && palette_idx <= 3u);
         bool is_picture_voxel = isFrame && (palette_idx == 4u);
+        bool is_corner_post = is_border_voxel && (rotatedPos.x == 0 || rotatedPos.x == int(res) - 1)
+                                       && (rotatedPos.y == 0 || rotatedPos.y == int(res) - 1);
 
-        // Frame model now has picture extending to frame edges (z=7)
-        // Border is only at z=6 (behind picture) plus corner posts
-        // No border stripping needed - picture creates seamless appearance
+        // Check if this edge should be stripped based on frame_mask
+        // Use rotatedPos for coordinate checks (after frame rotation/flips)
+        bool at_interior_edge = false;
+        if (isFrame) {
+            if (rotatedPos.x == 0 && (frame_mask & 1u) == 0u) {
+                at_interior_edge = true;
+            }
+            if (rotatedPos.x == int(res) - 1 && (frame_mask & 2u) == 0u) {
+                at_interior_edge = true;
+            }
+            if (rotatedPos.y == 0 && (frame_mask & 4u) == 0u) {
+                at_interior_edge = true;
+            }
+            if (rotatedPos.y == int(res) - 1 && (frame_mask & 8u) == 0u) {
+                at_interior_edge = true;
+            }
+        }
+
+        // Strip corner posts at interior edges to create seamless appearance
+        if (at_interior_edge && is_corner_post) {
+            continue;
+        }
 
         // Hit if not air (palette index 0 = transparent)
         if (palette_idx != 0u) {
