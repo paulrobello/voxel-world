@@ -4,14 +4,15 @@
 const uint FRAME_MODEL_ID = 160u;
 
 // Custom transform for frames: orient voxel coordinates so the frame sits flush against
-// the mounting wall. Frame model has voxels at z=6..7 (2 voxels deep for border), extending toward wall.
+// the mounting wall. Frame model has voxels at z=31 (1 voxel deep for 32³ resolution),
+// extending toward wall.
 // rotation/facing: 0=North(-Z), 1=East(+X), 2=South(+Z), 3=West(-X)
 //
-// Transform mapping:
-// - North: z preserved, z=7 scales to z=0.875 (close to -Z wall)
-// - South: z flipped (maxv - z), z=7→0 scales to z=0.0 (at +Z wall)
-// - East: z becomes x, z=7→7 at wall, z=6→6 extending in
-// - West: z becomes x, z=7→0 at wall, z=6→1 extending in
+// Transform mapping (resolution-agnostic):
+// - North: z preserved, z=max scales toward front face
+// - South: z flipped (maxv - z)
+// - East: z becomes x, z=max at wall
+// - West: z becomes x, z=0 at wall
 ivec3 transformFramePos(ivec3 pos, uint rotation, uint res) {
     int maxv = int(res) - 1; // 7 for 8³
     int x = pos.x;
@@ -41,18 +42,18 @@ vec3 inverseTransformFramePosition(vec3 p, uint rotation, uint res) {
             return p;
         case 2u: // South (+Z): (maxv-x, y, maxv-z) → (1-x, y, 1-z)
             return vec3(1.0 - p.x, p.y, 1.0 - p.z);
-        case 1u: // East (+X): (maxv-z-1, y, x) → (z+1 → x, y, x → z)
-            // Forward: u = maxv - z - 1, w = x
+        case 1u: // East (+X): (z, y, maxv-x) → (z → x, y, x → z)
+            // Forward: u = z, w = maxv - x
             // Inverse: given p (block space of u, v, w), find original (x, y, z)
-            // p.x = (maxv - z - 1)/res → z/res = 1.0 - p.x
+            // p.x = z/res → z/res = p.x
+            // p.z = (maxv - x)/res → x/res = 1.0 - p.z
+            return vec3(p.x, p.y, 1.0 - p.z);
+        case 3u: // West (-X): (maxv-z, y, x) → (z → x, y, x → z)
+            // Forward: u = maxv - z, w = x
+            // Inverse: given p (block space of u, v, w), find original (x, y, z)
+            // p.x = (maxv - z)/res → z/res = 1.0 - p.x
             // p.z = x/res → x/res = p.z
             return vec3(1.0 - p.x, p.y, p.z);
-        case 3u: // West (-X): (z+1, y, maxv-x)
-            // Forward: u = z + 1, w = maxv - x
-            // Inverse: p.x = (z+1)/res → z/res = p.x - 1/res
-            //         p.z = (maxv-x)/res → x/res = 1.0 - p.z
-            // Note: the -1/res offset is a sub-voxel shift, approximately p.x - 0.125
-            return vec3(p.x - 1.0, p.y, 1.0 - p.z);
         default:
             return p;
     }

@@ -75,56 +75,59 @@ pub const fn edge_mask_to_frame_model_id(edge_mask: u8) -> u8 {
 /// - Set bit (1) = border present (exterior edge)
 /// - Cleared bit (0) = no border (interior edge where frames merge)
 ///
-/// Structure (single sub-voxel thick at z=7):
-/// - Picture area (pink) fills interior
-/// - Dark brown border on exterior edges
+/// Uses 32³ resolution for 32×32 picture display:
+/// - Picture area fills interior (30×30 voxels for display)
+/// - Border is 1 voxel thick on exterior edges
+/// - Frame is 1 voxel deep (z=31 is the front face)
 fn create_frame_for_edge_mask(edge_mask: u8) -> SubVoxelModel {
     let name = format!("frame_edge_mask_{}", edge_mask);
-    let mut model = SubVoxelModel::with_resolution_and_name(ModelResolution::Low, &name);
+    let mut model = SubVoxelModel::with_resolution_and_name(ModelResolution::High, &name);
 
     // Palette setup:
     // 1 = Frame wood (dark brown)
-    // 4 = Picture area (magenta, replaced by shader)
+    // 4 = Picture area (magenta, replaced by shader with picture texture)
     model.palette[1] = FRAME_WOOD;
     model.palette[4] = PICTURE_AREA;
 
-    let max = DESIGN_SIZE - 1; // 7 for 8³
+    // 32³ resolution: 32×32 picture area per frame
+    let resolution = 32usize;
+    let front_z = resolution - 1; // z=31 is the front face
 
-    // Fill entire front face (z=7) with picture area
-    for y in 0..DESIGN_SIZE {
-        for x in 0..DESIGN_SIZE {
-            model.set_voxel(x, y, max, 4);
+    // Fill entire front face with picture area
+    for y in 0..resolution {
+        for x in 0..resolution {
+            model.set_voxel(x, y, front_z, 4);
         }
     }
 
-    // Add borders on exterior edges (overwrites picture voxels)
-    // All at same z=7 (single sub-voxel thick)
+    // Add borders on exterior edges (1 voxel thick)
+    // All at front face (z=31)
 
     // Left border (bit 0)
     if edge_mask & 1 != 0 {
-        for y in 0..DESIGN_SIZE {
-            model.set_voxel(0, y, max, 1);
+        for y in 0..resolution {
+            model.set_voxel(0, y, front_z, 1);
         }
     }
 
     // Right border (bit 1)
     if edge_mask & 2 != 0 {
-        for y in 0..DESIGN_SIZE {
-            model.set_voxel(max, y, max, 1);
+        for y in 0..resolution {
+            model.set_voxel(resolution - 1, y, front_z, 1);
         }
     }
 
     // Bottom border (bit 2)
     if edge_mask & 4 != 0 {
-        for x in 0..DESIGN_SIZE {
-            model.set_voxel(x, 0, max, 1);
+        for x in 0..resolution {
+            model.set_voxel(x, 0, front_z, 1);
         }
     }
 
     // Top border (bit 3)
     if edge_mask & 8 != 0 {
-        for x in 0..DESIGN_SIZE {
-            model.set_voxel(x, max, max, 1);
+        for x in 0..resolution {
+            model.set_voxel(x, resolution - 1, front_z, 1);
         }
     }
 
