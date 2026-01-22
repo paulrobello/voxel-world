@@ -485,13 +485,7 @@ impl World {
                 let custom =
                     frames::metadata::encode(picture_id, offset_x, offset_y, width, height, facing);
 
-                self.set_model_block_with_data(
-                    *pos,
-                    model_id,
-                    rotation,
-                    waterlogged,
-                    custom,
-                );
+                self.set_model_block_with_data(*pos, model_id, rotation, waterlogged, custom);
             }
         }
 
@@ -511,7 +505,8 @@ impl World {
         ];
 
         // Collect all positions that were updated across all cluster updates
-        let mut all_updated_positions: std::collections::HashSet<Vector3<i32>> = std::collections::HashSet::new();
+        let mut all_updated_positions: std::collections::HashSet<Vector3<i32>> =
+            std::collections::HashSet::new();
 
         for offset in neighbors {
             let pos = center_pos + offset;
@@ -562,7 +557,8 @@ impl World {
         }
 
         // Second pass: update frame clusters and mark chunks dirty
-        let mut all_updated_positions: std::collections::HashSet<Vector3<i32>> = std::collections::HashSet::new();
+        let mut all_updated_positions: std::collections::HashSet<Vector3<i32>> =
+            std::collections::HashSet::new();
         for world_pos in frame_positions {
             let updated = self.update_frame_cluster(world_pos);
             all_updated_positions.extend(updated);

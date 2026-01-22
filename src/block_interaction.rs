@@ -1185,7 +1185,9 @@ impl App {
                 use crate::sub_voxel::builtins::frames;
 
                 // Derive facing from hit normal for stable orientation per wall.
-                let facing = if let Some(hit) = self.ui.current_hit {
+                // BUT: if placing adjacent to an existing frame, use that frame's facing
+                // to maintain consistent orientation across the cluster.
+                let mut facing = if let Some(hit) = self.ui.current_hit {
                     let n = hit.normal;
                     if n.z < 0 {
                         0 // North wall, width along +X
@@ -1201,6 +1203,30 @@ impl App {
                 } else {
                     0
                 };
+
+                // Check if we're placing adjacent to an existing frame - if so, use its facing
+                let neighbors = [
+                    place_pos + nalgebra::Vector3::new(1, 0, 0),  // right
+                    place_pos + nalgebra::Vector3::new(-1, 0, 0), // left
+                    place_pos + nalgebra::Vector3::new(0, 1, 0),  // up
+                    place_pos + nalgebra::Vector3::new(0, -1, 0), // down
+                    place_pos + nalgebra::Vector3::new(0, 0, 1),  // back
+                    place_pos + nalgebra::Vector3::new(0, 0, -1), // front
+                ];
+
+                for neighbor_pos in neighbors {
+                    if let Some(BlockType::Model) = self.sim.world.get_block(neighbor_pos) {
+                        if let Some(md) = self.sim.world.get_model_data(neighbor_pos) {
+                            if ModelRegistry::is_frame_model(md.model_id) {
+                                // Use the existing frame's facing
+                                let neighbor_facing =
+                                    frames::metadata::decode_facing(md.custom_data);
+                                facing = neighbor_facing;
+                                break;
+                            }
+                        }
+                    }
+                }
 
                 let right = crate::world::World::frame_right_vec(facing);
                 let up = nalgebra::Vector3::new(0, 1, 0);
@@ -1227,7 +1253,16 @@ impl App {
                 // For frames: model_id = 160 + edge_mask. Initial placement has all edges (0x0F).
                 rotation = facing & 0x03;
                 let edge_mask: u8 = 0x0F;
-                frames::edge_mask_to_frame_model_id(edge_mask)
+                let model_id = frames::edge_mask_to_frame_model_id(edge_mask);
+
+                // Debug output for north wall placement
+                if facing == 0 {
+                    println!(
+                        "[FRAME PLACE] North wall: facing={}, rotation={}, model_id={}",
+                        facing, rotation, model_id
+                    );
+                }
+                model_id
             } else if base_model_id >= FIRST_CUSTOM_MODEL_ID {
                 // Custom models: auto-rotate to face player
                 let yaw = self.sim.player.camera.rotation.y as f32;

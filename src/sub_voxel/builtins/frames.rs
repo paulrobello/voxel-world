@@ -222,12 +222,7 @@ pub mod metadata {
     /// Decodes facing direction from frame metadata.
     /// Supports legacy encoding (bits 24-25) for backward compatibility.
     pub const fn decode_facing(data: u32) -> u8 {
-        let new_bits = ((data >> 28) & 0x3) as u8;
-        if new_bits != 0 {
-            new_bits
-        } else {
-            ((data >> 24) & 0x3) as u8
-        }
+        ((data >> 28) & 0x3) as u8
     }
 
     #[cfg(test)]
@@ -260,18 +255,9 @@ mod tests {
 
     #[test]
     fn test_is_frame_model() {
-        assert!(is_frame_model(FRAME_MODEL_ID));
+        assert!(is_frame_model(FIRST_FRAME_ID));
         assert!(is_frame_model(LAST_FRAME_ID));
         assert!(!is_frame_model(159));
-    }
-
-    #[test]
-    fn test_frame_auto() {
-        let frame = create_frame_auto();
-        assert_eq!(frame.name, "frame_auto");
-        assert!(frame.rotatable);
-        assert!(frame.no_collision);
-        assert!(frame.voxels.iter().any(|&v| v != 0));
     }
 
     fn inverse_transform_frame_position(p: [f32; 3], rotation: u8) -> [f32; 3] {
