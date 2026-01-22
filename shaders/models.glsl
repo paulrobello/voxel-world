@@ -114,7 +114,20 @@ vec4 samplePictureColor(uint picture_id, vec2 uv) {
 // voxel_pos: Position within the frame model (0-31 for 32³ resolution)
 // rotation: Frame rotation (0=North, 1=East, 2=South, 3=West)
 // res: Model resolution (32 for frames)
-vec4 getFramePictureColor(uint picture_id, ivec3 voxel_pos, uint rotation, uint res) {
+// offset_x: Horizontal offset in multi-frame cluster (0-3)
+// offset_y: Vertical offset in multi-frame cluster (0-3)
+// cluster_width: Total width of frame cluster (1-4)
+// cluster_height: Total height of frame cluster (1-4)
+vec4 getFramePictureColor(
+    uint picture_id,
+    ivec3 voxel_pos,
+    uint rotation,
+    uint res,
+    uint offset_x,
+    uint offset_y,
+    uint cluster_width,
+    uint cluster_height
+) {
     // Frames use 32³ resolution, picture is on the front face (z = res - 1)
     int front_z = int(res) - 1;
 
@@ -137,8 +150,16 @@ vec4 getFramePictureColor(uint picture_id, ivec3 voxel_pos, uint rotation, uint 
     // Frame borders are 1 voxel on each edge, so picture area is (res-2) × (res-2)
     // For 32³ frames: borders at x=0, x=31, y=0, y=31
     // Picture area: x=1..30, y=1..30 (30×30 = 32×32 pixels at 1:1 pixel:voxel ratio)
-    float picture_u = (float(transformed.x) - 0.5) / float(res);
-    float picture_v = (float(transformed.y) - 0.5) / float(res);
+
+    // First, get local UV within this frame block (0-1)
+    float local_u = (float(transformed.x) - 0.5) / float(res);
+    float local_v = (float(transformed.y) - 0.5) / float(res);
+
+    // For multi-frame clusters, adjust UV to sample from correct region of picture
+    // offset_x/y give the frame's position in the cluster (0,0 = bottom-left)
+    // cluster_width/height give the total cluster dimensions
+    float picture_u = (local_u + float(offset_x)) / float(cluster_width);
+    float picture_v = (local_v + float(offset_y)) / float(cluster_height);
 
     // Sample from picture atlas
     return samplePictureColor(picture_id, vec2(picture_u, picture_v));
@@ -496,7 +517,10 @@ bool marchSubVoxelModel(
             vec4 paletteColor;
             if (isFrameModel(model_id) && palette_idx == PICTURE_PALETTE_INDEX) {
                 // Sample from picture atlas instead of palette
-                paletteColor = getFramePictureColor(pc.selected_picture_id, rotatedPos, rotation, res);
+                // TODO: For multi-frame clusters, we need to pass offset_x, offset_y, cluster_width, cluster_height
+                // These values are stored in frame custom_data and need to be uploaded to GPU
+                // For now, use default values (single frame, no offset)
+                paletteColor = getFramePictureColor(pc.selected_picture_id, rotatedPos, rotation, res, 0u, 0u, 1u, 1u);
             } else {
                 // Get color from palette
                 paletteColor = getModelPaletteColor(model_id, palette_idx);
