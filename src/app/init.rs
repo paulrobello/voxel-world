@@ -22,6 +22,7 @@ use crate::hot_reload::HotReloadComputePipeline;
 use crate::hud::Minimap;
 use crate::lava::LavaGrid;
 use crate::particles::ParticleSystem;
+use crate::pictures::{PictureAtlas, PictureLibrary};
 use crate::player::Player;
 use crate::render_mode::RenderMode;
 use crate::sprite_gen;
@@ -472,6 +473,8 @@ impl App {
             world_name: world_name.clone(),
             seed,
             world_gen,
+            picture_library: PictureLibrary::load(),
+            picture_atlas: PictureAtlas::new(),
         };
 
         // Load fluid sources (water/lava sources that were saved)
@@ -646,6 +649,7 @@ impl App {
             terrain_brush: crate::shape_tools::TerrainBrushState::default(),
             texture_generator: crate::ui::texture_generator::TextureGeneratorState::new(),
             texture_library: crate::textures::TextureLibrary::load(),
+            selected_picture_id: None,
             paint_panel: crate::ui::paint_panel::PaintPanelState::new(),
         };
 

@@ -1248,7 +1248,9 @@ impl App {
                     }
                 }
 
-                custom_data = frames::metadata::encode(0, 0, 0, max_w, max_h, facing);
+                // Use selected picture_id (0 = empty frame)
+                let picture_id = self.ui.selected_picture_id.unwrap_or(0);
+                custom_data = frames::metadata::encode(picture_id, 0, 0, max_w, max_h, facing);
 
                 // For frames: model_id = 160 + edge_mask. Initial placement has all edges (0x0F).
                 rotation = facing & 0x03;

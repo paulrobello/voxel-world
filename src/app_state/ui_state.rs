@@ -196,6 +196,9 @@ pub struct UiState {
     /// Custom texture library.
     pub texture_library: TextureLibrary,
 
+    /// Selected picture ID for frame placement (None = empty frame).
+    pub selected_picture_id: Option<u32>,
+
     /// Paint panel UI state.
     pub paint_panel: PaintPanelState,
 }
