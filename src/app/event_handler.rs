@@ -105,6 +105,9 @@ impl ApplicationHandler for App {
             atlas_texture_id,
             sprite_icons,
 
+            picture_atlas: self.graphics.picture_atlas.clone(),
+            picture_atlas_view: self.graphics.picture_atlas_view.clone(),
+
             recreate_swapchain,
         });
     }

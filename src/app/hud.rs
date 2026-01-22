@@ -796,6 +796,7 @@ pub fn render_hud(
     match picture_action {
         Some(PictureBrowserAction::SelectPicture(id)) => {
             ui.selected_picture_id = Some(id);
+            ui.pending_picture_upload = Some(id);
             if let Some(picture) = sim.picture_library.get(id) {
                 println!(
                     "Selected picture '{}' ({}×{}) for frame placement",
@@ -805,6 +806,7 @@ pub fn render_hud(
         }
         Some(PictureBrowserAction::ClearSelection) => {
             ui.selected_picture_id = None;
+            ui.pending_picture_upload = None;
             println!("Cleared picture selection (frames will be empty)");
         }
         None => {}

@@ -652,6 +652,7 @@ impl App {
             texture_generator: crate::ui::texture_generator::TextureGeneratorState::new(),
             texture_library: crate::textures::TextureLibrary::load(),
             selected_picture_id: None,
+            pending_picture_upload: None,
             picture_ui: crate::pictures::PictureUi::new(),
             paint_panel: crate::ui::paint_panel::PaintPanelState::new(),
         };

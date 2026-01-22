@@ -229,6 +229,11 @@ pub struct RenderContext {
     /// Optional per-block/model sprite textures loaded from disk.
     pub sprite_icons: SpriteIcons,
 
+    /// Picture atlas for frame pictures.
+    pub picture_atlas: Arc<Image>,
+    /// Picture atlas image view for shader access.
+    pub picture_atlas_view: Arc<ImageView>,
+
     pub recreate_swapchain: bool,
 }
 
@@ -1186,6 +1191,123 @@ pub fn update_custom_texture_slot(
         .unwrap();
 
     println!("Updated custom texture slot {}", slot);
+}
+
+/// Update a slot in the picture atlas with picture data.
+/// slot: 0-63, width: picture width (max 256), height: picture height (max 256)
+/// pixels: RGBA data (width × height × 4 bytes)
+pub fn update_picture_slot(
+    memory_allocator: Arc<StandardMemoryAllocator>,
+    command_buffer_allocator: Arc<StandardCommandBufferAllocator>,
+    queue: &Arc<Queue>,
+    picture_image: &Arc<Image>,
+    slot: u32,
+    width: u32,
+    height: u32,
+    pixels: &[u8],
+) {
+    assert!(slot < PICTURE_ATLAS_SLOTS, "Invalid picture slot");
+    assert_eq!(
+        pixels.len(),
+        (width * height * 4) as usize,
+        "Invalid pixel data size"
+    );
+    assert!(width <= 256, "Picture width too large");
+    assert!(height <= 256, "Picture height too large");
+
+    let src_buffer = Buffer::from_iter(
+        memory_allocator.clone(),
+        BufferCreateInfo {
+            usage: BufferUsage::TRANSFER_SRC,
+            ..Default::default()
+        },
+        AllocationCreateInfo {
+            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+            ..Default::default()
+        },
+        pixels.to_vec(),
+    )
+    .unwrap();
+
+    let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
+        command_buffer_allocator.clone(),
+        queue.queue_family_index(),
+        CommandBufferUsage::OneTimeSubmit,
+    )
+    .unwrap();
+
+    // Copy to the specific slot region in the picture atlas
+    // Each slot is PICTURE_ATLAS_SIZE (32) wide, but pictures can be smaller
+    command_buffer_builder
+        .copy_buffer_to_image(CopyBufferToImageInfo {
+            regions: vec![BufferImageCopy {
+                buffer_offset: 0,
+                buffer_row_length: width,
+                buffer_image_height: height,
+                image_subresource: picture_image.subresource_layers(),
+                image_offset: [slot * PICTURE_ATLAS_SIZE, 0, 0],
+                image_extent: [width, height, 1],
+                ..Default::default()
+            }]
+            .into(),
+            ..CopyBufferToImageInfo::buffer_image(src_buffer, picture_image.clone())
+        })
+        .unwrap();
+
+    command_buffer_builder
+        .build()
+        .unwrap()
+        .execute(queue.clone())
+        .unwrap()
+        .then_signal_fence_and_flush()
+        .unwrap()
+        .wait(None)
+        .unwrap();
+
+    println!("Updated picture slot {} ({}×{})", slot, width, height);
+}
+
+/// Upload a picture from the picture library to the GPU atlas.
+/// Returns true if successful, false if picture_id is not found.
+pub fn upload_picture_to_atlas(
+    memory_allocator: Arc<StandardMemoryAllocator>,
+    command_buffer_allocator: Arc<StandardCommandBufferAllocator>,
+    queue: &Arc<Queue>,
+    picture_image: &Arc<Image>,
+    picture_library: &crate::pictures::PictureLibrary,
+    picture_id: u32,
+) -> bool {
+    let picture = match picture_library.get(picture_id) {
+        Some(p) => p,
+        None => return false,
+    };
+
+    // Ensure picture is 32×32 for frames (resize if needed)
+    let (width, height, pixels) = if picture.width == 32 && picture.height == 32 {
+        (picture.width, picture.height, picture.pixels.clone())
+    } else {
+        // TODO: Implement resize to 32×32
+        // For now, only support exact 32×32 pictures
+        println!(
+            "[PictureAtlas] Picture {} is {}×{}, expected 32×32",
+            picture.name, picture.width, picture.height
+        );
+        return false;
+    };
+
+    update_picture_slot(
+        memory_allocator,
+        command_buffer_allocator,
+        queue,
+        picture_image,
+        picture_id % PICTURE_ATLAS_SLOTS,
+        width.into(),
+        height.into(),
+        &pixels,
+    );
+
+    true
 }
 
 /// Maximum number of water/lava sources to show in debug mode.

@@ -200,6 +200,9 @@ pub struct UiState {
     /// Selected picture ID for frame placement (None = empty frame).
     pub selected_picture_id: Option<u32>,
 
+    /// Pending picture ID to upload to GPU atlas (Some = needs upload).
+    pub pending_picture_upload: Option<u32>,
+
     /// Picture browser UI state.
     pub picture_ui: PictureUi,
 

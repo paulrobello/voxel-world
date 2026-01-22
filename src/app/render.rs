@@ -1474,6 +1474,19 @@ impl App {
                 ],
             )
             .unwrap();
+
+        // Upload pending picture to GPU atlas if needed
+        if let Some(picture_id) = self.ui.pending_picture_upload.take() {
+            crate::gpu_resources::upload_picture_to_atlas(
+                self.graphics.memory_allocator.clone(),
+                self.graphics.command_buffer_allocator.clone(),
+                &self.graphics.queue,
+                &self.graphics.picture_atlas,
+                &self.sim.picture_library,
+                picture_id,
+            );
+        }
+
         unsafe {
             builder
                 .dispatch([
