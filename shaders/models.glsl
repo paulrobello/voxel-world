@@ -449,22 +449,13 @@ bool marchSubVoxelModel(
             // Get color from palette
             vec4 paletteColor = getModelPaletteColor(model_id, palette_idx);
 
-            // For merged frames: strip border on left/top sides, extend picture on right/bottom
-            // This creates a single border column instead of double
+            // For merged frames: recolor interior border voxels to match picture color
+            // This creates seamless appearance without gaps
             vec3 final_color = paletteColor.rgb;
             if (at_interior_edge && is_border_voxel) {
-                // Strip the border on left edge (bit0 clear) and top edge (bit2 clear)
-                // Keep the border on right edge (bit1 clear) and bottom edge (bit3 clear)
-                bool should_strip = ((rotatedPos.x == 0 && (frame_mask & 1u) == 0u) ||
-                                     (rotatedPos.y == 0 && (frame_mask & 4u) == 0u));
-
-                if (should_strip) {
-                    continue;  // Strip this border voxel
-                } else {
-                    // Keep this border voxel but color it like the picture
-                    vec4 pictureColor = getModelPaletteColor(model_id, 4u);
-                    final_color = pictureColor.rgb;
-                }
+                // Replace border color with picture color at interior edges
+                vec4 pictureColor = getModelPaletteColor(model_id, 4u);
+                final_color = pictureColor.rgb;
             }
 
             // Add per-voxel emission glow (e.g., torch flame)
