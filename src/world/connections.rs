@@ -490,15 +490,16 @@ impl World {
                     | ((mask_top as u8) << 3);
 
                 println!(
-                    "[FRAME] pos={:?} offset=({}, {}) edge_mask={:04b} ({},{},{},{})",
+                    "[FRAME] pos={:?} offset=({}, {}) edge_mask={:04b} ({},{},{},{}) model_id={}",
                     pos,
                     offset_x,
                     offset_y,
                     edge_mask,
                     mask_left,
                     mask_right,
+                    mask_bottom,
                     mask_top,
-                    mask_bottom
+                    frames::edge_mask_to_frame_model_id(edge_mask)
                 );
 
                 // Store facing in low bits. Model ID encodes edge mask: model_id = 160 + edge_mask.
