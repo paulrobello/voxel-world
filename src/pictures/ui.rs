@@ -92,6 +92,8 @@ pub fn draw_picture_browser(
     current_selection: Option<u32>,
     library: &PictureLibrary,
 ) -> Option<PictureBrowserAction> {
+    use super::library::PictureLibrary as Lib;
+    use std::sync::{Arc, Mutex};
     let mut action = None;
 
     if !ui_state.browser_open {
@@ -174,7 +176,7 @@ pub fn draw_picture_browser(
                 if ui_state.pictures.is_empty() {
                     ui.colored_label(
                         egui::Color32::from_gray(150),
-                        "No pictures. Create one in the Texture Editor (P key).",
+                        "No pictures found. Pictures are stored in ~/.voxel_world/pictures.bin",
                     );
                 } else {
                     ui.label("No pictures match your search.");
@@ -241,7 +243,7 @@ pub fn draw_picture_browser(
             ui.label(
                 egui::RichText::new(
                     "Select a picture to use when placing frames. \
-                    Press P to open the Texture Editor and create new pictures.",
+                    Pictures are stored in ~/.voxel_world/pictures.bin",
                 )
                 .size(13.0)
                 .color(egui::Color32::from_gray(150)),
