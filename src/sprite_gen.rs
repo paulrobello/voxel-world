@@ -532,7 +532,13 @@ fn render_icon(
 
     let mut meta_buf = vec![0u8; CHUNK_VOLUME * 2];
     if let Some(id) = model_id {
-        meta_buf[idx * 2] = id;
+        // For frame models, always use the single frame variant (all edges visible)
+        let model_id_to_use = if ModelRegistry::is_frame_model(id) {
+            crate::sub_voxel::builtins::frames::LAST_FRAME_ID // 175 = all edges (0x0F)
+        } else {
+            id
+        };
+        meta_buf[idx * 2] = model_id_to_use;
         meta_buf[idx * 2 + 1] = 0; // rotation 0
 
         // For doors, set metadata for upper half too
