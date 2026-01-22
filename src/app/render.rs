@@ -1431,6 +1431,7 @@ impl App {
             sky_horizon_r: self.sim.atmosphere.sky_color_horizon[0],
             sky_horizon_g: self.sim.atmosphere.sky_color_horizon[1],
             sky_horizon_b: self.sim.atmosphere.sky_color_horizon[2],
+            selected_picture_id: self.ui.selected_picture_id.unwrap_or(0),
         };
 
         let mut builder = AutoCommandBufferBuilder::primary(

@@ -528,6 +528,8 @@ pub struct PushConstants {
     pub sky_horizon_r: f32,
     pub sky_horizon_g: f32,
     pub sky_horizon_b: f32,
+    // Picture frame rendering
+    pub selected_picture_id: u32,
 }
 
 pub fn get_swapchain_images(

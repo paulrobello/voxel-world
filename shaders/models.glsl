@@ -75,6 +75,69 @@ vec3 inverseTransformFrameDirection(vec3 d, uint rotation) {
     }
 }
 
+// Picture frame constants
+const uint FRAME_MODEL_ID_BASE = 160u;  // First frame model ID
+const uint FRAME_MODEL_ID_LAST = 175u;   // Last frame model ID (160 + 15)
+const uint PICTURE_PALETTE_INDEX = 4u;   // Palette index for picture area in frames
+
+// Check if a model ID is a picture frame (160-175)
+bool isFrameModel(uint model_id) {
+    return model_id >= FRAME_MODEL_ID_BASE && model_id <= FRAME_MODEL_ID_LAST;
+}
+
+// Sample picture color from the picture atlas
+// picture_id: ID of the picture (0-63, maps to atlas slot)
+// uv: Normalized UV coordinates within the picture (0-1)
+// Returns: RGBA color from the picture, or magenta if picture_id is 0 (no picture)
+//
+// Note: Picture atlas binding not yet implemented - returns placeholder for now
+vec4 samplePictureColor(uint picture_id, vec2 uv) {
+    // picture_id 0 means no picture (empty frame) - return transparent
+    if (picture_id == 0u) {
+        return vec4(1.0, 1.0, 1.0, 1.0);  // White (no picture)
+    }
+
+    // TODO: Implement picture atlas sampling
+    // For now, return a gradient pattern based on UV to show picture is selected
+    vec3 gradient = vec3(uv.x, uv.y, 0.5);
+    return vec4(gradient, 1.0);
+}
+
+// Get picture color for a frame voxel
+// picture_id: ID of the picture to display
+// voxel_pos: Position within the frame model (0-31 for 32³ resolution)
+// rotation: Frame rotation (0=North, 1=East, 2=South, 3=West)
+// res: Model resolution (32 for frames)
+vec4 getFramePictureColor(uint picture_id, ivec3 voxel_pos, uint rotation, uint res) {
+    // Frames use 32³ resolution, picture is on the front face (z = res - 1)
+    int front_z = int(res) - 1;
+
+    // Only picture area voxels (z = front_z) show the picture
+    if (voxel_pos.z != front_z) {
+        // Interior voxels use the wood frame color
+        return vec4(0.4, 0.26, 0.13, 1.0);  // Dark brown
+    }
+
+    // Transform voxel position to account for frame rotation
+    ivec3 transformed = transformFramePos(voxel_pos, rotation, res);
+
+    // Check if this voxel is on the front face after transformation
+    // (it should be, but we verify)
+    if (transformed.z != front_z) {
+        return vec4(0.4, 0.26, 0.13, 1.0);  // Wood color
+    }
+
+    // Calculate UV coordinates within the picture
+    // Frame borders are 1 voxel on each edge, so picture area is (res-2) × (res-2)
+    // For 32³ frames: borders at x=0, x=31, y=0, y=31
+    // Picture area: x=1..30, y=1..30 (30×30 = 32×32 pixels at 1:1 pixel:voxel ratio)
+    float picture_u = (float(transformed.x) - 0.5) / float(res);
+    float picture_v = (float(transformed.y) - 0.5) / float(res);
+
+    // Sample from picture atlas
+    return samplePictureColor(picture_id, vec2(picture_u, picture_v));
+}
+
 uint sampleModelVoxel(uint model_id, ivec3 local_pos) {
     uint model_x = model_id % 16u;
     uint model_z = model_id / 16u;
@@ -423,8 +486,15 @@ bool marchSubVoxelModel(
 
         // Hit if not air (palette index 0 = transparent)
         if (palette_idx != 0u) {
-            // Get color from palette
-            vec4 paletteColor = getModelPaletteColor(model_id, palette_idx);
+            // Check if this is a picture frame voxel with picture area palette index
+            vec4 paletteColor;
+            if (isFrameModel(model_id) && palette_idx == PICTURE_PALETTE_INDEX) {
+                // Sample from picture atlas instead of palette
+                paletteColor = getFramePictureColor(pc.selected_picture_id, rotatedPos, rotation, res);
+            } else {
+                // Get color from palette
+                paletteColor = getModelPaletteColor(model_id, palette_idx);
+            }
 
             vec3 final_color = paletteColor.rgb;
 

@@ -234,6 +234,8 @@ layout(push_constant) uniform PushConstants {
     float sky_horizon_r;
     float sky_horizon_g;
     float sky_horizon_b;
+    // Picture frame rendering
+    uint selected_picture_id;  // Currently selected picture for frame placement (0 = no picture)
 } pc;
 
 // Particles (set 3)
@@ -357,9 +359,16 @@ layout(set = 0, binding = 0, rgba8) writeonly uniform image2D targetImage;
 layout(set = 1, binding = 0, r8ui) readonly uniform uimage3D blockImage;
 layout(set = 2, binding = 0) uniform sampler2D textureAtlas;
 layout(set = 2, binding = 1) uniform sampler2D customTextureAtlas;
+// Picture atlas binding - to be added when descriptor set is updated
+// layout(set = 2, binding = 2) uniform sampler2D pictureAtlas;
 
 // Custom texture atlas has 16 slots (indices 0-15)
 // Custom texture indices are flagged by having bit 7 set (128+)
 const uint CUSTOM_TEXTURE_FLAG = 128u;
 const float CUSTOM_ATLAS_TILE_COUNT = 16.0;
 const float CUSTOM_ATLAS_TILE_SIZE = 1.0 / 16.0;
+
+// Picture atlas has 64 slots for up to 64 pictures
+// Each picture is stored in a fixed slot (0-63)
+const uint PICTURE_ATLAS_SLOT_COUNT = 64u;
+const float PICTURE_ATLAS_SLOT_SIZE = 1.0 / 64.0;

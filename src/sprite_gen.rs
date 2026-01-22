@@ -702,6 +702,7 @@ fn render_icon(
         sky_horizon_r: 0.6,
         sky_horizon_g: 0.75,
         sky_horizon_b: 0.95,
+        selected_picture_id: 0,
     };
 
     // Render
