@@ -152,8 +152,9 @@ vec4 getFramePictureColor(
     // Picture area: x=1..30, y=1..30 (30×30 = 32×32 pixels at 1:1 pixel:voxel ratio)
 
     // First, get local UV within this frame block (0-1)
+    // Note: Flip Y because Vulkan textures have (0,0) at top-left, but our model has y=0 at bottom
     float local_u = (float(transformed.x) - 0.5) / float(res);
-    float local_v = (float(transformed.y) - 0.5) / float(res);
+    float local_v = 1.0 - (float(transformed.y) - 0.5) / float(res);
 
     // For multi-frame clusters, adjust UV to sample from correct region of picture
     // offset_x/y give the frame's position in the cluster (0,0 = bottom-left)

@@ -206,14 +206,42 @@ pub fn draw_picture_browser(
                                     // Picture info
                                     ui.vertical(|ui| {
                                         ui.label(format!("📷 {}", info.name));
-                                        ui.label(
-                                            egui::RichText::new(format!(
-                                                "{}×{} pixels",
-                                                info.width, info.height
-                                            ))
-                                            .size(12.0)
-                                            .color(egui::Color32::from_gray(150)),
-                                        );
+
+                                        // Render thumbnail if available
+                                        if let Some(picture) = library.get(info.id) {
+                                            // Get or create thumbnail texture handle
+                                            let texture_handle = ui_state.thumbnail_cache.entry(info.id).or_insert_with(|| {
+                                                // Create color image from picture data
+                                                ctx.load_texture(
+                                                    format!("picture_thumb_{}", info.id),
+                                                    egui::ColorImage::from_rgba_unmultiplied(
+                                                        [picture.width as usize, picture.height as usize],
+                                                        &picture.pixels,
+                                                    ),
+                                                    egui::TextureOptions::LINEAR
+                                                )
+                                            });
+
+                                            // Show thumbnail (64x64 max size)
+                                            ui.add(
+                                                egui::Image::new(egui::load::SizedTexture::new(
+                                                    texture_handle.id(),
+                                                    egui::vec2(64.0, 64.0),
+                                                ))
+                                                .maintain_aspect_ratio(true)
+                                            );
+
+                                            ui.label(
+                                                egui::RichText::new(format!(
+                                                    "{}×{} pixels",
+                                                    info.width, info.height
+                                                ))
+                                                .size(12.0)
+                                                .color(egui::Color32::from_gray(150)),
+                                            );
+                                        } else {
+                                            ui.label(format!("{}×{} pixels", info.width, info.height));
+                                        }
                                     });
 
                                     ui.end_row();
