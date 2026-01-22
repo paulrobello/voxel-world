@@ -1477,7 +1477,11 @@ impl App {
 
         // Upload pending picture to GPU atlas if needed
         if let Some(picture_id) = self.ui.pending_picture_upload.take() {
-            crate::gpu_resources::upload_picture_to_atlas(
+            println!(
+                "[Render] Uploading picture {} to GPU atlas (selected_picture_id: {:?})",
+                picture_id, self.ui.selected_picture_id
+            );
+            let success = crate::gpu_resources::upload_picture_to_atlas(
                 self.graphics.memory_allocator.clone(),
                 self.graphics.command_buffer_allocator.clone(),
                 &self.graphics.queue,
@@ -1485,6 +1489,7 @@ impl App {
                 &self.sim.picture_library,
                 picture_id,
             );
+            println!("[Render] Upload result: {}", success);
         }
 
         unsafe {

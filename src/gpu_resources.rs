@@ -1287,13 +1287,31 @@ pub fn upload_picture_to_atlas(
     let (width, height, pixels) = if picture.width == 32 && picture.height == 32 {
         (picture.width, picture.height, picture.pixels.clone())
     } else {
-        // TODO: Implement resize to 32×32
-        // For now, only support exact 32×32 pictures
+        // Resize to 32×32 using nearest-neighbor downsampling
         println!(
-            "[PictureAtlas] Picture {} is {}×{}, expected 32×32",
+            "[PictureAtlas] Resizing {} from {}×{} to 32×32",
             picture.name, picture.width, picture.height
         );
-        return false;
+
+        let src_w = picture.width as usize;
+        let src_h = picture.height as usize;
+        let dst_w = 32usize;
+        let dst_h = 32usize;
+        let mut resized = vec![0u8; dst_w * dst_h * 4];
+
+        for y in 0..dst_h {
+            for x in 0..dst_w {
+                // Calculate source position (nearest-neighbor)
+                let src_x = (x * src_w / dst_w).min(src_w - 1);
+                let src_y = (y * src_h / dst_h).min(src_h - 1);
+                let src_idx = (src_y * src_w + src_x) * 4;
+                let dst_idx = (y * dst_w + x) * 4;
+
+                resized[dst_idx..dst_idx + 4].copy_from_slice(&picture.pixels[src_idx..src_idx + 4]);
+            }
+        }
+
+        (32u16, 32u16, resized)
     };
 
     update_picture_slot(
@@ -1307,6 +1325,10 @@ pub fn upload_picture_to_atlas(
         &pixels,
     );
 
+    println!(
+        "[PictureAtlas] Uploaded picture '{}' (ID {}, slot {}) to GPU atlas",
+        picture.name, picture_id, picture_id % PICTURE_ATLAS_SLOTS
+    );
     true
 }
 
