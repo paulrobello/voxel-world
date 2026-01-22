@@ -1005,23 +1005,24 @@ impl ModelRegistry {
     // PICTURE FRAME HELPERS
     // ========================================================================
 
-    /// First picture frame model ID (canonical auto-sizing frame).
+    /// First picture frame model ID (edge_mask 0).
     pub const FIRST_FRAME_ID: u8 = 160;
 
-    /// Last picture frame model ID (no aliases).
-    pub const LAST_FRAME_ID: u8 = 160;
+    /// Last picture frame model ID (edge_mask 15, all edges).
+    pub const LAST_FRAME_ID: u8 = 175;
 
-    /// Checks if a model ID is a picture frame (ID 160).
+    /// Checks if a model ID is a picture frame (160-175, 16 edge mask variants).
     pub fn is_frame_model(model_id: u8) -> bool {
         (Self::FIRST_FRAME_ID..=Self::LAST_FRAME_ID).contains(&model_id)
     }
 
     /// Returns the frame size for a given model ID.
-    /// Returns (1,1) for the single frame model; actual size comes from metadata.
+    /// Returns (1,1) for frame models; actual size comes from metadata.
     pub fn frame_size(model_id: u8) -> Option<(u8, u8)> {
-        match model_id {
-            160 => Some((1, 1)),
-            _ => None,
+        if (Self::FIRST_FRAME_ID..=Self::LAST_FRAME_ID).contains(&model_id) {
+            Some((1, 1))
+        } else {
+            None
         }
     }
 
