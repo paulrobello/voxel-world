@@ -878,9 +878,15 @@ pub const CUSTOM_TEXTURE_SIZE: u32 = 64;
 pub const CUSTOM_ATLAS_WIDTH: u32 = CUSTOM_TEXTURE_SLOTS * CUSTOM_TEXTURE_SIZE; // 1024
 pub const CUSTOM_ATLAS_HEIGHT: u32 = CUSTOM_TEXTURE_SIZE; // 64
 
-/// Load both texture atlases (main and custom) and create a combined descriptor set.
-/// Returns (descriptor_set, sampler, main_image_view, custom_image_view, custom_image)
-/// The custom_image is returned so it can be updated dynamically with generated textures.
+// Picture atlas for frame pictures
+pub const PICTURE_ATLAS_SLOTS: u32 = 64;
+pub const PICTURE_ATLAS_SIZE: u32 = 32;  // Each picture is 32×32 pixels
+pub const PICTURE_ATLAS_WIDTH: u32 = PICTURE_ATLAS_SLOTS * PICTURE_ATLAS_SIZE; // 2048
+pub const PICTURE_ATLAS_HEIGHT: u32 = PICTURE_ATLAS_SIZE; // 32
+
+/// Load texture atlases (main, custom, and picture) and create a combined descriptor set.
+/// Returns (descriptor_set, sampler, main_image_view, custom_image_view, custom_image, picture_image_view, picture_image)
+/// The custom_image and picture_image are returned so they can be updated dynamically.
 #[allow(clippy::type_complexity)]
 pub fn load_texture_atlases(
     memory_allocator: Arc<StandardMemoryAllocator>,
@@ -893,6 +899,8 @@ pub fn load_texture_atlases(
     Arc<DescriptorSet>,
     Arc<Sampler>,
     Arc<ImageView>,
+    Arc<ImageView>,
+    Arc<Image>,
     Arc<ImageView>,
     Arc<Image>,
 ) {
@@ -986,7 +994,46 @@ pub fn load_texture_atlases(
         CUSTOM_ATLAS_WIDTH, CUSTOM_ATLAS_HEIGHT
     );
 
-    // Upload both atlases
+    // Create the picture atlas (initially white/transparent)
+    let picture_image = Image::new(
+        memory_allocator.clone(),
+        ImageCreateInfo {
+            image_type: ImageType::Dim2d,
+            format: Format::R8G8B8A8_UNORM,
+            extent: [PICTURE_ATLAS_WIDTH, PICTURE_ATLAS_HEIGHT, 1],
+            usage: ImageUsage::SAMPLED | ImageUsage::TRANSFER_DST,
+            ..Default::default()
+        },
+        AllocationCreateInfo::default(),
+    )
+    .unwrap();
+
+    // Initialize picture atlas with white (empty pictures)
+    let picture_data: Vec<u8> = (0..PICTURE_ATLAS_WIDTH * PICTURE_ATLAS_HEIGHT)
+        .flat_map(|_| [255u8, 255, 255, 255]) // White
+        .collect();
+
+    let picture_src_buffer = Buffer::from_iter(
+        memory_allocator.clone(),
+        BufferCreateInfo {
+            usage: BufferUsage::TRANSFER_SRC,
+            ..Default::default()
+        },
+        AllocationCreateInfo {
+            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+            ..Default::default()
+        },
+        picture_data,
+    )
+    .unwrap();
+
+    println!(
+        "Created picture atlas: {}x{} ({} slots)",
+        PICTURE_ATLAS_WIDTH, PICTURE_ATLAS_HEIGHT, PICTURE_ATLAS_SLOTS
+    );
+
+    // Upload all three atlases
     let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
         command_buffer_allocator.clone(),
         queue.queue_family_index(),
@@ -1003,6 +1050,11 @@ pub fn load_texture_atlases(
         .copy_buffer_to_image(CopyBufferToImageInfo::buffer_image(
             custom_src_buffer,
             custom_image.clone(),
+        ))
+        .unwrap()
+        .copy_buffer_to_image(CopyBufferToImageInfo::buffer_image(
+            picture_src_buffer,
+            picture_image.clone(),
         ))
         .unwrap();
 
@@ -1026,6 +1078,11 @@ pub fn load_texture_atlases(
         ImageViewCreateInfo::from_image(&custom_image),
     )
     .unwrap();
+    let picture_image_view = ImageView::new(
+        picture_image.clone(),
+        ImageViewCreateInfo::from_image(&picture_image),
+    )
+    .unwrap();
 
     // Create sampler with nearest-neighbor filtering for pixel art
     let sampler = Sampler::new(
@@ -1039,7 +1096,7 @@ pub fn load_texture_atlases(
     )
     .unwrap();
 
-    // Create descriptor set with both atlases
+    // Create descriptor set with all three atlases
     let descriptor_set = make_set(
         &descriptor_set_allocator,
         render_pipeline,
@@ -1047,6 +1104,7 @@ pub fn load_texture_atlases(
         [
             WriteDescriptorSet::image_view_sampler(0, main_image_view.clone(), sampler.clone()),
             WriteDescriptorSet::image_view_sampler(1, custom_image_view.clone(), sampler.clone()),
+            WriteDescriptorSet::image_view_sampler(2, picture_image_view.clone(), sampler.clone()),
         ],
     );
 
@@ -1056,6 +1114,8 @@ pub fn load_texture_atlases(
         main_image_view,
         custom_image_view,
         custom_image,
+        picture_image_view,
+        picture_image,
     )
 }
 

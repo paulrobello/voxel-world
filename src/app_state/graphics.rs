@@ -45,6 +45,10 @@ pub struct Graphics {
     pub texture_atlas_view: Arc<ImageView>,
     /// Custom texture atlas for procedurally generated textures (16 slots × 64×64).
     pub custom_texture_atlas: Arc<Image>,
+    /// Picture atlas for frame pictures (64 slots × 32×32).
+    pub picture_atlas: Arc<Image>,
+    /// Picture atlas image view for shader access.
+    pub picture_atlas_view: Arc<ImageView>,
 
     pub particle_buffer: Subbuffer<[particles::GpuParticle]>,
     pub particle_set: Arc<DescriptorSet>,

@@ -80,7 +80,7 @@ pub fn run(_args: &Args, event_loop: &EventLoop<()>) -> Result<(), Box<dyn Error
     );
 
     let texture_path = root.join("textures").join("texture_atlas.png");
-    let (texture_set, _sampler, _atlas_view, _custom_view, _custom_image) = load_texture_atlases(
+    let (texture_set, _sampler, _atlas_view, _custom_view, _custom_image, _picture_view, _picture_image) = load_texture_atlases(
         memory_allocator.clone(),
         command_buffer_allocator.clone(),
         descriptor_set_allocator.clone(),

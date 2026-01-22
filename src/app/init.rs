@@ -221,7 +221,7 @@ impl App {
         let texture_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("textures")
             .join("texture_atlas.png");
-        let (texture_set, _sampler, texture_atlas_view, _custom_atlas_view, custom_texture_atlas) =
+        let (texture_set, _sampler, texture_atlas_view, _custom_atlas_view, custom_texture_atlas, picture_atlas_view, picture_atlas_image) =
             load_texture_atlases(
                 vk.memory_allocator.clone(),
                 vk.command_buffer_allocator.clone(),
@@ -391,6 +391,8 @@ impl App {
             texture_set,
             texture_atlas_view,
             custom_texture_atlas,
+            picture_atlas_view,
+            picture_atlas: picture_atlas_image,
             particle_buffer,
             particle_set,
             light_buffer,

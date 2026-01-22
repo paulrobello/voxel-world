@@ -359,8 +359,7 @@ layout(set = 0, binding = 0, rgba8) writeonly uniform image2D targetImage;
 layout(set = 1, binding = 0, r8ui) readonly uniform uimage3D blockImage;
 layout(set = 2, binding = 0) uniform sampler2D textureAtlas;
 layout(set = 2, binding = 1) uniform sampler2D customTextureAtlas;
-// Picture atlas binding - to be added when descriptor set is updated
-// layout(set = 2, binding = 2) uniform sampler2D pictureAtlas;
+layout(set = 2, binding = 2) uniform sampler2D pictureAtlas;
 
 // Custom texture atlas has 16 slots (indices 0-15)
 // Custom texture indices are flagged by having bit 7 set (128+)

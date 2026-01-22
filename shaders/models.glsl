@@ -88,19 +88,25 @@ bool isFrameModel(uint model_id) {
 // Sample picture color from the picture atlas
 // picture_id: ID of the picture (0-63, maps to atlas slot)
 // uv: Normalized UV coordinates within the picture (0-1)
-// Returns: RGBA color from the picture, or magenta if picture_id is 0 (no picture)
-//
-// Note: Picture atlas binding not yet implemented - returns placeholder for now
+// Returns: RGBA color from the picture, or white if picture_id is 0 (no picture)
 vec4 samplePictureColor(uint picture_id, vec2 uv) {
-    // picture_id 0 means no picture (empty frame) - return transparent
+    // picture_id 0 means no picture (empty frame) - return white
     if (picture_id == 0u) {
-        return vec4(1.0, 1.0, 1.0, 1.0);  // White (no picture)
+        return vec4(1.0, 1.0, 1.0, 1.0);
     }
 
-    // TODO: Implement picture atlas sampling
-    // For now, return a gradient pattern based on UV to show picture is selected
-    vec3 gradient = vec3(uv.x, uv.y, 0.5);
-    return vec4(gradient, 1.0);
+    // Clamp picture_id to valid range (0-63)
+    picture_id = min(picture_id, PICTURE_ATLAS_SLOT_COUNT - 1u);
+
+    // Calculate atlas UV
+    // Picture atlas is 64 slots wide, each slot is 32×32 pixels
+    // UV coordinates are within the picture (0-1), so we scale to the slot
+    vec2 atlas_uv = vec2(
+        (float(picture_id) * PICTURE_ATLAS_SIZE + uv.x * PICTURE_ATLAS_SIZE) / float(PICTURE_ATLAS_WIDTH),
+        uv.y
+    );
+
+    return texture(pictureAtlas, atlas_uv);
 }
 
 // Get picture color for a frame voxel
