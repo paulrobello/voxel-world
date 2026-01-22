@@ -362,17 +362,18 @@ impl World {
 
     /// Updates metadata (offsets, size, facing) for the contiguous frame cluster
     /// containing `center_pos`. Cluster detection is limited to 3×3 blocks (MAX_FRAME_DIM).
-    pub fn update_frame_cluster(&mut self, center_pos: Vector3<i32>) {
+    /// Returns the list of positions that were updated (for chunk dirty marking).
+    pub fn update_frame_cluster(&mut self, center_pos: Vector3<i32>) -> Vec<Vector3<i32>> {
         let Some(BlockType::Model) = self.get_block(center_pos) else {
-            return;
+            return Vec::new();
         };
 
         let Some(data) = self.get_model_data(center_pos) else {
-            return;
+            return Vec::new();
         };
 
         if !ModelRegistry::is_frame_model(data.model_id) {
-            return;
+            return Vec::new();
         }
 
         let facing = frames::metadata::decode_facing(data.custom_data);
@@ -426,15 +427,8 @@ impl World {
         }
 
         if visited.is_empty() {
-            return;
+            return Vec::new();
         }
-
-        println!(
-            "[FRAME] Found {} frames at {:?} facing={}",
-            visited.len(),
-            center_pos,
-            facing
-        );
 
         // Compute bounds along right axis and vertical axis
         let right_axis_is_x = right.x != 0;
@@ -467,17 +461,12 @@ impl World {
         // Use picture_id from first block (default 0).
         let picture_id = frames::metadata::decode_picture_id(data.custom_data);
 
-        println!(
-            "[FRAME] Cluster: {}x{}, anchor_right={}, right_sign={}",
-            width, height, anchor_right, right_sign
-        );
-
-        for pos in visited {
+        for pos in &visited {
             let rcoord = if right_axis_is_x { pos.x } else { pos.z };
             let offset_x = ((rcoord - anchor_right) * right_sign).max(0) as u8;
             let offset_y = (pos.y - min_y).max(0) as u8;
 
-            if let Some(md) = self.get_model_data(pos) {
+            if let Some(md) = self.get_model_data(*pos) {
                 let waterlogged = md.waterlogged;
                 // Edge mask: bit0=left, bit1=right, bit2=bottom, bit3=top.
                 let mask_left = offset_x == 0;
@@ -489,19 +478,6 @@ impl World {
                     | ((mask_bottom as u8) << 2)
                     | ((mask_top as u8) << 3);
 
-                println!(
-                    "[FRAME] pos={:?} offset=({}, {}) edge_mask={:04b} ({},{},{},{}) model_id={}",
-                    pos,
-                    offset_x,
-                    offset_y,
-                    edge_mask,
-                    mask_left,
-                    mask_right,
-                    mask_bottom,
-                    mask_top,
-                    frames::edge_mask_to_frame_model_id(edge_mask)
-                );
-
                 // Store facing in low bits. Model ID encodes edge mask: model_id = 160 + edge_mask.
                 let rotation = facing & 0x03;
                 let model_id = frames::edge_mask_to_frame_model_id(edge_mask);
@@ -510,7 +486,7 @@ impl World {
                     frames::metadata::encode(picture_id, offset_x, offset_y, width, height, facing);
 
                 self.set_model_block_with_data(
-                    pos,
+                    *pos,
                     model_id,
                     rotation,
                     waterlogged,
@@ -518,6 +494,8 @@ impl World {
                 );
             }
         }
+
+        visited
     }
 
     /// Updates the frame cluster at `center_pos` and its immediate neighbors.
@@ -532,14 +510,18 @@ impl World {
             Vector3::new(0, 0, -1),
         ];
 
-        for offset in neighbors {
-            self.update_frame_cluster(center_pos + offset);
-        }
+        // Collect all positions that were updated across all cluster updates
+        let mut all_updated_positions: std::collections::HashSet<Vector3<i32>> = std::collections::HashSet::new();
 
-        // Mark chunks as dirty AFTER all rotations are updated
         for offset in neighbors {
             let pos = center_pos + offset;
-            let chunk_pos = Self::world_to_chunk(pos);
+            let updated = self.update_frame_cluster(pos);
+            all_updated_positions.extend(updated);
+        }
+
+        // Mark chunks as dirty for ALL positions that were updated
+        for pos in &all_updated_positions {
+            let chunk_pos = Self::world_to_chunk(*pos);
             if let Some(chunk) = self.chunks.get_mut(&chunk_pos) {
                 chunk.mark_dirty();
             }
@@ -579,9 +561,19 @@ impl World {
             }
         }
 
-        // Second pass: update frame clusters
+        // Second pass: update frame clusters and mark chunks dirty
+        let mut all_updated_positions: std::collections::HashSet<Vector3<i32>> = std::collections::HashSet::new();
         for world_pos in frame_positions {
-            self.update_frame_cluster(world_pos);
+            let updated = self.update_frame_cluster(world_pos);
+            all_updated_positions.extend(updated);
+        }
+
+        // Mark all affected chunks as dirty
+        for pos in &all_updated_positions {
+            let chunk_pos = Self::world_to_chunk(*pos);
+            if let Some(chunk) = self.chunks.get_mut(&chunk_pos) {
+                chunk.mark_dirty();
+            }
         }
     }
 }
