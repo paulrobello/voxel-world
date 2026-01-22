@@ -449,23 +449,23 @@ bool marchSubVoxelModel(
             // Get color from palette
             vec4 paletteColor = getModelPaletteColor(model_id, palette_idx);
 
-            // For merged frames: recolor pure side border to picture
-            vec3 final_color = paletteColor.rgb;
-            bool should_adjust_depth = false;
+            // For merged frames: strip pure side border voxels at interior edges
+            // This allows the adjacent frame's content to show through
             if (at_interior_edge && is_border_voxel) {
                 bool is_left_edge = (rotatedPos.x == 0);
                 bool is_right_edge = (rotatedPos.x == int(res) - 1);
                 bool is_top_edge = (rotatedPos.y == 0);
                 bool is_bottom_edge = (rotatedPos.y == int(res) - 1);
 
+                // Strip only pure side edges, not corners
                 bool is_pure_side_edge = (is_left_edge || is_right_edge) && !is_top_edge && !is_bottom_edge;
 
                 if (is_pure_side_edge) {
-                    vec4 pictureColor = getModelPaletteColor(model_id, 4u);
-                    final_color = pictureColor.rgb;
-                    should_adjust_depth = true;
+                    continue;  // Skip this border voxel
                 }
             }
+
+            vec3 final_color = paletteColor.rgb;
 
             // Add per-voxel emission glow (e.g., torch flame)
             float emission = getModelPaletteEmission(model_id, palette_idx);
@@ -479,11 +479,6 @@ bool marchSubVoxelModel(
             vec3 hitNormal = vec3(0.0);
             hitNormal[hitAxis] = -float(step[hitAxis]);
             float voxelDist = (i == 0) ? 0.0 : (tMaxAxis[stepped_axis] - tDelta[stepped_axis]);
-
-            // Adjust depth for merged frame interior edges to appear flat
-            if (should_adjust_depth) {
-                voxelDist = float(res) - 1.0;  // Push to front face depth
-            }
 
             float hitT = (startT + voxelDist) / fres;
 
