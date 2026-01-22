@@ -449,17 +449,24 @@ bool marchSubVoxelModel(
             // Get color from palette
             vec4 paletteColor = getModelPaletteColor(model_id, palette_idx);
 
-            // For merged frames: recolor only left/right interior borders to picture color
-            // Top/bottom interior borders keep their wooden appearance
+            // For merged frames: recolor only left/right interior borders (excluding corners)
+            // Top/bottom borders and corner voxels keep wooden appearance
             vec3 final_color = paletteColor.rgb;
             if (at_interior_edge && is_border_voxel) {
-                // Only recolor left/right edges (x-axis), not top/bottom (y-axis)
-                bool is_horizontal_edge = (rotatedPos.x == 0 || rotatedPos.x == int(res) - 1);
-                if (is_horizontal_edge) {
+                // Only recolor pure left/right edges, not corners or top/bottom edges
+                bool is_left_edge = (rotatedPos.x == 0);
+                bool is_right_edge = (rotatedPos.x == int(res) - 1);
+                bool is_top_edge = (rotatedPos.y == 0);
+                bool is_bottom_edge = (rotatedPos.y == int(res) - 1);
+
+                // Recolor only if on left/right edge BUT NOT on top/bottom edge (not a corner)
+                bool is_pure_side_edge = (is_left_edge || is_right_edge) && !is_top_edge && !is_bottom_edge;
+
+                if (is_pure_side_edge) {
                     vec4 pictureColor = getModelPaletteColor(model_id, 4u);
                     final_color = pictureColor.rgb;
                 }
-                // Top/bottom edges keep wooden border color
+                // Corners and top/bottom edges keep wooden border color
             }
 
             // Add per-voxel emission glow (e.g., torch flame)
