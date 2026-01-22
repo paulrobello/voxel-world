@@ -38,15 +38,8 @@ const FRAME_WOOD_DARK: Color = Color::rgb(71, 47, 23);
 /// Using a distinctive color that's easy to identify in shader.
 const PICTURE_AREA: Color = Color::rgb(255, 0, 255);
 
-/// Frame depth in voxels.
-/// Border is 2 voxels deep (to reach wall), picture area is 1 voxel deep (recessed).
-const FRAME_DEPTH: usize = 2;
-
 /// Frame border width in voxels.
 const BORDER_WIDTH: usize = 1;
-
-/// Picture area depth (1 voxel, recessed from frame front)
-const PICTURE_DEPTH: usize = 1;
 
 /// Returns true if this model ID is a picture frame.
 #[inline]
@@ -56,13 +49,10 @@ pub const fn is_frame_model(model_id: u8) -> bool {
 
 /// Creates a picture frame model.
 ///
-/// All frame models use the same basic structure:
-/// - A flat back plate
-/// - Wooden border around the edge (at z=6, 1 voxel deep)
-/// - Picture area filling the entire front face (z=7) including edges
-///
-/// This allows merged frames to have seamless picture areas that extend
-/// all the way to the frame edges.
+/// Structure:
+/// - Picture area fills the entire front face (z=7) at 8x8 resolution
+/// - Wooden border on all edges (1 voxel deep at z=6)
+/// - No corner posts; border structure provides visual definition
 fn create_frame(name: &str) -> SubVoxelModel {
     let mut model = SubVoxelModel::with_resolution_and_name(ModelResolution::Low, name);
 
@@ -78,58 +68,49 @@ fn create_frame(name: &str) -> SubVoxelModel {
 
     let max = DESIGN_SIZE - 1; // 7 for 8³
 
-    // Frame has different depths for border vs picture:
-    // - Border: 1 voxel deep (z=6) for structure behind the picture
-    // - Picture area: 1 voxel deep (z=7) filling the entire front face
-    let z_start = max - FRAME_DEPTH + 1; // 6 for DEPTH=2
-    let z_picture = max; // 7 (front face)
-
-    // Fill picture area (entire front face, including edges)
-    // This allows merged frames to have picture extending to frame edges
+    // Picture area at front face (z=7) - fills entire 8x8
     for y in 0..DESIGN_SIZE {
         for x in 0..DESIGN_SIZE {
-            model.set_voxel(x, y, z_picture, 4); // Picture area (magenta)
+            model.set_voxel(x, y, max, 4); // Picture
         }
     }
 
-    // Add wooden border on all edges (1 voxel deep at z=6, behind picture)
-    // Left border (1 voxel deep at z=6)
+    // Border at z=6 (1 voxel deep, behind picture)
+    // Left border
     for y in 0..DESIGN_SIZE {
-        model.set_voxel(0, y, z_start, 1); // Wood
+        model.set_voxel(0, y, max - 1, 1); // Wood at z=6
     }
 
-    // Right border (1 voxel deep at z=6)
+    // Right border
     for y in 0..DESIGN_SIZE {
-        model.set_voxel(max, y, z_start, 1); // Wood
+        model.set_voxel(max, y, max - 1, 1); // Wood at z=6
     }
 
-    // Bottom border (1 voxel deep at z=6)
+    // Bottom border
     for x in 0..DESIGN_SIZE {
-        model.set_voxel(x, 0, z_start, 1); // Wood
+        model.set_voxel(x, 0, max - 1, 1); // Wood at z=6
     }
 
-    // Top border (1 voxel deep at z=6)
+    // Top border
     for x in 0..DESIGN_SIZE {
-        model.set_voxel(x, max, z_start, 1); // Wood
+        model.set_voxel(x, max, max - 1, 1); // Wood at z=6
     }
 
-    // Add inner highlight on the border (at z=6)
+    // Corner posts removed - borders are sufficient to define frame edges.
+    // For merged frames, corner posts would only be needed at exterior corners,
+    // but since all frames share the same model ID, we can't vary this per block.
+    // The border structure alone provides the necessary visual definition.
+
+    // Inner highlight on border at z=6
     let b = BORDER_WIDTH;
     for y in b..(DESIGN_SIZE - b) {
-        model.set_voxel(b, y, z_start, 2); // Left inner highlight
-        model.set_voxel(max - b, y, z_start, 2); // Right inner highlight
+        model.set_voxel(b, y, max - 1, 2); // Left
+        model.set_voxel(max - b, y, max - 1, 2); // Right
     }
     for x in b..(DESIGN_SIZE - b) {
-        model.set_voxel(x, b, z_start, 2); // Bottom inner highlight
-        model.set_voxel(x, max, z_start, 2); // Top inner highlight
+        model.set_voxel(x, b, max - 1, 2); // Bottom
+        model.set_voxel(x, max - 1, max - 1, 2); // Top
     }
-
-    // Add corner posts at front face (z=7) for visual completeness
-    // These appear at the corners of the frame
-    model.set_voxel(0, 0, max, 1); // Top-left corner
-    model.set_voxel(max, 0, max, 1); // Top-right corner
-    model.set_voxel(0, max, max, 1); // Bottom-left corner
-    model.set_voxel(max, max, max, 1); // Bottom-right corner
 
     model.light_blocking = LightBlocking::Partial;
     model.rotatable = true;

@@ -418,33 +418,27 @@ bool marchSubVoxelModel(
         rotatedPos = clamp(rotatedPos, ivec3(0), ivec3(int(res) - 1));
         uint palette_idx = sampleModelVoxel(model_id, rotatedPos);
 
-        // Frame border masking for merged frames
+        // Frame picture and border voxels - use frame_mask to skip interior edges
         bool is_border_voxel = isFrame && (palette_idx >= 1u && palette_idx <= 3u);
         bool is_picture_voxel = isFrame && (palette_idx == 4u);
-        bool is_corner_post = is_border_voxel && (rotatedPos.x == 0 || rotatedPos.x == int(res) - 1)
-                                       && (rotatedPos.y == 0 || rotatedPos.y == int(res) - 1);
 
-        // Check if this edge should be stripped based on frame_mask
-        // Use rotatedPos for coordinate checks (after frame rotation/flips)
-        bool at_interior_edge = false;
-        if (isFrame) {
-            if (rotatedPos.x == 0 && (frame_mask & 1u) == 0u) {
-                at_interior_edge = true;
-            }
-            if (rotatedPos.x == int(res) - 1 && (frame_mask & 2u) == 0u) {
-                at_interior_edge = true;
-            }
-            if (rotatedPos.y == 0 && (frame_mask & 4u) == 0u) {
-                at_interior_edge = true;
-            }
-            if (rotatedPos.y == int(res) - 1 && (frame_mask & 8u) == 0u) {
-                at_interior_edge = true;
-            }
-        }
+        // Skip border voxels at interior edges (where frames merge)
+        // The rotatedPos here is already transformed to model space, where we can check edges
+        if (is_border_voxel) {
+            // frame_mask bits: 0=left, 1=right, 2=bottom, 3=top (1=keep, 0=strip)
+            // Border is at z=res-2 (one voxel behind front face at z=res-1)
+            bool is_at_left_edge = (rotatedPos.x == 0);
+            bool is_at_right_edge = (rotatedPos.x == int(res) - 1);
+            bool is_at_bottom_edge = (rotatedPos.y == 0);
+            bool is_at_top_edge = (rotatedPos.y == int(res) - 1);
 
-        // Strip corner posts at interior edges to create seamless appearance
-        if (at_interior_edge && is_corner_post) {
-            continue;
+            // Skip this voxel if it's on an interior edge
+            if ((is_at_left_edge && ((frame_mask & 1u) == 0u)) ||
+                (is_at_right_edge && ((frame_mask & 2u) == 0u)) ||
+                (is_at_bottom_edge && ((frame_mask & 4u) == 0u)) ||
+                (is_at_top_edge && ((frame_mask & 8u) == 0u))) {
+                continue; // Skip this interior edge border voxel
+            }
         }
 
         // Hit if not air (palette index 0 = transparent)
@@ -639,6 +633,25 @@ float marchSubVoxelShadow(
             : rotateModelPos(voxel, rotation, res);
         rotatedPos = clamp(rotatedPos, ivec3(0), ivec3(int(res) - 1));
         uint palette_idx = sampleModelVoxel(model_id, rotatedPos);
+
+        // Skip border voxels at interior edges for frame shadow casting
+        bool is_border_voxel = isFrame && (palette_idx >= 1u && palette_idx <= 3u);
+        if (is_border_voxel) {
+            bool is_at_left_edge = (rotatedPos.x == 0);
+            bool is_at_right_edge = (rotatedPos.x == int(res) - 1);
+            bool is_at_bottom_edge = (rotatedPos.y == 0);
+            bool is_at_top_edge = (rotatedPos.y == int(res) - 1);
+
+            if ((is_at_left_edge && ((frame_mask & 1u) == 0u)) ||
+                (is_at_right_edge && ((frame_mask & 2u) == 0u)) ||
+                (is_at_bottom_edge && ((frame_mask & 4u) == 0u)) ||
+                (is_at_top_edge && ((frame_mask & 8u) == 0u))) {
+                // Skip this interior edge border voxel for shadow
+                prev_palette_idx = 0u; // Reset to avoid internal face detection
+                continue;
+            }
+        }
+
         if (palette_idx != 0u) {
             // Get color and alpha from palette for translucency
             vec4 paletteColor = getModelPaletteColor(model_id, palette_idx);
