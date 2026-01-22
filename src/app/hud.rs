@@ -981,6 +981,7 @@ pub fn render_hud(
         &ctx,
         &mut ui.texture_generator,
         &mut ui.texture_library,
+        &mut sim.picture_library,
     );
 
     // Render paint panel UI

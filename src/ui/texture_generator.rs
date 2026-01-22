@@ -147,6 +147,7 @@ impl TextureGeneratorUI {
         ctx: &egui::Context,
         state: &mut TextureGeneratorState,
         library: &mut TextureLibrary,
+        picture_library: &mut crate::pictures::PictureLibrary,
     ) {
         if !state.open {
             return;
@@ -171,7 +172,7 @@ impl TextureGeneratorUI {
                 // Content based on active tab
                 match state.active_tab {
                     TextureTab::Generate => Self::draw_generate_tab(ui, state, library),
-                    TextureTab::Paint => Self::draw_paint_tab(ui, state, library),
+                    TextureTab::Paint => Self::draw_paint_tab(ui, state, library, picture_library),
                     TextureTab::Import => Self::draw_import_tab(ui, state),
                 }
 
@@ -484,6 +485,7 @@ impl TextureGeneratorUI {
         ui: &mut egui::Ui,
         state: &mut TextureGeneratorState,
         library: &mut TextureLibrary,
+        picture_library: &mut crate::pictures::PictureLibrary,
     ) {
         ui.horizontal(|ui| {
             // Left: Tools panel
@@ -740,6 +742,36 @@ impl TextureGeneratorUI {
                         Err(e) => {
                             state.set_status(format!("Error: {}", e));
                         }
+                    }
+                }
+            }
+
+            ui.separator();
+
+            // Export to Picture Library button
+            let export_label = egui::RichText::new("📷 Export as Picture")
+                .color(egui::Color32::from_rgb(100, 200, 255));
+            if ui.button(export_label).clicked() {
+                // Export canvas to picture library
+                let name = if state.editing.name.is_empty() || state.editing.name == "New Texture" {
+                    format!("Picture {}", picture_library.len() + 1)
+                } else {
+                    state.editing.name.clone()
+                };
+
+                match picture_library.import_rgba(
+                    &name,
+                    crate::textures::TEXTURE_SIZE,
+                    crate::textures::TEXTURE_SIZE,
+                    &state.canvas.pixels,
+                ) {
+                    Some(id) => {
+                        state.set_status(format!("Exported as picture ID {}", id));
+                        // Mark picture library as needing save
+                        let _ = picture_library.save();
+                    }
+                    None => {
+                        state.set_status("Failed to export picture".to_string());
                     }
                 }
             }
