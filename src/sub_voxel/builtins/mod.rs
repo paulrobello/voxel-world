@@ -38,7 +38,7 @@ use self::doors::{
     create_windowed_door_upper_open_left, create_windowed_door_upper_open_right,
 };
 use self::fences::{create_fence, create_gate_closed, create_gate_open};
-use self::frames::{FRAME_MODEL_ID, create_frame_auto};
+use self::frames::register_all_frame_variants;
 use self::glass_panes::{create_horizontal_glass_pane, create_vertical_glass_pane};
 use self::lighting::{create_crystal, create_torch};
 use self::stairs::{
@@ -228,13 +228,14 @@ pub fn register_builtins(registry: &mut ModelRegistry) {
 
     // === Reserved/Placeholder (IDs 151-159) ===
     // These IDs are reserved for future use. We fill them with empty models
-    // to ensure frame models get IDs 160-168.
+    // to ensure frame models get IDs 160-175 (16 edge mask variants).
     for i in 151..=159 {
         let mut placeholder = create_empty();
         placeholder.name = format!("reserved_{}", i);
         registry.register(placeholder);
     }
 
-    // === Picture Frame (ID 160) ===
-    registry.register(create_frame_auto()); // ID 160
+    // === Picture Frames (IDs 160-175) ===
+    // 16 variants for different edge mask combinations
+    register_all_frame_variants(registry);
 }

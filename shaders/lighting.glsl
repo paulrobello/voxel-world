@@ -11,7 +11,6 @@ float modelBlocksRay(
     ivec3 blockPos,
     uint model_id,
     uint rotation,
-    uint frame_mask,
     out vec3 modelTint
 ) {
     vec3 localOrigin = rayOrigin - vec3(blockPos);
@@ -38,7 +37,7 @@ float modelBlocksRay(
     // Shadow path: cheaper, capped marcher—only cares if any occupied voxel blocks light.
     // Use max resolution (32³) for step limit; marchSubVoxelShadow will clamp to actual model resolution.
     const int SHADOW_MODEL_MAX_STEPS = 96;  // 32 * 3 for highest resolution models
-    return marchSubVoxelShadow(localOrigin, dir, model_id, rotation, frame_mask, SHADOW_MODEL_MAX_STEPS, modelTint);
+    return marchSubVoxelShadow(localOrigin, dir, model_id, rotation, SHADOW_MODEL_MAX_STEPS, modelTint);
 }
 
 // Advance a DDA to the next voxel along the ray.
@@ -208,7 +207,6 @@ float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFl
                     uvec2 meta = readModelMetadata(pos);
                     uint model_id = meta.r;
                     uint rotation = meta.g & 3u;
-                    uint frameMask = (model_id == FRAME_MODEL_ID) ? ((meta.g >> 3u) & 0x0Fu) : 0u;
                     const float MODEL_PARTIAL_SHADOW = 0.4;
                     if (model_id == 0u) {
                         // Invalid model - accumulate partial shadow and continue to check for full blockers
@@ -232,7 +230,7 @@ float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFl
                             if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u ||
                                 (props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
                                 vec3 modelTint;
-                                float transmission = modelBlocksRay(blockOrigin, dir, pos, model_id, rotation, frameMask, modelTint);
+                                float transmission = modelBlocksRay(blockOrigin, dir, pos, model_id, rotation, modelTint);
                                 bool hitGeo = (transmission < 1.0);
                                 if (hitGeo) {
                                     // Accumulate model tint for translucent sub-voxels
@@ -396,8 +394,7 @@ float getSkyExposure(vec3 origin) {
                         if ((props.flags & MODEL_FLAG_LIGHT_BLOCK_FULL) != 0u ||
                             (props.flags & MODEL_FLAG_LIGHT_BLOCK_PARTIAL) != 0u) {
                             vec3 dummyTint;
-                            uint frameMask = (model_id == FRAME_MODEL_ID) ? ((meta.g >> 3u) & 0x0Fu) : 0u;
-                            transmission = modelBlocksRay(blockOrigin, dir, pos, model_id, rotation, frameMask, dummyTint);
+                            transmission = modelBlocksRay(blockOrigin, dir, pos, model_id, rotation, dummyTint);
                         }
                         bool blocksRay = (transmission < 1.0);
 

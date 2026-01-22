@@ -1,26 +1,30 @@
 //! Picture frame model for displaying user-created pictures.
 //!
-//! A single frame model (ID 160) now auto-sizes itself up to 3×3 blocks by
-//! inspecting neighboring frame blocks. All blocks in a multi-block frame
-//! share the same model ID; per-block metadata records width, height, offsets,
-//! and facing so the shader can sample the correct portion of the picture and
-//! draw only the appropriate border edges.
+//! Frames auto-size themselves up to 3×3 blocks by inspecting neighboring
+//! frame blocks. Each frame block uses a model ID (160-175) that corresponds
+//! to its edge configuration: model_id = 160 + edge_mask.
+//!
+//! edge_mask bits indicate which edges have borders (exterior edges):
+//! - bit 0: left edge, bit 1: right edge, bit 2: bottom, bit 3: top
+//! - Set bit (1) = KEEP border (exterior), Cleared bit (0) = interior edge
+//!
+//! Per-block metadata records picture_id, width, height, offsets, and facing.
 
 use crate::sub_voxel::{Color, LightBlocking, ModelResolution, SubVoxelModel};
 
 use super::basic::DESIGN_SIZE;
 
-/// Model ID for picture frames (auto-sized via metadata).
-pub const FRAME_MODEL_ID: u8 = 160;
+/// Base model ID for picture frames.
+pub const FRAME_MODEL_ID_BASE: u8 = 160;
 
-/// Alias for references.
-pub const FRAME_1X1_ID: u8 = FRAME_MODEL_ID;
+/// Last frame model ID (160 + 15 = 175 for edge_mask 0b1111).
+pub const LAST_FRAME_ID: u8 = 175;
+
+/// Alias for references (standalone frame with all edges).
+pub const FRAME_1X1_ID: u8 = FRAME_MODEL_ID_BASE;
 
 /// First frame model ID.
 pub const FIRST_FRAME_ID: u8 = 160;
-
-/// Last frame model ID (same as first; legacy multi-ID range removed).
-pub const LAST_FRAME_ID: u8 = 160;
 
 /// Maximum frame dimension (in blocks) supported by auto-sizing.
 pub const MAX_FRAME_DIM: u8 = 3;
@@ -41,20 +45,43 @@ const PICTURE_AREA: Color = Color::rgb(255, 0, 255);
 /// Frame border width in voxels.
 const BORDER_WIDTH: usize = 1;
 
-/// Returns true if this model ID is a picture frame.
+/// Returns true if this model ID is a picture frame (160-175).
 #[inline]
 pub const fn is_frame_model(model_id: u8) -> bool {
-    model_id == FRAME_MODEL_ID
+    model_id >= FRAME_MODEL_ID_BASE && model_id <= LAST_FRAME_ID
 }
 
-/// Creates a picture frame model.
+/// Extracts the edge_mask from a frame model ID.
+/// Returns None if not a frame model.
+#[inline]
+pub const fn frame_model_id_to_edge_mask(model_id: u8) -> Option<u8> {
+    if is_frame_model(model_id) {
+        Some(model_id - FRAME_MODEL_ID_BASE)
+    } else {
+        None
+    }
+}
+
+/// Converts an edge_mask to a frame model ID.
+#[inline]
+pub const fn edge_mask_to_frame_model_id(edge_mask: u8) -> u8 {
+    FRAME_MODEL_ID_BASE + (edge_mask & 0x0F)
+}
+
+/// Creates a picture frame model for the specified edge mask.
+///
+/// edge_mask bits indicate which edges have borders:
+/// - bit 0: left edge, bit 1: right edge, bit 2: bottom, bit 3: top
+/// - Set bit (1) = border present (exterior edge)
+/// - Cleared bit (0) = no border (interior edge where frames merge)
 ///
 /// Structure:
 /// - Picture area fills the entire front face (z=7) at 8x8 resolution
-/// - Wooden border on all edges (1 voxel deep at z=6)
+/// - Wooden border on exterior edges only (1 voxel deep at z=6)
 /// - No corner posts; border structure provides visual definition
-fn create_frame(name: &str) -> SubVoxelModel {
-    let mut model = SubVoxelModel::with_resolution_and_name(ModelResolution::Low, name);
+fn create_frame_for_edge_mask(edge_mask: u8) -> SubVoxelModel {
+    let name = format!("frame_edge_mask_{}", edge_mask);
+    let mut model = SubVoxelModel::with_resolution_and_name(ModelResolution::Low, &name);
 
     // Palette setup:
     // 1 = Frame wood (main)
@@ -76,40 +103,66 @@ fn create_frame(name: &str) -> SubVoxelModel {
     }
 
     // Border at z=6 (1 voxel deep, behind picture)
-    // Left border
-    for y in 0..DESIGN_SIZE {
-        model.set_voxel(0, y, max - 1, 1); // Wood at z=6
+    // Only add borders for edges that are exterior (bit set in edge_mask)
+
+    // Left border (bit 0)
+    if edge_mask & 1 != 0 {
+        for y in 0..DESIGN_SIZE {
+            model.set_voxel(0, y, max - 1, 1);
+        }
     }
 
-    // Right border
-    for y in 0..DESIGN_SIZE {
-        model.set_voxel(max, y, max - 1, 1); // Wood at z=6
+    // Right border (bit 1)
+    if edge_mask & 2 != 0 {
+        for y in 0..DESIGN_SIZE {
+            model.set_voxel(max, y, max - 1, 1);
+        }
     }
 
-    // Bottom border
-    for x in 0..DESIGN_SIZE {
-        model.set_voxel(x, 0, max - 1, 1); // Wood at z=6
+    // Bottom border (bit 2)
+    if edge_mask & 4 != 0 {
+        for x in 0..DESIGN_SIZE {
+            model.set_voxel(x, 0, max - 1, 1);
+        }
     }
 
-    // Top border
-    for x in 0..DESIGN_SIZE {
-        model.set_voxel(x, max, max - 1, 1); // Wood at z=6
+    // Top border (bit 3)
+    if edge_mask & 8 != 0 {
+        for x in 0..DESIGN_SIZE {
+            model.set_voxel(x, max, max - 1, 1);
+        }
     }
-
-    // Corner posts removed - borders are sufficient to define frame edges.
-    // For merged frames, corner posts would only be needed at exterior corners,
-    // but since all frames share the same model ID, we can't vary this per block.
-    // The border structure alone provides the necessary visual definition.
 
     // Inner highlight on border at z=6
+    // Only add highlights for edges that have borders
     let b = BORDER_WIDTH;
-    for y in b..(DESIGN_SIZE - b) {
-        model.set_voxel(b, y, max - 1, 2); // Left
-        model.set_voxel(max - b, y, max - 1, 2); // Right
+
+    // Left highlight
+    if edge_mask & 1 != 0 {
+        for y in b..(DESIGN_SIZE - b) {
+            model.set_voxel(b, y, max - 1, 2);
+        }
     }
-    for x in b..(DESIGN_SIZE - b) {
-        model.set_voxel(x, b, max - 1, 2); // Bottom
-        model.set_voxel(x, max - 1, max - 1, 2); // Top
+
+    // Right highlight
+    if edge_mask & 2 != 0 {
+        for y in b..(DESIGN_SIZE - b) {
+            model.set_voxel(max - b, y, max - 1, 2);
+        }
+    }
+
+    // Bottom highlight
+    if edge_mask & 4 != 0 {
+        for x in b..(DESIGN_SIZE - b) {
+            model.set_voxel(x, b, max - 1, 2);
+        }
+    }
+
+    // Top highlight
+    if edge_mask & 8 != 0 {
+        for x in b..(DESIGN_SIZE - b) {
+            model.set_voxel(x, max - 1, max - 1, 2);
+        }
     }
 
     model.light_blocking = LightBlocking::Partial;
@@ -119,9 +172,13 @@ fn create_frame(name: &str) -> SubVoxelModel {
     model
 }
 
-/// Creates the auto-sizing picture frame (ID 160).
-pub fn create_frame_auto() -> SubVoxelModel {
-    create_frame("frame_auto")
+/// Creates all 16 frame variants and registers them.
+/// Call this during built-in model registration.
+pub fn register_all_frame_variants(registry: &mut crate::sub_voxel::ModelRegistry) {
+    for edge_mask in 0..16u8 {
+        let model = create_frame_for_edge_mask(edge_mask);
+        registry.register(model);
+    }
 }
 
 /// Metadata encoding for frame blocks.

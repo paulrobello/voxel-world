@@ -501,15 +501,16 @@ impl World {
                     mask_bottom
                 );
 
-                // Store facing in low bits, edge mask in bits 3-6. Bit 2 is reserved for waterlogged.
-                let rotation = (facing & 0x03) | (edge_mask << 3);
+                // Store facing in low bits. Model ID encodes edge mask: model_id = 160 + edge_mask.
+                let rotation = facing & 0x03;
+                let model_id = frames::edge_mask_to_frame_model_id(edge_mask);
 
                 let custom =
                     frames::metadata::encode(picture_id, offset_x, offset_y, width, height, facing);
 
                 self.set_model_block_with_data(
                     pos,
-                    frames::FRAME_MODEL_ID,
+                    model_id,
                     rotation,
                     waterlogged,
                     custom,

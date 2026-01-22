@@ -206,7 +206,7 @@ bool sampleModelFilled(uint model_id, ivec3 local_pos, uint rotation) {
     if (any(lessThan(local_pos, ivec3(0))) || any(greaterThanEqual(local_pos, ivec3(int(res))))) {
         return false;
     }
-    ivec3 rotated = (model_id == FRAME_MODEL_ID)
+    ivec3 rotated = (model_id >= 160u && model_id <= 175u)
         ? transformFramePos(local_pos, rotation, res)
         : rotateModelPos(local_pos, rotation, res);
     rotated = clamp(rotated, ivec3(0), ivec3(int(res) - 1));
@@ -317,7 +317,6 @@ bool marchSubVoxelModel(
     vec3 dir,
     uint model_id,
     uint rotation_and_flags,
-    uint frame_mask,
     out vec3 out_color,
     out vec3 out_normal,
     out float out_t,
@@ -328,7 +327,7 @@ bool marchSubVoxelModel(
     uint rotation = rotation_and_flags & 3u;
     float fres = float(res);
     int maxSteps = int(res) * 3;
-    bool isFrame = (model_id == FRAME_MODEL_ID);
+    bool isFrame = (model_id >= 160u && model_id <= 175u); // Frame models 160-175
 
     // Initialize alpha for translucency accumulation
     out_alpha = 0.0;
@@ -418,28 +417,8 @@ bool marchSubVoxelModel(
         rotatedPos = clamp(rotatedPos, ivec3(0), ivec3(int(res) - 1));
         uint palette_idx = sampleModelVoxel(model_id, rotatedPos);
 
-        // Frame picture and border voxels - use frame_mask to skip interior edges
-        bool is_border_voxel = isFrame && (palette_idx >= 1u && palette_idx <= 3u);
-        bool is_picture_voxel = isFrame && (palette_idx == 4u);
-
-        // Skip border voxels at interior edges (where frames merge)
-        // The rotatedPos here is already transformed to model space, where we can check edges
-        if (is_border_voxel) {
-            // frame_mask bits: 0=left, 1=right, 2=bottom, 3=top (1=keep, 0=strip)
-            // Border is at z=res-2 (one voxel behind front face at z=res-1)
-            bool is_at_left_edge = (rotatedPos.x == 0);
-            bool is_at_right_edge = (rotatedPos.x == int(res) - 1);
-            bool is_at_bottom_edge = (rotatedPos.y == 0);
-            bool is_at_top_edge = (rotatedPos.y == int(res) - 1);
-
-            // Skip this voxel if it's on an interior edge
-            if ((is_at_left_edge && ((frame_mask & 1u) == 0u)) ||
-                (is_at_right_edge && ((frame_mask & 2u) == 0u)) ||
-                (is_at_bottom_edge && ((frame_mask & 4u) == 0u)) ||
-                (is_at_top_edge && ((frame_mask & 8u) == 0u))) {
-                continue; // Skip this interior edge border voxel
-            }
-        }
+        // Frame model structure handles edge masking - no runtime checks needed
+        // Each frame model ID (160-175) has physically different border arrangements
 
         // Hit if not air (palette index 0 = transparent)
         if (palette_idx != 0u) {
@@ -551,7 +530,6 @@ float marchSubVoxelShadow(
     vec3 dir,
     uint model_id,
     uint rotation_and_flags,
-    uint frame_mask,
     int maxSteps,
     out vec3 accumulatedTint
 ) {
@@ -562,7 +540,7 @@ float marchSubVoxelShadow(
     uint rotation = rotation_and_flags & 3u;
     float fres = float(res);
 
-    bool isFrame = (model_id == FRAME_MODEL_ID);
+    bool isFrame = (model_id >= 160u && model_id <= 175u); // Frame models 160-175
 
     // Early out using coarse mask - skip for glass pane models (119-150) since their
     // thin frame geometry (1 voxel thick) can be missed by the 4x4x4 coarse mask DDA
@@ -634,23 +612,7 @@ float marchSubVoxelShadow(
         rotatedPos = clamp(rotatedPos, ivec3(0), ivec3(int(res) - 1));
         uint palette_idx = sampleModelVoxel(model_id, rotatedPos);
 
-        // Skip border voxels at interior edges for frame shadow casting
-        bool is_border_voxel = isFrame && (palette_idx >= 1u && palette_idx <= 3u);
-        if (is_border_voxel) {
-            bool is_at_left_edge = (rotatedPos.x == 0);
-            bool is_at_right_edge = (rotatedPos.x == int(res) - 1);
-            bool is_at_bottom_edge = (rotatedPos.y == 0);
-            bool is_at_top_edge = (rotatedPos.y == int(res) - 1);
-
-            if ((is_at_left_edge && ((frame_mask & 1u) == 0u)) ||
-                (is_at_right_edge && ((frame_mask & 2u) == 0u)) ||
-                (is_at_bottom_edge && ((frame_mask & 4u) == 0u)) ||
-                (is_at_top_edge && ((frame_mask & 8u) == 0u))) {
-                // Skip this interior edge border voxel for shadow
-                prev_palette_idx = 0u; // Reset to avoid internal face detection
-                continue;
-            }
-        }
+        // Frame model structure handles edge masking - no runtime checks needed
 
         if (palette_idx != 0u) {
             // Get color and alpha from palette for translucency

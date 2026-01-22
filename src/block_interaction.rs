@@ -1224,11 +1224,10 @@ impl App {
 
                 custom_data = frames::metadata::encode(0, 0, 0, max_w, max_h, facing);
 
-                // Encode outer-edge mask (all edges present for initial placement) into rotation high bits.
-                // Bits: 0=left,1=right,2=bottom,3=top.
+                // For frames: model_id = 160 + edge_mask. Initial placement has all edges (0x0F).
+                rotation = facing & 0x03;
                 let edge_mask: u8 = 0x0F;
-                rotation = (facing & 0x03) | (edge_mask << 3);
-                frames::FRAME_MODEL_ID
+                frames::edge_mask_to_frame_model_id(edge_mask)
             } else if base_model_id >= FIRST_CUSTOM_MODEL_ID {
                 // Custom models: auto-rotate to face player
                 let yaw = self.sim.player.camera.rotation.y as f32;
