@@ -75,93 +75,56 @@ pub const fn edge_mask_to_frame_model_id(edge_mask: u8) -> u8 {
 /// - Set bit (1) = border present (exterior edge)
 /// - Cleared bit (0) = no border (interior edge where frames merge)
 ///
-/// Structure:
-/// - Picture area fills the entire front face (z=7) at 8x8 resolution
-/// - Wooden border on exterior edges only (1 voxel deep at z=6)
-/// - No corner posts; border structure provides visual definition
+/// Structure (single sub-voxel thick at z=7):
+/// - Picture area (pink) fills interior
+/// - Dark brown border on exterior edges
 fn create_frame_for_edge_mask(edge_mask: u8) -> SubVoxelModel {
     let name = format!("frame_edge_mask_{}", edge_mask);
     let mut model = SubVoxelModel::with_resolution_and_name(ModelResolution::Low, &name);
 
     // Palette setup:
-    // 1 = Frame wood (main)
-    // 2 = Frame wood light (inner highlight)
-    // 3 = Frame wood dark (outer shadow)
+    // 1 = Frame wood (dark brown)
     // 4 = Picture area (magenta, replaced by shader)
     model.palette[1] = FRAME_WOOD;
-    model.palette[2] = FRAME_WOOD_LIGHT;
-    model.palette[3] = FRAME_WOOD_DARK;
     model.palette[4] = PICTURE_AREA;
 
     let max = DESIGN_SIZE - 1; // 7 for 8³
 
-    // Picture area at front face (z=7) - fills entire 8x8
+    // Fill entire front face (z=7) with picture area
     for y in 0..DESIGN_SIZE {
         for x in 0..DESIGN_SIZE {
-            model.set_voxel(x, y, max, 4); // Picture
+            model.set_voxel(x, y, max, 4);
         }
     }
 
-    // Border at z=6 (1 voxel deep, behind picture)
-    // Only add borders for edges that are exterior (bit set in edge_mask)
+    // Add borders on exterior edges (overwrites picture voxels)
+    // All at same z=7 (single sub-voxel thick)
 
     // Left border (bit 0)
     if edge_mask & 1 != 0 {
         for y in 0..DESIGN_SIZE {
-            model.set_voxel(0, y, max - 1, 1);
+            model.set_voxel(0, y, max, 1);
         }
     }
 
     // Right border (bit 1)
     if edge_mask & 2 != 0 {
         for y in 0..DESIGN_SIZE {
-            model.set_voxel(max, y, max - 1, 1);
+            model.set_voxel(max, y, max, 1);
         }
     }
 
     // Bottom border (bit 2)
     if edge_mask & 4 != 0 {
         for x in 0..DESIGN_SIZE {
-            model.set_voxel(x, 0, max - 1, 1);
+            model.set_voxel(x, 0, max, 1);
         }
     }
 
     // Top border (bit 3)
     if edge_mask & 8 != 0 {
         for x in 0..DESIGN_SIZE {
-            model.set_voxel(x, max, max - 1, 1);
-        }
-    }
-
-    // Inner highlight on border at z=6
-    // Only add highlights for edges that have borders
-    let b = BORDER_WIDTH;
-
-    // Left highlight
-    if edge_mask & 1 != 0 {
-        for y in b..(DESIGN_SIZE - b) {
-            model.set_voxel(b, y, max - 1, 2);
-        }
-    }
-
-    // Right highlight
-    if edge_mask & 2 != 0 {
-        for y in b..(DESIGN_SIZE - b) {
-            model.set_voxel(max - b, y, max - 1, 2);
-        }
-    }
-
-    // Bottom highlight
-    if edge_mask & 4 != 0 {
-        for x in b..(DESIGN_SIZE - b) {
-            model.set_voxel(x, b, max - 1, 2);
-        }
-    }
-
-    // Top highlight
-    if edge_mask & 8 != 0 {
-        for x in b..(DESIGN_SIZE - b) {
-            model.set_voxel(x, max - 1, max - 1, 2);
+            model.set_voxel(x, max, max, 1);
         }
     }
 
