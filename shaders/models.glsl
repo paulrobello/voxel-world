@@ -449,13 +449,17 @@ bool marchSubVoxelModel(
             // Get color from palette
             vec4 paletteColor = getModelPaletteColor(model_id, palette_idx);
 
-            // For merged frames: recolor interior border voxels to match picture color
-            // This creates seamless appearance without gaps
+            // For merged frames: recolor only left/right interior borders to picture color
+            // Top/bottom interior borders keep their wooden appearance
             vec3 final_color = paletteColor.rgb;
             if (at_interior_edge && is_border_voxel) {
-                // Replace border color with picture color at interior edges
-                vec4 pictureColor = getModelPaletteColor(model_id, 4u);
-                final_color = pictureColor.rgb;
+                // Only recolor left/right edges (x-axis), not top/bottom (y-axis)
+                bool is_horizontal_edge = (rotatedPos.x == 0 || rotatedPos.x == int(res) - 1);
+                if (is_horizontal_edge) {
+                    vec4 pictureColor = getModelPaletteColor(model_id, 4u);
+                    final_color = pictureColor.rgb;
+                }
+                // Top/bottom edges keep wooden border color
             }
 
             // Add per-voxel emission glow (e.g., torch flame)
