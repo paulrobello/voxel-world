@@ -3,6 +3,7 @@ use crate::chunk::BlockType;
 use crate::editor::EditorAction;
 use crate::editor::rasterizer::generate_model_sprite;
 use crate::gpu_resources::RenderContext;
+use crate::pictures::{PictureBrowserAction, draw_picture_browser};
 use crate::stencils::{StencilBrowserAction, draw_stencil_browser};
 use crate::templates::{TemplateBrowserAction, draw_save_template_dialog, draw_template_browser};
 use crate::ui::{FluidStats, HUDRenderer, HudInputs, ToolAction};
@@ -781,6 +782,32 @@ pub fn render_hud(
                 }
             }
         }
+    }
+
+    // Render picture browser UI
+    let picture_action = draw_picture_browser(
+        &ctx,
+        &mut ui.picture_ui,
+        ui.selected_picture_id,
+        &sim.picture_library,
+    );
+
+    // Handle picture browser actions
+    match picture_action {
+        Some(PictureBrowserAction::SelectPicture(id)) => {
+            ui.selected_picture_id = Some(id);
+            if let Some(picture) = sim.picture_library.get(id) {
+                println!(
+                    "Selected picture '{}' ({}×{}) for frame placement",
+                    picture.name, picture.width, picture.height
+                );
+            }
+        }
+        Some(PictureBrowserAction::ClearSelection) => {
+            ui.selected_picture_id = None;
+            println!("Cleared picture selection (frames will be empty)");
+        }
+        None => {}
     }
 
     // Render stencil browser UI

@@ -1301,6 +1301,12 @@ impl App {
             self.toggle_stencil_browser();
         }
 
+        // Toggle picture browser (I key for Images/Pictures)
+        if self.input.key_pressed(KeyCode::KeyI) {
+            self.ui.picture_ui.toggle_browser();
+            println!("Picture browser: {}", if self.ui.picture_ui.browser_open { "OPEN" } else { "CLOSED" });
+        }
+
         // Stencil opacity adjustment ([ and ] keys)
         if self.input.key_pressed(KeyCode::BracketLeft) {
             self.ui.stencil_manager.adjust_global_opacity(-0.1);

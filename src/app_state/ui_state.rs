@@ -16,6 +16,7 @@ use crate::shape_tools::{
     ScatterToolState, SphereToolState, StairsToolState, TerrainBrushState, TorusToolState,
     WallToolState,
 };
+use crate::pictures::PictureUi;
 use crate::templates::{TemplateLibrary, TemplatePlacement, TemplateSelection, TemplateUi};
 use crate::textures::TextureLibrary;
 use crate::ui::paint_panel::PaintPanelState;
@@ -198,6 +199,9 @@ pub struct UiState {
 
     /// Selected picture ID for frame placement (None = empty frame).
     pub selected_picture_id: Option<u32>,
+
+    /// Picture browser UI state.
+    pub picture_ui: PictureUi,
 
     /// Paint panel UI state.
     pub paint_panel: PaintPanelState,
