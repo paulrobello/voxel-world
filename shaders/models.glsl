@@ -422,48 +422,14 @@ bool marchSubVoxelModel(
         bool is_border_voxel = isFrame && (palette_idx >= 1u && palette_idx <= 3u);
         bool is_picture_voxel = isFrame && (palette_idx == 4u);
 
-        // Check if this edge should be stripped based on frame_mask
-        // Use rotatedPos for coordinate checks (after frame rotation/flips)
-        bool at_interior_edge = false;
-        if (isFrame) {
-            if (rotatedPos.x == 0 && (frame_mask & 1u) == 0u) {
-                at_interior_edge = true;
-            }
-            if (rotatedPos.x == int(res) - 1 && (frame_mask & 2u) == 0u) {
-                at_interior_edge = true;
-            }
-            if (rotatedPos.y == 0 && (frame_mask & 4u) == 0u) {
-                at_interior_edge = true;
-            }
-            if (rotatedPos.y == int(res) - 1 && (frame_mask & 8u) == 0u) {
-                at_interior_edge = true;
-            }
-        }
-
-        // Strip ONLY border voxels at interior edges
-        // Do NOT strip picture voxels - they should remain visible
-        // (Handled below with paletteColor debug flag)
+        // Frame model now has picture extending to frame edges (z=7)
+        // Border is only at z=6 (behind picture) plus corner posts
+        // No border stripping needed - picture creates seamless appearance
 
         // Hit if not air (palette index 0 = transparent)
         if (palette_idx != 0u) {
             // Get color from palette
             vec4 paletteColor = getModelPaletteColor(model_id, palette_idx);
-
-            // For merged frames: strip pure side border voxels at interior edges
-            // This allows the adjacent frame's content to show through
-            if (at_interior_edge && is_border_voxel) {
-                bool is_left_edge = (rotatedPos.x == 0);
-                bool is_right_edge = (rotatedPos.x == int(res) - 1);
-                bool is_top_edge = (rotatedPos.y == 0);
-                bool is_bottom_edge = (rotatedPos.y == int(res) - 1);
-
-                // Strip only pure side edges, not corners
-                bool is_pure_side_edge = (is_left_edge || is_right_edge) && !is_top_edge && !is_bottom_edge;
-
-                if (is_pure_side_edge) {
-                    continue;  // Skip this border voxel
-                }
-            }
 
             vec3 final_color = paletteColor.rgb;
 
