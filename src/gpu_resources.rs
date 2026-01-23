@@ -895,9 +895,9 @@ pub const CUSTOM_ATLAS_WIDTH: u32 = CUSTOM_TEXTURE_SLOTS * CUSTOM_TEXTURE_SIZE; 
 pub const CUSTOM_ATLAS_HEIGHT: u32 = CUSTOM_TEXTURE_SIZE; // 64
 
 // Picture atlas for frame pictures
-pub const PICTURE_ATLAS_SLOTS: u32 = 64;
+pub const PICTURE_ATLAS_SLOTS: u32 = 16;
 pub const PICTURE_ATLAS_SIZE: u32 = 384; // Each picture is up to 384×384 pixels (for 3×3 frame clusters)
-pub const PICTURE_ATLAS_WIDTH: u32 = PICTURE_ATLAS_SLOTS * PICTURE_ATLAS_SIZE; // 24576
+pub const PICTURE_ATLAS_WIDTH: u32 = PICTURE_ATLAS_SLOTS * PICTURE_ATLAS_SIZE; // 6144
 pub const PICTURE_ATLAS_HEIGHT: u32 = PICTURE_ATLAS_SIZE; // 384
 
 /// Load texture atlases (main, custom, and picture) and create a combined descriptor set.

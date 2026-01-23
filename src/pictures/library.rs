@@ -15,7 +15,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub const MAX_PICTURE_SIZE: u16 = 384;
 
 /// Maximum number of pictures that can be loaded on GPU at once.
-pub const MAX_GPU_PICTURES: usize = 64;
+/// Limited by GPU maximum texture dimension (16 slots × 384 = 6144 pixels wide).
+pub const MAX_GPU_PICTURES: usize = 16;
 
 /// A single picture stored in the library.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -24,9 +25,9 @@ pub struct Picture {
     pub id: u32,
     /// Human-readable name for the picture.
     pub name: String,
-    /// Width in pixels (1-256).
+    /// Width in pixels (1-384).
     pub width: u16,
-    /// Height in pixels (1-256).
+    /// Height in pixels (1-384).
     pub height: u16,
     /// RGBA pixel data (width × height × 4 bytes).
     pub pixels: Vec<u8>,
