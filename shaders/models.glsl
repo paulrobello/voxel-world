@@ -191,14 +191,13 @@ vec4 getFramePictureColor(
     }
 
     // First, get local UV within this frame block (0-1)
-    // Note: Flip both X and Y for correct orientation
-    // - Flip Y because Vulkan textures have (0,0) at top-left, but our model has y=0 at bottom
-    // - Flip X: Flip offset for East(1) only; others use offset as-is
+    // Note: Flip Y because Vulkan textures have (0,0) at top-left, but our model has y=0 at bottom
     // Picture area is (res-2) pixels due to 1-voxel borders on each side
     float picture_size = float(res) - 2.0;
-    // Map pixel coordinate to center of pixel, then normalize to picture area
-    float base_u = (float(uv_x) - 1.0 - 0.5) / picture_size;
-    float local_v = 1.0 - (float(uv_y) - 1.0 - 0.5) / picture_size;
+    // Map pixel coordinate to UV (without pixel centering to avoid edge wrapping issues)
+    // uv_x and uv_y are in the range [1, res-2] (the picture area)
+    float base_u = (float(uv_x) - 1.0) / (picture_size - 1.0);
+    float local_v = 1.0 - (float(uv_y) - 1.0) / (picture_size - 1.0);
 
     // For multi-frame clusters, adjust UV to sample from correct region of picture
     // offset_x/y give the frame's position in the cluster (0,0 = bottom-left)
