@@ -549,8 +549,8 @@ mod tests {
     #[test]
     fn test_picture_clamp_size() {
         let pic = Picture::new("test", 1000, 500);
-        assert_eq!(pic.width, 256);
-        assert_eq!(pic.height, 256);
+        assert_eq!(pic.width, 128);
+        assert_eq!(pic.height, 128);
     }
 
     #[test]

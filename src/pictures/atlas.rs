@@ -151,17 +151,24 @@ impl PictureAtlas {
             self.data[slot_offset + i] = 0;
         }
 
-        // Pictures must be exactly MAX_PICTURE_SIZE × MAX_PICTURE_SIZE.
-        // The texture generator upscales to 128×128 on export.
-        // Import will reject other sizes.
-        if picture.width == MAX_PICTURE_SIZE && picture.height == MAX_PICTURE_SIZE {
-            for (i, &pixel) in picture.pixels.iter().enumerate() {
-                if i < slot_size {
-                    self.data[slot_offset + i] = pixel;
+        // Calculate padding to center picture in 128×128 slot
+        let offset_x = (MAX_PICTURE_SIZE - picture.width) / 2;
+        let offset_y = (MAX_PICTURE_SIZE - picture.height) / 2;
+
+        // Copy picture data centered in slot
+        for y in 0..picture.height {
+            for x in 0..picture.width {
+                let src_idx = (y as usize * picture.width as usize + x as usize) * 4;
+                let dst_x = (offset_x + x) as usize;
+                let dst_y = (offset_y + y) as usize;
+                let dst_idx = slot_offset + (dst_y * MAX_PICTURE_SIZE as usize + dst_x) * 4;
+
+                if src_idx + 4 <= picture.pixels.len() && dst_idx + 4 <= self.data.len() {
+                    self.data[dst_idx..dst_idx + 4]
+                        .copy_from_slice(&picture.pixels[src_idx..src_idx + 4]);
                 }
             }
         }
-        // If picture is smaller, leave the slot transparent (invalid picture)
     }
 
     /// Evicts a picture from the atlas (when deleted from library).

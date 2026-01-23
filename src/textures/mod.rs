@@ -13,7 +13,7 @@ pub mod generator;
 pub mod import;
 pub mod patterns;
 
-pub use canvas::{CanvasState, DEFAULT_PALETTE, PaintTool, ShapeMode};
+pub use canvas::{CanvasSize, CanvasState, DEFAULT_PALETTE, PaintTool, ShapeMode};
 pub use generator::{
     CUSTOM_TEXTURE_FLAG, CustomTexture, MAX_CUSTOM_TEXTURES, TEXTURE_SIZE, TextureColor,
     TextureLibrary, is_custom_texture, slot_to_texture_index, texture_index_to_slot,

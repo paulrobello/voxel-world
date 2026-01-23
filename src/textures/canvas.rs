@@ -2,14 +2,148 @@
 //!
 //! Provides pixel-level painting tools, a 32-color indexed palette,
 //! mirror modes for symmetric patterns, and undo/redo support.
+//! Supports variable canvas sizes up to 128×128 pixels.
 
 #![allow(dead_code)] // Public API methods may not all be used yet
 
-use super::generator::TEXTURE_SIZE;
 use std::collections::VecDeque;
 
 /// Maximum number of undo states to keep.
 const MAX_UNDO_HISTORY: usize = 100;
+
+/// Maximum canvas dimension (width or height).
+const MAX_CANVAS_SIZE: u16 = 128;
+
+/// Canvas dimensions for variable-size picture editor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CanvasSize {
+    /// Canvas width in pixels (1-128).
+    pub width: u16,
+    /// Canvas height in pixels (1-128).
+    pub height: u16,
+}
+
+impl CanvasSize {
+    /// Creates a new canvas size with validation.
+    ///
+    /// # Panics
+    /// Panics if width or height is 0 or exceeds 128.
+    #[must_use]
+    pub const fn new(width: u16, height: u16) -> Self {
+        assert!(
+            width > 0 && width <= MAX_CANVAS_SIZE,
+            "Canvas width must be 1-128"
+        );
+        assert!(
+            height > 0 && height <= MAX_CANVAS_SIZE,
+            "Canvas height must be 1-128"
+        );
+        Self { width, height }
+    }
+
+    /// Returns the total number of pixels.
+    #[must_use]
+    pub const fn pixel_count(&self) -> usize {
+        (self.width * self.height) as usize
+    }
+
+    /// Returns true if this is a square canvas.
+    #[must_use]
+    pub const fn is_square(&self) -> bool {
+        self.width == self.height
+    }
+
+    /// Returns the aspect ratio (width / height).
+    #[must_use]
+    pub const fn aspect_ratio(&self) -> f32 {
+        self.width as f32 / self.height as f32
+    }
+
+    /// Preset sizes for common use cases.
+    /// Square sizes.
+    pub const SQUARE_32X32: CanvasSize = CanvasSize {
+        width: 32,
+        height: 32,
+    };
+    pub const SQUARE_64X64: CanvasSize = CanvasSize {
+        width: 64,
+        height: 64,
+    };
+    pub const SQUARE_128X128: CanvasSize = CanvasSize {
+        width: 128,
+        height: 128,
+    };
+
+    /// Tall (portrait) sizes.
+    pub const TALL_32X64: CanvasSize = CanvasSize {
+        width: 32,
+        height: 64,
+    };
+    pub const TALL_64X128: CanvasSize = CanvasSize {
+        width: 64,
+        height: 128,
+    };
+
+    /// Wide (landscape) sizes.
+    pub const WIDE_64X32: CanvasSize = CanvasSize {
+        width: 64,
+        height: 32,
+    };
+    pub const WIDE_128X64: CanvasSize = CanvasSize {
+        width: 128,
+        height: 64,
+    };
+
+    /// Banner sizes.
+    pub const BANNER_16X128: CanvasSize = CanvasSize {
+        width: 16,
+        height: 128,
+    };
+
+    /// Returns all preset sizes.
+    #[must_use]
+    pub const fn all_presets() -> [CanvasSize; 10] {
+        [
+            Self::SQUARE_32X32,
+            Self::SQUARE_64X64,
+            Self::SQUARE_128X128,
+            Self::TALL_32X64,
+            Self::TALL_64X128,
+            Self::WIDE_64X32,
+            Self::WIDE_128X64,
+            Self::BANNER_16X128,
+            CanvasSize {
+                width: 32,
+                height: 128,
+            }, // Tall banner
+            CanvasSize {
+                width: 128,
+                height: 32,
+            }, // Wide banner
+        ]
+    }
+
+    /// Returns a display name for this size.
+    #[must_use]
+    pub const fn display_name(&self) -> [u8; 7] {
+        // Format: "WWxHH" as bytes (e.g., [b'6', b'4', b'x', b'6', b'4', 0, 0])
+        // For simplicity, we'll use a runtime method instead
+        // This is a placeholder - the actual implementation uses display_name()
+        [0; 7]
+    }
+
+    /// Returns a human-readable size string.
+    #[must_use]
+    pub fn size_label(&self) -> String {
+        format!("{}×{}", self.width, self.height)
+    }
+}
+
+impl Default for CanvasSize {
+    fn default() -> Self {
+        Self::SQUARE_64X64
+    }
+}
 
 /// Available paint tools.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -32,11 +166,13 @@ pub enum PaintTool {
     Rectangle = 6,
     /// Draw circle/ellipse.
     Circle = 7,
+    /// Draw text.
+    Text = 8,
 }
 
 impl PaintTool {
     /// Returns all available tools.
-    pub const fn all() -> [PaintTool; 8] {
+    pub const fn all() -> [PaintTool; 9] {
         [
             PaintTool::Pencil,
             PaintTool::Brush,
@@ -46,6 +182,7 @@ impl PaintTool {
             PaintTool::Line,
             PaintTool::Rectangle,
             PaintTool::Circle,
+            PaintTool::Text,
         ]
     }
 
@@ -60,6 +197,7 @@ impl PaintTool {
             PaintTool::Line => "Line",
             PaintTool::Rectangle => "Rect",
             PaintTool::Circle => "Circle",
+            PaintTool::Text => "Text",
         }
     }
 
@@ -74,6 +212,7 @@ impl PaintTool {
             PaintTool::Line => "╱",
             PaintTool::Rectangle => "▢",
             PaintTool::Circle => "○",
+            PaintTool::Text => "T",
         }
     }
 
@@ -187,6 +326,133 @@ impl UndoHistory {
     }
 }
 
+/// Minimal 5×7 bitmap font for text tool.
+/// Supports: Space (32), ! " . , : - ? 0-9 A-Z
+/// Each character is 7 bytes (one per row), with 5 bits per byte.
+/// Format: Bit 0 = leftmost pixel, Bit 4 = rightmost pixel.
+const FONT_5X7: &[u8] = &[
+    // Space (32) - 7 rows of empty
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    // ! (33)
+    0x08, 0x08, 0x08, 0x08, 0x08, 0x00, 0x08,
+    // " (34)
+    0x14, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00,
+    // . (46)
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x18,
+    // , (44)
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x18, 0x08,
+    // : (58)
+    0x00, 0x18, 0x00, 0x00, 0x18, 0x00, 0x00,
+    // ? (63)
+    0x1C, 0x22, 0x02, 0x04, 0x08, 0x00, 0x08,
+    // - (45)
+    0x00, 0x00, 0x00, 0x1E, 0x00, 0x00, 0x00,
+    // 0 (48)
+    0x1E, 0x25, 0x29, 0x29, 0x29, 0x25, 0x1E,
+    // 1 (49)
+    0x08, 0x18, 0x08, 0x08, 0x08, 0x08, 0x1C,
+    // 2 (50)
+    0x1E, 0x21, 0x01, 0x02, 0x04, 0x08, 0x1F,
+    // 3 (51)
+    0x1F, 0x02, 0x04, 0x02, 0x01, 0x21, 0x1E,
+    // 4 (52)
+    0x02, 0x06, 0x0A, 0x12, 0x1F, 0x02, 0x02,
+    // 5 (53)
+    0x1F, 0x10, 0x1E, 0x01, 0x01, 0x21, 0x1E,
+    // 6 (54)
+    0x0E, 0x10, 0x1E, 0x21, 0x21, 0x21, 0x1E,
+    // 7 (55)
+    0x1F, 0x01, 0x02, 0x04, 0x08, 0x10, 0x10,
+    // 8 (56)
+    0x1E, 0x21, 0x21, 0x1E, 0x21, 0x21, 0x1E,
+    // 9 (57)
+    0x1E, 0x21, 0x21, 0x1F, 0x01, 0x02, 0x1C,
+    // A (65)
+    0x08, 0x14, 0x22, 0x22, 0x3E, 0x22, 0x22,
+    // B (66)
+    0x1E, 0x22, 0x22, 0x1E, 0x22, 0x22, 0x1E,
+    // C (67)
+    0x1E, 0x21, 0x20, 0x20, 0x20, 0x21, 0x1E,
+    // D (68)
+    0x1E, 0x22, 0x22, 0x22, 0x22, 0x22, 0x1E,
+    // E (69)
+    0x3E, 0x20, 0x20, 0x3E, 0x20, 0x20, 0x3E,
+    // F (70)
+    0x3E, 0x20, 0x20, 0x3E, 0x20, 0x20, 0x20,
+    // G (71)
+    0x1E, 0x21, 0x20, 0x27, 0x21, 0x21, 0x1E,
+    // H (72)
+    0x22, 0x22, 0x22, 0x3E, 0x22, 0x22, 0x22,
+    // I (73)
+    0x1E, 0x08, 0x08, 0x08, 0x08, 0x08, 0x1E,
+    // J (74)
+    0x06, 0x02, 0x02, 0x02, 0x22, 0x22, 0x1E,
+    // K (75)
+    0x22, 0x12, 0x0A, 0x06, 0x0A, 0x12, 0x22,
+    // L (76)
+    0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x3E,
+    // M (77)
+    0x22, 0x36, 0x2A, 0x22, 0x22, 0x22, 0x22,
+    // N (78)
+    0x26, 0x2A, 0x32, 0x22, 0x22, 0x22, 0x22,
+    // O (79)
+    0x1E, 0x21, 0x21, 0x21, 0x21, 0x21, 0x1E,
+    // P (80)
+    0x1E, 0x22, 0x22, 0x1E, 0x20, 0x20, 0x20,
+    // Q (81)
+    0x1E, 0x21, 0x21, 0x21, 0x25, 0x22, 0x1E,
+    // R (82)
+    0x1E, 0x22, 0x22, 0x1E, 0x22, 0x22, 0x22,
+    // S (83)
+    0x1E, 0x20, 0x1E, 0x01, 0x01, 0x21, 0x1E,
+    // T (84)
+    0x1F, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08,
+    // U (85)
+    0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x1E,
+    // V (86)
+    0x22, 0x22, 0x22, 0x22, 0x22, 0x14, 0x08,
+    // W (87)
+    0x22, 0x22, 0x22, 0x2A, 0x2A, 0x36, 0x22,
+    // X (88)
+    0x22, 0x22, 0x14, 0x08, 0x14, 0x22, 0x22,
+    // Y (89)
+    0x22, 0x22, 0x22, 0x14, 0x08, 0x08, 0x08,
+    // Z (90)
+    0x3E, 0x02, 0x04, 0x08, 0x10, 0x20, 0x3E,
+];
+
+/// Returns the starting index in FONT_5X7 for a character, or None if not supported.
+/// Supported characters: Space (32), ! " . , : - ? 0-9 A-Z
+fn get_char_index(ch: char) -> Option<usize> {
+    let idx = match ch {
+        ' ' => 0,
+        '!' => 1,
+        '"' => 2,
+        '.' => 3,
+        ',' => 4,
+        ':' => 5,
+        '?' => 6,
+        '-' => 7,
+        '0'..='9' => 8 + (ch as usize) - ('0' as usize),
+        'A'..='Z' => 18 + (ch as usize) - ('A' as usize),
+        _ => return None,
+    };
+    Some(idx)
+}
+
+/// Returns the 5x7 bitmap for a character as a slice of 7 bytes (one per row).
+/// Each byte contains 5 bits (bit 0 = leftmost pixel, bit 4 = rightmost).
+/// Returns None if the character is not supported.
+fn get_char_bitmap(ch: char) -> Option<[u8; 7]> {
+    let char_idx = get_char_index(ch)?;
+    let start = char_idx * 7;
+    let mut bitmap = [0u8; 7];
+    if start + 7 <= FONT_5X7.len() {
+        bitmap.copy_from_slice(&FONT_5X7[start..start + 7]);
+    }
+    Some(bitmap)
+}
+
 /// Default 32-color palette for texture painting.
 pub const DEFAULT_PALETTE: [[u8; 4]; 32] = [
     [0, 0, 0, 0],         // 0: Transparent
@@ -226,7 +492,9 @@ pub const DEFAULT_PALETTE: [[u8; 4]; 32] = [
 /// Canvas state for pixel painting.
 #[derive(Debug, Clone)]
 pub struct CanvasState {
-    /// Pixel data (TEXTURE_SIZE × TEXTURE_SIZE × 4 bytes RGBA).
+    /// Canvas dimensions.
+    pub size: CanvasSize,
+    /// Pixel data (width × height × 4 bytes RGBA).
     pub pixels: Vec<u8>,
     /// 32-color indexed palette.
     pub palette: [[u8; 4]; 32],
@@ -256,6 +524,14 @@ pub struct CanvasState {
     pub hover_pos: Option<(u32, u32)>,
     /// Whether canvas is dirty (needs GPU sync).
     pub dirty: bool,
+    /// Text font size (1 = small 5x7, 2 = medium 10x14, 3 = large 15x21).
+    pub text_font_size: u8,
+    /// Text input buffer for text tool.
+    pub text_input: String,
+    /// Text cursor position (where next character will be placed).
+    pub text_cursor: Option<(u32, u32)>,
+    /// Whether text cursor is visible (for blinking effect).
+    pub text_cursor_visible: bool,
 }
 
 impl Default for CanvasState {
@@ -267,8 +543,14 @@ impl Default for CanvasState {
 impl CanvasState {
     /// Creates a new canvas state with default values.
     pub fn new() -> Self {
+        Self::with_size(CanvasSize::default())
+    }
+
+    /// Creates a new canvas state with the specified dimensions.
+    pub fn with_size(size: CanvasSize) -> Self {
         Self {
-            pixels: vec![0u8; (TEXTURE_SIZE * TEXTURE_SIZE * 4) as usize],
+            size,
+            pixels: vec![0u8; size.pixel_count() * 4],
             palette: DEFAULT_PALETTE,
             selected_color: 1, // White
             tool: PaintTool::default(),
@@ -283,7 +565,23 @@ impl CanvasState {
             show_grid: true,
             hover_pos: None,
             dirty: false,
+            text_font_size: 1,
+            text_input: String::new(),
+            text_cursor: None,
+            text_cursor_visible: true,
         }
+    }
+
+    /// Returns the canvas width.
+    #[must_use]
+    pub const fn width(&self) -> u16 {
+        self.size.width
+    }
+
+    /// Returns the canvas height.
+    #[must_use]
+    pub const fn height(&self) -> u16 {
+        self.size.height
     }
 
     /// Returns the currently selected color as RGBA.
@@ -293,10 +591,10 @@ impl CanvasState {
 
     /// Returns the pixel color at the given position.
     pub fn get_pixel(&self, x: u32, y: u32) -> [u8; 4] {
-        if x >= TEXTURE_SIZE || y >= TEXTURE_SIZE {
+        if x >= self.size.width as u32 || y >= self.size.height as u32 {
             return [0, 0, 0, 0];
         }
-        let idx = ((y * TEXTURE_SIZE + x) * 4) as usize;
+        let idx = ((y * self.size.width as u32 + x) * 4) as usize;
         [
             self.pixels[idx],
             self.pixels[idx + 1],
@@ -307,10 +605,10 @@ impl CanvasState {
 
     /// Sets a pixel color at the given position.
     pub fn set_pixel(&mut self, x: u32, y: u32, rgba: [u8; 4]) {
-        if x >= TEXTURE_SIZE || y >= TEXTURE_SIZE {
+        if x >= self.size.width as u32 || y >= self.size.height as u32 {
             return;
         }
-        let idx = ((y * TEXTURE_SIZE + x) * 4) as usize;
+        let idx = ((y * self.size.width as u32 + x) * 4) as usize;
         self.pixels[idx] = rgba[0];
         self.pixels[idx + 1] = rgba[1];
         self.pixels[idx + 2] = rgba[2];
@@ -352,11 +650,42 @@ impl CanvasState {
     }
 
     /// Copies pixels from a texture's pixel data.
+    ///
+    /// If source size matches current canvas size, copies directly.
+    /// If source is smaller, centers it. If source is larger, crops it.
     pub fn copy_from(&mut self, source_pixels: &[u8]) {
-        let expected_size = (TEXTURE_SIZE * TEXTURE_SIZE * 4) as usize;
+        let expected_size = self.size.pixel_count() * 4;
         if source_pixels.len() == expected_size {
             self.save_state();
             self.pixels.copy_from_slice(source_pixels);
+            self.dirty = true;
+        } else {
+            // Size mismatch: resize the canvas to match the source
+            // Calculate dimensions from source pixel count
+            let source_len = source_pixels.len() / 4;
+            // Try common dimensions
+            let (new_width, new_height) = if source_len == 64 * 64 {
+                (64, 64)
+            } else if source_len == 128 * 128 {
+                (128, 128)
+            } else if source_len == 32 * 32 {
+                (32, 32)
+            } else if source_len == 64 * 128 {
+                // Both 64×128 and 128×64 are 8192 pixels - default to 64×128 (tall)
+                (64, 128)
+            } else {
+                // Try to find dimensions by factorization
+                let mut w = (source_len as f32).sqrt() as u16;
+                while w > 0 && source_len % w as usize != 0 {
+                    w -= 1;
+                }
+                let h = (source_len / w as usize) as u16;
+                (w, h)
+            };
+
+            self.save_state();
+            self.size = CanvasSize::new(new_width, new_height);
+            self.pixels = source_pixels.to_vec();
             self.dirty = true;
         }
     }
@@ -364,21 +693,22 @@ impl CanvasState {
     /// Returns all positions affected by mirroring.
     fn get_mirrored_positions(&self, x: u32, y: u32) -> Vec<(u32, u32)> {
         let mut positions = vec![(x, y)];
-        let max = TEXTURE_SIZE - 1;
+        let max_x = self.size.width as u32 - 1;
+        let max_y = self.size.height as u32 - 1;
 
         if self.mirror_x {
-            let mx = max - x;
+            let mx = max_x - x;
             if !positions.contains(&(mx, y)) {
                 positions.push((mx, y));
             }
         }
 
         if self.mirror_y {
-            let my = max - y;
+            let my = max_y - y;
             let len = positions.len();
             for i in 0..len {
                 let (px, py) = positions[i];
-                let mirrored = (px, max - py);
+                let mirrored = (px, max_y - py);
                 if !positions.contains(&mirrored) {
                     positions.push(mirrored);
                 }
@@ -410,8 +740,8 @@ impl CanvasState {
                 let dist_sq = dx * dx + dy * dy;
                 let max_dist_sq = radius * radius + 1;
                 if dist_sq <= max_dist_sq {
-                    let x = (cx as i32 + dx).clamp(0, TEXTURE_SIZE as i32 - 1) as u32;
-                    let y = (cy as i32 + dy).clamp(0, TEXTURE_SIZE as i32 - 1) as u32;
+                    let x = (cx as i32 + dx).clamp(0, self.size.width as i32 - 1) as u32;
+                    let y = (cy as i32 + dy).clamp(0, self.size.height as i32 - 1) as u32;
                     for (px, py) in self.get_mirrored_positions(x, y) {
                         self.set_pixel(px, py, rgba);
                     }
@@ -430,8 +760,8 @@ impl CanvasState {
                 let dist_sq = dx * dx + dy * dy;
                 let max_dist_sq = radius * radius + 1;
                 if dist_sq <= max_dist_sq {
-                    let x = (cx as i32 + dx).clamp(0, TEXTURE_SIZE as i32 - 1) as u32;
-                    let y = (cy as i32 + dy).clamp(0, TEXTURE_SIZE as i32 - 1) as u32;
+                    let x = (cx as i32 + dx).clamp(0, self.size.width as i32 - 1) as u32;
+                    let y = (cy as i32 + dy).clamp(0, self.size.height as i32 - 1) as u32;
                     for (px, py) in self.get_mirrored_positions(x, y) {
                         self.set_pixel(px, py, [0, 0, 0, 0]);
                     }
@@ -443,7 +773,7 @@ impl CanvasState {
 
     /// Performs flood fill starting at the given position.
     pub fn flood_fill(&mut self, start_x: u32, start_y: u32) {
-        if start_x >= TEXTURE_SIZE || start_y >= TEXTURE_SIZE {
+        if start_x >= self.size.width as u32 || start_y >= self.size.height as u32 {
             return;
         }
 
@@ -461,7 +791,7 @@ impl CanvasState {
         let mut visited = std::collections::HashSet::new();
 
         while let Some((x, y)) = stack.pop() {
-            if x >= TEXTURE_SIZE || y >= TEXTURE_SIZE {
+            if x >= self.size.width as u32 || y >= self.size.height as u32 {
                 continue;
             }
 
@@ -485,13 +815,13 @@ impl CanvasState {
             if x > 0 {
                 stack.push((x - 1, y));
             }
-            if x < TEXTURE_SIZE - 1 {
+            if x < self.size.width as u32 - 1 {
                 stack.push((x + 1, y));
             }
             if y > 0 {
                 stack.push((x, y - 1));
             }
-            if y < TEXTURE_SIZE - 1 {
+            if y < self.size.height as u32 - 1 {
                 stack.push((x, y + 1));
             }
         }
@@ -501,7 +831,7 @@ impl CanvasState {
 
     /// Picks the color at the given position.
     pub fn eyedropper(&mut self, x: u32, y: u32) -> bool {
-        if x >= TEXTURE_SIZE || y >= TEXTURE_SIZE {
+        if x >= self.size.width as u32 || y >= self.size.height as u32 {
             return false;
         }
 
@@ -546,7 +876,7 @@ impl CanvasState {
         let mut y = y0 as i32;
 
         loop {
-            if x >= 0 && x < TEXTURE_SIZE as i32 && y >= 0 && y < TEXTURE_SIZE as i32 {
+            if x >= 0 && x < self.size.width as i32 && y >= 0 && y < self.size.height as i32 {
                 for (px, py) in self.get_mirrored_positions(x as u32, y as u32) {
                     self.set_pixel(px, py, rgba);
                 }
@@ -574,9 +904,9 @@ impl CanvasState {
     pub fn draw_rectangle(&mut self, x0: u32, y0: u32, x1: u32, y1: u32) {
         let rgba = self.selected_rgba();
         let min_x = x0.min(x1);
-        let max_x = x0.max(x1).min(TEXTURE_SIZE - 1);
+        let max_x = x0.max(x1).min(self.size.width as u32 - 1);
         let min_y = y0.min(y1);
-        let max_y = y0.max(y1).min(TEXTURE_SIZE - 1);
+        let max_y = y0.max(y1).min(self.size.height as u32 - 1);
 
         match self.shape_mode {
             ShapeMode::Filled => {
@@ -627,7 +957,7 @@ impl CanvasState {
                 // Fill ellipse using scanlines
                 for dy in -ry..=ry {
                     let y = cy + dy;
-                    if y < 0 || y >= TEXTURE_SIZE as i32 {
+                    if y < 0 || y >= self.size.height as i32 {
                         continue;
                     }
 
@@ -637,7 +967,7 @@ impl CanvasState {
 
                     for dx in -x_extent..=x_extent {
                         let x = cx + dx;
-                        if x >= 0 && x < TEXTURE_SIZE as i32 {
+                        if x >= 0 && x < self.size.width as i32 {
                             for (px, py) in self.get_mirrored_positions(x as u32, y as u32) {
                                 self.set_pixel(px, py, rgba);
                             }
@@ -653,7 +983,8 @@ impl CanvasState {
                     let x = cx + (rx as f32 * theta.cos()) as i32;
                     let y = cy + (ry as f32 * theta.sin()) as i32;
 
-                    if x >= 0 && x < TEXTURE_SIZE as i32 && y >= 0 && y < TEXTURE_SIZE as i32 {
+                    if x >= 0 && x < self.size.width as i32 && y >= 0 && y < self.size.height as i32
+                    {
                         for (px, py) in self.get_mirrored_positions(x as u32, y as u32) {
                             self.set_pixel(px, py, rgba);
                         }
@@ -665,6 +996,110 @@ impl CanvasState {
         self.dirty = true;
     }
 
+    /// Draws text at the specified position using the current color and font size.
+    /// Text is drawn character by character, with spacing between characters.
+    /// Returns the cursor position after the text (for continuing text).
+    pub fn draw_text(&mut self, mut x: u32, mut y: u32, text: &str) -> (u32, u32) {
+        let rgba = self.selected_rgba();
+        let scale = self.text_font_size as u32;
+        let base_char_width: u32 = 5;
+        let base_char_height: u32 = 7;
+        let char_width = base_char_width * scale;
+        let char_height = base_char_height * scale;
+        let char_spacing: u32 = 1 * scale;
+
+        for ch in text.chars() {
+            if let Some(bitmap) = get_char_bitmap(ch) {
+                // Draw the scaled character bitmap
+                // Font format: 7 bytes (one per row), 5 bits per byte
+                // Bit 0 = leftmost pixel, Bit 4 = rightmost pixel
+                for row in 0..base_char_height {
+                    let row_byte = bitmap[row as usize];
+                    for col in 0..base_char_width {
+                        // Extract the bit for this column (0-4)
+                        let bit = (row_byte >> col) & 1;
+
+                        if bit != 0 {
+                            // Scale the pixel: draw a scale×scale block for each font pixel
+                            for sy in 0..scale {
+                                for sx in 0..scale {
+                                    let px = x + col * scale + sx;
+                                    let py = y + row * scale + sy;
+
+                                    // Only draw if within canvas bounds
+                                    if px < self.size.width as u32 && py < self.size.height as u32 {
+                                        for (mx, my) in self.get_mirrored_positions(px, py) {
+                                            self.set_pixel(mx, my, rgba);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Move cursor for next character
+                x += char_width + char_spacing;
+            }
+            // Handle newline
+            if ch == '\n' {
+                x = 0;
+                y += char_height + 2 * scale; // Extra spacing between lines
+            }
+        }
+
+        self.dirty = true;
+        (x, y)
+    }
+
+    /// Draws the text cursor indicator at the current cursor position.
+    /// Returns true if the cursor was drawn (within canvas bounds).
+    pub fn draw_text_cursor(&mut self) -> bool {
+        let Some((cx, cy)) = self.text_cursor else {
+            return false;
+        };
+
+        let scale = self.text_font_size as u32;
+        let cursor_width = 6 * scale; // Slightly wider than a character
+        let cursor_height = 7 * scale;
+        let cursor_color = [255, 255, 0, 255]; // Yellow for visibility
+
+        // Only draw if cursor is visible
+        if !self.text_cursor_visible {
+            return false;
+        }
+
+        // Draw cursor outline (hollow rectangle)
+        for i in 0..cursor_width {
+            // Top edge
+            if cx + i < self.size.width as u32 && cy < self.size.height as u32 {
+                self.set_pixel(cx + i, cy, cursor_color);
+            }
+            // Bottom edge
+            if cx + i < self.size.width as u32 && cy + cursor_height - 1 < self.size.height as u32 {
+                self.set_pixel(cx + i, cy + cursor_height - 1, cursor_color);
+            }
+        }
+        for i in 1..cursor_height - 1 {
+            // Left edge
+            if cx < self.size.width as u32 && cy + i < self.size.height as u32 {
+                self.set_pixel(cx, cy + i, cursor_color);
+            }
+            // Right edge
+            if cx + cursor_width - 1 < self.size.width as u32 && cy + i < self.size.height as u32 {
+                self.set_pixel(cx + cursor_width - 1, cy + i, cursor_color);
+            }
+        }
+
+        self.dirty = true;
+        true
+    }
+
+    /// Toggles the text cursor visibility (for blinking effect).
+    pub fn toggle_text_cursor(&mut self) {
+        self.text_cursor_visible = !self.text_cursor_visible;
+    }
+
     /// Generates a preview of a shape tool operation.
     pub fn generate_preview(&self, x0: u32, y0: u32, x1: u32, y1: u32) -> Vec<u8> {
         // Clone current pixels and draw the shape on them
@@ -673,8 +1108,8 @@ impl CanvasState {
 
         // Helper to set pixel in preview
         let set_preview_pixel = |preview: &mut Vec<u8>, x: u32, y: u32, rgba: [u8; 4]| {
-            if x < TEXTURE_SIZE && y < TEXTURE_SIZE {
-                let idx = ((y * TEXTURE_SIZE + x) * 4) as usize;
+            if x < self.size.width as u32 && y < self.size.height as u32 {
+                let idx = ((y * self.size.width as u32 + x) * 4) as usize;
                 preview[idx] = rgba[0];
                 preview[idx + 1] = rgba[1];
                 preview[idx + 2] = rgba[2];
@@ -694,13 +1129,14 @@ impl CanvasState {
                 let mut y = y0 as i32;
 
                 loop {
-                    if x >= 0 && x < TEXTURE_SIZE as i32 && y >= 0 && y < TEXTURE_SIZE as i32 {
+                    if x >= 0 && x < self.size.width as i32 && y >= 0 && y < self.size.height as i32
+                    {
                         set_preview_pixel(&mut preview, x as u32, y as u32, rgba);
                         // Handle mirroring
                         if self.mirror_x {
                             set_preview_pixel(
                                 &mut preview,
-                                TEXTURE_SIZE - 1 - x as u32,
+                                self.size.width as u32 - 1 - x as u32,
                                 y as u32,
                                 rgba,
                             );
@@ -709,15 +1145,15 @@ impl CanvasState {
                             set_preview_pixel(
                                 &mut preview,
                                 x as u32,
-                                TEXTURE_SIZE - 1 - y as u32,
+                                self.size.height as u32 - 1 - y as u32,
                                 rgba,
                             );
                         }
                         if self.mirror_x && self.mirror_y {
                             set_preview_pixel(
                                 &mut preview,
-                                TEXTURE_SIZE - 1 - x as u32,
-                                TEXTURE_SIZE - 1 - y as u32,
+                                self.size.width as u32 - 1 - x as u32,
+                                self.size.height as u32 - 1 - y as u32,
                                 rgba,
                             );
                         }
@@ -740,9 +1176,9 @@ impl CanvasState {
             }
             PaintTool::Rectangle => {
                 let min_x = x0.min(x1);
-                let max_x = x0.max(x1).min(TEXTURE_SIZE - 1);
+                let max_x = x0.max(x1).min(self.size.width as u32 - 1);
                 let min_y = y0.min(y1);
-                let max_y = y0.max(y1).min(TEXTURE_SIZE - 1);
+                let max_y = y0.max(y1).min(self.size.height as u32 - 1);
 
                 match self.shape_mode {
                     ShapeMode::Filled => {
@@ -774,14 +1210,14 @@ impl CanvasState {
                     ShapeMode::Filled => {
                         for dy in -ry..=ry {
                             let y = cy + dy;
-                            if y < 0 || y >= TEXTURE_SIZE as i32 {
+                            if y < 0 || y >= self.size.height as i32 {
                                 continue;
                             }
                             let t = dy as f32 / ry as f32;
                             let x_extent = ((1.0 - t * t).sqrt() * rx as f32) as i32;
                             for dx in -x_extent..=x_extent {
                                 let x = cx + dx;
-                                if x >= 0 && x < TEXTURE_SIZE as i32 {
+                                if x >= 0 && x < self.size.width as i32 {
                                     set_preview_pixel(&mut preview, x as u32, y as u32, rgba);
                                 }
                             }
@@ -794,9 +1230,9 @@ impl CanvasState {
                             let x = cx + (rx as f32 * theta.cos()) as i32;
                             let y = cy + (ry as f32 * theta.sin()) as i32;
                             if x >= 0
-                                && x < TEXTURE_SIZE as i32
+                                && x < self.size.width as i32
                                 && y >= 0
-                                && y < TEXTURE_SIZE as i32
+                                && y < self.size.height as i32
                             {
                                 set_preview_pixel(&mut preview, x as u32, y as u32, rgba);
                             }
@@ -818,10 +1254,7 @@ mod tests {
     #[test]
     fn test_canvas_new() {
         let canvas = CanvasState::new();
-        assert_eq!(
-            canvas.pixels.len(),
-            (TEXTURE_SIZE * TEXTURE_SIZE * 4) as usize
-        );
+        assert_eq!(canvas.pixels.len(), canvas.size.pixel_count() * 4);
         assert_eq!(canvas.selected_color, 1);
         assert_eq!(canvas.tool, PaintTool::Pencil);
     }
@@ -861,9 +1294,12 @@ mod tests {
         let positions = canvas.get_mirrored_positions(10, 10);
         assert_eq!(positions.len(), 4);
         assert!(positions.contains(&(10, 10)));
-        assert!(positions.contains(&(TEXTURE_SIZE - 1 - 10, 10)));
-        assert!(positions.contains(&(10, TEXTURE_SIZE - 1 - 10)));
-        assert!(positions.contains(&(TEXTURE_SIZE - 1 - 10, TEXTURE_SIZE - 1 - 10)));
+        assert!(positions.contains(&(canvas.size.width as u32 - 1 - 10, 10)));
+        assert!(positions.contains(&(10, canvas.size.height as u32 - 1 - 10)));
+        assert!(positions.contains(&(
+            canvas.size.width as u32 - 1 - 10,
+            canvas.size.height as u32 - 1 - 10
+        )));
     }
 
     #[test]

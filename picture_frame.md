@@ -11,7 +11,10 @@ Enable players to display custom artwork in their worlds by integrating the in-g
 **Vision**: Picture frames are not just empty borders - they display custom pixel art created by the player. A single 1×1 frame shows a 128×128 picture. Frames automatically form clusters when placed adjacent to each other.
 
 **Key Features**:
-- 128×128 pixel art per frame (current resolution)
+- Variable canvas sizes (1×1 to 128×128 pixels)
+- Preset sizes: 32×32, 64×64, 128×128 (square); 32×64, 64×128 (tall); 64×32, 128×64 (wide); 16×128 (banner)
+- Custom size support (any dimension 1-128)
+- Pictures exported at actual size (no forced upscaling)
 - Picture selection UI when placing frames
 - Delete button for removing unwanted pictures
 - Picture persistence across sessions
@@ -25,8 +28,10 @@ Enable players to display custom artwork in their worlds by integrating the in-g
 ### Coordinate Systems
 
 **Picture Space** (Texture Editor):
-- 64×64 pixels in texture editor (upscaled to 128×128 on export)
-- Pixel coordinates: (0,0) to (63,63) in editor
+- Variable canvas sizes: 1×1 to 128×128 pixels
+- Common presets: 32×32, 64×64, 128×128, 32×64, 64×128, 64×32, 128×64, 16×128
+- Custom dimensions supported (1-128 range for width/height)
+- Pixel coordinates: (0,0) to (width-1, height-1) in editor
 - RGBA colors (256 levels per channel)
 
 **Sub-Voxel Space** (Frame Model):
@@ -43,13 +48,13 @@ Enable players to display custom artwork in their worlds by integrating the in-g
 
 ```
 Texture Editor → Picture Library → Picture Atlas → Frame Metadata → Shader Render
-    (64×64)      (pictures.bin)      (GPU)         (picture_id)     (voxel colors)
+ (variable)     (pictures.bin)      (GPU)         (picture_id)     (voxel colors)
        ↓
-    (upscale to 128×128)
+    (actual size, no upscaling)
 ```
 
-1. **Creation**: Player draws 64×64 art in texture editor (P key)
-2. **Export**: Upscaled to 128×128 and saved to picture library
+1. **Creation**: Player draws pixel art in texture editor with custom dimensions (P key)
+2. **Export**: Saved to picture library at actual canvas size
 3. **Storage**: Picture saved to `~/.voxel_world/pictures.bin`
 4. **Selection**: Player selects picture when placing frame
 5. **Encoding**: `picture_id` stored in frame metadata
@@ -94,11 +99,13 @@ Texture Editor → Picture Library → Picture Atlas → Frame Metadata → Shad
 ### 5. Texture Editor ✅
 - **File**: `src/ui/texture_generator.rs`
 - P key to open editor
-- Drawing tools: pencil, eraser, fill, eyedropper
-- Canvas is 64×64 pixels
+- Drawing tools: pencil, brush, eraser, fill, eyedropper, line, rectangle, circle
+- **Variable canvas sizes**: 1×1 to 128×128 pixels
+- Size presets: 32×32, 64×64, 128×128, 32×64, 64×128, 64×32, 128×64, 16×128, plus custom sizes
 - Undo/redo support
-- Color picker with palette
-- **Export**: Upscales 2× to 128×128 using nearest-neighbor when exporting to picture library
+- Color picker with 32-color palette
+- Mirror mode (X/Y) for symmetric patterns
+- **Export**: Pictures saved at actual canvas size (no forced upscaling)
 
 ### 6. Frame Auto-Sizing ✅
 - **File**: `src/world/connections.rs`
@@ -266,7 +273,10 @@ The shader's UV calculation automatically divides the picture into a grid based 
 
 #### 20.6.1 Picture Editor Integration ✅
 - [x] Export button in texture editor
-- [x] Upscales 2× to 128×128 using nearest-neighbor
+- [x] **Variable canvas sizes** (1×1 to 128×128)
+- [x] **Size presets**: 32×32, 64×64, 128×128, 32×64, 64×128, 64×32, 128×64, 16×128
+- [x] **Custom size dialog** for arbitrary dimensions
+- [x] **Export at actual size** (no forced upscaling)
 - [x] Saves to picture library automatically
 
 #### 20.6.2 Frame Picture Management ✅
@@ -320,10 +330,11 @@ The shader's UV calculation automatically divides the picture into a grid based 
 
 ### Manual Tests
 - [x] Create picture in texture editor
-- [x] Export to picture library (upscales to 128×128)
+- [x] **Select canvas size** from presets or custom dialog
+- [x] Export to picture library at actual size
 - [x] Place frame with selected picture
 - [x] Delete picture from browser
-- [ ] Build 2×2 frame cluster with 256×256 picture
+- [ ] Build 2×2 frame cluster with 256×256 picture (when larger pictures supported)
 
 ---
 
@@ -335,7 +346,11 @@ The shader's UV calculation automatically divides the picture into a grid based 
 - [x] Picture library can store RGBA pictures
 - [x] Picture atlas supports GPU rendering (64 slots × 128×128)
 - [x] Texture editor creates pixel art
-- [x] Export upscales to 128×128
+- [x] **Variable canvas sizes** (1×1 to 128×128)
+- [x] **Size presets** for common dimensions
+- [x] **Custom size dialog** for arbitrary dimensions
+- [x] **Export at actual size** (no forced upscaling)
+- [x] Atlas centers smaller pictures in 128×128 slots
 - [x] Picture pixels map to frame voxels (GPU shader)
 - [x] Single frame clusters work correctly
 - [x] All four rotations supported
@@ -353,19 +368,27 @@ The shader's UV calculation automatically divides the picture into a grid based 
 ## Known Issues & Limitations
 
 ### Current Limitations:
-1. **Picture resolution**: All pictures are 128×128
-   - Texture generator creates 64×64 art, upscaled to 128×128 on export
+1. **Picture resolution**: Maximum 128×128 pixels per picture
+   - Texture generator supports variable sizes (1×1 to 128×128)
+   - Common presets: 32×32, 64×64, 128×128 (square); 32×64, 64×128 (tall); 64×32, 128×64 (wide); 16×128 (banner)
+   - Custom dimensions supported (any size 1-128)
+   - Pictures exported at actual size (no forced upscaling)
    - Larger clusters display the same picture at lower resolution per frame
-   - 3×3 cluster shows each pixel at ~3× scale on each frame
+   - 3×3 cluster shows each pixel at ~3× scale on each frame (for 128×128 pictures)
+   - Use larger pictures (e.g., 256×256 when supported) for better multi-frame cluster quality
 
 2. **Picture atlas** is fixed at 128×128 per slot:
    - 64 slots available (~4 MB VRAM)
    - LRU eviction when atlas is full
+   - Smaller pictures are centered in 128×128 slots
+   - Larger pictures are rejected (must be ≤128×128)
 
 ### Design Decisions:
-- **128×128 resolution**: Balance of quality and memory
+- **128×128 maximum**: Balance of quality and memory
+- **Variable canvas sizes**: Flexibility for different use cases (icons, banners, tall portraits, wide landscapes)
+- **No forced upscaling**: Pictures exported at actual size for optimal quality
 - **Automatic scaling**: Same picture works for all cluster sizes
-- **Nearest-neighbor upscaling**: Preserves pixel art aesthetic
+- **Nearest-neighbor upscaling**: Previously used for 64×64→128×128, now no longer needed
 - **No shadow casting**: Frames are decorative wall items
 - **Global picture storage**: Pictures shared across all worlds
 
@@ -378,10 +401,21 @@ The shader's UV calculation automatically divides the picture into a grid based 
 - GPU shader-based picture sampling
 - Picture browser with delete functionality
 - Console commands for picture management
-- Export from texture editor with 2× upscaling
+- **Variable canvas sizes** (1×1 to 128×128) with preset options
+- Size presets: 32×32, 64×64, 128×128, 32×64, 64×128, 64×32, 128×64, 16×128
+- Custom size support via drag value inputs
+- **Export at actual size** (no forced upscaling)
 - Fixed UV edge wrapping issue
 - Disabled shadow casting for frames
 - LRU eviction for picture atlas
+- Atlas centers smaller pictures in 128×128 slots
+
+**Recent Changes (Variable Canvas Size):**
+- Added `CanvasSize` struct with validation (1-128 range)
+- Updated `CanvasState` to use dynamic size instead of `TEXTURE_SIZE` constant
+- Added size selector UI with preset buttons and custom dialog
+- Removed upscaling - pictures export at actual canvas size
+- Updated atlas loading to center smaller pictures in 128×128 slots
 
 **Rotation Mapping:**
 - rotation 0 = North
@@ -399,14 +433,24 @@ The shader's UV calculation automatically divides the picture into a grid based 
 - 64 slots × 128×128 pixels = 8192×128 atlas
 - ~4 MB VRAM usage
 - LRU eviction when full
+- Smaller pictures centered in slots
+
+**Canvas Size System:**
+- `CanvasSize` struct with presets and custom size validation
+- All drawing tools support variable dimensions
+- Resize preserves existing pixels (centered when upsizing, clipped when downsizing)
+- Undo history cleared when changing canvas size
 
 ---
 
 *Last Updated: 2026-01-23*
-*Phase Version: 2.5 - Complete Implementation*
+*Phase Version: 2.6 - Variable Canvas Size Implementation*
 **Status**: Fully Functional
 - Single frames: ✓ Working
 - Multi-frame clusters: ✓ Working (auto-scaling)
+- Variable canvas sizes: ✓ Working (1-128 range)
+- Size presets: ✓ Working (8 common sizes + custom)
+- Export at actual size: ✓ Working
 - Delete button: ✓ Working
 - Shadow behavior: ✓ Working
 - All console commands: ✓ Working
