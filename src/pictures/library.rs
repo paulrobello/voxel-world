@@ -10,13 +10,14 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// Maximum picture dimension (384×384 pixels).
-/// Supports up to 3×3 frame clusters (128×128 per frame).
-pub const MAX_PICTURE_SIZE: u16 = 384;
+/// Maximum picture dimension (128×128 pixels).
+/// Each frame displays 128×128 pixels of the picture.
+/// For multi-frame clusters, use larger pictures and the shader will
+/// sample the appropriate region.
+pub const MAX_PICTURE_SIZE: u16 = 128;
 
 /// Maximum number of pictures that can be loaded on GPU at once.
-/// Limited by GPU maximum texture dimension (16 slots × 384 = 6144 pixels wide).
-pub const MAX_GPU_PICTURES: usize = 16;
+pub const MAX_GPU_PICTURES: usize = 64;
 
 /// A single picture stored in the library.
 #[derive(Debug, Clone, Serialize, Deserialize)]
