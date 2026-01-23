@@ -110,6 +110,8 @@ pub enum CommandResult {
     DeletePosition { name: String },
     /// List all saved positions for current world.
     ListPositions,
+    /// Set the selected picture for frame placement.
+    SetPictureSelection { id: u32, name: String },
 }
 
 /// Pending command awaiting confirmation.
@@ -260,6 +262,8 @@ pub struct ConsoleState {
     pub pending_delete_position: Option<String>,
     /// Pending list positions request.
     pub pending_list_positions: bool,
+    /// Pending set picture selection (id to select, 0 = clear).
+    pub pending_set_picture: Option<u32>,
     /// Current autocomplete suggestions.
     pub suggestions: Vec<String>,
     /// Currently selected suggestion index.
@@ -302,6 +306,7 @@ impl ConsoleState {
             pending_save_position: None,
             pending_delete_position: None,
             pending_list_positions: false,
+            pending_set_picture: None,
             suggestions: Vec::new(),
             suggestion_index: 0,
             move_cursor_to_end: false,
@@ -475,6 +480,15 @@ impl ConsoleState {
                 name: "measure",
                 aliases: &[],
                 params: &[ParamType::Text], // subcommand: clear
+            },
+            CommandSignature {
+                name: "frame",
+                aliases: &[],
+                params: &[
+                    ParamType::Text, // subcommand: picture
+                    ParamType::Text, // sub-subcommand: list, set, clear
+                    ParamType::Text, // picture ID (for set command)
+                ],
             },
             CommandSignature {
                 name: "save_pos",
@@ -856,6 +870,7 @@ impl ConsoleState {
         template_library: &crate::templates::TemplateLibrary,
         stencil_library: &crate::stencils::StencilLibrary,
         water_grid: &crate::water::WaterGrid,
+        picture_library: &crate::pictures::PictureLibrary,
         terrain_generator: &crate::terrain_gen::TerrainGenerator,
     ) {
         let input = self.input.trim().to_string();
@@ -884,6 +899,7 @@ impl ConsoleState {
             template_library,
             stencil_library,
             water_grid,
+            picture_library,
             terrain_generator,
         );
     }
@@ -899,6 +915,7 @@ impl ConsoleState {
         template_library: &crate::templates::TemplateLibrary,
         stencil_library: &crate::stencils::StencilLibrary,
         water_grid: &crate::water::WaterGrid,
+        picture_library: &crate::pictures::PictureLibrary,
         terrain_generator: &crate::terrain_gen::TerrainGenerator,
     ) {
         // Echo the command
@@ -917,6 +934,7 @@ impl ConsoleState {
                     template_library,
                     stencil_library,
                     water_grid,
+                    picture_library,
                     terrain_generator,
                 );
             } else {
@@ -934,6 +952,7 @@ impl ConsoleState {
             template_library,
             stencil_library,
             water_grid,
+            picture_library,
             terrain_generator,
             false,
         );
@@ -951,6 +970,7 @@ impl ConsoleState {
         template_library: &crate::templates::TemplateLibrary,
         stencil_library: &crate::stencils::StencilLibrary,
         water_grid: &crate::water::WaterGrid,
+        picture_library: &crate::pictures::PictureLibrary,
         terrain_generator: &crate::terrain_gen::TerrainGenerator,
     ) {
         let result = self.parse_and_execute(
@@ -961,6 +981,7 @@ impl ConsoleState {
             template_library,
             stencil_library,
             water_grid,
+            picture_library,
             terrain_generator,
             true,
         );
@@ -1084,6 +1105,14 @@ impl ConsoleState {
             CommandResult::ListPositions => {
                 self.pending_list_positions = true;
             }
+            CommandResult::SetPictureSelection { id, name } => {
+                if id == 0 {
+                    self.success("Cleared picture selection (frames will be empty)".to_string());
+                } else {
+                    self.success(format!("Selected picture '{}' for frame placement", name));
+                }
+                self.pending_set_picture = Some(id);
+            }
         }
     }
 
@@ -1098,6 +1127,7 @@ impl ConsoleState {
         template_library: &crate::templates::TemplateLibrary,
         stencil_library: &crate::stencils::StencilLibrary,
         water_grid: &crate::water::WaterGrid,
+        picture_library: &crate::pictures::PictureLibrary,
         terrain_generator: &crate::terrain_gen::TerrainGenerator,
         confirmed: bool,
     ) -> CommandResult {
@@ -1187,6 +1217,13 @@ impl ConsoleState {
             "clear" => {
                 self.output.clear();
                 CommandResult::Success("Console cleared.".to_string())
+            }
+            "frame" => {
+                if args.len() >= 1 && args[0].to_lowercase() == "picture" {
+                    commands::picture(&args[1..], picture_library)
+                } else {
+                    CommandResult::Error("Usage: /frame picture list|set|clear [args]".to_string())
+                }
             }
             "measure" => commands::measure(args),
             "save_pos" | "savepos" | "sp" => commands::save_pos(args),

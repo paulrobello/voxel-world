@@ -13,7 +13,7 @@ use crate::config::WorldGenType;
 use crate::falling_block::FallingBlockSystem;
 use crate::lava::LavaGrid;
 use crate::particles::ParticleSystem;
-use crate::pictures::{PictureAtlas, PictureLibrary};
+use crate::pictures::PictureLibrary;
 use crate::player::Player;
 use crate::render_mode::RenderMode;
 use crate::storage;
@@ -78,8 +78,6 @@ pub struct WorldSim {
 
     /// Picture library for storing user-created artwork.
     pub picture_library: PictureLibrary,
-    /// Picture atlas for GPU rendering of pictures in frames.
-    pub picture_atlas: PictureAtlas,
 }
 
 impl WorldSim {

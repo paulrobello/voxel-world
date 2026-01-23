@@ -344,6 +344,13 @@ impl App {
             self.ui.console.pending_list_positions = false;
         }
 
+        // Handle pending set picture selection from console
+        if let Some(id) = self.ui.console.pending_set_picture.take() {
+            self.ui.selected_picture_id = if id == 0 { None } else { Some(id) };
+            self.prefs.selected_picture_id = self.ui.selected_picture_id;
+            self.prefs.save();
+        }
+
         let render_extent = rcx.render_image.extent();
         let resample_extent = rcx.resample_image.extent();
         self.sim.player.camera.extent = [render_extent[0] as f64, render_extent[1] as f64];

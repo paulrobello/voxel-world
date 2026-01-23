@@ -371,7 +371,8 @@ const float CUSTOM_ATLAS_TILE_SIZE = 1.0 / 16.0;
 
 // Picture atlas has 64 slots for up to 64 pictures
 // Each picture is stored in a fixed slot (0-63)
+// Maximum picture size is 384×384 to support 3×3 frame clusters (128×128 per frame)
 const uint PICTURE_ATLAS_SLOT_COUNT = 64u;
-const uint PICTURE_ATLAS_SIZE = 32u;         // Each picture is 32x32 pixels
-const uint PICTURE_ATLAS_WIDTH = 2048u;      // 64 slots * 32 pixels = 2048
+const uint PICTURE_ATLAS_SIZE = 384u;        // Each picture is up to 384x384 pixels
+const uint PICTURE_ATLAS_WIDTH = 24576u;     // 64 slots * 384 pixels = 24576
 const float PICTURE_ATLAS_SLOT_SIZE = 1.0 / 64.0;

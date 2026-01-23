@@ -99,7 +99,7 @@ vec4 samplePictureColor(uint picture_id, vec2 uv) {
     picture_id = min(picture_id, PICTURE_ATLAS_SLOT_COUNT - 1u);
 
     // Calculate atlas UV
-    // Picture atlas is 64 slots wide, each slot is 32×32 pixels
+    // Picture atlas is 64 slots wide, each slot is up to 384×384 pixels
     // UV coordinates are within the picture (0-1), so we scale to the slot
     vec2 atlas_uv = vec2(
         (float(picture_id) * PICTURE_ATLAS_SIZE + uv.x * PICTURE_ATLAS_SIZE) / float(PICTURE_ATLAS_WIDTH),
@@ -169,7 +169,7 @@ vec4 getFramePictureColor(
     // - North/South: picture on z-face, use (x,y) for UV
     // - East/West: picture on x-face, use (z,y) for UV
     // Frame borders are 1 voxel on each edge, so picture area is (res-2) × (res-2)
-    // For 32³ frames: borders at edges, picture area: 1..30 (30×30 pixels)
+    // For 8³ frames: borders at edges, picture area: 1..6 (6×6 pixels)
 
     // Get the appropriate coordinates for UV calculation based on rotation
     int uv_x, uv_y;

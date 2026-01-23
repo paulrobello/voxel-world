@@ -22,7 +22,7 @@ use crate::hot_reload::HotReloadComputePipeline;
 use crate::hud::Minimap;
 use crate::lava::LavaGrid;
 use crate::particles::ParticleSystem;
-use crate::pictures::{PictureAtlas, PictureLibrary};
+use crate::pictures::PictureLibrary;
 use crate::player::Player;
 use crate::render_mode::RenderMode;
 use crate::sprite_gen;
@@ -485,7 +485,6 @@ impl App {
             seed,
             world_gen,
             picture_library: PictureLibrary::load(),
-            picture_atlas: PictureAtlas::new(),
         };
 
         // Load fluid sources (water/lava sources that were saved)

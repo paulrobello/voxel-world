@@ -11,6 +11,38 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 /// Duration to show status messages.
 const STATUS_DURATION_SECS: f32 = 2.0;
 
+/// Upscales a 64×64 image to 128×128 using nearest neighbor interpolation.
+///
+/// This is used when exporting textures to the picture library, since pictures
+/// support 128×128 resolution (better for multi-frame clusters).
+fn upscale_2x_nearest_neighbor(pixels: &[u8]) -> Vec<u8> {
+    const SRC_SIZE: usize = 64;
+    const DST_SIZE: usize = 128;
+
+    assert_eq!(
+        pixels.len(),
+        SRC_SIZE * SRC_SIZE * 4,
+        "Expected 64×64 RGBA image"
+    );
+
+    let mut result = vec![0u8; DST_SIZE * DST_SIZE * 4];
+
+    for dst_y in 0..DST_SIZE {
+        for dst_x in 0..DST_SIZE {
+            // Nearest neighbor: each destination pixel maps to one source pixel
+            let src_x = dst_x / 2;
+            let src_y = dst_y / 2;
+
+            let src_idx = (src_y * SRC_SIZE + src_x) * 4;
+            let dst_idx = (dst_y * DST_SIZE + dst_x) * 4;
+
+            result[dst_idx..dst_idx + 4].copy_from_slice(&pixels[src_idx..src_idx + 4]);
+        }
+    }
+
+    result
+}
+
 /// Active tab in the texture generator.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TextureTab {
@@ -749,24 +781,25 @@ impl TextureGeneratorUI {
             ui.separator();
 
             // Export to Picture Library button
-            let export_label = egui::RichText::new("📷 Export as Picture")
+            let export_label = egui::RichText::new("📷 Export as Picture (128×128)")
                 .color(egui::Color32::from_rgb(100, 200, 255));
             if ui.button(export_label).clicked() {
-                // Export canvas to picture library
+                // Export canvas to picture library, upscaling from 64×64 to 128×128
                 let name = if state.editing.name.is_empty() || state.editing.name == "New Texture" {
                     format!("Picture {}", picture_library.len() + 1)
                 } else {
                     state.editing.name.clone()
                 };
 
+                // Upscale canvas from 64×64 to 128×128 using nearest neighbor
+                let upscaled = upscale_2x_nearest_neighbor(&state.canvas.pixels);
+
                 match picture_library.import_rgba(
-                    &name,
-                    crate::textures::TEXTURE_SIZE,
-                    crate::textures::TEXTURE_SIZE,
-                    &state.canvas.pixels,
+                    &name, 128, // Export as 128×128 for frames
+                    128, &upscaled,
                 ) {
                     Some(id) => {
-                        state.set_status(format!("Exported as picture ID {}", id));
+                        state.set_status(format!("Exported as 128×128 picture ID {}", id));
                         // Mark picture library as needing save
                         let _ = picture_library.save();
                     }

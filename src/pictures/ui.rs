@@ -265,10 +265,12 @@ pub fn draw_picture_browser(
                                             action =
                                                 Some(PictureBrowserAction::SelectPicture(info.id));
                                         }
-                                        if is_selected {
-                                            if ui.button("✖ Clear").clicked() {
-                                                action = Some(PictureBrowserAction::ClearSelection);
-                                            }
+                                        if ui.button("🗑 Delete").clicked() {
+                                            action =
+                                                Some(PictureBrowserAction::DeletePicture(info.id));
+                                        }
+                                        if is_selected && ui.button("✖ Clear").clicked() {
+                                            action = Some(PictureBrowserAction::ClearSelection);
                                         }
                                     });
                                     ui.end_row();
@@ -306,4 +308,6 @@ pub enum PictureBrowserAction {
     SelectPicture(u32),
     /// User cleared the picture selection.
     ClearSelection,
+    /// User deleted a picture.
+    DeletePicture(u32),
 }

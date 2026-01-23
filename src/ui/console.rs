@@ -21,6 +21,7 @@ impl ConsoleUI {
         template_library: &crate::templates::TemplateLibrary,
         stencil_library: &crate::stencils::StencilLibrary,
         water_grid: &crate::water::WaterGrid,
+        picture_library: &crate::pictures::PictureLibrary,
         active_placement: &mut Option<TemplatePlacement>,
         terrain_generator: &crate::terrain_gen::TerrainGenerator,
         cave_generator: &crate::cave_gen::CaveGenerator,
@@ -271,6 +272,7 @@ impl ConsoleUI {
                                 template_library,
                                 stencil_library,
                                 water_grid,
+                                picture_library,
                                 terrain_generator,
                             );
 

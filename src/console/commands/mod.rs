@@ -9,6 +9,7 @@ mod floodfill;
 mod locate;
 mod locate_async;
 mod measure;
+mod picture;
 mod positions;
 mod select;
 mod sphere;
@@ -23,6 +24,7 @@ pub use floodfill::floodfill;
 pub use locate::locate;
 pub use locate_async::update_locate_search;
 pub use measure::measure;
+pub use picture::picture;
 pub use positions::{delete_pos, list_pos, save_pos};
 #[allow(unused_imports)] // TODO: Remove once integrated with main.rs
 pub use select::select;
@@ -103,6 +105,13 @@ pub fn help() -> CommandResult {
     mode <wireframe|solid>: Set render mode
     remove <id>: Remove a specific active stencil
 
+  frame picture list|set|clear|debug [id]
+    Manage picture frame selection.
+    list: Show all saved pictures with cluster recommendations
+    set <id>: Select picture for frame placement
+    clear: Deselect (place empty frames)
+    debug: Show cluster picture size guide
+
   measure clear
     Clear all measurement markers from the world.
 
@@ -171,7 +180,11 @@ Examples:
   stencil opacity 0.6
   stencil mode wireframe
   stencil remove 2
-  stencil clear"#;
+  stencil clear
+  frame picture list
+  frame picture set 1
+  frame picture clear
+  frame picture debug"#;
 
     CommandResult::Success(help_text.to_string())
 }

@@ -38,7 +38,7 @@ pub struct PictureAtlas {
 
     /// Packed RGBA data for all slots.
     /// Each slot is MAX_PICTURE_SIZE × MAX_PICTURE_SIZE × 4 bytes.
-    /// Total: 64 × 256 × 256 × 4 = 16 MB
+    /// Total: 64 × 384 × 384 × 4 = ~37.5 MB
     data: Vec<u8>,
 }
 
@@ -201,8 +201,9 @@ impl PictureAtlas {
 
     /// Returns the raw RGBA data for the entire atlas.
     ///
-    /// Format: 64 slots arranged vertically, each 256×256 pixels.
-    /// Total dimensions: 256 × (256 × 64) = 256 × 16384 pixels.
+    /// Format: 64 slots arranged vertically, each 128×128 pixels.
+    /// Total dimensions: 128 × (128 × 64) = 128 × 8192 pixels.
+    /// Note: GPU atlas uses horizontal layout (8192×128), this is CPU-side storage.
     pub fn get_data(&self) -> &[u8] {
         &self.data
     }
@@ -219,7 +220,8 @@ impl PictureAtlas {
 
     /// Returns the atlas dimensions for GPU texture creation.
     pub fn dimensions() -> (u32, u32) {
-        // Atlas is 256 pixels wide, 256 × 64 = 16384 pixels tall
+        // Atlas is 128 pixels wide, 128 × 64 = 8192 pixels tall (CPU storage)
+        // GPU uses horizontal layout: 8192 × 128
         (
             MAX_PICTURE_SIZE as u32,
             MAX_PICTURE_SIZE as u32 * MAX_GPU_PICTURES as u32,
@@ -258,8 +260,8 @@ mod tests {
     #[test]
     fn test_atlas_dimensions() {
         let (width, height) = PictureAtlas::dimensions();
-        assert_eq!(width, 256);
-        assert_eq!(height, 256 * 64);
+        assert_eq!(width, 128);
+        assert_eq!(height, 128 * 64);
     }
 
     #[test]

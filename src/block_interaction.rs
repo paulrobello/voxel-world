@@ -1184,7 +1184,10 @@ impl App {
                 // Picture frame auto-sizing: grow to include existing adjacent frames (up to 3x3).
                 use crate::sub_voxel::builtins::frames;
 
-                eprintln!("[DEBUG] Placing frame model, base_model_id={}", base_model_id);
+                eprintln!(
+                    "[DEBUG] Placing frame model, base_model_id={}",
+                    base_model_id
+                );
 
                 // Derive facing from hit normal for stable orientation per wall.
                 // BUT: if placing adjacent to an existing frame, use that frame's facing

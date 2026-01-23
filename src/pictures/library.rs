@@ -10,8 +10,9 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// Maximum picture dimension (256×256 pixels).
-pub const MAX_PICTURE_SIZE: u16 = 256;
+/// Maximum picture dimension (384×384 pixels).
+/// Supports up to 3×3 frame clusters (128×128 per frame).
+pub const MAX_PICTURE_SIZE: u16 = 384;
 
 /// Maximum number of pictures that can be loaded on GPU at once.
 pub const MAX_GPU_PICTURES: usize = 64;

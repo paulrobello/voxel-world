@@ -239,8 +239,10 @@ pub struct RenderContext {
     pub sprite_icons: SpriteIcons,
 
     /// Picture atlas for frame pictures.
+    #[allow(dead_code)]
     pub picture_atlas: Arc<Image>,
     /// Picture atlas image view for shader access.
+    #[allow(dead_code)]
     pub picture_atlas_view: Arc<ImageView>,
 
     pub recreate_swapchain: bool,
@@ -894,9 +896,9 @@ pub const CUSTOM_ATLAS_HEIGHT: u32 = CUSTOM_TEXTURE_SIZE; // 64
 
 // Picture atlas for frame pictures
 pub const PICTURE_ATLAS_SLOTS: u32 = 64;
-pub const PICTURE_ATLAS_SIZE: u32 = 32; // Each picture is 32×32 pixels
-pub const PICTURE_ATLAS_WIDTH: u32 = PICTURE_ATLAS_SLOTS * PICTURE_ATLAS_SIZE; // 2048
-pub const PICTURE_ATLAS_HEIGHT: u32 = PICTURE_ATLAS_SIZE; // 32
+pub const PICTURE_ATLAS_SIZE: u32 = 384; // Each picture is up to 384×384 pixels (for 3×3 frame clusters)
+pub const PICTURE_ATLAS_WIDTH: u32 = PICTURE_ATLAS_SLOTS * PICTURE_ATLAS_SIZE; // 24576
+pub const PICTURE_ATLAS_HEIGHT: u32 = PICTURE_ATLAS_SIZE; // 384
 
 /// Load texture atlases (main, custom, and picture) and create a combined descriptor set.
 /// Returns (descriptor_set, sampler, main_image_view, custom_image_view, custom_image, picture_image_view, picture_image)
@@ -1221,8 +1223,8 @@ pub fn update_picture_slot(
         (width * height * 4) as usize,
         "Invalid pixel data size"
     );
-    assert!(width <= 256, "Picture width too large");
-    assert!(height <= 256, "Picture height too large");
+    assert!(width <= 128, "Picture width too large");
+    assert!(height <= 128, "Picture height too large");
 
     let src_buffer = Buffer::from_iter(
         memory_allocator.clone(),
@@ -1247,7 +1249,7 @@ pub fn update_picture_slot(
     .unwrap();
 
     // Copy to the specific slot region in the picture atlas
-    // Each slot is PICTURE_ATLAS_SIZE (32) wide, but pictures can be smaller
+    // Each slot is PICTURE_ATLAS_SIZE (384) wide, but pictures can be smaller
     command_buffer_builder
         .copy_buffer_to_image(CopyBufferToImageInfo {
             regions: vec![BufferImageCopy {

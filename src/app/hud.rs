@@ -82,6 +82,7 @@ pub fn render_hud(
             stencil_library: &ui.stencil_library,
             stencil_manager: &mut ui.stencil_manager,
             water_grid: &sim.water_grid,
+            picture_library: &sim.picture_library,
             active_placement: &mut ui.active_placement,
             rangefinder_active: ui.rangefinder_active,
             flood_fill_active: ui.flood_fill_active,
@@ -816,6 +817,20 @@ pub fn render_hud(
             prefs.selected_picture_id = ui.selected_picture_id;
             prefs.save();
             println!("Cleared picture selection (frames will be empty)");
+        }
+        Some(PictureBrowserAction::DeletePicture(id)) => {
+            if let Some(picture) = sim.picture_library.remove(id) {
+                ui.picture_ui.clear_thumbnail_cache(id);
+                ui.picture_ui.refresh_pictures(&sim.picture_library);
+                if ui.selected_picture_id == Some(id) {
+                    ui.selected_picture_id = None;
+                    ui.pending_picture_upload = None;
+                    prefs.selected_picture_id = ui.selected_picture_id;
+                    prefs.save();
+                }
+                let _ = sim.picture_library.save();
+                println!("[HUD] Deleted picture '{}' (ID {})", picture.name, id);
+            }
         }
         None => {}
     }
