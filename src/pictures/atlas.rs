@@ -151,23 +151,31 @@ impl PictureAtlas {
             self.data[slot_offset + i] = 0;
         }
 
-        // Copy picture data (aligned to top-left for frame picture rendering)
-        // Pictures are NOT centered because the shader assumes pictures fill the slot
-        // from (0,0) to (width,height). Centering would cause the shader to sample
-        // from empty padding areas.
-        let offset_x = 0u16;
-        let offset_y = 0u16;
+        // The shader assumes each picture fills the entire slot (MAX_PICTURE_SIZE × MAX_PICTURE_SIZE).
+        // For smaller pictures, we upscale to fill the slot using nearest-neighbor interpolation.
+        // This ensures UV coordinates (0-1) correctly sample the entire picture.
+        if picture.width == MAX_PICTURE_SIZE && picture.height == MAX_PICTURE_SIZE {
+            // Picture already fills the slot - copy directly
+            for (i, &pixel) in picture.pixels.iter().enumerate() {
+                self.data[slot_offset + i] = pixel;
+            }
+        } else {
+            // Upscale smaller picture to fill the slot (nearest-neighbor)
+            let scale_x = picture.width as f32 / MAX_PICTURE_SIZE as f32;
+            let scale_y = picture.height as f32 / MAX_PICTURE_SIZE as f32;
 
-        for y in 0..picture.height {
-            for x in 0..picture.width {
-                let src_idx = (y as usize * picture.width as usize + x as usize) * 4;
-                let dst_x = offset_x as usize + x as usize;
-                let dst_y = offset_y as usize + y as usize;
-                let dst_idx = slot_offset + (dst_y * MAX_PICTURE_SIZE as usize + dst_x) * 4;
+            for dst_y in 0..MAX_PICTURE_SIZE {
+                for dst_x in 0..MAX_PICTURE_SIZE {
+                    // Calculate source pixel coordinates (nearest-neighbor)
+                    let src_x = (dst_x as f32 * scale_x).min(picture.width as f32 - 0.01) as u16;
+                    let src_y = (dst_y as f32 * scale_y).min(picture.height as f32 - 0.01) as u16;
+                    let src_idx = (src_y as usize * picture.width as usize + src_x as usize) * 4;
+                    let dst_idx = slot_offset + (dst_y as usize * MAX_PICTURE_SIZE as usize + dst_x as usize) * 4;
 
-                if src_idx + 4 <= picture.pixels.len() && dst_idx + 4 <= self.data.len() {
-                    self.data[dst_idx..dst_idx + 4]
-                        .copy_from_slice(&picture.pixels[src_idx..src_idx + 4]);
+                    if src_idx + 4 <= picture.pixels.len() && dst_idx + 4 <= self.data.len() {
+                        self.data[dst_idx..dst_idx + 4]
+                            .copy_from_slice(&picture.pixels[src_idx..src_idx + 4]);
+                    }
                 }
             }
         }
