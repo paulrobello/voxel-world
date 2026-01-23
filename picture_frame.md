@@ -205,20 +205,18 @@ The shader handles:
 
 ---
 
-### Phase 20.4: Multi-Frame Cluster Support ⚠️
+### Phase 20.4: Multi-Frame Cluster Support ✅
 
 **Goal**: Display larger pictures across multiple frames.
 
-**Status**: ⚠️ PARTIALLY COMPLETE
+**Status**: ✅ COMPLETE
 
-**Current Limitation**: Multi-frame clusters require pictures at specific resolutions:
-- 1×1 cluster: 128×128 picture ✓ (works - texture generator exports this)
-- 2×2 cluster: 256×256 picture (requires external import)
-- 3×3 cluster: 384×384 picture (requires external import)
+**How it Works**: Pictures automatically scale to fit any cluster size:
+- 1×1 cluster: 128×128 picture displayed on 1 frame (full resolution)
+- 2×2 cluster: 128×128 picture divided across 4 frames (each shows 64×64 region)
+- 3×3 cluster: 128×128 picture divided across 9 frames (each shows ~43×43 region)
 
-The current implementation uses 128×128 atlas slots. For proper multi-frame spanning, either:
-1. Pictures must be imported at the correct size (256×256 or 384×384)
-2. Or implement a more sophisticated atlas system with variable slot sizes
+The shader's UV calculation automatically divides the picture into a grid based on cluster dimensions. No need for larger pictures - the same 128×128 picture works for all cluster sizes!
 
 #### 20.4.1 Cluster Picture Sizing ✅
 - [x] Support for 1×1, 2×2, and 3×3 frame clusters
@@ -291,19 +289,13 @@ The current implementation uses 128×128 atlas slots. For proper multi-frame spa
 
 ## Future Enhancements (Post-MVP)
 
-### 20.7: Multi-Frame Cluster Improvements
-- [ ] Support for larger pictures in atlas (256×256, 384×384)
-- [ ] Pass actual picture dimensions to shader
-- [ ] Sample from correct region based on frame offset
-- [ ] UI to import external images at correct resolutions
-
-### 20.8: Advanced Features
+### 20.7: Advanced Features
 - [ ] Animated pictures (GIF-like sequences)
 - [ ] Picture transparency (see-through frames)
 - [ ] Custom frame wood colors via paint system
 - [ ] Picture borders and overlays
 
-### 20.9: Social Features
+### 20.8: Social Features
 - [ ] Share pictures between players (multiplayer)
 - [ ] Community picture library browser
 
@@ -361,19 +353,18 @@ The current implementation uses 128×128 atlas slots. For proper multi-frame spa
 ## Known Issues & Limitations
 
 ### Current Limitations:
-1. **Multi-frame clusters** require pictures at specific sizes:
-   - Texture generator only creates 128×128 pictures
-   - 2×2 clusters need 256×256 pictures
-   - 3×3 clusters need 384×384 pictures
-   - **Workaround**: Import external images at correct resolutions
+1. **Picture resolution**: All pictures are 128×128
+   - Texture generator creates 64×64 art, upscaled to 128×128 on export
+   - Larger clusters display the same picture at lower resolution per frame
+   - 3×3 cluster shows each pixel at ~3× scale on each frame
 
 2. **Picture atlas** is fixed at 128×128 per slot:
-   - Smaller pictures are padded to fill slot
-   - Larger pictures are rejected by import
    - 64 slots available (~4 MB VRAM)
+   - LRU eviction when atlas is full
 
 ### Design Decisions:
-- **128×128 resolution**: Chosen for balance of quality and memory
+- **128×128 resolution**: Balance of quality and memory
+- **Automatic scaling**: Same picture works for all cluster sizes
 - **Nearest-neighbor upscaling**: Preserves pixel art aesthetic
 - **No shadow casting**: Frames are decorative wall items
 - **Global picture storage**: Pictures shared across all worlds
@@ -412,4 +403,10 @@ The current implementation uses 128×128 atlas slots. For proper multi-frame spa
 ---
 
 *Last Updated: 2026-01-23*
-*Phase Version: 2.4 - Single Frames Complete, Multi-Frame Clusters Limited*
+*Phase Version: 2.5 - Complete Implementation*
+**Status**: Fully Functional
+- Single frames: ✓ Working
+- Multi-frame clusters: ✓ Working (auto-scaling)
+- Delete button: ✓ Working
+- Shadow behavior: ✓ Working
+- All console commands: ✓ Working
