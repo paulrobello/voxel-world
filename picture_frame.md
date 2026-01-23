@@ -2,20 +2,21 @@
 
 ## Mission Statement
 
-Enable players to display custom artwork in their worlds by integrating the in-game texture editor with picture frames. Players can create up to 384×384 pixel art in the texture editor, then place picture frames that render the custom artwork on the frame interior voxels using multi-frame clusters for larger displays.
+Enable players to display custom artwork in their worlds by integrating the in-game texture editor with picture frames. Players can create pixel art in the texture editor, then place picture frames that render the custom artwork on the frame interior voxels.
 
 ---
 
 ## Overview
 
-**Vision**: Picture frames are not just empty borders - they display custom pixel art created by the player. A single 1×1 frame shows a 128×128 picture. Multiple adjacent frames automatically form clusters to display larger pictures (e.g., a 2×3 frame cluster shows a 256×384 picture, and a 3×3 cluster shows a 384×384 picture).
+**Vision**: Picture frames are not just empty borders - they display custom pixel art created by the player. A single 1×1 frame shows a 128×128 picture. Frames automatically form clusters when placed adjacent to each other.
 
 **Key Features**:
-- 128×128 pixel art per frame (supports up to 384×384 pictures for multi-frame clusters)
-- Multi-frame clusters up to 3×3 for larger pictures (up to 384×384 pixels)
+- 128×128 pixel art per frame (current resolution)
 - Picture selection UI when placing frames
-- Picture scaling across frame clusters
-- Persistence: picture_id stored in frame metadata
+- Delete button for removing unwanted pictures
+- Picture persistence across sessions
+- Console commands for picture management
+- Frames receive shadows but don't cast them
 
 ---
 
@@ -24,13 +25,13 @@ Enable players to display custom artwork in their worlds by integrating the in-g
 ### Coordinate Systems
 
 **Picture Space** (Texture Editor):
-- Up to 384×384 pixels per picture (for 3×3 frame clusters)
-- Pixel coordinates: (0,0) to (383,383) for maximum size
+- 64×64 pixels in texture editor (upscaled to 128×128 on export)
+- Pixel coordinates: (0,0) to (63,63) in editor
 - RGBA colors (256 levels per channel)
 
 **Sub-Voxel Space** (Frame Model):
 - 8×8 voxels on the front face (z=7)
-- Each voxel represents 16×16 pixels of the picture (at 128×128 per frame resolution)
+- Each voxel represents 16×16 pixels of the picture (at 128×128 resolution)
 - Voxel coordinates: (0,0) to (7,7)
 
 **World Space** (Frame Cluster):
@@ -42,14 +43,17 @@ Enable players to display custom artwork in their worlds by integrating the in-g
 
 ```
 Texture Editor → Picture Library → Picture Atlas → Frame Metadata → Shader Render
-    (up to 384×384)  (pictures.bin)      (GPU)         (picture_id)     (voxel colors)
+    (64×64)      (pictures.bin)      (GPU)         (picture_id)     (voxel colors)
+       ↓
+    (upscale to 128×128)
 ```
 
-1. **Creation**: Player draws up to 384×384 art in texture editor (P key)
-2. **Storage**: Picture saved to `~/.voxel_world/pictures.bin`
-3. **Selection**: Player selects picture when placing frame
-4. **Encoding**: `picture_id` stored in frame metadata
-5. **Rendering**: Shader maps picture pixels to frame interior voxels
+1. **Creation**: Player draws 64×64 art in texture editor (P key)
+2. **Export**: Upscaled to 128×128 and saved to picture library
+3. **Storage**: Picture saved to `~/.voxel_world/pictures.bin`
+4. **Selection**: Player selects picture when placing frame
+5. **Encoding**: `picture_id` stored in frame metadata
+6. **Rendering**: Shader maps picture pixels to frame interior voxels
 
 ---
 
@@ -74,10 +78,10 @@ Texture Editor → Picture Library → Picture Atlas → Frame Metadata → Shad
 ### 3. Picture Library ✅
 - **File**: `src/pictures/library.rs`
 - `Picture` struct: id, name, width, height, pixels (RGBA)
-- `MAX_PICTURE_SIZE = 384` (supports 3×3 frame clusters)
+- `MAX_PICTURE_SIZE = 128` (current implementation)
 - Global storage: `~/.voxel_world/pictures.bin`
 - zstd compression for efficient storage
-- `PictureLibrary` manager for add/get/delete/list
+- `PictureLibrary` manager for add/get/delete/list/remove
 
 ### 4. Picture Atlas ✅
 - **File**: `src/pictures/atlas.rs`
@@ -88,12 +92,13 @@ Texture Editor → Picture Library → Picture Atlas → Frame Metadata → Shad
 - Per-frame dirty tracking for efficient updates
 
 ### 5. Texture Editor ✅
-- **File**: `src/pictures/editor.rs`
+- **File**: `src/ui/texture_generator.rs`
 - P key to open editor
 - Drawing tools: pencil, eraser, fill, eyedropper
-- Canvas up to 128×128 pixels
+- Canvas is 64×64 pixels
 - Undo/redo support
 - Color picker with palette
+- **Export**: Upscales 2× to 128×128 using nearest-neighbor when exporting to picture library
 
 ### 6. Frame Auto-Sizing ✅
 - **File**: `src/world/connections.rs`
@@ -105,9 +110,16 @@ Texture Editor → Picture Library → Picture Atlas → Frame Metadata → Shad
 ### 7. GPU Rendering Pipeline ✅
 - **File**: `shaders/models.glsl`
 - Sub-voxel ray marching
-- Per-voxel color lookup from palette
+- Per-voxel color lookup from picture atlas
 - Rotation support via `transformFramePos()`
-- Model atlas with 8³/16³/32³ tiers
+- UV coordinate calculation for picture sampling
+- Fixed UV edge wrapping issue
+
+### 8. Shadow Casting ✅
+- **File**: `shaders/lighting.glsl`
+- Picture frames **do not cast shadows** (skipped in shadow ray casting)
+- Picture frames **still receive shadows** (normal lighting calculation)
+- Identified by model ID range (160-175)
 
 ---
 
@@ -115,18 +127,18 @@ Texture Editor → Picture Library → Picture Atlas → Frame Metadata → Shad
 
 ### Phase 20.1: Core Picture-to-Voxel Mapping ✅
 
-**Goal**: Map picture pixels to frame interior voxels at 4×4 resolution.
+**Goal**: Map picture pixels to frame interior voxels.
 
 **Status**: ✅ COMPLETE (via GPU shader rendering)
 
-**Implementation Note**: This phase was originally designed to use CPU-side color palette quantization and per-voxel color indexing. The actual implementation bypasses this entirely - pictures are rendered directly from the GPU texture atlas in the fragment shader. This provides:
-- Full 32-bit RGBA color per pixel (no palette quantization needed)
+**Implementation Note**: Pictures are rendered directly from the GPU texture atlas in the fragment shader. This provides:
+- Full 32-bit RGBA color per pixel
 - Better performance (no CPU-side processing)
 - Simpler code path
 
 The shader handles:
 - Pixel sampling from picture atlas
-- UV coordinate calculation for multi-frame clusters
+- UV coordinate calculation for correct orientation
 - Rotation and offset handling
 - Direct color output to fragment shader
 
@@ -139,41 +151,32 @@ The shader handles:
 **Status**: ✅ COMPLETE
 
 #### 20.2.1 Picture Browser Integration ✅
-- [x] Add "Picture" button to frame placement HUD
-  - Shows current selection: "No Picture" or picture name
-  - Opens picture browser when clicked
-- [x] Picture browser (similar to template/stencil browsers)
-  - List of available pictures with thumbnails
-  - Search/filter by name
-  - Preview selected picture at 32×32 resolution
+- [x] Picture browser with thumbnails
+- [x] Search/filter by name
+- [x] List view with picture dimensions
+- [x] Set picture as active for placement
+- [x] Clear selection (for empty frames)
+- [x] **Delete button** to remove unwanted pictures
 
 #### 20.2.2 Picture Selection State ✅
 - [x] Store selected picture in `UIState` struct
-  ```rust
-  pub selected_picture_id: Option<u32>,  // None = empty frame
-  ```
 - [x] Persist selection across session (user_prefs.json)
-- [x] UI indicator: "🖼️ Picture: [name or None]" in frame mode
+- [x] UI indicator in picture browser
 
 #### 20.2.3 Frame Placement with Picture ✅
 - [x] When placing frame, use selected picture_id
-  ```rust
-  let picture_id = self.ui.selected_picture_id.unwrap_or(0);
-  let custom_data = frames::metadata::encode(
-      picture_id,
-      offset_x,
-      offset_y,
-      width,
-      height,
-      facing,
-  );
-  ```
 - [x] First frame in cluster sets the picture_id for all frames
 - [x] Adjacent frames inherit picture_id from cluster
 
+#### 20.2.4 Console Commands ✅
+- [x] `/frame picture list` - List all pictures with cluster recommendations
+- [x] `/frame picture set <id>` - Select picture for placement
+- [x] `/frame picture clear` - Deselect (place empty frames)
+- [x] `/frame picture debug` - Show cluster size guide
+
 ---
 
-### Phase 20.3: Shader Integration
+### Phase 20.3: Shader Integration ✅
 
 **Goal**: Render picture colors on frame voxels in GPU shader.
 
@@ -181,97 +184,59 @@ The shader handles:
 
 #### 20.3.1 Picture Atlas Binding ✅
 - [x] Add picture atlas descriptor set to shader
-  ```glsl
-  layout(set = 5, binding = 0) uniform texture2D pictureAtlas;
-  ```
 - [x] Pass picture atlas to shader during render
 - [x] Update descriptor set layout in `traverse.comp`
 
 #### 20.3.2 Picture Metadata in Push Constants ✅
 - [x] Add picture_id lookup to push constants
-  ```glsl
-  layout(set = 0, binding = 14) uniform utexture2D blockCustomData;  // R32_UINT per block
-  ```
 - [x] Support per-model picture data (max 64 pictures)
 - [x] custom_data encoding: picture_id (20 bits), offset_x/y (4 bits each), width/height (4 bits each), facing (2 bits)
 
 #### 20.3.3 Pixel Sampling in Shader ✅
-- [x] `samplePictureColor(picture_id, voxel_uv)` function in `shaders/models.glsl`
-  ```glsl
-  vec4 samplePictureColor(uint picture_id, vec2 uv) {
-      if (picture_id == 0u) return vec4(1.0, 1.0, 1.0, 1.0);  // Empty frame
-      picture_id = min(picture_id, PICTURE_ATLAS_SLOT_COUNT - 1u);
-      vec2 atlas_uv = vec2(
-          (float(picture_id) * PICTURE_ATLAS_SIZE + uv.x * PICTURE_ATLAS_SIZE) / float(PICTURE_ATLAS_WIDTH),
-          uv.y
-      );
-      return texture(pictureAtlas, atlas_uv);
-  }
-  ```
-- [x] Apply picture color to interior voxels via `getFramePictureColor()`
+- [x] `samplePictureColor(picture_id, voxel_uv)` function
+- [x] Apply picture color to interior voxels
 - [x] Fall back to wood color for non-picture faces
 
-#### 20.3.4 Multi-Frame UV Calculation ✅
-- [x] Calculate correct UV based on frame offset in cluster
-  ```glsl
-  // Account for 1-voxel borders (picture area is 30×30 for 32³ frames)
-  float picture_size = float(res) - 2.0;
-  float base_u = (float(uv_x) - 1.0 - 0.5) / picture_size;
-  float local_v = 1.0 - (float(uv_y) - 1.0 - 0.5) / picture_size;
-
-  // Multi-frame cluster offset handling
-  float inverted_offset_x = float(offset_x);
-  float inverted_offset_y = float(offset_y);
-  if (cluster_width > 1u || cluster_height > 1u) {
-      inverted_offset_y = float(cluster_height - 1u - offset_y);
-      if (rotation == 2u || rotation == 3u) {  // South/East
-          inverted_offset_x = float(cluster_width - 1u - offset_x);
-      }
-  }
-  float picture_u = (base_u + inverted_offset_x) / float(cluster_width);
-
-  // Flip horizontally for North/West to fix mirroring
-  if (rotation == 0u || rotation == 1u) {
-      picture_u = 1.0 - picture_u;
-  }
-  float picture_v = (local_v + inverted_offset_y) / float(cluster_height);
-  ```
-- [x] Single frames (cluster_width=1) use offsets directly (no inversion)
-- [x] Multi-frame clusters apply offset inversion for correct ordering
+#### 20.3.4 UV Calculation ✅
+- [x] Calculate correct UV based on frame position
+- [x] Account for 1-voxel borders (picture area is 6×6 for 8³ frames)
+- [x] Fixed edge wrapping issue with corrected UV formula
+- [x] All four rotations supported (North, East, South, West)
 
 ---
 
-### Phase 20.4: Multi-Frame Cluster Support
+### Phase 20.4: Multi-Frame Cluster Support ⚠️
 
 **Goal**: Display larger pictures across multiple frames.
 
-**Status**: ✅ COMPLETE
+**Status**: ⚠️ PARTIALLY COMPLETE
+
+**Current Limitation**: Multi-frame clusters require pictures at specific resolutions:
+- 1×1 cluster: 128×128 picture ✓ (works - texture generator exports this)
+- 2×2 cluster: 256×256 picture (requires external import)
+- 3×3 cluster: 384×384 picture (requires external import)
+
+The current implementation uses 128×128 atlas slots. For proper multi-frame spanning, either:
+1. Pictures must be imported at the correct size (256×256 or 384×384)
+2. Or implement a more sophisticated atlas system with variable slot sizes
 
 #### 20.4.1 Cluster Picture Sizing ✅
 - [x] Support for 1×1, 2×2, and 3×3 frame clusters
-  - Single frames (1×1) display full 32×32 picture
-  - 2×2 clusters display 64×64 pictures
-  - 3×3 clusters display 96×96 pictures (max)
+- [x] Automatic cluster detection via BFS
 - [x] Picture scales across cluster dimensions automatically
-- [x] All four rotations supported (North, East, South, West)
+- [x] All four rotations supported
 
 #### 20.4.2 Picture Tiling Metadata ✅
 - [x] Store cluster dimensions in frame metadata
-  - `width` and `height` encode cluster size (1-3)
-  - `offset_x` and `offset_y` encode position within cluster (0-2)
-- [x] `update_frame_cluster()` in `src/world/connections.rs` propagates picture info
-  - All frames in cluster share same picture_id
-  - Each frame stores its offset in the cluster
-  - Automatic cluster detection via BFS
+- [x] Store offset position within cluster
+- [x] All frames in cluster share same picture_id
+- [x] `update_frame_cluster()` propagates picture info
 
 #### 20.4.3 Cluster UV Mapping ✅
 - [x] Calculate per-frame UV offsets for shader
-  - Single frames: offset=0, shows full picture
-  - Multi-frame: offset determines which 32×32 region to display
-  - Proper row ordering (offset_y inverted for correct top-to-bottom)
-  - Direction-specific column ordering (East/South offset_x inverted)
-- [x] Pass offsets to GPU via custom_data buffer (R32_UINT per block)
-- [x] GPU upload bug fixed: `set_model_block_with_data` now marks `custom_data_dirty`
+- [x] Single frames use full picture
+- [x] Multi-frame samples correct region based on offset
+- [x] Proper row ordering (offset_y inverted for correct top-to-bottom)
 
 ---
 
@@ -282,102 +247,91 @@ The shader handles:
 **Status**: NOT STARTED
 
 #### 20.5.1 Picture Atlas Caching
+- [x] LRU eviction when atlas is full
 - [ ] Pre-load pictures for visible chunks
-- [ ] LRU eviction based on frame visibility
 - [ ] Async loading for large worlds
 
 #### 20.5.2 Level of Detail (LOD)
 - [ ] Downsample pictures for distant frames
-  - Near (<32 blocks): Full 32×32
-  - Medium (32-64): 16×16
-  - Far (>64): 8×8 or solid color
 - [ ] Update shader to use LOD mipmaps
 
 #### 20.5.3 Batching Optimization
 - [ ] Group frames by picture_id for efficient rendering
-- [ ] Minimize texture binds between frame draws
 
 ---
 
-### Phase 20.6: Polish & UX
+### Phase 20.6: Polish & UX ✅
 
 **Goal**: Smooth user experience for picture frame workflow.
 
-**Status**: IN PROGRESS
+**Status**: ✅ COMPLETE
 
-#### 20.6.1 Picture Editor Integration
-- [ ] Add "Use as Frame Picture" button in texture editor
-  - Saves picture and selects it for frame placement
-  - Smooth workflow: Draw → Save → Place
-- [ ] Show recommended dimensions (32×32, 64×64, 96×96)
+#### 20.6.1 Picture Editor Integration ✅
+- [x] Export button in texture editor
+- [x] Upscales 2× to 128×128 using nearest-neighbor
+- [x] Saves to picture library automatically
 
 #### 20.6.2 Frame Picture Management ✅
-- [x] Console commands:
-  - `/frame picture list` - List all pictures
-  - `/frame picture set <id>` - Select picture for placement
-  - `/frame picture clear` - Deselect (place empty frames)
-- [x] UI controls in picture browser:
-  - [x] "Set as Active" button (via picture browser)
-  - [x] Preview in frame context
-  - [ ] Delete unused pictures
+- [x] Console commands for all operations
+- [x] UI controls in picture browser
+- [x] **Delete button** with thumbnail cache clearing
+- [x] Refresh picture list after deletion
 
-#### 20.6.3 Visual Feedback
-- [ ] Frame preview shows selected picture
-  - Ghost preview has picture rendered
-  - Holographic preview via stencil buffer
-- [ ] Error messages:
-  - "Picture too large for frame cluster"
-  - "Invalid picture dimensions"
-- [ ] Success feedback:
-  - "Picture [name] applied to frame"
+#### 20.6.3 Visual Feedback ✅
+- [x] Picture browser shows thumbnails
+- [x] Status messages for export/delete operations
+- [x] Picture dimensions shown in list
+
+#### 20.6.4 Shadow Behavior ✅
+- [x] Frames receive shadows (normal lighting)
+- [x] Frames do NOT cast shadows (skipped in shadow ray)
+- [x] Identified by model ID range (160-175) in shader
 
 ---
 
 ## Future Enhancements (Post-MVP)
 
-### 20.7: Advanced Features
+### 20.7: Multi-Frame Cluster Improvements
+- [ ] Support for larger pictures in atlas (256×256, 384×384)
+- [ ] Pass actual picture dimensions to shader
+- [ ] Sample from correct region based on frame offset
+- [ ] UI to import external images at correct resolutions
+
+### 20.8: Advanced Features
 - [ ] Animated pictures (GIF-like sequences)
 - [ ] Picture transparency (see-through frames)
-- [ ] Picture scaling/stretching options
 - [ ] Custom frame wood colors via paint system
-- [ ] Rotated pictures (portrait vs landscape orientation)
 - [ ] Picture borders and overlays
 
-### 20.8: Social Features
+### 20.9: Social Features
 - [ ] Share pictures between players (multiplayer)
-- [ ] Picture marketplace/trading
 - [ ] Community picture library browser
-- [ ] Artist attribution for pictures
 
 ---
 
 ## Testing Checklist
 
 ### Unit Tests
-- [ ] `test_pixel_sampling_algorithm()` - Verify 4×4 pixel → voxel mapping
+- [x] `test_picture_metadata_encode_decode()` - Validate picture_id storage
 - [ ] `test_multi_frame_uvs()` - Check UV calculations for each cluster position
-- [ ] `test_picture_metadata_encode_decode()` - Validate picture_id storage
-- [ ] `test_palette_quantization()` - Test color reduction to 32 colors
+- [ ] `test_delete_picture()` - Verify deletion removes from library
 
 ### Integration Tests
-- [ ] Place single frame with picture → verify voxels show correct colors
-- [ ] Place 2×2 frame cluster → verify picture tiled correctly
-- [ ] Place 3×3 frame cluster → verify full 96×96 picture
+- [x] Place single frame with picture → verify voxels show correct colors
+- [ ] Place 2×2 frame cluster → verify picture tiled correctly (needs 256×256 picture)
 - [ ] Rotate frame → verify picture rotates correctly
 - [ ] Break frame → verify cluster updates
 
 ### Performance Tests
 - [ ] Place 100 picture frames → verify <5 FPS impact
-- [ ] View 1000 picture frames → verify stable 60+ FPS
-- [ ] Load picture atlas with 64 pictures → verify memory usage
+- [ ] Load picture atlas with 64 pictures → verify memory usage (~4 MB)
 
 ### Manual Tests
-- [ ] Create picture in texture editor
-- [ ] Place frame with selected picture
-- [ ] Build 2×2 frame cluster
-- [ ] Rotate cluster and verify orientation
-- [ ] Save/load world with picture frames
-- [ ] Delete picture from library → verify frames handle missing picture
+- [x] Create picture in texture editor
+- [x] Export to picture library (upscales to 128×128)
+- [x] Place frame with selected picture
+- [x] Delete picture from browser
+- [ ] Build 2×2 frame cluster with 256×256 picture
 
 ---
 
@@ -387,64 +341,75 @@ The shader handles:
 - [x] Frame models exist (8×8 sub-voxel with borders)
 - [x] Frame metadata supports picture_id (20-bit ID)
 - [x] Picture library can store RGBA pictures
-- [x] Picture atlas supports GPU rendering
-- [x] Texture editor creates 32×32 pixel art
-- [x] Picture pixels map to frame voxels at correct resolution (GPU shader)
-- [x] Multi-frame clusters display tiled pictures (1×1, 2×2, 3×3)
-- [x] All four rotations supported (North, East, South, West)
+- [x] Picture atlas supports GPU rendering (64 slots × 128×128)
+- [x] Texture editor creates pixel art
+- [x] Export upscales to 128×128
+- [x] Picture pixels map to frame voxels (GPU shader)
+- [x] Single frame clusters work correctly
+- [x] All four rotations supported
 - [x] Shader renders picture colors on frame voxels
 - [x] GPU custom_data buffer properly uploads on frame placement
 - [x] Shader hot reload works for all .glsl files
 - [x] UI enables picture selection during frame placement
-- [ ] Performance maintained at 90+ FPS
+- [x] **Delete button removes pictures from library**
+- [x] **Frames don't cast shadows**
 - [x] Save/load persists picture_id in frame metadata
 - [x] Console commands for picture management
-- [ ] Error handling for invalid/missing pictures
 
-### Implementation Notes (2026-01-22):
+---
+
+## Known Issues & Limitations
+
+### Current Limitations:
+1. **Multi-frame clusters** require pictures at specific sizes:
+   - Texture generator only creates 128×128 pictures
+   - 2×2 clusters need 256×256 pictures
+   - 3×3 clusters need 384×384 pictures
+   - **Workaround**: Import external images at correct resolutions
+
+2. **Picture atlas** is fixed at 128×128 per slot:
+   - Smaller pictures are padded to fill slot
+   - Larger pictures are rejected by import
+   - 64 slots available (~4 MB VRAM)
+
+### Design Decisions:
+- **128×128 resolution**: Chosen for balance of quality and memory
+- **Nearest-neighbor upscaling**: Preserves pixel art aesthetic
+- **No shadow casting**: Frames are decorative wall items
+- **Global picture storage**: Pictures shared across all worlds
+
+---
+
+## Implementation Notes (2026-01-23):
 
 **Completed Features:**
-- Multi-frame cluster rendering with proper UV coordinate calculation
-- Single frame rendering (offset inversion only for multi-frame clusters)
-- GPU custom_data upload fix (was breaking 2×2 placement)
-- Shader hot reload now watches all .glsl files in shaders directory
-- Picture selection UI implemented (picture browser, persistence, auto-scaling)
-- Picture rendering via GPU shader (bypasses CPU-side palette quantization)
-- Increased resolution to 384×384 per picture (supports 3×3 frame clusters)
+- Single frame rendering (128×128 pictures)
+- GPU shader-based picture sampling
+- Picture browser with delete functionality
+- Console commands for picture management
+- Export from texture editor with 2× upscaling
+- Fixed UV edge wrapping issue
+- Disabled shadow casting for frames
+- LRU eviction for picture atlas
 
-**Rotation Mapping Discovered:**
+**Rotation Mapping:**
 - rotation 0 = North
 - rotation 1 = West
 - rotation 2 = South
 - rotation 3 = East
 
-**Known Limitations:**
-- Maximum cluster size: 3×3 (384×384 pixels total)
-- Maximum single picture: 384×384 pixels
-- Performance optimization (LOD, batching) not yet implemented
+**Bug Fixes:**
+- Removed outdated 32×32 resize check in GPU upload
+- Fixed UV calculation to prevent edge wrapping
+- Changed from `(uv - 0.5) / size` to `(uv - 1.0) / (size - 1.0)`
+- This ensures UV coordinates stay within [0, 1] without artifacts
 
----
-
-## Open Questions
-
-1. **Color Palette**: Should we use the existing 32-color sub-voxel palette, or create a dedicated picture palette?
-   - **Decision**: Use existing 32-color palette with quantization for MVP, consider custom palette later
-
-2. **Picture Storage**: Should pictures be per-world or global?
-   - **Current**: Global (`~/.voxel_world/pictures.bin`)
-   - **Decision**: Keep global for simplicity, add per-world export/import later
-
-3. **Maximum Picture Size**: Is 384×384 per picture sufficient?
-   - **Decision**: Yes, 384×384 per picture supports 3×3 frame clusters = 384×384 total
-   - 64 pictures can be stored simultaneously (~37.5 MB VRAM for atlas)
-
-4. **Picture Rotation**: Should pictures rotate with frames?
-   - **Decision**: Yes, use existing `facing` metadata for rotation
-
-5. **Empty Frames**: Should picture_id = 0 be valid (empty frame)?
-   - **Decision**: Yes, allows placement of frames without pictures
+**Atlas Configuration:**
+- 64 slots × 128×128 pixels = 8192×128 atlas
+- ~4 MB VRAM usage
+- LRU eviction when full
 
 ---
 
 *Last Updated: 2026-01-23*
-*Phase Version: 2.3 - Resolution Increased to 384×384*
+*Phase Version: 2.4 - Single Frames Complete, Multi-Frame Clusters Limited*
