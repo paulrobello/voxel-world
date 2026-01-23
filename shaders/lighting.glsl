@@ -208,7 +208,15 @@ float castShadowRayInternal(vec3 origin, bool ignoreStartModel, out uint debugFl
                     uint model_id = meta.r;
                     uint rotation = meta.g & 3u;
                     const float MODEL_PARTIAL_SHADOW = 0.4;
-                    if (model_id == 0u) {
+
+                    // Picture frames do NOT cast shadows (they still receive shadows)
+                    const uint FRAME_MODEL_ID_BASE = 160u;
+                    const uint FRAME_MODEL_ID_LAST = 175u;
+                    bool isFrame = (model_id >= FRAME_MODEL_ID_BASE && model_id <= FRAME_MODEL_ID_LAST);
+
+                    if (isFrame) {
+                        // Picture frames don't cast shadows - skip this model
+                    } else if (model_id == 0u) {
                         // Invalid model - accumulate partial shadow and continue to check for full blockers
                         accumulatedPartialShadow *= MODEL_PARTIAL_SHADOW;
                     } else {
