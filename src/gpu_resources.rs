@@ -1294,36 +1294,17 @@ pub fn upload_picture_to_atlas(
         None => return false,
     };
 
-    // Ensure picture is 32×32 for frames (resize if needed)
-    let (width, height, pixels) = if picture.width == 32 && picture.height == 32 {
+    // Ensure picture is 128×128 for frames (no resize needed for correct size)
+    let (width, height, pixels) = if picture.width == 128 && picture.height == 128 {
         (picture.width, picture.height, picture.pixels.clone())
     } else {
-        // Resize to 32×32 using nearest-neighbor downsampling
+        // Picture is not 128×128 - this shouldn't happen with current export
+        // Use as-is but log a warning
         println!(
-            "[PictureAtlas] Resizing {} from {}×{} to 32×32",
+            "[PictureAtlas] WARNING: Picture '{}' is {}×{} (expected 128×128), using as-is",
             picture.name, picture.width, picture.height
         );
-
-        let src_w = picture.width as usize;
-        let src_h = picture.height as usize;
-        let dst_w = 32usize;
-        let dst_h = 32usize;
-        let mut resized = vec![0u8; dst_w * dst_h * 4];
-
-        for y in 0..dst_h {
-            for x in 0..dst_w {
-                // Calculate source position (nearest-neighbor)
-                let src_x = (x * src_w / dst_w).min(src_w - 1);
-                let src_y = (y * src_h / dst_h).min(src_h - 1);
-                let src_idx = (src_y * src_w + src_x) * 4;
-                let dst_idx = (y * dst_w + x) * 4;
-
-                resized[dst_idx..dst_idx + 4]
-                    .copy_from_slice(&picture.pixels[src_idx..src_idx + 4]);
-            }
-        }
-
-        (32u16, 32u16, resized)
+        (picture.width, picture.height, picture.pixels.clone())
     };
 
     update_picture_slot(
