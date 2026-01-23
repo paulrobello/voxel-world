@@ -151,9 +151,12 @@ impl PictureAtlas {
             self.data[slot_offset + i] = 0;
         }
 
-        // Copy picture data (centered in slot)
-        let offset_x = (MAX_PICTURE_SIZE - picture.width) / 2;
-        let offset_y = (MAX_PICTURE_SIZE - picture.height) / 2;
+        // Copy picture data (aligned to top-left for frame picture rendering)
+        // Pictures are NOT centered because the shader assumes pictures fill the slot
+        // from (0,0) to (width,height). Centering would cause the shader to sample
+        // from empty padding areas.
+        let offset_x = 0u16;
+        let offset_y = 0u16;
 
         for y in 0..picture.height {
             for x in 0..picture.width {
