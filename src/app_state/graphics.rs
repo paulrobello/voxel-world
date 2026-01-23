@@ -71,6 +71,8 @@ pub struct Graphics {
     pub model_palettes: Arc<Image>,
     pub model_palette_emission: Arc<Image>,
     pub model_metadata: Arc<Image>,
+    /// Per-block custom data (e.g., picture_id, offset_x, offset_y for frames).
+    pub block_custom_data: Arc<Image>,
     pub model_properties_buffer: Subbuffer<[gpu_resources::GpuModelProperties]>,
 
     pub rcx: Option<gpu_resources::RenderContext>,

@@ -196,6 +196,7 @@ impl App {
             rcx,
             &mut self.ui,
             &mut self.sim,
+            &mut self.prefs,
             selected_block,
             minimap_image,
             camera_yaw,
@@ -1477,7 +1478,10 @@ impl App {
 
         // Batch upload all pictures on first render after world load
         if self.ui.pictures_need_upload {
-            println!("[Render] Batch uploading {} pictures to GPU atlas...", self.sim.picture_library.len());
+            println!(
+                "[Render] Batch uploading {} pictures to GPU atlas...",
+                self.sim.picture_library.len()
+            );
             let mut uploaded_count = 0;
             for picture in self.sim.picture_library.iter() {
                 let success = crate::gpu_resources::upload_picture_to_atlas(

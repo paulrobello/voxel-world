@@ -206,51 +206,67 @@ Texture Editor → Picture Library → Picture Atlas → Frame Metadata → Shad
 
 **Goal**: Render picture colors on frame voxels in GPU shader.
 
-**Status**: NOT STARTED
+**Status**: ✅ COMPLETE
 
-#### 20.3.1 Picture Atlas Binding
-- [ ] Add picture atlas descriptor set to shader
+#### 20.3.1 Picture Atlas Binding ✅
+- [x] Add picture atlas descriptor set to shader
   ```glsl
   layout(set = 5, binding = 0) uniform texture2D pictureAtlas;
-  layout(set = 5, binding = 1) uniform sampler pictureSampler;
   ```
-- [ ] Pass picture atlas to shader during render
-- [ ] Update descriptor set layout in `traverse.comp`
+- [x] Pass picture atlas to shader during render
+- [x] Update descriptor set layout in `traverse.comp`
 
-#### 20.3.2 Picture Metadata in Push Constants
-- [ ] Add picture_id lookup to push constants
+#### 20.3.2 Picture Metadata in Push Constants ✅
+- [x] Add picture_id lookup to push constants
   ```glsl
-  struct PictureInfo {
-      uint picture_id;
-      uint atlas_slot;
-      vec2 uv_offset;  // For multi-frame clusters
-  };
+  layout(set = 0, binding = 14) uniform utexture2D blockCustomData;  // R32_UINT per block
   ```
-- [ ] Support per-model picture data (max 64 pictures)
+- [x] Support per-model picture data (max 64 pictures)
+- [x] custom_data encoding: picture_id (20 bits), offset_x/y (4 bits each), width/height (4 bits each), facing (2 bits)
 
-#### 20.3.3 Pixel Sampling in Shader
-- [ ] `samplePictureColor(picture_id, voxel_uv)` function
+#### 20.3.3 Pixel Sampling in Shader ✅
+- [x] `samplePictureColor(picture_id, voxel_uv)` function in `shaders/models.glsl`
   ```glsl
   vec4 samplePictureColor(uint picture_id, vec2 uv) {
-      uint slot = pictureAtlasSlots[picture_id];
-      vec2 atlas_uv = slot_to_uv(slot, uv);
+      if (picture_id == 0u) return vec4(1.0, 1.0, 1.0, 1.0);  // Empty frame
+      picture_id = min(picture_id, PICTURE_ATLAS_SLOT_COUNT - 1u);
+      vec2 atlas_uv = vec2(
+          (float(picture_id) * PICTURE_ATLAS_SIZE + uv.x * PICTURE_ATLAS_SIZE) / float(PICTURE_ATLAS_WIDTH),
+          uv.y
+      );
       return texture(pictureAtlas, atlas_uv);
   }
   ```
-- [ ] Apply picture color to interior voxels (color index 4)
-- [ ] Fall back to palette lookup if picture_id = 0
+- [x] Apply picture color to interior voxels via `getFramePictureColor()`
+- [x] Fall back to wood color for non-picture faces
 
-#### 20.3.4 Multi-Frame UV Calculation
-- [ ] Calculate correct UV based on frame offset in cluster
+#### 20.3.4 Multi-Frame UV Calculation ✅
+- [x] Calculate correct UV based on frame offset in cluster
   ```glsl
-  vec2 getPictureUV(vec3 voxel_pos, uint offset_x, uint offset_y) {
-      // voxel_pos is in model space (0-7)
-      // offset_x/y are tile coordinates (0-2)
-      vec2 local_uv = voxel_pos.xy / 8.0;  // 0-1 within frame
-      vec2 cluster_offset = vec2(offset_x, offset_y) / 3.0;
-      return local_uv / 3.0 + cluster_offset;
+  // Account for 1-voxel borders (picture area is 30×30 for 32³ frames)
+  float picture_size = float(res) - 2.0;
+  float base_u = (float(uv_x) - 1.0 - 0.5) / picture_size;
+  float local_v = 1.0 - (float(uv_y) - 1.0 - 0.5) / picture_size;
+
+  // Multi-frame cluster offset handling
+  float inverted_offset_x = float(offset_x);
+  float inverted_offset_y = float(offset_y);
+  if (cluster_width > 1u || cluster_height > 1u) {
+      inverted_offset_y = float(cluster_height - 1u - offset_y);
+      if (rotation == 2u || rotation == 3u) {  // South/East
+          inverted_offset_x = float(cluster_width - 1u - offset_x);
+      }
   }
+  float picture_u = (base_u + inverted_offset_x) / float(cluster_width);
+
+  // Flip horizontally for North/West to fix mirroring
+  if (rotation == 0u || rotation == 1u) {
+      picture_u = 1.0 - picture_u;
+  }
+  float picture_v = (local_v + inverted_offset_y) / float(cluster_height);
   ```
+- [x] Single frames (cluster_width=1) use offsets directly (no inversion)
+- [x] Multi-frame clusters apply offset inversion for correct ordering
 
 ---
 
@@ -258,32 +274,33 @@ Texture Editor → Picture Library → Picture Atlas → Frame Metadata → Shad
 
 **Goal**: Display larger pictures across multiple frames.
 
-**Status**: NOT STARTED
+**Status**: ✅ COMPLETE
 
-#### 20.4.1 Cluster Picture Sizing
-- [ ] Detect picture size vs cluster size
-  - 32×32 → 1×1 frame
-  - 64×32 → 2×1 frames
-  - 64×64 → 2×2 frames
-  - 96×96 → 3×3 frames (max)
-- [ ] Validate cluster fits picture dimensions
-  - Warn if picture larger than cluster
-  - Center or crop picture if mismatch
+#### 20.4.1 Cluster Picture Sizing ✅
+- [x] Support for 1×1, 2×2, and 3×3 frame clusters
+  - Single frames (1×1) display full 32×32 picture
+  - 2×2 clusters display 64×64 pictures
+  - 3×3 clusters display 96×96 pictures (max)
+- [x] Picture scales across cluster dimensions automatically
+- [x] All four rotations supported (North, East, South, West)
 
-#### 20.4.2 Picture Tiling Metadata
-- [ ] Store picture dimensions in frame metadata
-  - Reuse `width` and `height` fields (currently for cluster size)
-  - Or add new metadata format version
-- [ ] Update `update_frame_cluster` to propagate picture info
+#### 20.4.2 Picture Tiling Metadata ✅
+- [x] Store cluster dimensions in frame metadata
+  - `width` and `height` encode cluster size (1-3)
+  - `offset_x` and `offset_y` encode position within cluster (0-2)
+- [x] `update_frame_cluster()` in `src/world/connections.rs` propagates picture info
   - All frames in cluster share same picture_id
   - Each frame stores its offset in the cluster
+  - Automatic cluster detection via BFS
 
-#### 20.4.3 Cluster UV Mapping
-- [ ] Calculate per-frame UV offsets for shader
-  - Frame at (0, 0) shows top-left 32×32 region
-  - Frame at (1, 0) shows top-middle 32×32 region
-  - etc.
-- [ ] Pass offsets to GPU via model metadata
+#### 20.4.3 Cluster UV Mapping ✅
+- [x] Calculate per-frame UV offsets for shader
+  - Single frames: offset=0, shows full picture
+  - Multi-frame: offset determines which 32×32 region to display
+  - Proper row ordering (offset_y inverted for correct top-to-bottom)
+  - Direction-specific column ordering (East/South offset_x inverted)
+- [x] Pass offsets to GPU via custom_data buffer (R32_UINT per block)
+- [x] GPU upload bug fixed: `set_model_block_with_data` now marks `custom_data_dirty`
 
 ---
 
@@ -401,14 +418,36 @@ Texture Editor → Picture Library → Picture Atlas → Frame Metadata → Shad
 - [x] Picture library can store RGBA pictures
 - [x] Picture atlas supports GPU rendering
 - [x] Texture editor creates 32×32 pixel art
-- [ ] Picture pixels map to frame voxels at 4×4 resolution
-- [ ] Multi-frame clusters display tiled pictures
+- [x] Picture pixels map to frame voxels at correct resolution
+- [x] Multi-frame clusters display tiled pictures (1×1, 2×2, 3×3)
+- [x] All four rotations supported (North, East, South, West)
+- [x] Shader renders picture colors on frame voxels
+- [x] GPU custom_data buffer properly uploads on frame placement
+- [x] Shader hot reload works for all .glsl files
 - [ ] UI enables picture selection during frame placement
-- [ ] Shader renders picture colors on frame voxels
 - [ ] Performance maintained at 90+ FPS
-- [ ] Save/load persists picture_id in frame metadata
+- [x] Save/load persists picture_id in frame metadata
 - [ ] Console commands for picture management
 - [ ] Error handling for invalid/missing pictures
+
+### Implementation Notes (2026-01-22):
+
+**Completed Features:**
+- Multi-frame cluster rendering with proper UV coordinate calculation
+- Single frame rendering (offset inversion only for multi-frame clusters)
+- GPU custom_data upload fix (was breaking 2×2 placement)
+- Shader hot reload now watches all .glsl files in shaders directory
+
+**Rotation Mapping Discovered:**
+- rotation 0 = North
+- rotation 1 = West
+- rotation 2 = South
+- rotation 3 = East
+
+**Known Limitations:**
+- Picture selection UI not yet implemented (frames use picture_id=0 by default)
+- Pictures must be assigned via console commands or direct editing
+- Maximum cluster size: 3×3 (96×96 pixels)
 
 ---
 
@@ -433,4 +472,4 @@ Texture Editor → Picture Library → Picture Atlas → Frame Metadata → Shad
 ---
 
 *Last Updated: 2026-01-22*
-*Phase Version: 1.0 - Initial Planning*
+*Phase Version: 2.0 - Multi-Frame Cluster Support Complete*

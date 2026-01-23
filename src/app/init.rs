@@ -221,15 +221,22 @@ impl App {
         let texture_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("textures")
             .join("texture_atlas.png");
-        let (texture_set, _sampler, texture_atlas_view, _custom_atlas_view, custom_texture_atlas, picture_atlas_view, picture_atlas_image) =
-            load_texture_atlases(
-                vk.memory_allocator.clone(),
-                vk.command_buffer_allocator.clone(),
-                vk.descriptor_set_allocator.clone(),
-                &render_pipeline,
-                &vk.queue,
-                &texture_path,
-            );
+        let (
+            texture_set,
+            _sampler,
+            texture_atlas_view,
+            _custom_atlas_view,
+            custom_texture_atlas,
+            picture_atlas_view,
+            picture_atlas_image,
+        ) = load_texture_atlases(
+            vk.memory_allocator.clone(),
+            vk.command_buffer_allocator.clone(),
+            vk.descriptor_set_allocator.clone(),
+            &render_pipeline,
+            &vk.queue,
+            &texture_path,
+        );
 
         // Create particle, falling block, water source, template block, and stencil block buffers (share set 3)
         let (
@@ -282,6 +289,7 @@ impl App {
             model_palettes,
             model_palette_emission,
             model_metadata,
+            block_custom_data,
             model_properties_buffer,
             brick_and_model_set,
         ) = get_brick_and_model_set(
@@ -413,6 +421,7 @@ impl App {
             model_palettes,
             model_palette_emission,
             model_metadata,
+            block_custom_data,
             model_properties_buffer,
             rcx: None,
         };
@@ -651,9 +660,9 @@ impl App {
             terrain_brush: crate::shape_tools::TerrainBrushState::default(),
             texture_generator: crate::ui::texture_generator::TextureGeneratorState::new(),
             texture_library: crate::textures::TextureLibrary::load(),
-            selected_picture_id: None,
+            selected_picture_id: prefs.selected_picture_id,
             pending_picture_upload: None,
-            pictures_need_upload: true,  // Trigger upload of all pictures on first render
+            pictures_need_upload: true, // Trigger upload of all pictures on first render
             picture_ui: crate::pictures::PictureUi::new(),
             paint_panel: crate::ui::paint_panel::PaintPanelState::new(),
         };

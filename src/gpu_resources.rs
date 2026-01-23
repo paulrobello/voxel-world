@@ -91,14 +91,15 @@ fn make_coherent_storage_buffer<T: BufferContents>(
 type ChunkTransferFence =
     FenceSignalFuture<vulkano::command_buffer::CommandBufferExecFuture<NowFuture>>;
 
-/// Type alias for a pair of staging buffers (block data + model metadata).
-type StagingBufferPair = (Subbuffer<[u8]>, Subbuffer<[u8]>);
+/// Type alias for a triple of staging buffers (block data + model metadata + custom data).
+type StagingBufferPair = (Subbuffer<[u8]>, Subbuffer<[u8]>, Subbuffer<[u8]>);
 
 /// A slot in the transfer ring buffer holding an in-flight transfer's fence and staging buffers.
 pub(crate) struct TransferSlot {
     fence: ChunkTransferFence,
     block_staging: Subbuffer<[u8]>,
     meta_staging: Subbuffer<[u8]>,
+    custom_staging: Subbuffer<[u8]>,
 }
 
 /// Ring buffer for async GPU chunk uploads.
@@ -129,7 +130,11 @@ impl TransferRingBuffer {
                 if transfer.fence.is_signaled().unwrap_or(false) {
                     // Transfer completed, reclaim staging buffers
                     let transfer = slot.take().unwrap();
-                    reclaimed.push((transfer.block_staging, transfer.meta_staging));
+                    reclaimed.push((
+                        transfer.block_staging,
+                        transfer.meta_staging,
+                        transfer.custom_staging,
+                    ));
                 }
             }
         }
@@ -154,7 +159,11 @@ impl TransferRingBuffer {
         // Rotate the ring: wait on slot 0, then shift all slots left
         if let Some(transfer) = self.slots[0].take() {
             transfer.fence.wait(None).unwrap();
-            reclaimed.push((transfer.block_staging, transfer.meta_staging));
+            reclaimed.push((
+                transfer.block_staging,
+                transfer.meta_staging,
+                transfer.custom_staging,
+            ));
         }
 
         // Shift all slots left
@@ -885,7 +894,7 @@ pub const CUSTOM_ATLAS_HEIGHT: u32 = CUSTOM_TEXTURE_SIZE; // 64
 
 // Picture atlas for frame pictures
 pub const PICTURE_ATLAS_SLOTS: u32 = 64;
-pub const PICTURE_ATLAS_SIZE: u32 = 32;  // Each picture is 32×32 pixels
+pub const PICTURE_ATLAS_SIZE: u32 = 32; // Each picture is 32×32 pixels
 pub const PICTURE_ATLAS_WIDTH: u32 = PICTURE_ATLAS_SLOTS * PICTURE_ATLAS_SIZE; // 2048
 pub const PICTURE_ATLAS_HEIGHT: u32 = PICTURE_ATLAS_SIZE; // 32
 
@@ -1307,7 +1316,8 @@ pub fn upload_picture_to_atlas(
                 let src_idx = (src_y * src_w + src_x) * 4;
                 let dst_idx = (y * dst_w + x) * 4;
 
-                resized[dst_idx..dst_idx + 4].copy_from_slice(&picture.pixels[src_idx..src_idx + 4]);
+                resized[dst_idx..dst_idx + 4]
+                    .copy_from_slice(&picture.pixels[src_idx..src_idx + 4]);
             }
         }
 
@@ -1327,7 +1337,9 @@ pub fn upload_picture_to_atlas(
 
     println!(
         "[PictureAtlas] Uploaded picture '{}' (ID {}, slot {}) to GPU atlas",
-        picture.name, picture_id, picture_id % PICTURE_ATLAS_SLOTS
+        picture.name,
+        picture_id,
+        picture_id % PICTURE_ATLAS_SLOTS
     );
     true
 }
@@ -1502,6 +1514,8 @@ pub const BRICK_DIST_WORDS: usize = TOTAL_CHUNKS * 16;
 /// - Binding 5: Model palettes - 256×32 (256 models × 32 colors), RGBA8
 /// - Binding 6: Model metadata - model_id (R) + rotation (G) per block
 /// - Binding 7: Model properties - collision mask, emission, flags, resolution per model
+/// - Binding 8: Model palette emission - emission intensity per palette entry
+/// - Binding 9: Block custom data - per-block custom data (e.g., picture_id for frames)
 #[allow(clippy::type_complexity)]
 pub fn get_brick_and_model_set(
     memory_allocator: Arc<StandardMemoryAllocator>,
@@ -1520,6 +1534,7 @@ pub fn get_brick_and_model_set(
     Arc<Image>,                      // model_palettes
     Arc<Image>,                      // model_palette_emission
     Arc<Image>,                      // model_metadata
+    Arc<Image>,                      // block_custom_data
     Subbuffer<[GpuModelProperties]>, // model_properties_buffer
     Arc<DescriptorSet>,              // combined set 7
 ) {
@@ -1648,6 +1663,21 @@ pub fn get_brick_and_model_set(
     )
     .unwrap();
 
+    // Create custom_data 3D texture (R32_UINT, same extent as blocks)
+    // Stores per-block custom data (e.g., picture_id, offset_x, offset_y for frames)
+    let block_custom_data = Image::new(
+        memory_allocator.clone(),
+        ImageCreateInfo {
+            image_type: ImageType::Dim3d,
+            format: Format::R32_UINT,
+            extent: world_extent,
+            usage: ImageUsage::STORAGE | ImageUsage::TRANSFER_DST,
+            ..Default::default()
+        },
+        AllocationCreateInfo::default(),
+    )
+    .unwrap();
+
     // Create model properties buffer (SSBO)
     let model_properties_buffer = Buffer::new_slice::<GpuModelProperties>(
         memory_allocator.clone(),
@@ -1688,6 +1718,10 @@ pub fn get_brick_and_model_set(
 
     command_buffer_builder
         .clear_color_image(ClearColorImageInfo::image(model_metadata.clone()))
+        .unwrap();
+
+    command_buffer_builder
+        .clear_color_image(ClearColorImageInfo::image(block_custom_data.clone()))
         .unwrap();
 
     command_buffer_builder
@@ -1737,6 +1771,12 @@ pub fn get_brick_and_model_set(
     )
     .unwrap();
 
+    let custom_data_view = ImageView::new(
+        block_custom_data.clone(),
+        ImageViewCreateInfo::from_image(&block_custom_data),
+    )
+    .unwrap();
+
     // Create sampler for palette texture
     let palette_sampler = Sampler::new(
         memory_allocator.device().clone(),
@@ -1771,6 +1811,8 @@ pub fn get_brick_and_model_set(
             WriteDescriptorSet::image_view(6, metadata_view),
             WriteDescriptorSet::buffer(7, model_properties_buffer.clone()),
             WriteDescriptorSet::image_view_sampler(8, emission_view, palette_sampler.clone()),
+            // Per-block custom data (binding 9)
+            WriteDescriptorSet::image_view(9, custom_data_view),
         ],
     );
 
@@ -1783,6 +1825,7 @@ pub fn get_brick_and_model_set(
         model_palettes,
         model_palette_emission,
         model_metadata,
+        block_custom_data,
         model_properties_buffer,
         descriptor_set,
     )
@@ -2124,8 +2167,9 @@ pub fn upload_chunks_batched(
     separate_transfer_queue: bool,
     voxel_image: &Arc<Image>,
     model_metadata_image: &Arc<Image>,
+    block_custom_data_image: &Arc<Image>,
     texture_origin: Vector3<i32>,
-    chunks: &[(Vector3<i32>, &[u8], &[u8])],
+    chunks: &[(Vector3<i32>, &[u8], &[u8], &[u8])],
 ) {
     if chunks.is_empty() {
         return;
@@ -2136,12 +2180,14 @@ pub fn upload_chunks_batched(
         offset: [u32; 3],
         block_data: &'a [u8],
         model_metadata: &'a [u8],
+        custom_data: &'a [u8],
     }
     let mut uploads: Vec<Upload> = Vec::with_capacity(chunks.len());
     let mut total_block_bytes = 0usize;
     let mut total_meta_bytes = 0usize;
+    let mut total_custom_bytes = 0usize;
 
-    for (chunk_pos, block_data, model_metadata) in chunks {
+    for (chunk_pos, block_data, model_metadata, custom_data) in chunks {
         // Convert world chunk position to texture position
         // World block position = chunk_pos * CHUNK_SIZE
         // Texture block position = world_block_pos - texture_origin
@@ -2168,9 +2214,11 @@ pub fn upload_chunks_batched(
             offset: [texture_x as u32, texture_y as u32, texture_z as u32],
             block_data,
             model_metadata,
+            custom_data,
         });
         total_block_bytes += block_data.len();
         total_meta_bytes += model_metadata.len();
+        total_custom_bytes += custom_data.len();
     }
 
     if uploads.is_empty() {
@@ -2192,12 +2240,14 @@ pub fn upload_chunks_batched(
     });
 
     // Get staging buffers - prefer reusing from pool
-    let (block_staging, meta_staging) = STAGING_POOL.with(|pool| {
+    let (block_staging, meta_staging, custom_staging) = STAGING_POOL.with(|pool| {
         let mut p = pool.borrow_mut();
 
-        // Find a pair with sufficient sizes
-        let idx_opt = p.iter().position(|(b, m)| {
-            b.size() as usize >= total_block_bytes && m.size() as usize >= total_meta_bytes
+        // Find a triple with sufficient sizes
+        let idx_opt = p.iter().position(|(b, m, c)| {
+            b.size() as usize >= total_block_bytes
+                && m.size() as usize >= total_meta_bytes
+                && c.size() as usize >= total_custom_bytes
         });
 
         if let Some(idx) = idx_opt {
@@ -2234,7 +2284,22 @@ pub fn upload_chunks_batched(
             )
             .unwrap();
 
-            (block_buf, meta_buf)
+            let custom_buf = Buffer::new_slice::<u8>(
+                memory_allocator.clone(),
+                BufferCreateInfo {
+                    usage: BufferUsage::TRANSFER_SRC,
+                    ..Default::default()
+                },
+                AllocationCreateInfo {
+                    memory_type_filter: MemoryTypeFilter::PREFER_HOST
+                        | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                    ..Default::default()
+                },
+                total_custom_bytes as u64,
+            )
+            .unwrap();
+
+            (block_buf, meta_buf, custom_buf)
         }
     });
 
@@ -2242,8 +2307,10 @@ pub fn upload_chunks_batched(
     {
         let mut block_write = block_staging.write().unwrap();
         let mut meta_write = meta_staging.write().unwrap();
+        let mut custom_write = custom_staging.write().unwrap();
         let mut block_cursor = 0usize;
         let mut meta_cursor = 0usize;
+        let mut custom_cursor = 0usize;
 
         for upload in &uploads {
             let blen = upload.block_data.len();
@@ -2253,14 +2320,20 @@ pub fn upload_chunks_batched(
             let mlen = upload.model_metadata.len();
             meta_write[meta_cursor..meta_cursor + mlen].copy_from_slice(upload.model_metadata);
             meta_cursor += mlen;
+
+            let clen = upload.custom_data.len();
+            custom_write[custom_cursor..custom_cursor + clen].copy_from_slice(upload.custom_data);
+            custom_cursor += clen;
         }
     }
 
     // Build copy regions referencing the contiguous staging buffers.
     let mut block_regions = Vec::with_capacity(uploads.len());
     let mut metadata_regions = Vec::with_capacity(uploads.len());
+    let mut custom_regions = Vec::with_capacity(uploads.len());
     let mut block_offset = 0u64;
     let mut meta_offset = 0u64;
+    let mut custom_offset = 0u64;
 
     for upload in &uploads {
         block_regions.push(BufferImageCopy {
@@ -2284,6 +2357,17 @@ pub fn upload_chunks_batched(
             ..Default::default()
         });
         meta_offset += upload.model_metadata.len() as u64;
+
+        custom_regions.push(BufferImageCopy {
+            buffer_offset: custom_offset,
+            buffer_row_length: CHUNK_SIZE as u32,
+            buffer_image_height: CHUNK_SIZE as u32,
+            image_subresource: block_custom_data_image.subresource_layers(),
+            image_offset: upload.offset,
+            image_extent: [CHUNK_SIZE as u32, CHUNK_SIZE as u32, CHUNK_SIZE as u32],
+            ..Default::default()
+        });
+        custom_offset += upload.custom_data.len() as u64;
     }
 
     // Build single command buffer with all copies
@@ -2321,6 +2405,16 @@ pub fn upload_chunks_batched(
         })
         .unwrap();
 
+    command_buffer_builder
+        .copy_buffer_to_image(CopyBufferToImageInfo {
+            regions: custom_regions.into(),
+            ..CopyBufferToImageInfo::buffer_image(
+                custom_staging.clone(),
+                block_custom_data_image.clone(),
+            )
+        })
+        .unwrap();
+
     let cb = command_buffer_builder.build().unwrap();
 
     // Submit to transfer queue and get fence (non-blocking)
@@ -2338,6 +2432,7 @@ pub fn upload_chunks_batched(
                 fence,
                 block_staging,
                 meta_staging,
+                custom_staging,
             },
         );
     });

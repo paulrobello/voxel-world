@@ -2,9 +2,9 @@ use crate::App;
 use crate::chunk::{BlockType, CHUNK_SIZE, CHUNK_VOLUME, Chunk};
 use crate::chunk_loader::RequestStats;
 use crate::constants::{
-    CHUNKS_PER_FRAME, EMPTY_CHUNK_DATA, EMPTY_MODEL_METADATA, LOADED_CHUNKS_X, LOADED_CHUNKS_Z,
-    MAX_COMPLETED_UPLOADS_PER_FRAME, TEXTURE_SIZE_X, TEXTURE_SIZE_Y, TEXTURE_SIZE_Z,
-    WORLD_CHUNKS_Y,
+    CHUNKS_PER_FRAME, EMPTY_CHUNK_DATA, EMPTY_CUSTOM_DATA, EMPTY_MODEL_METADATA, LOADED_CHUNKS_X,
+    LOADED_CHUNKS_Z, MAX_COMPLETED_UPLOADS_PER_FRAME, TEXTURE_SIZE_X, TEXTURE_SIZE_Y,
+    TEXTURE_SIZE_Z, WORLD_CHUNKS_Y,
 };
 use crate::gpu_resources::{
     BRICK_DIST_WORDS, BRICK_MASK_WORDS, CHUNK_METADATA_WORDS, TOTAL_CHUNKS, upload_chunks_batched,
@@ -362,13 +362,14 @@ impl App {
 
         // Collect chunk data (sequential - needs world access) while GPU is clearing
         let texture_origin = self.sim.texture_origin;
-        let mut raw_data: Vec<(Vector3<i32>, Vec<u8>, Vec<u8>)> = Vec::new();
+        let mut raw_data: Vec<(Vector3<i32>, Vec<u8>, Vec<u8>, Vec<u8>)> = Vec::new();
         for (pos, chunk) in self.sim.world.chunks() {
             if world_pos_to_chunk_index(texture_origin, *pos).is_some() {
                 raw_data.push((
                     *pos,
                     chunk.to_block_data().to_vec(),
                     chunk.to_model_metadata(),
+                    chunk.custom_data_bytes().to_vec(),
                 ));
             }
         }
@@ -376,7 +377,7 @@ impl App {
         // Parallel: Compute SVT metadata for all chunks (CPU-intensive)
         let svt_data: Vec<ChunkSVT> = raw_data
             .par_iter()
-            .map(|(_, block_data, _)| ChunkSVT::from_bytes(block_data))
+            .map(|(_, block_data, _, _)| ChunkSVT::from_bytes(block_data))
             .collect();
 
         // NOW wait for texture clear (should be done by now since CPU work overlapped)
@@ -388,7 +389,9 @@ impl App {
         if !raw_data.is_empty() {
             let upload_refs: Vec<_> = raw_data
                 .iter()
-                .map(|(pos, block, meta)| (*pos, block.as_slice(), meta.as_slice()))
+                .map(|(pos, block, meta, custom)| {
+                    (*pos, block.as_slice(), meta.as_slice(), custom.as_slice())
+                })
                 .collect();
             self.upload_chunk_refs(&upload_refs);
 
@@ -398,7 +401,7 @@ impl App {
                 let mut brick_mask_write = self.graphics.brick_mask_buffer.write().unwrap();
                 let mut brick_dist_write = self.graphics.brick_dist_buffer.write().unwrap();
 
-                for ((pos, _, _), svt) in raw_data.iter().zip(svt_data.iter()) {
+                for ((pos, _, _, _), svt) in raw_data.iter().zip(svt_data.iter()) {
                     if let Some(idx) = world_pos_to_chunk_index(self.sim.texture_origin, *pos) {
                         let word_idx = idx / 32;
                         let bit_idx = idx % 32;
@@ -561,6 +564,7 @@ impl App {
                 pos: Vector3<i32>,
                 block: Vec<u8>,
                 meta: Vec<u8>,
+                custom: Vec<u8>,
             }
 
             let mut uploads: Vec<Upload> = Vec::new();
@@ -604,6 +608,7 @@ impl App {
                     pos: result.position,
                     block: chunk.to_block_data(),
                     meta: chunk.to_model_metadata(),
+                    custom: chunk.custom_data_bytes().to_vec(),
                 });
                 loaded += 1;
             }
@@ -635,7 +640,14 @@ impl App {
                 // Convert to slice references for upload
                 let upload_slices: Vec<_> = uploads
                     .iter()
-                    .map(|u| (u.pos, u.block.as_slice(), u.meta.as_slice()))
+                    .map(|u| {
+                        (
+                            u.pos,
+                            u.block.as_slice(),
+                            u.meta.as_slice(),
+                            u.custom.as_slice(),
+                        )
+                    })
                     .collect();
                 self.upload_chunk_refs(&upload_slices);
 
@@ -766,6 +778,7 @@ impl App {
                         *pos,
                         EMPTY_CHUNK_DATA.as_slice(),
                         EMPTY_MODEL_METADATA.as_slice(),
+                        EMPTY_CUSTOM_DATA.as_slice(),
                     )
                 })
                 .collect();
@@ -874,6 +887,7 @@ impl App {
             pos: Vector3<i32>,
             block: &'a [u8],
             meta: Ref<'a, [u8]>,
+            custom: Ref<'a, [u8]>,
         }
 
         let mut uploads: Vec<Upload> = Vec::new();
@@ -883,14 +897,17 @@ impl App {
                     pos,
                     block: chunk.block_bytes(),
                     meta: chunk.model_metadata_bytes(),
+                    custom: chunk.custom_data_bytes(),
                 });
             }
         }
 
         if !uploads.is_empty() {
             self.sim.profiler.chunks_uploaded += uploads.len() as u32;
-            let upload_slices: Vec<_> =
-                uploads.iter().map(|u| (u.pos, u.block, &*u.meta)).collect();
+            let upload_slices: Vec<_> = uploads
+                .iter()
+                .map(|u| (u.pos, u.block, &*u.meta, &*u.custom))
+                .collect();
             self.upload_chunk_refs(&upload_slices);
 
             // Immediate metadata update to prevent visibility gaps.
@@ -899,7 +916,7 @@ impl App {
                 let mut brick_mask_write = self.graphics.brick_mask_buffer.write().unwrap();
                 let mut brick_dist_write = self.graphics.brick_dist_buffer.write().unwrap();
 
-                for (pos, block_data, _meta) in &upload_slices {
+                for (pos, block_data, _meta, _custom) in &upload_slices {
                     if let Some(idx) = world_pos_to_chunk_index(self.sim.texture_origin, *pos) {
                         let svt = ChunkSVT::from_bytes(block_data);
                         let word_idx = idx / 32;
@@ -966,6 +983,7 @@ impl App {
             pos: Vector3<i32>,
             block: &'a [u8],
             meta: Ref<'a, [u8]>,
+            custom: Ref<'a, [u8]>,
         }
 
         let mut uploads: Vec<Upload> = Vec::new();
@@ -976,6 +994,7 @@ impl App {
                     pos: *pos,
                     block: chunk.block_bytes(),
                     meta: chunk.model_metadata_bytes(),
+                    custom: chunk.custom_data_bytes(),
                 });
             }
         }
@@ -985,7 +1004,10 @@ impl App {
         }
 
         self.sim.profiler.chunks_uploaded += uploads.len() as u32;
-        let upload_slices: Vec<_> = uploads.iter().map(|u| (u.pos, u.block, &*u.meta)).collect();
+        let upload_slices: Vec<_> = uploads
+            .iter()
+            .map(|u| (u.pos, u.block, &*u.meta, &*u.custom))
+            .collect();
         self.upload_chunk_refs(&upload_slices);
 
         let uploaded_positions: Vec<_> = uploads.iter().map(|u| u.pos).collect();
@@ -1022,7 +1044,7 @@ impl App {
     }
 
     /// Uploads chunk data that is already slice-backed to GPU.
-    fn upload_chunk_refs(&self, uploads: &[(Vector3<i32>, &[u8], &[u8])]) {
+    fn upload_chunk_refs(&self, uploads: &[(Vector3<i32>, &[u8], &[u8], &[u8])]) {
         if uploads.is_empty() {
             return;
         }
@@ -1034,6 +1056,7 @@ impl App {
             self.graphics.separate_transfer_queue,
             &self.graphics.voxel_image,
             &self.graphics.model_metadata,
+            &self.graphics.block_custom_data,
             self.sim.texture_origin,
             uploads,
         );

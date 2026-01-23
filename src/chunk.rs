@@ -681,6 +681,12 @@ pub struct Chunk {
     /// Whether the cached model metadata buffer needs recomputing.
     model_metadata_dirty: Cell<bool>,
 
+    /// Reusable R32 buffer for custom data uploads (len = CHUNK_VOLUME * 4).
+    /// Stores per-block custom data (e.g., picture_id, offset_x, offset_y for frames).
+    custom_data_buf: RefCell<Vec<u8>>,
+    /// Whether the cached custom data buffer needs recomputing.
+    custom_data_dirty: Cell<bool>,
+
     /// Count of non-model light-emitting block types (for quick skip).
     light_block_count: usize,
 
@@ -733,6 +739,8 @@ impl Chunk {
             water_data: HashMap::new(),
             model_metadata_buf: RefCell::new(vec![0u8; CHUNK_VOLUME * 2]),
             model_metadata_dirty: Cell::new(false),
+            custom_data_buf: RefCell::new(vec![0u8; CHUNK_VOLUME * 4]),
+            custom_data_dirty: Cell::new(false),
             light_block_count: 0,
             dirty: true,
             persistence_dirty: true,
@@ -770,6 +778,8 @@ impl Chunk {
             water_data: HashMap::new(),
             model_metadata_buf: RefCell::new(vec![0u8; CHUNK_VOLUME * 2]),
             model_metadata_dirty: Cell::new(false),
+            custom_data_buf: RefCell::new(vec![0u8; CHUNK_VOLUME * 4]),
+            custom_data_dirty: Cell::new(false),
             light_block_count,
             dirty: true,
             persistence_dirty: true,
@@ -941,6 +951,7 @@ impl Chunk {
         self.persistence_dirty = true;
         self.metadata_dirty = true;
         self.model_metadata_dirty.set(true);
+        self.custom_data_dirty.set(true);
     }
 
     /// Gets the model data for a block at the given local coordinates.
@@ -960,6 +971,7 @@ impl Chunk {
             self.dirty = true;
             self.persistence_dirty = true;
             self.model_metadata_dirty.set(true);
+            self.custom_data_dirty.set(true);
         }
     }
 
@@ -1284,6 +1296,27 @@ impl Chunk {
             self.model_metadata_dirty.set(false);
         }
         Ref::map(self.model_metadata_buf.borrow(), |v| v.as_slice())
+    }
+
+    /// Returns the custom data buffer for GPU upload.
+    /// Each block uses 4 bytes (u32) for custom data.
+    /// For frames: stores picture_id, offset_x, offset_y, width, height, facing.
+    #[inline]
+    pub fn custom_data_bytes(&self) -> Ref<'_, [u8]> {
+        if self.custom_data_dirty.get() {
+            {
+                let mut buf = self.custom_data_buf.borrow_mut();
+                buf.fill(0);
+                // Pack custom data from model_data
+                for (idx, data) in &self.model_data {
+                    let offset = idx * 4;
+                    let bytes = (data.custom_data as u32).to_le_bytes();
+                    buf[offset..offset + 4].copy_from_slice(&bytes);
+                }
+            }
+            self.custom_data_dirty.set(false);
+        }
+        Ref::map(self.custom_data_buf.borrow(), |v| v.as_slice())
     }
 
     /// Returns the number of non-air blocks in the chunk.

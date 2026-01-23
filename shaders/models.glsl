@@ -111,7 +111,7 @@ vec4 samplePictureColor(uint picture_id, vec2 uv) {
 
 // Get picture color for a frame voxel
 // picture_id: ID of the picture to display
-// voxel_pos: Position within the frame model (0-31 for 32³ resolution)
+// voxel_pos: Position within the frame model (ALREADY TRANSFORMED by transformFramePos)
 // rotation: Frame rotation (0=North, 1=East, 2=South, 3=West)
 // res: Model resolution (32 for frames)
 // offset_x: Horizontal offset in multi-frame cluster (0-3)
@@ -128,41 +128,99 @@ vec4 getFramePictureColor(
     uint cluster_width,
     uint cluster_height
 ) {
-    // Frames use 32³ resolution, picture is on the front face (z = res - 1)
+    // The voxel_pos is already in transformed space (after transformFramePos).
+    // For frames, the picture is always at z = res - 1 in TRANSFORMED space.
     int front_z = int(res) - 1;
 
-    // Only picture area voxels (z = front_z) show the picture
+    // Only the front face shows the picture
     if (voxel_pos.z != front_z) {
-        // Interior voxels use the wood frame color
-        return vec4(0.4, 0.26, 0.13, 1.0);  // Dark brown
+        return vec4(0.4, 0.26, 0.13, 1.0);  // Wood color for frame interior
     }
 
-    // Transform voxel position to account for frame rotation
-    ivec3 transformed = transformFramePos(voxel_pos, rotation, res);
-
-    // Check if this voxel is on the front face after transformation
-    // (it should be, but we verify)
-    if (transformed.z != front_z) {
-        return vec4(0.4, 0.26, 0.13, 1.0);  // Wood color
+    // For picture display, we need to map from the transformed position back to
+    // the original model position to get correct UV coordinates.
+    // The inverse transform depends on rotation:
+    int maxv = int(res) - 1;
+    ivec3 original;
+    switch (rotation & 3u) {
+        case 0u: // North: identity (x,y,z) → (x,y,z), inverse is (x,y,z)
+            original = voxel_pos;
+            break;
+        case 2u: // South: forward is (maxv-x, y, maxv-z), inverse is (maxv-x, y, maxv-z)
+            original = ivec3(maxv - voxel_pos.x, voxel_pos.y, maxv - voxel_pos.z);
+            break;
+        case 1u: // East: forward is (z, y, maxv-x), inverse is (maxv-z, y, x)
+            // Given transformed (tx,ty,tz) where tx=z, ty=y, tz=maxv-x
+            // We want: x = maxv-tz, y = ty, z = tx
+            original = ivec3(maxv - voxel_pos.z, voxel_pos.y, voxel_pos.x);
+            break;
+        case 3u: // West: forward is (maxv-z, y, x), inverse is (z, y, maxv-x)
+            // Given transformed (tx,ty,tz) where tx=maxv-z, ty=y, tz=x
+            // We want: x = tz, y = ty, z = maxv-tx
+            original = ivec3(voxel_pos.z, voxel_pos.y, maxv - voxel_pos.x);
+            break;
+        default:
+            original = voxel_pos;
+            break;
     }
 
-    // Calculate UV coordinates within the picture
+    // Calculate UV coordinates within the picture.
+    // The picture area uses different coordinates depending on rotation:
+    // - North/South: picture on z-face, use (x,y) for UV
+    // - East/West: picture on x-face, use (z,y) for UV
     // Frame borders are 1 voxel on each edge, so picture area is (res-2) × (res-2)
-    // For 32³ frames: borders at x=0, x=31, y=0, y=31
-    // Picture area: x=1..30, y=1..30 (30×30 = 32×32 pixels at 1:1 pixel:voxel ratio)
+    // For 32³ frames: borders at edges, picture area: 1..30 (30×30 pixels)
+
+    // Get the appropriate coordinates for UV calculation based on rotation
+    int uv_x, uv_y;
+    switch (rotation & 3u) {
+        case 0u: // North: picture on z=max face, use (x,y)
+        case 2u: // South: picture on z=0 face, use (x,y)
+            uv_x = original.x;
+            uv_y = original.y;
+            break;
+        case 1u: // East: picture on x=0 face, use (z,y)
+        case 3u: // West: picture on x=max face, use (z,y)
+            uv_x = original.z;
+            uv_y = original.y;
+            break;
+        default:
+            uv_x = original.x;
+            uv_y = original.y;
+            break;
+    }
 
     // First, get local UV within this frame block (0-1)
     // Note: Flip both X and Y for correct orientation
     // - Flip Y because Vulkan textures have (0,0) at top-left, but our model has y=0 at bottom
-    // - Flip X because frames are mirrored horizontally relative to the viewer
-    float local_u = 1.0 - (float(transformed.x) - 0.5) / float(res);
-    float local_v = 1.0 - (float(transformed.y) - 0.5) / float(res);
+    // - Flip X: Flip offset for East(1) only; others use offset as-is
+    // Picture area is (res-2) pixels due to 1-voxel borders on each side
+    float picture_size = float(res) - 2.0;
+    // Map pixel coordinate to center of pixel, then normalize to picture area
+    float base_u = (float(uv_x) - 1.0 - 0.5) / picture_size;
+    float local_v = 1.0 - (float(uv_y) - 1.0 - 0.5) / picture_size;
 
     // For multi-frame clusters, adjust UV to sample from correct region of picture
     // offset_x/y give the frame's position in the cluster (0,0 = bottom-left)
     // cluster_width/height give the total cluster dimensions
-    float picture_u = (local_u + float(offset_x)) / float(cluster_width);
-    float picture_v = (local_v + float(offset_y)) / float(cluster_height);
+    // For single frames, use offsets as-is (no inversion needed)
+    float inverted_offset_x = float(offset_x);
+    float inverted_offset_y = float(offset_y);
+    if (cluster_width > 1u || cluster_height > 1u) {
+        // Multi-frame clusters need offset inversion for correct ordering
+        inverted_offset_y = float(cluster_height - 1u - offset_y);
+        if (rotation == 2u || rotation == 3u) {
+            inverted_offset_x = float(cluster_width - 1u - offset_x);
+        }
+    }
+    float picture_u = (base_u + inverted_offset_x) / float(cluster_width);
+
+    // Flip the entire picture horizontally for North(0) and West(1) to fix mirrored images
+    if (rotation == 0u || rotation == 1u) {
+        picture_u = 1.0 - picture_u;
+    }
+
+    float picture_v = (local_v + inverted_offset_y) / float(cluster_height);
 
     // Sample from picture atlas
     return samplePictureColor(picture_id, vec2(picture_u, picture_v));
@@ -403,6 +461,7 @@ bool findSubVoxelHit(vec3 origin, vec3 dir, uint model_id, uint rotation,
 // dir: normalized ray direction
 // model_id: model to sample from
 // rotation: 0-3 for Y-axis rotation
+// custom_data: per-block custom data (for frames: picture_id, offsets, dimensions)
 // out_color: hit color from palette
 // out_normal: hit surface normal
 // out_t: distance to hit within block
@@ -411,6 +470,7 @@ bool marchSubVoxelModel(
     vec3 dir,
     uint model_id,
     uint rotation_and_flags,
+    uint custom_data,
     out vec3 out_color,
     out vec3 out_normal,
     out float out_t,
@@ -519,11 +579,21 @@ bool marchSubVoxelModel(
             // Check if this is a picture frame voxel with picture area palette index
             vec4 paletteColor;
             if (isFrameModel(model_id) && palette_idx == PICTURE_PALETTE_INDEX) {
-                // Sample from picture atlas instead of palette
-                // TODO: For multi-frame clusters, we need to pass offset_x, offset_y, cluster_width, cluster_height
-                // These values are stored in frame custom_data and need to be uploaded to GPU
-                // For now, use default values (single frame, no offset)
-                paletteColor = getFramePictureColor(pc.selected_picture_id, rotatedPos, rotation, res, 0u, 0u, 1u, 1u);
+                // Decode frame custom_data (format from src/sub_voxel/builtins/frames.rs):
+                // bits 0-19: picture_id (20 bits, up to 1M pictures)
+                // bits 20-21: offset_x (2 bits, 0-3)
+                // bits 22-23: offset_y (2 bits, 0-3)
+                // bits 24-25: width_minus_one (2 bits, stores 1-4 as 0-3)
+                // bits 26-27: height_minus_one (2 bits, stores 1-4 as 0-3)
+                // bits 28-29: facing (2 bits)
+                uint picture_id = custom_data & 0xFFFFFu;              // bits 0-19
+                uint offset_x = (custom_data >> 20) & 0x3u;           // bits 20-21
+                uint offset_y = (custom_data >> 22) & 0x3u;           // bits 22-23
+                uint cluster_width = ((custom_data >> 24) & 0x3u) + 1u; // bits 24-25, convert to 1-4
+                uint cluster_height = ((custom_data >> 26) & 0x3u) + 1u; // bits 26-27, convert to 1-4
+
+                // Sample from picture atlas using decoded frame metadata
+                paletteColor = getFramePictureColor(picture_id, rotatedPos, rotation, res, offset_x, offset_y, cluster_width, cluster_height);
             } else {
                 // Get color from palette
                 paletteColor = getModelPaletteColor(model_id, palette_idx);

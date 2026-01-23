@@ -19,4 +19,4 @@ pub mod ui;
 pub use atlas::PictureAtlas;
 pub use editor::{PictureEditor, PictureEditorTool};
 pub use library::{Picture, PictureLibrary};
-pub use ui::{draw_picture_browser, PictureBrowserAction, PictureUi, PictureInfo};
+pub use ui::{PictureBrowserAction, PictureInfo, PictureUi, draw_picture_browser};

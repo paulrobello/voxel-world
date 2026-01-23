@@ -7,6 +7,7 @@ use crate::pictures::{PictureBrowserAction, draw_picture_browser};
 use crate::stencils::{StencilBrowserAction, draw_stencil_browser};
 use crate::templates::{TemplateBrowserAction, draw_save_template_dialog, draw_template_browser};
 use crate::ui::{FluidStats, HUDRenderer, HudInputs, ToolAction};
+use crate::user_prefs::UserPreferences;
 use egui_winit_vulkano::egui;
 use nalgebra::Vector3;
 use std::path::Path;
@@ -16,6 +17,7 @@ pub fn render_hud(
     rcx: &mut RenderContext,
     ui: &mut UiState,
     sim: &mut WorldSim,
+    prefs: &mut UserPreferences,
     selected_block: BlockType,
     minimap_image: Option<egui::ColorImage>,
     camera_yaw: f32,
@@ -797,6 +799,9 @@ pub fn render_hud(
         Some(PictureBrowserAction::SelectPicture(id)) => {
             ui.selected_picture_id = Some(id);
             ui.pending_picture_upload = Some(id);
+            // Save to user preferences for persistence
+            prefs.selected_picture_id = ui.selected_picture_id;
+            prefs.save();
             if let Some(picture) = sim.picture_library.get(id) {
                 println!(
                     "Selected picture '{}' ({}×{}) for frame placement",
@@ -807,6 +812,9 @@ pub fn render_hud(
         Some(PictureBrowserAction::ClearSelection) => {
             ui.selected_picture_id = None;
             ui.pending_picture_upload = None;
+            // Save to user preferences for persistence
+            prefs.selected_picture_id = ui.selected_picture_id;
+            prefs.save();
             println!("Cleared picture selection (frames will be empty)");
         }
         None => {}

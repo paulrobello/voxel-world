@@ -80,7 +80,15 @@ pub fn run(_args: &Args, event_loop: &EventLoop<()>) -> Result<(), Box<dyn Error
     );
 
     let texture_path = root.join("textures").join("texture_atlas.png");
-    let (texture_set, _sampler, _atlas_view, _custom_view, _custom_image, _picture_view, _picture_image) = load_texture_atlases(
+    let (
+        texture_set,
+        _sampler,
+        _atlas_view,
+        _custom_view,
+        _custom_image,
+        _picture_view,
+        _picture_image,
+    ) = load_texture_atlases(
         memory_allocator.clone(),
         command_buffer_allocator.clone(),
         descriptor_set_allocator.clone(),
@@ -143,6 +151,7 @@ pub fn run(_args: &Args, event_loop: &EventLoop<()>) -> Result<(), Box<dyn Error
         _model_palettes,
         _model_palette_emission,
         model_metadata_image,
+        block_custom_data,
         _model_properties_buffer,
         brick_and_model_set,
     ) = get_brick_and_model_set(
@@ -235,6 +244,7 @@ pub fn run(_args: &Args, event_loop: &EventLoop<()>) -> Result<(), Box<dyn Error
             &voxel_image,
             &voxel_set,
             &model_metadata_image,
+            &block_custom_data,
             &texture_set,
             &particle_set,
             &light_set,
@@ -263,6 +273,7 @@ pub fn run(_args: &Args, event_loop: &EventLoop<()>) -> Result<(), Box<dyn Error
             &voxel_image,
             &voxel_set,
             &model_metadata_image,
+            &block_custom_data,
             &texture_set,
             &particle_set,
             &light_set,
@@ -291,6 +302,7 @@ pub fn run(_args: &Args, event_loop: &EventLoop<()>) -> Result<(), Box<dyn Error
             &voxel_image,
             &voxel_set,
             &model_metadata_image,
+            &block_custom_data,
             &texture_set,
             &particle_set,
             &light_set,
@@ -322,6 +334,7 @@ pub fn run(_args: &Args, event_loop: &EventLoop<()>) -> Result<(), Box<dyn Error
             &voxel_image,
             &voxel_set,
             &model_metadata_image,
+            &block_custom_data,
             &texture_set,
             &particle_set,
             &light_set,
@@ -448,6 +461,7 @@ fn render_icon(
     voxel_image: &Arc<Image>,
     voxel_set: &Arc<DescriptorSet>,
     model_metadata_image: &Arc<Image>,
+    block_custom_data: &Arc<Image>,
     texture_set: &Arc<DescriptorSet>,
     particle_set: &Arc<DescriptorSet>,
     light_set: &Arc<DescriptorSet>,
@@ -562,6 +576,8 @@ fn render_icon(
     }
 
     // For sprite generation, use graphics queue directly (one-time operation, no async needed)
+    // Create empty custom data buffer (sprite gen doesn't use custom data)
+    let custom_buf = vec![0u8; CHUNK_VOLUME * 4];
     upload_chunks_batched(
         memory_allocator,
         command_buffer_allocator,
@@ -570,8 +586,9 @@ fn render_icon(
         false,                      // No separate transfer queue
         voxel_image,
         model_metadata_image,
+        block_custom_data,
         Vector3::zeros(),
-        &[(chunk_pos, &block_buf, &meta_buf)],
+        &[(chunk_pos, &block_buf, &meta_buf, &custom_buf)],
     );
 
     let block_center = Vector3::new(

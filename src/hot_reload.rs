@@ -116,7 +116,20 @@ impl HotReloadComputePipeline {
             })
             .unwrap();
 
+        // Watch the main shader file
         watcher.watch(path, RecursiveMode::NonRecursive).unwrap();
+
+        // Also watch all .glsl files in the same directory (for #include dependencies)
+        if let Some(shader_dir) = path.parent() {
+            if let Ok(entries) = std::fs::read_dir(shader_dir) {
+                for entry in entries.flatten() {
+                    let entry_path = entry.path();
+                    if entry_path.extension().map(|e| e == "glsl").unwrap_or(false) {
+                        let _ = watcher.watch(&entry_path, RecursiveMode::NonRecursive);
+                    }
+                }
+            }
+        }
 
         let artifact = compile_to_spirv(path, shaderc::ShaderKind::Compute, "main").unwrap();
 

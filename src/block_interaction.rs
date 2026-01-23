@@ -1184,6 +1184,8 @@ impl App {
                 // Picture frame auto-sizing: grow to include existing adjacent frames (up to 3x3).
                 use crate::sub_voxel::builtins::frames;
 
+                eprintln!("[DEBUG] Placing frame model, base_model_id={}", base_model_id);
+
                 // Derive facing from hit normal for stable orientation per wall.
                 // BUT: if placing adjacent to an existing frame, use that frame's facing
                 // to maintain consistent orientation across the cluster.
@@ -1257,13 +1259,11 @@ impl App {
                 let edge_mask: u8 = 0x0F;
                 let model_id = frames::edge_mask_to_frame_model_id(edge_mask);
 
-                // Debug output for north wall placement
-                if facing == 0 {
-                    println!(
-                        "[FRAME PLACE] North wall: facing={}, rotation={}, model_id={}",
-                        facing, rotation, model_id
-                    );
-                }
+                // Debug output for frame placement
+                eprintln!(
+                    "[FRAME PLACE] Wall: facing={}, rotation={}, model_id={}",
+                    facing, rotation, model_id
+                );
                 model_id
             } else if base_model_id >= FIRST_CUSTOM_MODEL_ID {
                 // Custom models: auto-rotate to face player

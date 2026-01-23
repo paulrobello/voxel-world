@@ -8,6 +8,7 @@ use crate::config::Settings;
 use crate::console::ConsoleState;
 use crate::editor::EditorState;
 use crate::hud::Minimap;
+use crate::pictures::PictureUi;
 use crate::raycast::RaycastHit;
 use crate::shape_tools::{
     ArchToolState, BezierToolState, BridgeToolState, CircleToolState, CloneToolState,
@@ -16,7 +17,6 @@ use crate::shape_tools::{
     ScatterToolState, SphereToolState, StairsToolState, TerrainBrushState, TorusToolState,
     WallToolState,
 };
-use crate::pictures::PictureUi;
 use crate::templates::{TemplateLibrary, TemplatePlacement, TemplateSelection, TemplateUi};
 use crate::textures::TextureLibrary;
 use crate::ui::paint_panel::PaintPanelState;

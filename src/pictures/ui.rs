@@ -120,7 +120,10 @@ pub fn draw_picture_browser(
 
             if let Some(id) = current_selection {
                 if let Some(picture) = library.get(id) {
-                    ui.label(format!("📷 {} ({}×{})", picture.name, picture.width, picture.height));
+                    ui.label(format!(
+                        "📷 {} ({}×{})",
+                        picture.name, picture.width, picture.height
+                    ));
                     ui.horizontal(|ui| {
                         if ui.button("✖ Clear").clicked() {
                             action = Some(PictureBrowserAction::ClearSelection);
@@ -210,17 +213,23 @@ pub fn draw_picture_browser(
                                         // Render thumbnail if available
                                         if let Some(picture) = library.get(info.id) {
                                             // Get or create thumbnail texture handle
-                                            let texture_handle = ui_state.thumbnail_cache.entry(info.id).or_insert_with(|| {
-                                                // Create color image from picture data
-                                                ctx.load_texture(
-                                                    format!("picture_thumb_{}", info.id),
-                                                    egui::ColorImage::from_rgba_unmultiplied(
-                                                        [picture.width as usize, picture.height as usize],
-                                                        &picture.pixels,
-                                                    ),
-                                                    egui::TextureOptions::LINEAR
-                                                )
-                                            });
+                                            let texture_handle = ui_state
+                                                .thumbnail_cache
+                                                .entry(info.id)
+                                                .or_insert_with(|| {
+                                                    // Create color image from picture data
+                                                    ctx.load_texture(
+                                                        format!("picture_thumb_{}", info.id),
+                                                        egui::ColorImage::from_rgba_unmultiplied(
+                                                            [
+                                                                picture.width as usize,
+                                                                picture.height as usize,
+                                                            ],
+                                                            &picture.pixels,
+                                                        ),
+                                                        egui::TextureOptions::LINEAR,
+                                                    )
+                                                });
 
                                             // Show thumbnail (64x64 max size)
                                             ui.add(
@@ -228,7 +237,7 @@ pub fn draw_picture_browser(
                                                     texture_handle.id(),
                                                     egui::vec2(64.0, 64.0),
                                                 ))
-                                                .maintain_aspect_ratio(true)
+                                                .maintain_aspect_ratio(true),
                                             );
 
                                             ui.label(
@@ -240,7 +249,10 @@ pub fn draw_picture_browser(
                                                 .color(egui::Color32::from_gray(150)),
                                             );
                                         } else {
-                                            ui.label(format!("{}×{} pixels", info.width, info.height));
+                                            ui.label(format!(
+                                                "{}×{} pixels",
+                                                info.width, info.height
+                                            ));
                                         }
                                     });
 
@@ -250,7 +262,8 @@ pub fn draw_picture_browser(
                                     ui.label("  ");
                                     ui.horizontal(|ui| {
                                         if ui.button("Select").clicked() {
-                                            action = Some(PictureBrowserAction::SelectPicture(info.id));
+                                            action =
+                                                Some(PictureBrowserAction::SelectPicture(info.id));
                                         }
                                         if is_selected {
                                             if ui.button("✖ Clear").clicked() {

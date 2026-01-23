@@ -104,6 +104,9 @@ pub struct UserPreferences {
     /// Whether to show the minimap.
     pub show_minimap: bool,
 
+    /// Currently selected picture ID for picture frames.
+    pub selected_picture_id: Option<u32>,
+
     /// Last loaded world name.
     pub last_world: Option<String>,
 
@@ -150,6 +153,7 @@ impl Default for UserPreferences {
             hotbar_tint_indices: [0; 9],
             hotbar_paint_textures: [BlockType::Stone as u8; 9],
             show_minimap: true,
+            selected_picture_id: None,
             last_world: None,
             recent_worlds: Vec::new(),
             world_player_data: HashMap::new(),
