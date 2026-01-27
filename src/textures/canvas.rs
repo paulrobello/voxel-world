@@ -547,9 +547,9 @@ pub struct CanvasState {
     pub brush_size: u8,
     /// Shape mode (filled or outline).
     pub shape_mode: ShapeMode,
-    /// Mirror across X axis.
+    /// Mirror vertically across horizontal axis (flips Y coordinate).
     pub mirror_x: bool,
-    /// Mirror across Y axis.
+    /// Mirror horizontally across vertical axis (flips X coordinate).
     pub mirror_y: bool,
     /// Starting position for shape drawing.
     pub shape_start: Option<(u32, u32)>,
@@ -738,24 +738,24 @@ impl CanvasState {
         let max_y = self.size.height as u32 - 1;
 
         if self.mirror_x {
-            let mx = max_x - x;
-            if !positions.contains(&(mx, y)) {
-                positions.push((mx, y));
+            let my = max_y - y;
+            if !positions.contains(&(x, my)) {
+                positions.push((x, my));
             }
         }
 
         if self.mirror_y {
-            let my = max_y - y;
+            let mx = max_x - x;
             let len = positions.len();
             for i in 0..len {
                 let (px, py) = positions[i];
-                let mirrored = (px, max_y - py);
+                let mirrored = (max_x - px, py);
                 if !positions.contains(&mirrored) {
                     positions.push(mirrored);
                 }
             }
-            if !positions.contains(&(x, my)) {
-                positions.push((x, my));
+            if !positions.contains(&(mx, y)) {
+                positions.push((mx, y));
             }
         }
 
