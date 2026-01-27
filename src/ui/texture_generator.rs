@@ -617,6 +617,12 @@ impl TextureGeneratorUI {
                 state.canvas.toggle_text_cursor();
                 state.last_cursor_toggle = now;
             }
+
+            // Update text preview when typing
+            state.canvas.preview_pixels = state.canvas.generate_text_preview();
+        } else {
+            // Clear text preview when not in text tool
+            state.canvas.preview_pixels = None;
         }
 
         // Canvas size selector at the top

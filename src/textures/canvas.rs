@@ -1287,6 +1287,56 @@ impl CanvasState {
 
         preview
     }
+
+    /// Generates a preview with text rendered at the cursor position.
+    pub fn generate_text_preview(&self) -> Option<Vec<u8>> {
+        let (cx, cy) = self.text_cursor?;
+        if self.text_input.is_empty() {
+            return None;
+        }
+
+        let mut preview = self.pixels.clone();
+        let rgba = self.selected_rgba();
+        let scale = self.text_font_size as u32;
+        let base_char_width: u32 = 5;
+        let base_char_height: u32 = 7;
+        let char_width = base_char_width * scale;
+        let char_spacing: u32 = 1 * scale;
+
+        let mut x = cx;
+        let y = cy;
+
+        for ch in self.text_input.chars() {
+            if let Some(bitmap) = get_char_bitmap(ch) {
+                // Draw the scaled character bitmap to preview
+                for row in 0..base_char_height {
+                    let row_byte = bitmap[row as usize];
+                    for col in 0..base_char_width {
+                        let bit = (row_byte >> (4 - col)) & 1;
+                        if bit != 0 {
+                            for sy in 0..scale {
+                                for sx in 0..scale {
+                                    let px = x + col * scale + sx;
+                                    let py = y + row * scale + sy;
+                                    if px < self.size.width as u32 && py < self.size.height as u32 {
+                                        let idx = ((py * self.size.width as u32 + px) * 4) as usize;
+                                        preview[idx] = rgba[0];
+                                        preview[idx + 1] = rgba[1];
+                                        preview[idx + 2] = rgba[2];
+                                        preview[idx + 3] = rgba[3];
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                x += char_width + char_spacing;
+            }
+        }
+
+        Some(preview)
+    }
 }
 
 #[cfg(test)]
