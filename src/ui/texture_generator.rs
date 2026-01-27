@@ -1088,6 +1088,27 @@ impl TextureGeneratorUI {
                 }
             }
 
+            // Draw mirror axes when mirroring is enabled
+            let mirror_color = egui::Color32::from_rgba_unmultiplied(255, 100, 100, 180);
+
+            // Mirror Y axis (vertical line at center)
+            if state.canvas.mirror_y && width > 1 {
+                let center_x = rect.min.x + (width as f32 / 2.0) * zoom;
+                painter.line_segment(
+                    [egui::pos2(center_x, rect.min.y), egui::pos2(center_x, rect.max.y)],
+                    egui::Stroke::new(2.0, mirror_color),
+                );
+            }
+
+            // Mirror X axis (horizontal line at center)
+            if state.canvas.mirror_x && height > 1 {
+                let center_y = rect.min.y + (height as f32 / 2.0) * zoom;
+                painter.line_segment(
+                    [egui::pos2(rect.min.x, center_y), egui::pos2(rect.max.x, center_y)],
+                    egui::Stroke::new(2.0, mirror_color),
+                );
+            }
+
             // Draw text cursor if text tool is active
             if state.canvas.tool == PaintTool::Text {
                 if let Some((cx, cy)) = state.canvas.text_cursor {
