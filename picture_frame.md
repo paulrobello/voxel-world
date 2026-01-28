@@ -90,11 +90,13 @@ Texture Editor → Picture Library → Picture Atlas → Frame Metadata → Shad
 
 ### 4. Picture Atlas ✅
 - **File**: `src/pictures/atlas.rs`
-- `MAX_GPU_PICTURES = 64` pictures on GPU at once
-- GPU atlas: 8192×128 pixels (64 slots × 128 pixels wide)
+- `MAX_GPU_PICTURES = 16` pictures on GPU at once (reduced from 64 for GPU compatibility)
+- GPU atlas: 2048×128 pixels (16 slots × 128 pixels wide)
 - LRU eviction when full
 - Slot-based GPU texture management
 - Per-frame dirty tracking for efficient updates
+- Pictures are **upscaled to fill 128×128 slots** (no longer centered)
+- Aligned to **top-left corner** of slot (simpler UV calculation)
 
 ### 5. Texture Editor ✅
 - **File**: `src/ui/texture_generator.rs`
@@ -378,9 +380,9 @@ The shader's UV calculation automatically divides the picture into a grid based 
    - Use larger pictures (e.g., 256×256 when supported) for better multi-frame cluster quality
 
 2. **Picture atlas** is fixed at 128×128 per slot:
-   - 64 slots available (~4 MB VRAM)
+   - 16 slots available (~1 MB VRAM, reduced from 64 slots for GPU compatibility)
    - LRU eviction when atlas is full
-   - Smaller pictures are centered in 128×128 slots
+   - Smaller pictures are upscaled to fill 128×128 slots (top-left alignment)
    - Larger pictures are rejected (must be ≤128×128)
 
 ### Design Decisions:
@@ -430,10 +432,11 @@ The shader's UV calculation automatically divides the picture into a grid based 
 - This ensures UV coordinates stay within [0, 1] without artifacts
 
 **Atlas Configuration:**
-- 64 slots × 128×128 pixels = 8192×128 atlas
-- ~4 MB VRAM usage
+- 16 slots × 128×128 pixels = 2048×128 atlas (reduced from 64 for GPU compatibility)
+- ~1 MB VRAM usage
 - LRU eviction when full
-- Smaller pictures centered in slots
+- Smaller pictures upscaled to fill 128×128 slots
+- Top-left alignment (simpler UV calculation)
 
 **Canvas Size System:**
 - `CanvasSize` struct with presets and custom size validation
@@ -443,9 +446,15 @@ The shader's UV calculation automatically divides the picture into a grid based 
 
 ---
 
-*Last Updated: 2026-01-23*
-*Phase Version: 2.6 - Variable Canvas Size Implementation*
+*Last Updated: 2026-01-27*
+*Phase Version: 2.7 - Atlas Optimization & Alignment Improvements*
 **Status**: Fully Functional
+
+**Recent Changes (Atlas Optimization):**
+- Reduced GPU atlas from 64 to 16 slots for better GPU compatibility
+- Changed picture alignment from centered to top-left (simpler UV calculation)
+- Smaller pictures now upscale to fill 128×128 slots instead of being centered
+- This ensures consistent sampling behavior across different picture sizes
 - Single frames: ✓ Working
 - Multi-frame clusters: ✓ Working (auto-scaling)
 - Variable canvas sizes: ✓ Working (1-128 range)

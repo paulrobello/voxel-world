@@ -1223,7 +1223,28 @@ Escape                      # Cancel tool
 - **Phase 5: In-Game Model Editor** (2026-01-03): ✅ COMPLETE
 - **Tinted Glass & Sub-voxel Translucency** (2026-01-03): ✅ COMPLETE
 
+- **Texture Editor Enhancements** (2026-01-27): ✅ COMPLETE
+  - **Text Tool Fixes**: Complete 5×7 bitmap font overhaul
+    - Fixed font format: proper 7 bytes per character (one per row, 5 bits per byte)
+    - Fixed bit extraction: `(row_byte >> (4 - col)) & 1` for correct column mapping
+    - Added comprehensive ASCII support: space (32) through Z (90) = 59 characters
+    - Punctuation: ! " # $ % & ' ( ) * + , - . / : ; < = > ? @
+    - Digits: 0-9
+    - Uppercase letters: A-Z
+    - Fixed character rendering: J, K, Z, comma, question mark, angle brackets
+    - Fixed hyphen/dollar swap issue
+    - Angle brackets now symmetrical with proper V shapes
+  - **Mirror Axis Visualization**: Red lines show mirror planes when enabled
+    - Mirror X (vertical flip): horizontal red line at canvas center
+    - Mirror Y (horizontal flip): vertical red line at canvas center
+    - Semi-transparent red color (rgba 255,100,100,180) for visibility
+  - **Live Text Preview**: See text as you type before committing
+    - Preview updates in real-time as you type in the text input field
+    - Text only commits to canvas when Enter is pressed
+    - Cursor automatically moves to end of text for continued typing
+    - Preview uses same preview_pixels system as shape tools
+
 ---
 
-*Last Updated: 2026-01-13*
-*Plan Version: 3.6 - Phase 18 Extended Building Tools II Complete*
+*Last Updated: 2026-01-27*
+*Plan Version: 3.7 - Texture Editor Enhancements Complete*
