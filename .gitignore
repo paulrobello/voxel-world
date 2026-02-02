@@ -36,9 +36,9 @@ __pycache__/
 # Generated visualizations
 layer_viz.html
 layer_viz_*.html
-voxel_world_layer_infographic.html
+voxel-world_layer_infographic.html
 
 # Scratch folder for one-off scripts and data transformations
 claude_scratch/
 .DS_Store
-voxel_world_screen_shot.png
+voxel-world_screen_shot.png

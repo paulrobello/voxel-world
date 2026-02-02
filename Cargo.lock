@@ -3882,7 +3882,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "voxel_world"
+name = "voxel-world"
 version = "0.1.0"
 dependencies = [
  "bincode",

@@ -24,7 +24,7 @@ impl App {
                     // Mark that we need to take a screenshot on the next render
                     // The actual screenshot will be taken in render()
                     println!(
-                        "[SCREENSHOT] Taking screenshot after {:.1}s (saving to voxel_world_screen_shot.png)",
+                        "[SCREENSHOT] Taking screenshot after {:.1}s (saving to voxel-world_screen_shot.png)",
                         elapsed
                     );
                 }

@@ -179,7 +179,7 @@ pub fn draw_picture_browser(
                 if ui_state.pictures.is_empty() {
                     ui.colored_label(
                         egui::Color32::from_gray(150),
-                        "No pictures found. Pictures are stored in ~/.voxel_world/pictures.bin",
+                        "No pictures found. Pictures are stored in ~/.voxel-world/pictures.bin",
                     );
                 } else {
                     ui.label("No pictures match your search.");
@@ -286,7 +286,7 @@ pub fn draw_picture_browser(
             ui.label(
                 egui::RichText::new(
                     "Select a picture to use when placing frames. \
-                    Pictures are stored in ~/.voxel_world/pictures.bin",
+                    Pictures are stored in ~/.voxel-world/pictures.bin",
                 )
                 .size(13.0)
                 .color(egui::Color32::from_gray(150)),

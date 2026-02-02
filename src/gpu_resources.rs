@@ -1207,6 +1207,7 @@ pub fn update_custom_texture_slot(
 /// Update a slot in the picture atlas with picture data.
 /// slot: 0-63, width: picture width (max 256), height: picture height (max 256)
 /// pixels: RGBA data (width × height × 4 bytes)
+#[allow(clippy::too_many_arguments)]
 pub fn update_picture_slot(
     memory_allocator: Arc<StandardMemoryAllocator>,
     command_buffer_allocator: Arc<StandardCommandBufferAllocator>,
@@ -2142,6 +2143,7 @@ const STAGING_POOL_MAX: usize = 12; // 2x ring buffer capacity
 /// * `graphics_queue_family` - Graphics queue family index for ownership transfers
 /// * `separate_transfer_queue` - Whether transfer and graphics queues are different families
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::type_complexity)]
 pub fn upload_chunks_batched(
     memory_allocator: &Arc<StandardMemoryAllocator>,
     command_buffer_allocator: &Arc<StandardCommandBufferAllocator>,

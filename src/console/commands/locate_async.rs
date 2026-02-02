@@ -107,8 +107,7 @@ fn update_biome_search(
         }
 
         // If we found something, return it
-        if search.best_match.is_some() {
-            let (pos, _) = search.best_match.unwrap();
+        if let Some((pos, _)) = search.best_match {
             let distance = ((search.min_distance as f64).sqrt()) as i32;
             let dx = pos.x - start_x;
             let dz = pos.z - start_z;
@@ -301,8 +300,7 @@ fn update_block_search(
             }
 
             // If we found something, return it
-            if search.best_match.is_some() {
-                let (pos, _) = search.best_match.unwrap();
+            if let Some((pos, _)) = search.best_match {
                 let distance = ((search.min_distance as f64).sqrt()) as i32;
                 let dx = pos.x - start_x;
                 let dz = pos.z - start_z;
@@ -464,8 +462,7 @@ fn update_cave_search(
             }
 
             // If we found something, return it
-            if search.best_match.is_some() {
-                let (pos, cave_size) = search.best_match.unwrap();
+            if let Some((pos, cave_size)) = search.best_match {
                 let distance = ((search.min_distance as f64).sqrt()) as i32;
                 let dx = pos.x - start_x;
                 let dz = pos.z - start_z;
@@ -631,8 +628,7 @@ fn update_river_search(
         }
 
         // If we found something, return it
-        if search.best_match.is_some() {
-            let (pos, river_type_id) = search.best_match.unwrap();
+        if let Some((pos, river_type_id)) = search.best_match {
             let distance = ((search.min_distance as f64).sqrt()) as i32;
             let dx = pos.x - start_x;
             let dz = pos.z - start_z;

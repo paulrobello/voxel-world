@@ -55,7 +55,7 @@ Style: Minecraft-style pixel art texture, flat top-down orthographic view, seaml
     resolution="high",
     model_tier="pro",
     negative_prompt="3D render, cube, isometric, perspective, shadows, lighting effects, depth, dimensional, rendered object, 3D model, box, block shape, geometric solid",
-    output_path="/Users/probello/Repos/voxel_world/textures/{block_type}_64x64.png"
+    output_path="/Users/probello/Repos/voxel-world/textures/{block_type}_64x64.png"
 )
 ```
 
@@ -64,7 +64,7 @@ Style: Minecraft-style pixel art texture, flat top-down orthographic view, seaml
 After generation completes, run the processing script:
 
 ```bash
-/Users/probello/Repos/voxel_world/.claude/skills/voxel-texture/scripts/process_texture.sh {block_type}
+/Users/probello/Repos/voxel-world/.claude/skills/voxel-texture/scripts/process_texture.sh {block_type}
 ```
 
 The script will:
@@ -210,7 +210,7 @@ Solution:
 
 ## Output Locations
 
-**Texture directory**: `/Users/probello/Repos/voxel_world/textures/`
+**Texture directory**: `/Users/probello/Repos/voxel-world/textures/`
 
 **File naming**:
 - `{block_type}_64x64.png` - Final game-ready 64x64 texture (REQUIRED)

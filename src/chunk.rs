@@ -1310,7 +1310,7 @@ impl Chunk {
                 // Pack custom data from model_data
                 for (idx, data) in &self.model_data {
                     let offset = idx * 4;
-                    let bytes = (data.custom_data as u32).to_le_bytes();
+                    let bytes = data.custom_data.to_le_bytes();
                     buf[offset..offset + 4].copy_from_slice(&bytes);
                 }
             }

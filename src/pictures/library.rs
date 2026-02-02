@@ -1,6 +1,6 @@
 //! Picture library for storing and managing user-created pictures.
 //!
-//! Pictures are stored globally in `~/.voxel_world/pictures.bin` and shared
+//! Pictures are stored globally in `~/.voxel-world/pictures.bin` and shared
 //! across all worlds. The library uses a simple binary format with zstd compression.
 
 use serde::{Deserialize, Serialize};
@@ -305,7 +305,7 @@ impl Picture {
 
 /// Library of pictures stored globally.
 ///
-/// Pictures are stored in `~/.voxel_world/pictures.bin` and persist across
+/// Pictures are stored in `~/.voxel-world/pictures.bin` and persist across
 /// game sessions and worlds.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PictureLibrary {
@@ -333,7 +333,7 @@ impl PictureLibrary {
     /// Returns the path to the library file.
     pub fn library_path() -> PathBuf {
         let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-        home.join(".voxel_world").join("pictures.bin")
+        home.join(".voxel-world").join("pictures.bin")
     }
 
     /// Loads the library from disk, or creates a new one if it doesn't exist.

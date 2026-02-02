@@ -29,16 +29,16 @@ ARGS ?=
 run: run-release
 
 run-no-build:
-	./target/release/voxel_world --seed $(SEED) $(ARGS)
+	./target/release/voxel-world --seed $(SEED) $(ARGS)
 
 run-release: build-release
-	./target/release/voxel_world --seed $(SEED) $(ARGS)
+	./target/release/voxel-world --seed $(SEED) $(ARGS)
 
 run-debug: build-debug
 	@echo "DYLD_LIBRARY_PATH=$(DYLD_LIBRARY_PATH)"
 	@echo "DYLD_FALLBACK_LIBRARY_PATH=$(DYLD_FALLBACK_LIBRARY_PATH)"
 	@echo "VK_ICD_FILENAMES=$(VK_ICD_FILENAMES)"
-	DYLD_LIBRARY_PATH=$(DYLD_LIBRARY_PATH) DYLD_FALLBACK_LIBRARY_PATH=$(DYLD_FALLBACK_LIBRARY_PATH) VK_ICD_FILENAMES=$(VK_ICD_FILENAMES) RUST_BACKTRACE=1 ./target/debug/voxel_world --seed $(SEED) $(ARGS)
+	DYLD_LIBRARY_PATH=$(DYLD_LIBRARY_PATH) DYLD_FALLBACK_LIBRARY_PATH=$(DYLD_FALLBACK_LIBRARY_PATH) VK_ICD_FILENAMES=$(VK_ICD_FILENAMES) RUST_BACKTRACE=1 ./target/debug/voxel-world --seed $(SEED) $(ARGS)
 
 # Profiling target (writes timestamped csv to profiles/)
 profile: run-profile
@@ -81,7 +81,7 @@ sprite-gen: build-release
 # Run game, take screenshot after 3s, exit after 4s (for visual debugging)
 # Usage: make run-cap-exit
 #        Set up your scene, position camera, wait for capture and auto-exit
-#        Screenshot saved to: voxel_world_screen_shot.png
+#        Screenshot saved to: voxel-world_screen_shot.png
 run-cap-exit: build-release
 	./target/release/voxel_world --seed $(SEED) --screenshot-delay 3 --exit-delay 4 $(ARGS)
 

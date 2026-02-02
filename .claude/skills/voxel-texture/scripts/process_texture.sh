@@ -14,7 +14,7 @@
 set -e
 
 BLOCK_TYPE="${1:?Usage: process_texture.sh <block_type>}"
-TEXTURES_DIR="/Users/probello/Repos/voxel_world/textures"
+TEXTURES_DIR="/Users/probello/Repos/voxel-world/textures"
 INPUT="${TEXTURES_DIR}/${BLOCK_TYPE}_64x64.png"
 PREVIEW="${TEXTURES_DIR}/${BLOCK_TYPE}_tiled_preview.png"
 

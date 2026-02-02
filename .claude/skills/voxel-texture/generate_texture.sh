@@ -5,7 +5,7 @@
 set -e
 
 BLOCK_TYPE="${1:?Usage: generate_texture.sh <block_type>}"
-TEXTURES_DIR="/Users/probello/Repos/voxel_world/textures"
+TEXTURES_DIR="/Users/probello/Repos/voxel-world/textures"
 OUTPUT_FILE="${TEXTURES_DIR}/${BLOCK_TYPE}_64x64.png"
 
 echo "Generating ${BLOCK_TYPE} texture..."

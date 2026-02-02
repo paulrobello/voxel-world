@@ -13,6 +13,7 @@ use nalgebra::Vector3;
 use std::path::Path;
 
 /// Render the HUD; returns true if render targets were recreated (matching HUDRenderer contract).
+#[allow(clippy::too_many_arguments)]
 pub fn render_hud(
     rcx: &mut RenderContext,
     ui: &mut UiState,

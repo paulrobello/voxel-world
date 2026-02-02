@@ -587,8 +587,7 @@ impl HUDRenderer {
                                         .size(11.0),
                                     );
                                 }
-                            } else if selection.pos1.is_some() {
-                                let pos = selection.pos1.unwrap();
+                            } else if let Some(pos) = selection.pos1 {
                                 ui.label(
                                     egui::RichText::new(format!(
                                         "Pos1: ({},{},{}) • Right-click to set Pos2",

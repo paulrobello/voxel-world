@@ -38,7 +38,7 @@ pub enum AutoFlyPattern {
 
 /// Voxel Game Engine - A Minecraft-like voxel game with GPU ray-marching rendering.
 #[derive(Parser, Debug, Clone)]
-#[command(name = "voxel_world")]
+#[command(name = "voxel-world")]
 #[command(version, about, long_about = None)]
 pub struct Args {
     /// Spawn X coordinate in world blocks (default: auto-find suitable location)
@@ -49,7 +49,7 @@ pub struct Args {
     #[arg(long, short = 'z')]
     pub spawn_z: Option<i32>,
 
-    /// Take screenshot after N seconds and save to voxel_world_screen_shot.png
+    /// Take screenshot after N seconds and save to voxel-world_screen_shot.png
     #[arg(long, short = 's')]
     pub screenshot_delay: Option<f64>,
 

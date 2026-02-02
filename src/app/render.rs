@@ -1606,7 +1606,7 @@ impl App {
                 &self.graphics.memory_allocator,
                 &self.graphics.command_buffer_allocator,
                 &image_view,
-                "voxel_world_screen_shot.png",
+                "voxel-world_screen_shot.png",
             );
             self.ui.screenshot_taken = true;
         }

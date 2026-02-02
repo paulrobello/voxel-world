@@ -1219,7 +1219,7 @@ impl ConsoleState {
                 CommandResult::Success("Console cleared.".to_string())
             }
             "frame" => {
-                if args.len() >= 1 && args[0].to_lowercase() == "picture" {
+                if !args.is_empty() && args[0].to_lowercase() == "picture" {
                     commands::picture(&args[1..], picture_library)
                 } else {
                     CommandResult::Error("Usage: /frame picture list|set|clear [args]".to_string())

@@ -395,15 +395,15 @@ impl TextureGeneratorUI {
         let mut changed = false;
 
         // Show editing mode indicator
-        if state.selected_slot.is_none() {
+        if let Some(slot) = state.selected_slot {
             ui.colored_label(
-                egui::Color32::from_rgb(100, 200, 100),
-                "Creating New Texture",
+                egui::Color32::from_rgb(100, 150, 255),
+                format!("Editing Slot {}", slot),
             );
         } else {
             ui.colored_label(
-                egui::Color32::from_rgb(100, 150, 255),
-                format!("Editing Slot {}", state.selected_slot.unwrap()),
+                egui::Color32::from_rgb(100, 200, 100),
+                "Creating New Texture",
             );
         }
         ui.add_space(4.0);
@@ -1101,7 +1101,10 @@ impl TextureGeneratorUI {
             if state.canvas.mirror_x && height > 1 {
                 let center_y = rect.min.y + (height as f32 / 2.0) * zoom;
                 painter.line_segment(
-                    [egui::pos2(rect.min.x, center_y), egui::pos2(rect.max.x, center_y)],
+                    [
+                        egui::pos2(rect.min.x, center_y),
+                        egui::pos2(rect.max.x, center_y),
+                    ],
                     egui::Stroke::new(2.0, mirror_color),
                 );
             }
@@ -1110,7 +1113,10 @@ impl TextureGeneratorUI {
             if state.canvas.mirror_y && width > 1 {
                 let center_x = rect.min.x + (width as f32 / 2.0) * zoom;
                 painter.line_segment(
-                    [egui::pos2(center_x, rect.min.y), egui::pos2(center_x, rect.max.y)],
+                    [
+                        egui::pos2(center_x, rect.min.y),
+                        egui::pos2(center_x, rect.max.y),
+                    ],
                     egui::Stroke::new(2.0, mirror_color),
                 );
             }

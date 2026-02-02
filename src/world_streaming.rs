@@ -362,6 +362,7 @@ impl App {
 
         // Collect chunk data (sequential - needs world access) while GPU is clearing
         let texture_origin = self.sim.texture_origin;
+        #[allow(clippy::type_complexity)]
         let mut raw_data: Vec<(Vector3<i32>, Vec<u8>, Vec<u8>, Vec<u8>)> = Vec::new();
         for (pos, chunk) in self.sim.world.chunks() {
             if world_pos_to_chunk_index(texture_origin, *pos).is_some() {
@@ -1044,6 +1045,7 @@ impl App {
     }
 
     /// Uploads chunk data that is already slice-backed to GPU.
+    #[allow(clippy::type_complexity)]
     fn upload_chunk_refs(&self, uploads: &[(Vector3<i32>, &[u8], &[u8], &[u8])]) {
         if uploads.is_empty() {
             return;
