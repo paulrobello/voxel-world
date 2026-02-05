@@ -13,7 +13,7 @@ egui_winit_vulkano = "0.28.0"
 winit_input_helper = { git = "https://github.com/rukai/winit_input_helper", rev = "638b12fe73b8eb08ed9a8a107d554f4c3b99e8cf" }
 
 nalgebra = { version = "0.34.1", features = ["bytemuck"] }
-bytemuck = { version = "1.24.0", features = ["derive"] }
+bytemuck = { version = "1.25.0", features = ["derive"] }
 
 notify = "8.2.0"
 ply-rs = "0.1.3"
