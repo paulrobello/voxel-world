@@ -14,8 +14,8 @@ use crate::chunk::{BlockType, CHUNK_VOLUME};
 
 /// Compresses a SerializedChunk using Zstd.
 pub fn compress_chunk(chunk: &SerializedChunk) -> Result<Vec<u8>, String> {
-    let binary =
-        bincode::serialize(chunk).map_err(|e| format!("Bincode serialization failed: {}", e))?;
+    let binary = bincode::serde::encode_to_vec(chunk, bincode::config::legacy())
+        .map_err(|e| format!("Bincode serialization failed: {}", e))?;
 
     let compressed =
         zstd::encode_all(&binary[..], 3).map_err(|e| format!("Zstd compression failed: {}", e))?;
@@ -28,8 +28,9 @@ pub fn decompress_chunk(data: &[u8]) -> Result<SerializedChunk, String> {
     let decompressed =
         zstd::decode_all(data).map_err(|e| format!("Zstd decompression failed: {}", e))?;
 
-    let chunk: SerializedChunk = bincode::deserialize(&decompressed)
-        .map_err(|e| format!("Bincode deserialization failed: {}", e))?;
+    let (chunk, _): (SerializedChunk, _) =
+        bincode::serde::decode_from_slice(&decompressed, bincode::config::legacy())
+            .map_err(|e| format!("Bincode deserialization failed: {}", e))?;
 
     Ok(chunk)
 }

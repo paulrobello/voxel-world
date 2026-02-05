@@ -210,9 +210,10 @@ impl LibraryManager {
 
         let path = self.root_path.join(format!("{}.vxm", safe_name));
         let file = File::create(path)?;
-        let writer = BufWriter::new(file);
+        let mut writer = BufWriter::new(file);
 
-        bincode::serialize_into(writer, &vxm).map_err(io::Error::other)?;
+        bincode::serde::encode_into_std_write(&vxm, &mut writer, bincode::config::legacy())
+            .map_err(io::Error::other)?;
 
         Ok(())
     }
@@ -221,10 +222,13 @@ impl LibraryManager {
     pub fn load_model(&self, name: &str) -> io::Result<SubVoxelModel> {
         let path = self.root_path.join(format!("{}.vxm", name));
         let file = File::open(path)?;
-        let reader = BufReader::new(file);
+        let mut reader = BufReader::new(file);
 
-        let vxm: VxmFile = bincode::deserialize_from(reader)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+        let vxm = bincode::serde::decode_from_std_read::<VxmFile, _, _>(
+            &mut reader,
+            bincode::config::legacy(),
+        )
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
         if vxm.magic != VXM_MAGIC {
             return Err(io::Error::new(
@@ -346,8 +350,9 @@ impl WorldModelStore {
     pub fn save(&self, world_dir: &std::path::Path) -> io::Result<()> {
         let path = world_dir.join("models.dat");
         let file = File::create(path)?;
-        let writer = BufWriter::new(file);
-        bincode::serialize_into(writer, self).map_err(io::Error::other)?;
+        let mut writer = BufWriter::new(file);
+        bincode::serde::encode_into_std_write(self, &mut writer, bincode::config::legacy())
+            .map_err(io::Error::other)?;
         Ok(())
     }
 
@@ -359,9 +364,12 @@ impl WorldModelStore {
             return Ok(None);
         }
         let file = File::open(path)?;
-        let reader = BufReader::new(file);
-        let store: Self = bincode::deserialize_from(reader)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+        let mut reader = BufReader::new(file);
+        let store = bincode::serde::decode_from_std_read::<WorldModelStore, _, _>(
+            &mut reader,
+            bincode::config::legacy(),
+        )
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
         Ok(Some(store))
     }
 
@@ -419,8 +427,9 @@ impl DoorPairStore {
     pub fn save(&self, world_dir: &std::path::Path) -> io::Result<()> {
         let path = world_dir.join("door_pairs.dat");
         let file = File::create(path)?;
-        let writer = BufWriter::new(file);
-        bincode::serialize_into(writer, self).map_err(io::Error::other)?;
+        let mut writer = BufWriter::new(file);
+        bincode::serde::encode_into_std_write(self, &mut writer, bincode::config::legacy())
+            .map_err(io::Error::other)?;
         Ok(())
     }
 
@@ -432,9 +441,12 @@ impl DoorPairStore {
             return Ok(None);
         }
         let file = File::open(path)?;
-        let reader = BufReader::new(file);
-        let store: Self = bincode::deserialize_from(reader)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+        let mut reader = BufReader::new(file);
+        let store = bincode::serde::decode_from_std_read::<DoorPairStore, _, _>(
+            &mut reader,
+            bincode::config::legacy(),
+        )
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
         Ok(Some(store))
     }
 

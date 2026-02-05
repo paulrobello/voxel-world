@@ -224,8 +224,8 @@ impl StencilFile {
         self.validate()?;
 
         // Serialize with bincode
-        let binary =
-            bincode::serialize(self).map_err(|e| format!("Bincode serialization failed: {}", e))?;
+        let binary = bincode::serde::encode_to_vec(self, bincode::config::legacy())
+            .map_err(|e| format!("Bincode serialization failed: {}", e))?;
 
         // Compress with zstd level 3
         let compressed = zstd::encode_all(&binary[..], 3)
@@ -241,8 +241,9 @@ impl StencilFile {
             zstd::decode_all(data).map_err(|e| format!("Zstd decompression failed: {}", e))?;
 
         // Deserialize with bincode
-        let stencil: StencilFile = bincode::deserialize(&decompressed)
-            .map_err(|e| format!("Bincode deserialization failed: {}", e))?;
+        let (stencil, _): (StencilFile, _) =
+            bincode::serde::decode_from_slice(&decompressed, bincode::config::legacy())
+                .map_err(|e| format!("Bincode deserialization failed: {}", e))?;
 
         // Validate after deserialization
         stencil.validate()?;
