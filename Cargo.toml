@@ -39,4 +39,4 @@ objc2 = "0.6.3"
 objc2-app-kit = { version = "0.3.2", features = ["NSCursor"] }
 
 [dev-dependencies]
-tempfile = "3.24.0"
+tempfile = "3.25.0"
