@@ -149,6 +149,9 @@ impl App {
                 }
                 self.sim.world.invalidate_minimap_cache(target.x, target.z);
 
+                // Sync block break to server in multiplayer mode
+                self.sync_block_break([target.x, target.y, target.z]);
+
                 // Break mirrored positions if mirror tool is active
                 if self.ui.mirror_tool.active && self.ui.mirror_tool.plane_set {
                     let mirrored_positions = self.ui.mirror_tool.mirror_position(target);
@@ -1352,6 +1355,36 @@ impl App {
             self.sim.lava_grid.place_source(place_pos);
         } else {
             self.sim.lava_grid.on_block_placed(place_pos);
+        }
+
+        // Sync block placement to server in multiplayer mode
+        if self.is_multiplayer() {
+            let block_data = crate::net::protocol::BlockData {
+                block_type: block_to_place,
+                model_data: if block_to_place == BlockType::Model {
+                    self.sim.world.get_model_data(place_pos)
+                } else {
+                    None
+                },
+                paint_data: if block_to_place == BlockType::Painted {
+                    self.sim.world.get_paint_data(place_pos)
+                } else {
+                    None
+                },
+                tint_index: if block_to_place == BlockType::TintedGlass
+                    || block_to_place == BlockType::Crystal
+                {
+                    Some(self.ui.hotbar_tint_indices[self.ui.hotbar_index])
+                } else {
+                    None
+                },
+                water_type: if block_to_place == BlockType::Water {
+                    self.sim.world.get_water_type(place_pos)
+                } else {
+                    None
+                },
+            };
+            self.sync_block_placement([place_pos.x, place_pos.y, place_pos.z], block_data);
         }
 
         true

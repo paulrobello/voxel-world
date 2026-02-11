@@ -264,22 +264,24 @@ make run ARGS="--connect 127.0.0.1:5000"
 - [x] Server reconciliation
 - [x] Remote player interpolation
 
-### Phase 3: Block Synchronization
-- [ ] Block place/break broadcast
-- [ ] Bulk operation messages
-- [ ] Area of Interest (AoI)
-- [ ] Block metadata sync
+### Phase 3: Block Synchronization ✅
+- [x] Block place/break broadcast
+- [x] Bulk operation messages
+- [x] Area of Interest (AoI)
+- [x] Block metadata sync
 
 ### Phase 4: Chunk Streaming
 - [ ] Chunk request/response system
-- [ ] LZ4 compression
-- [ ] Priority queue with cancellation
+- [x] LZ4 compression
+- [x] Priority queue with cancellation
 - [ ] Delta compression (future)
 
 ### Phase 5: Integrated Server ✅
 - [x] GameMode enum (SinglePlayer, Host, Client)
 - [x] CLI arguments (--host, --connect, --port)
 - [x] MultiplayerState in app_state
+- [x] Game loop integration (multiplayer.update())
+- [x] Block sync integration (send/receive block changes)
 - [ ] Server thread management
 - [ ] UI for host/join
 
@@ -315,11 +317,11 @@ make run ARGS="--connect 127.0.0.1:5000"
 **Completed:**
 - ✅ Phase 1: Foundation - Networking module, protocol, channels
 - ✅ Phase 2: Player Synchronization - Prediction, reconciliation, interpolation
-- ✅ Phase 5 (Partial): CLI arguments, MultiplayerState, GameMode enum
+- ✅ Phase 3: Block Synchronization - Block change broadcast, metadata sync, AoI
+- ✅ Phase 5: Integrated Server - CLI arguments, MultiplayerState, game loop integration
 
 **In Progress:**
-- Phase 3: Block Synchronization
-- Phase 4: Chunk Streaming
+- Phase 4: Chunk Streaming (LZ4 compression and priority queue implemented, needs world integration)
 
 **Future:**
 - Phase 6: Dedicated Server

@@ -10,7 +10,9 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use crate::config::GameMode;
-use crate::net::{ChunkSyncManager, GameClient, GameServer, PredictionState, RemotePlayer};
+use crate::net::{
+    BlockSyncManager, ChunkSyncManager, GameClient, GameServer, PredictionState, RemotePlayer,
+};
 
 /// Multiplayer state for the game.
 pub struct MultiplayerState {
@@ -26,8 +28,12 @@ pub struct MultiplayerState {
     pub remote_players: Vec<RemotePlayer>,
     /// Chunk sync manager.
     pub chunk_sync: ChunkSyncManager,
+    /// Block sync manager for block changes.
+    pub block_sync: BlockSyncManager,
     /// Input sequence number.
     pub input_sequence: u32,
+    /// Pending block changes to apply to the world (received from server).
+    pub pending_block_changes: Vec<crate::net::protocol::BlockChanged>,
 }
 
 impl Default for MultiplayerState {
@@ -46,7 +52,9 @@ impl MultiplayerState {
             prediction: PredictionState::new(),
             remote_players: Vec::new(),
             chunk_sync: ChunkSyncManager::new(),
+            block_sync: BlockSyncManager::new(false),
             input_sequence: 0,
+            pending_block_changes: Vec::new(),
         }
     }
 
@@ -163,6 +171,20 @@ impl MultiplayerState {
                 self.chunk_sync.mark_received(chunk.position);
                 // TODO: Decompress and apply chunk data
             }
+            ServerMessage::BlockChanged(change) => {
+                // Queue block change for application to world
+                self.pending_block_changes.push(change.clone());
+            }
+            ServerMessage::BlocksChanged(changes) => {
+                // Queue multiple block changes
+                self.pending_block_changes
+                    .extend(changes.changes.iter().map(|(pos, block)| {
+                        crate::net::protocol::BlockChanged {
+                            position: *pos,
+                            block: block.clone(),
+                        }
+                    }));
+            }
             _ => {}
         }
     }
@@ -185,6 +207,31 @@ impl MultiplayerState {
             client.send_input(self.input_sequence, position, velocity, yaw, pitch, actions);
             self.input_sequence = self.input_sequence.wrapping_add(1);
         }
+    }
+
+    /// Sends a block placement to the server.
+    pub fn send_place_block(&mut self, position: [i32; 3], block: crate::net::protocol::BlockData) {
+        if let Some(ref mut client) = self.client {
+            client.send_place_block(position, block);
+        }
+    }
+
+    /// Sends a block break to the server.
+    pub fn send_break_block(&mut self, position: [i32; 3]) {
+        if let Some(ref mut client) = self.client {
+            client.send_break_block(position);
+        }
+    }
+
+    /// Takes pending block changes and clears the queue.
+    /// Call this from the game loop to apply changes to the world.
+    pub fn take_pending_block_changes(&mut self) -> Vec<crate::net::protocol::BlockChanged> {
+        std::mem::take(&mut self.pending_block_changes)
+    }
+
+    /// Returns true if there are pending block changes to apply.
+    pub fn has_pending_block_changes(&self) -> bool {
+        !self.pending_block_changes.is_empty()
     }
 
     /// Returns true if connected to a server.

@@ -322,6 +322,14 @@ impl App {
             return;
         };
 
+        // Update multiplayer networking (process server/client updates)
+        if self.multiplayer.mode != crate::config::GameMode::SinglePlayer {
+            self.multiplayer.update(Duration::from_secs_f64(delta_time));
+
+            // Apply any remote block changes received from server
+            self.apply_remote_block_changes();
+        }
+
         if self.input.close_requested() {
             println!("[Storage] Saving world before exit...");
             self.sim

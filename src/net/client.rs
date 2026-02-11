@@ -13,7 +13,10 @@ use renet_netcode::NetcodeClientTransport;
 
 use crate::net::auth::{ClientAuth, ConnectionState, ConnectionTracker};
 use crate::net::channel::create_connection_config;
-use crate::net::protocol::{ClientMessage, InputActions, PlayerInput, ServerMessage};
+use crate::net::protocol::{
+    BlockData, BreakBlock, BulkOperation, ClientMessage, InputActions, PlaceBlock, PlayerInput,
+    ServerMessage,
+};
 
 /// Voxel-world game client.
 pub struct GameClient {
@@ -267,6 +270,33 @@ impl GameClient {
 
         if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
             self.client.send_message(2, renet::Bytes::from(encoded));
+        }
+    }
+
+    /// Sends a block placement to the server.
+    pub fn send_place_block(&mut self, position: [i32; 3], block: BlockData) {
+        let msg = ClientMessage::PlaceBlock(PlaceBlock { position, block });
+
+        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+            self.client.send_message(1, renet::Bytes::from(encoded)); // Channel 1 = BlockUpdates
+        }
+    }
+
+    /// Sends a block break to the server.
+    pub fn send_break_block(&mut self, position: [i32; 3]) {
+        let msg = ClientMessage::BreakBlock(BreakBlock { position });
+
+        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+            self.client.send_message(1, renet::Bytes::from(encoded)); // Channel 1 = BlockUpdates
+        }
+    }
+
+    /// Sends a bulk operation to the server.
+    pub fn send_bulk_operation(&mut self, operation: BulkOperation) {
+        let msg = ClientMessage::BulkOperation(operation);
+
+        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+            self.client.send_message(1, renet::Bytes::from(encoded)); // Channel 1 = BlockUpdates
         }
     }
 

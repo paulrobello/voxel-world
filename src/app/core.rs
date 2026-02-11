@@ -15,11 +15,101 @@ pub struct App {
     pub input: InputState,
     pub prefs: UserPreferences,
     /// Multiplayer state (server/client management).
-    #[allow(dead_code)]
     pub multiplayer: MultiplayerState,
 }
 
 impl App {
+    /// Returns true if we're in multiplayer mode (host or client).
+    pub fn is_multiplayer(&self) -> bool {
+        self.multiplayer.mode != crate::config::GameMode::SinglePlayer
+    }
+
+    /// Returns true if connected to a server (as host's local client or as remote client).
+    pub fn is_connected_to_server(&self) -> bool {
+        self.multiplayer.is_connected()
+    }
+
+    /// Syncs a block placement to the server (if in multiplayer mode).
+    pub fn sync_block_placement(
+        &mut self,
+        position: [i32; 3],
+        block: crate::net::protocol::BlockData,
+    ) {
+        if self.is_connected_to_server() {
+            self.multiplayer.send_place_block(position, block);
+        }
+    }
+
+    /// Syncs a block break to the server (if in multiplayer mode).
+    pub fn sync_block_break(&mut self, position: [i32; 3]) {
+        if self.is_connected_to_server() {
+            self.multiplayer.send_break_block(position);
+        }
+    }
+
+    /// Applies pending block changes from the server to the world.
+    /// Call this from the game loop to apply remote block changes.
+    pub fn apply_remote_block_changes(&mut self) {
+        if !self.multiplayer.has_pending_block_changes() {
+            return;
+        }
+
+        let changes = self.multiplayer.take_pending_block_changes();
+        for change in changes {
+            let pos =
+                nalgebra::Vector3::new(change.position[0], change.position[1], change.position[2]);
+
+            // Apply block type and metadata based on type
+            let block_type = change.block.block_type;
+
+            match block_type {
+                BlockType::Model => {
+                    if let Some(model_data) = &change.block.model_data {
+                        self.sim.world.set_model_block_with_data(
+                            pos,
+                            model_data.model_id,
+                            model_data.rotation,
+                            model_data.waterlogged,
+                            model_data.custom_data,
+                        );
+                    }
+                }
+                BlockType::TintedGlass => {
+                    let tint_index = change.block.tint_index.unwrap_or(0);
+                    self.sim.world.set_tinted_glass_block(pos, tint_index);
+                }
+                BlockType::Crystal => {
+                    let tint_index = change.block.tint_index.unwrap_or(0);
+                    self.sim.world.set_crystal_block(pos, tint_index);
+                }
+                BlockType::Painted => {
+                    if let Some(paint_data) = &change.block.paint_data {
+                        self.sim.world.set_painted_block_full(
+                            pos,
+                            paint_data.texture_idx,
+                            paint_data.tint_idx,
+                            paint_data.blend_mode,
+                        );
+                    }
+                }
+                BlockType::Water => {
+                    let water_type = change
+                        .block
+                        .water_type
+                        .unwrap_or(crate::chunk::WaterType::Ocean);
+                    self.sim.world.set_water_block(pos, water_type);
+                }
+                _ => {
+                    // Standard block types
+                    self.sim.world.set_block(pos, block_type);
+                }
+            }
+
+            // Invalidate minimap cache
+            self.sim.world.invalidate_minimap_cache(pos.x, pos.z);
+        }
+    }
+
     /// Returns the currently selected block from the hotbar.
     pub fn selected_block(&self) -> BlockType {
         self.ui.hotbar_blocks[self.ui.hotbar_index]
