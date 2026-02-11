@@ -68,7 +68,9 @@ pub fn tint_color(tint_index: u8) -> [f32; 3] {
 }
 
 /// Block types that can exist in the world.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Hash, serde::Serialize, serde::Deserialize,
+)]
 #[repr(u8)]
 pub enum BlockType {
     #[default]
@@ -155,7 +157,9 @@ pub enum BlockType {
 }
 
 /// Water types for enhanced water system.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Hash, serde::Serialize, serde::Deserialize,
+)]
 #[repr(u8)]
 pub enum WaterType {
     #[default]
@@ -182,7 +186,7 @@ impl WaterType {
 /// Metadata for a block that uses a sub-voxel model.
 ///
 /// This is stored sparsely in chunks - only blocks of type `Model` have metadata.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct BlockModelData {
     /// Model ID from the model registry (1 = torch, 2 = slab_bottom, etc.).
     pub model_id: u8,
@@ -200,7 +204,7 @@ pub struct BlockModelData {
 }
 
 /// Metadata for a paintable block (per-block texture + tint + blend mode).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct BlockPaintData {
     /// Atlas texture index to sample (0-based, or 128+ for custom textures).
     pub texture_idx: u8,

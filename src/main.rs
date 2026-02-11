@@ -53,6 +53,7 @@ mod gpu_resources;
 mod hot_reload;
 mod hud;
 mod lava;
+mod net;
 mod paint;
 mod particles;
 mod pictures;
