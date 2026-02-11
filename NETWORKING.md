@@ -19,8 +19,8 @@ Voxel-world supports both single-player and multiplayer modes through an integra
 
 | Layer | Crate | Version | Purpose |
 |-------|-------|---------|---------|
-| Networking | `renet` | 0.24 | UDP-based game networking |
-| Authentication | `renet_netcode` | 0.24 | Secure handshake, encryption |
+| Networking | `renet` | 2.0 | UDP-based game networking |
+| Authentication | `renet_netcode` | 2.0 | Secure handshake, encryption |
 | Serialization (Messages) | `bincode` | 2.0 | Fast message serialization |
 | Compression | `lz4_flex` | 0.11 | Chunk data compression |
 | Async Runtime | `tokio` | 1.x | Async networking support |
@@ -185,33 +185,38 @@ src/
 ├── net/
 │   ├── mod.rs              # Module exports
 │   ├── channel.rs          # Renet channel configuration
-│   ├── protocol.rs         # Message types (bincode)
-│   ├── server.rs           # RenetServer wrapper
-│   ├── client.rs           # RenetClient wrapper
+│   ├── protocol.rs         # Message types (bincode serialization)
+│   ├── server.rs           # GameServer wrapper (RenetServer)
+│   ├── client.rs           # GameClient wrapper (RenetClient)
 │   ├── chunk_sync.rs       # Chunk streaming with priority queue
 │   ├── player_sync.rs      # Player position sync + prediction
-│   ├── block_sync.rs       # Block change broadcasting
-│   └── auth.rs             # Connection handshake
-├── server/
-│   ├── mod.rs              # Server module
-│   ├── session.rs          # Player session management
-│   ├── world_host.rs       # Authoritative world wrapper
-│   └── commands.rs         # Server-side command handling
-└── app_state/
-    └── multiplayer.rs      # GameMode enum
+│   ├── block_sync.rs       # Block change broadcasting + AoI
+│   └── auth.rs             # Connection handshake (renet_netcode)
+├── app_state/
+│   └── multiplayer.rs      # MultiplayerState (server/client management)
+├── config.rs               # CLI args (--host, --connect, --port)
+└── app/
+    ├── core.rs             # App struct with multiplayer field
+    └── init.rs             # Multiplayer initialization
 ```
 
 ## CLI Arguments
 
 ```bash
-# Host a multiplayer game
-make run ARGS="--multiplayer --host"
+# Single-player (default)
+make run
+
+# Host a multiplayer game (integrated server)
+make run ARGS="--host"
+
+# Host on a specific port (default: 5000)
+make run ARGS="--host --port 5001"
 
 # Join a multiplayer game
-make run ARGS="--multiplayer --connect 192.168.1.100:5000"
+make run ARGS="--connect 192.168.1.100:5000"
 
-# Specify port (default: 5000)
-make run ARGS="--multiplayer --host --port 5001"
+# Join localhost server
+make run ARGS="--connect 127.0.0.1:5000"
 ```
 
 ## Security
@@ -246,18 +251,18 @@ make run ARGS="--multiplayer --host --port 5001"
 ## Implementation Phases
 
 ### Phase 1: Foundation ✅
-- [x] Add networking dependencies
+- [x] Add networking dependencies (renet 2.0, renet_netcode 2.0, lz4_flex, tokio)
 - [x] Create `src/net/` module structure
-- [x] Define protocol message types
-- [x] Configure renet channels
-- [ ] Basic server/client connection handshake
+- [x] Define protocol message types with bincode
+- [x] Configure renet channels (PlayerMovement, BlockUpdates, GameState, ChunkStream)
+- [x] Basic server/client connection handshake
 
-### Phase 2: Player Synchronization
-- [ ] Player join/leave messages
-- [ ] Position broadcasting
-- [ ] Client-side prediction
-- [ ] Server reconciliation
-- [ ] Remote player interpolation
+### Phase 2: Player Synchronization ✅
+- [x] Player join/leave messages
+- [x] Position broadcasting (unreliable channel)
+- [x] Client-side prediction implementation
+- [x] Server reconciliation
+- [x] Remote player interpolation
 
 ### Phase 3: Block Synchronization
 - [ ] Block place/break broadcast
@@ -271,8 +276,10 @@ make run ARGS="--multiplayer --host --port 5001"
 - [ ] Priority queue with cancellation
 - [ ] Delta compression (future)
 
-### Phase 5: Integrated Server
-- [ ] GameMode enum
+### Phase 5: Integrated Server ✅
+- [x] GameMode enum (SinglePlayer, Host, Client)
+- [x] CLI arguments (--host, --connect, --port)
+- [x] MultiplayerState in app_state
 - [ ] Server thread management
 - [ ] UI for host/join
 
@@ -288,10 +295,10 @@ make run ARGS="--multiplayer --host --port 5001"
 
 ```bash
 # Terminal 1: Host game
-make run ARGS="--multiplayer --host"
+make run ARGS="--host"
 
-# Terminal 2: Join game
-make run ARGS="--multiplayer --connect 127.0.0.1:5000"
+# Terminal 2: Join game (in a separate terminal)
+make run ARGS="--connect 127.0.0.1:5000"
 ```
 
 ### Verification Checklist
@@ -302,3 +309,17 @@ make run ARGS="--multiplayer --connect 127.0.0.1:5000"
 - [ ] Large templates sync without lag
 - [ ] Player movement is smooth (prediction working)
 - [ ] No desync after extended play
+
+## Current Status
+
+**Completed:**
+- ✅ Phase 1: Foundation - Networking module, protocol, channels
+- ✅ Phase 2: Player Synchronization - Prediction, reconciliation, interpolation
+- ✅ Phase 5 (Partial): CLI arguments, MultiplayerState, GameMode enum
+
+**In Progress:**
+- Phase 3: Block Synchronization
+- Phase 4: Chunk Streaming
+
+**Future:**
+- Phase 6: Dedicated Server
