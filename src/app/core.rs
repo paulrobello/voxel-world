@@ -1,6 +1,6 @@
 //! Core App struct definition and basic methods
 
-use crate::app_state::{Graphics, InputState, UiState, WorldSim};
+use crate::app_state::{Graphics, InputState, MultiplayerState, UiState, WorldSim};
 use crate::chunk::BlockType;
 use crate::config::Args;
 use crate::user_prefs::UserPreferences;
@@ -14,6 +14,9 @@ pub struct App {
     pub ui: UiState,
     pub input: InputState,
     pub prefs: UserPreferences,
+    /// Multiplayer state (server/client management).
+    #[allow(dead_code)]
+    pub multiplayer: MultiplayerState,
 }
 
 impl App {

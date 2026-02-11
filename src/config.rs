@@ -2,6 +2,19 @@ use clap::{Parser, ValueEnum};
 use serde::{Deserialize, Serialize};
 use winit::dpi::PhysicalSize;
 
+/// Game mode determining multiplayer state
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[allow(dead_code)]
+pub enum GameMode {
+    /// Single player (no networking)
+    #[default]
+    SinglePlayer,
+    /// Hosting an integrated server
+    Host,
+    /// Connected to a remote server
+    Client,
+}
+
 /// World generation type
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, ValueEnum, Serialize, Deserialize)]
 pub enum WorldGenType {
@@ -133,6 +146,44 @@ pub struct Args {
     /// Benchmark terrain style: flat or hills (only used with --world-gen benchmark)
     #[arg(long, value_enum, default_value_t = BenchmarkTerrain::Flat)]
     pub benchmark_terrain: BenchmarkTerrain,
+
+    // ========================================================================
+    // Multiplayer options
+    // ========================================================================
+    /// Enable multiplayer mode (use with --host or --connect)
+    #[arg(long)]
+    pub multiplayer: bool,
+
+    /// Host a multiplayer server (integrated server running in-game)
+    #[arg(long)]
+    pub host: bool,
+
+    /// Connect to a multiplayer server at the specified address
+    #[arg(long, value_name = "ADDRESS")]
+    pub connect: Option<String>,
+
+    /// Server port for hosting or connecting (default: 5000)
+    #[arg(long, default_value_t = 5000)]
+    pub port: u16,
+}
+
+#[allow(dead_code)]
+impl Args {
+    /// Returns the game mode based on CLI arguments.
+    pub fn game_mode(&self) -> GameMode {
+        if self.host {
+            GameMode::Host
+        } else if self.connect.is_some() {
+            GameMode::Client
+        } else {
+            GameMode::SinglePlayer
+        }
+    }
+
+    /// Returns true if multiplayer is enabled (host or client).
+    pub fn is_multiplayer(&self) -> bool {
+        self.multiplayer || self.host || self.connect.is_some()
+    }
 }
 
 pub const INITIAL_WINDOW_RESOLUTION: PhysicalSize<u32> = PhysicalSize::new(1200, 1080);

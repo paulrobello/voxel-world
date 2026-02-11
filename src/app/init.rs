@@ -1,7 +1,9 @@
 //! App initialization
 
 use super::App;
-use crate::app_state::{AutoProfileFeature, Graphics, InputState, PaletteTab, UiState, WorldSim};
+use crate::app_state::{
+    AutoProfileFeature, Graphics, InputState, MultiplayerState, PaletteTab, UiState, WorldSim,
+};
 use crate::atmosphere;
 use crate::block_update::BlockUpdateQueue;
 use crate::chunk::CHUNK_SIZE;
@@ -673,6 +675,38 @@ impl App {
             skip_input_frame: false,
         };
 
+        // Initialize multiplayer state based on CLI args
+        let mut multiplayer = MultiplayerState::new();
+        if args.is_multiplayer() {
+            let world_gen_type: u8 = match args.world_gen {
+                crate::config::WorldGenType::Normal => 0,
+                crate::config::WorldGenType::Flat => 1,
+                crate::config::WorldGenType::Benchmark => 2,
+            };
+
+            match args.game_mode() {
+                crate::config::GameMode::Host => {
+                    println!("[Multiplayer] Starting server on port {}...", args.port);
+                    match multiplayer.start_host(args.port, seed, world_gen_type) {
+                        Ok(()) => {
+                            println!("[Multiplayer] Server started. Local client connecting...")
+                        }
+                        Err(e) => eprintln!("[Multiplayer] Failed to start server: {}", e),
+                    }
+                }
+                crate::config::GameMode::Client => {
+                    if let Some(ref address) = args.connect {
+                        println!("[Multiplayer] Connecting to {}...", address);
+                        match multiplayer.connect(address) {
+                            Ok(()) => println!("[Multiplayer] Connecting..."),
+                            Err(e) => eprintln!("[Multiplayer] Failed to connect: {}", e),
+                        }
+                    }
+                }
+                crate::config::GameMode::SinglePlayer => {}
+            }
+        }
+
         App {
             args,
             start_time,
@@ -681,6 +715,7 @@ impl App {
             ui,
             input,
             prefs,
+            multiplayer,
         }
     }
 }
