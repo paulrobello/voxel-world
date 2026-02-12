@@ -13,16 +13,25 @@ use crate::chunk::Chunk;
 use crate::config::GameMode;
 use crate::net::{
     BlockSyncManager, ChunkSyncManager, DiscoveredServer, DiscoveryResponder, GameClient,
-    GameServer, LanDiscovery, PredictionState, RemotePlayer, SerializedChunk,
+    GameServer, LanDiscovery, PredictionState, RemotePlayer, SerializedChunk, ServerCommand,
+    ServerThread, ServerThreadEvent,
 };
 use nalgebra::Vector3;
+
+/// Whether to use threaded server mode (experimental).
+/// When enabled, server network processing runs in a dedicated thread.
+const USE_THREADED_SERVER: bool = false;
 
 /// Multiplayer state for the game.
 pub struct MultiplayerState {
     /// Current game mode.
     pub mode: GameMode,
-    /// Server instance (only when hosting).
+    /// Server instance (only when hosting, non-threaded mode).
     pub server: Option<GameServer>,
+    /// Server thread (only when hosting, threaded mode).
+    server_thread: Option<ServerThread>,
+    /// Whether threaded server mode is enabled.
+    use_threaded_server: bool,
     /// Client instance (when hosting or connecting).
     pub client: Option<GameClient>,
     /// Prediction state for client-side prediction.
@@ -73,6 +82,8 @@ impl MultiplayerState {
         Self {
             mode: GameMode::SinglePlayer,
             server: None,
+            server_thread: None,
+            use_threaded_server: USE_THREADED_SERVER,
             client: None,
             prediction: PredictionState::new(),
             remote_players: Vec::new(),
@@ -102,7 +113,15 @@ impl MultiplayerState {
         world_gen: u8,
     ) -> Result<(), String> {
         let addr: SocketAddr = ([0, 0, 0, 0], port).into();
-        self.server = Some(GameServer::new(addr, world_seed, world_gen)?);
+
+        if self.use_threaded_server {
+            // Spawn server in dedicated thread
+            self.server_thread = Some(ServerThread::spawn(addr, world_seed, world_gen)?);
+        } else {
+            // Direct server mode (legacy)
+            self.server = Some(GameServer::new(addr, world_seed, world_gen)?);
+        }
+
         self.mode = GameMode::Host;
         self.server_name = server_name.clone();
         self.server_address = Some(addr);
@@ -128,6 +147,7 @@ impl MultiplayerState {
     /// Stops hosting the server.
     pub fn stop_host(&mut self) {
         self.server = None;
+        self.server_thread = None; // Drops and joins thread
         self.discovery_responder = None;
         self.server_address = None;
         self.server_name.clear();
@@ -218,7 +238,14 @@ impl MultiplayerState {
 
     /// Updates the multiplayer state (call every frame).
     pub fn update(&mut self, duration: Duration) {
-        // Collect events and messages from server first to avoid double borrow
+        // Handle threaded server events
+        if let Some(ref server_thread) = self.server_thread {
+            for event in server_thread.recv_events() {
+                self.handle_thread_event(event);
+            }
+        }
+
+        // Collect events and messages from direct server first (non-threaded mode)
         let (server_events, client_messages) = if let Some(ref mut server) = self.server {
             let events = server.update(duration);
             let messages = server.receive_client_messages();
@@ -227,14 +254,14 @@ impl MultiplayerState {
             (Vec::new(), Vec::new())
         };
 
-        // Process server events (now that server borrow is released)
+        // Process direct server events (now that server borrow is released)
         for event in server_events {
             self.handle_server_event(event);
         }
 
-        // Process client messages
+        // Process client messages from direct server
         for (client_id, msg) in client_messages {
-            self.handle_client_message(client_id, msg);
+            self.handle_client_message_direct(client_id, msg);
         }
 
         // Update client if connected
@@ -264,6 +291,45 @@ impl MultiplayerState {
         }
     }
 
+    /// Handles an event from the server thread.
+    fn handle_thread_event(&mut self, event: ServerThreadEvent) {
+        match event {
+            ServerThreadEvent::ClientConnected { client_id } => {
+                // Send connection acceptance with spawn position
+                // TODO: Get actual spawn position from world
+                let spawn_position = [0.0, 64.0, 0.0];
+                if let Some(ref server_thread) = self.server_thread {
+                    let _ = server_thread.send_command(ServerCommand::HandleClientConnected {
+                        client_id,
+                        spawn_position,
+                    });
+                }
+            }
+            ServerThreadEvent::ClientDisconnected { client_id, reason } => {
+                if let Some(ref server_thread) = self.server_thread {
+                    let _ = server_thread
+                        .send_command(ServerCommand::HandleClientDisconnected { client_id });
+                }
+                let _ = reason; // Log in production
+            }
+            ServerThreadEvent::ClientMessage { client_id, message } => {
+                self.handle_client_message(client_id, message);
+            }
+            ServerThreadEvent::Error { error } => {
+                eprintln!("[Multiplayer] Server thread error: {}", error);
+            }
+        }
+    }
+
+    /// Handles a message received from a client (direct server mode).
+    fn handle_client_message_direct(
+        &mut self,
+        client_id: u64,
+        msg: crate::net::protocol::ClientMessage,
+    ) {
+        self.handle_client_message(client_id, msg);
+    }
+
     /// Handles a message received from a client (server-side, when hosting).
     fn handle_client_message(&mut self, client_id: u64, msg: crate::net::protocol::ClientMessage) {
         use crate::net::protocol::ClientMessage;
@@ -285,26 +351,41 @@ impl MultiplayerState {
                         input.pitch,
                         input.sequence,
                     );
+                } else if let Some(ref server_thread) = self.server_thread {
+                    let _ = server_thread.send_command(ServerCommand::UpdatePlayerState {
+                        client_id,
+                        position: input.position,
+                        velocity: input.velocity,
+                        yaw: input.yaw,
+                        pitch: input.pitch,
+                        sequence: input.sequence,
+                    });
                 }
             }
             ClientMessage::PlaceBlock(place) => {
                 // TODO: Validate and apply block placement server-side
                 // For now, broadcast to all clients including the sender
+                let change = crate::net::protocol::BlockChanged {
+                    position: place.position,
+                    block: place.block,
+                };
                 if let Some(ref mut server) = self.server {
-                    server.broadcast_block_change(crate::net::protocol::BlockChanged {
-                        position: place.position,
-                        block: place.block,
-                    });
+                    server.broadcast_block_change(change);
+                } else if let Some(ref server_thread) = self.server_thread {
+                    let _ = server_thread.send_command(ServerCommand::BroadcastBlockChange(change));
                 }
             }
             ClientMessage::BreakBlock(break_msg) => {
                 // TODO: Validate and apply block break server-side
                 // For now, broadcast to all clients
+                let change = crate::net::protocol::BlockChanged {
+                    position: break_msg.position,
+                    block: crate::net::protocol::BlockData::default(), // Air
+                };
                 if let Some(ref mut server) = self.server {
-                    server.broadcast_block_change(crate::net::protocol::BlockChanged {
-                        position: break_msg.position,
-                        block: crate::net::protocol::BlockData::default(), // Air
-                    });
+                    server.broadcast_block_change(change);
+                } else if let Some(ref server_thread) = self.server_thread {
+                    let _ = server_thread.send_command(ServerCommand::BroadcastBlockChange(change));
                 }
             }
             _ => {
@@ -535,26 +616,32 @@ impl MultiplayerState {
     /// Sends chunk data to a specific client (server-side, when hosting).
     /// The game loop calls this after retrieving chunk data from the world.
     pub fn send_chunk_to_client(&mut self, client_id: u64, position: [i32; 3], chunk: &Chunk) {
-        if let Some(ref mut server) = self.server {
-            // Serialize the chunk
-            let serialized = SerializedChunk::from_chunk(position, chunk);
+        // Serialize the chunk (happens on main thread regardless of mode)
+        let serialized = SerializedChunk::from_chunk(position, chunk);
 
-            // Compress for network transmission
-            match serialized.compress() {
-                Ok(compressed) => {
-                    let chunk_data = crate::net::protocol::ChunkData {
-                        position,
-                        version: serialized.version,
-                        compressed_data: compressed,
-                    };
+        // Compress for network transmission
+        match serialized.compress() {
+            Ok(compressed) => {
+                let chunk_data = crate::net::protocol::ChunkData {
+                    position,
+                    version: serialized.version,
+                    compressed_data: compressed,
+                };
+
+                if let Some(ref mut server) = self.server {
                     server.send_chunk(client_id, chunk_data);
+                } else if let Some(ref server_thread) = self.server_thread {
+                    let _ = server_thread.send_command(ServerCommand::SendChunk {
+                        client_id,
+                        chunk: chunk_data,
+                    });
                 }
-                Err(e) => {
-                    eprintln!(
-                        "[Multiplayer] Failed to compress chunk at {:?}: {}",
-                        position, e
-                    );
-                }
+            }
+            Err(e) => {
+                eprintln!(
+                    "[Multiplayer] Failed to compress chunk at {:?}: {}",
+                    position, e
+                );
             }
         }
     }

@@ -321,6 +321,10 @@ src/
 │   │                       # - receive_client_messages(): parse typed messages
 │   │                       # - send_chunk(): send ChunkData to client
 │   │                       # - broadcast_block_change(): broadcast to all clients
+│   ├── server_thread.rs    # Dedicated server thread (experimental)
+│   │                       # - ServerThread: wrapper that spawns dedicated thread
+│   │                       # - ServerCommand: commands from main to server thread
+│   │                       # - ServerThreadEvent: events from server to main thread
 │   ├── client.rs           # GameClient wrapper (RenetClient)
 │   ├── chunk_sync.rs       # Chunk streaming with priority queue
 │   │                       # - ChunkSyncManager: tracks requests/received
@@ -592,9 +596,7 @@ make run
 - ✅ Phase 3: Block Synchronization - Block change broadcast, metadata sync, AoI filtering, validation
 - ✅ Phase 4: Chunk Streaming - LZ4 compression, priority queue, chunk request/response, world integration, server-side serialization
 - ✅ Phase 5: Integrated Server - CLI arguments, MultiplayerState, game loop integration, block sync hooks, chunk request fulfillment, multiplayer UI, LAN discovery
-
-**In Progress:**
-- Server thread management
+- ✅ Server thread management (experimental) - ServerThread wrapper with crossbeam channels
 
 **Future:**
 - Phase 6: Dedicated Server
@@ -613,19 +615,20 @@ make run
 10. **LAN Discovery**: Automatic server scanning finds games on local network
 11. **Connection Status Overlay**: Top-right display shows connection info when connected
 12. **Player List**: Press Tab to see connected players
+13. **Threaded Server Mode**: Optional dedicated thread for server network processing (experimental)
 
 ### Known Limitations
 
-- Server runs on main thread (may impact performance)
+- Threaded server mode is experimental (disabled by default, enable via `USE_THREADED_SERVER` constant)
 - No dedicated server binary yet
 
 ## Next Steps
 
-The multiplayer system is now feature-complete for LAN play. Future improvements include:
+The multiplayer system is feature-complete for LAN play. Future improvements include:
 
-1. **Server thread management**:
-   - Move server processing to a dedicated thread
-   - Use async channels for communication with main game loop
+1. **Threaded server mode testing**:
+   - Enable by default after stability testing
+   - Add configuration option for thread mode selection
 
 2. **Delta compression** (optimization):
    - Send only changed portions of chunks

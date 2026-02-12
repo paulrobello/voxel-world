@@ -80,6 +80,7 @@ pub mod discovery;
 pub mod player_sync;
 pub mod protocol;
 pub mod server;
+pub mod server_thread;
 
 // Re-export main types for convenience
 // These are intentionally unused until multiplayer is integrated into the game
@@ -105,6 +106,8 @@ pub use protocol::{
 };
 #[allow(unused_imports)]
 pub use server::{GameServer, PlayerInfo};
+#[allow(unused_imports)]
+pub use server_thread::{ServerCommand, ServerThread, ServerThreadEvent};
 
 /// Default server port.
 #[allow(dead_code)]
