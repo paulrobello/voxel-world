@@ -15,8 +15,8 @@ use renet_netcode::NetcodeServerTransport;
 use crate::net::auth::ServerAuth;
 use crate::net::channel::create_connection_config;
 use crate::net::protocol::{
-    BlockChanged, BlocksChanged, ChunkData, ConnectionAccepted, PlayerId, PlayerJoined, PlayerLeft,
-    PlayerState, ServerMessage, TimeUpdate,
+    BlockChanged, BlocksChanged, ChunkData, ClientMessage, ConnectionAccepted, PlayerId,
+    PlayerJoined, PlayerLeft, PlayerState, ServerMessage, TimeUpdate,
 };
 
 /// Server tick rate (updates per second).
@@ -269,6 +269,23 @@ impl GameServer {
         }
 
         messages.into_iter()
+    }
+
+    /// Receives and parses client messages into typed ClientMessage enums.
+    /// Returns a vector of (client_id, parsed_message).
+    pub fn receive_client_messages(&mut self) -> Vec<(u64, ClientMessage)> {
+        let mut parsed_messages = Vec::new();
+
+        for (client_id, _channel_id, data) in self.receive_messages() {
+            if let Ok((msg, _)) = bincode::serde::decode_from_slice::<ClientMessage, _>(
+                &data,
+                bincode::config::standard(),
+            ) {
+                parsed_messages.push((client_id, msg));
+            }
+        }
+
+        parsed_messages
     }
 
     /// Returns connected player count.

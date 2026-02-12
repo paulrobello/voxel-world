@@ -331,6 +331,58 @@ pub struct SerializedChunk {
 }
 
 impl SerializedChunk {
+    /// Creates a SerializedChunk from a Chunk reference.
+    /// This is used on the server side to serialize chunks for network transmission.
+    pub fn from_chunk(position: [i32; 3], chunk: &Chunk) -> Self {
+        // Collect block data as bytes
+        let mut blocks = Vec::with_capacity(CHUNK_VOLUME);
+        let mut model_data = Vec::new();
+        let mut paint_data = Vec::new();
+        let mut tint_data = Vec::new();
+        let mut water_data = Vec::new();
+
+        for idx in 0..CHUNK_VOLUME {
+            let (x, y, z) = Chunk::index_to_coords(idx);
+            let block_type = chunk.get_block(x, y, z);
+            blocks.push(block_type as u8);
+
+            // Collect sparse metadata
+            if block_type == BlockType::Model {
+                if let Some(data) = chunk.get_model_data(x, y, z) {
+                    model_data.push((idx, data));
+                }
+            }
+
+            if block_type == BlockType::Painted {
+                if let Some(data) = chunk.get_paint_data(x, y, z) {
+                    paint_data.push((idx, data));
+                }
+            }
+
+            if block_type == BlockType::TintedGlass || block_type == BlockType::Crystal {
+                if let Some(tint) = chunk.get_tint_index(x, y, z) {
+                    tint_data.push((idx, tint));
+                }
+            }
+
+            if block_type == BlockType::Water {
+                if let Some(water_type) = chunk.get_water_type(x, y, z) {
+                    water_data.push((idx, water_type));
+                }
+            }
+        }
+
+        Self {
+            position,
+            version: 1, // Version 1 for initial implementation
+            blocks,
+            model_data,
+            paint_data,
+            tint_data,
+            water_data,
+        }
+    }
+
     /// Compresses the chunk data for network transmission.
     pub fn compress(&self) -> Result<Vec<u8>, &'static str> {
         let mut raw = Vec::with_capacity(CHUNK_VOLUME + 1024);

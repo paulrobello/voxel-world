@@ -333,6 +333,11 @@ impl App {
             if self.multiplayer.mode == crate::config::GameMode::Client {
                 self.request_network_chunks();
             }
+
+            // Fulfill chunk requests from clients when hosting
+            if self.multiplayer.is_hosting() {
+                self.fulfill_chunk_requests();
+            }
         }
 
         if self.input.close_requested() {

@@ -402,6 +402,7 @@ make run ARGS="--connect 127.0.0.1:5000"
 - [x] LZ4 compression
 - [x] Priority queue with cancellation
 - [x] Chunk deserialization and world integration
+- [x] Server-side chunk serialization and fulfillment
 - [ ] Delta compression (future)
 
 ### Phase 5: Integrated Server ✅
@@ -410,6 +411,7 @@ make run ARGS="--connect 127.0.0.1:5000"
 - [x] MultiplayerState in app_state
 - [x] Game loop integration (multiplayer.update())
 - [x] Block sync integration (send/receive block changes)
+- [x] Chunk request fulfillment (server processes client requests)
 - [ ] Server thread management
 - [ ] UI for host/join
 
@@ -446,12 +448,12 @@ make run ARGS="--connect 127.0.0.1:5000"
 - ✅ Phase 1: Foundation - Networking module, protocol, channels, authentication
 - ✅ Phase 2: Player Synchronization - Prediction, reconciliation, interpolation, remote player rendering
 - ✅ Phase 3: Block Synchronization - Block change broadcast, metadata sync, AoI filtering, validation
-- ✅ Phase 4: Chunk Streaming - LZ4 compression, priority queue, chunk request/response, world integration
-- ✅ Phase 5: Integrated Server - CLI arguments, MultiplayerState, game loop integration, block sync hooks
+- ✅ Phase 4: Chunk Streaming - LZ4 compression, priority queue, chunk request/response, world integration, server-side serialization
+- ✅ Phase 5: Integrated Server - CLI arguments, MultiplayerState, game loop integration, block sync hooks, chunk request fulfillment
 
 **In Progress:**
-- Server-side chunk serialization and response handling
 - Server thread management
+- UI for host/join
 
 **Future:**
 - Phase 6: Dedicated Server
@@ -465,39 +467,31 @@ make run ARGS="--connect 127.0.0.1:5000"
 5. **Remote Change Application**: Server-authoritative block changes applied to local world
 6. **Chunk Request System**: Client requests chunks from server based on player position and view direction
 7. **Chunk Deserialization**: Network chunks decompressed and applied to local world
+8. **Server-Side Chunk Streaming**: Server processes chunk requests and sends compressed chunk data to clients
 
 ### Known Limitations
 
-- Server does not yet send chunk data in response to client requests (client-side ready)
 - Server runs on main thread (may impact performance)
 - No UI for host/join (CLI only)
 - No dedicated server binary yet
 
 ## Next Steps
 
-To complete the chunk streaming system, the server-side needs:
+The chunk streaming system is now complete. Future improvements include:
 
-1. **Handle RequestChunks messages** in `GameServer`:
-   - Receive `ClientMessage::RequestChunks` from clients
-   - Look up requested chunks in the world
-   - Serialize chunks using `SerializedChunk::compress()`
-   - Send `ServerMessage::ChunkData` responses
+1. **Server thread management**:
+   - Move server processing to a dedicated thread
+   - Use async channels for communication with main game loop
 
-2. **Chunk serialization on server**:
-   ```rust
-   // In server.rs, handle chunk requests:
-   fn handle_chunk_request(&mut self, client_id: u64, positions: Vec<[i32; 3]>) {
-       for pos in positions {
-           if let Some(chunk) = self.world.get_chunk(pos) {
-               let serialized = SerializedChunk::from_chunk(pos, chunk);
-               let compressed = serialized.compress();
-               self.send_chunk_data(client_id, pos, compressed);
-           }
-       }
-   }
-   ```
+2. **UI for host/join**:
+   - Add in-game UI for hosting and joining multiplayer games
+   - Replace CLI-only workflow
 
-3. **Server-side world access**:
-   - The server needs access to the `World` to retrieve chunks
-   - Currently the server runs independently without world access
-   - Need to integrate world reference into `GameServer`
+3. **Delta compression** (optimization):
+   - Send only changed portions of chunks
+   - Reduce bandwidth for partially modified chunks
+
+4. **Dedicated server**:
+   - Separate headless binary for server-only operation
+   - Configuration file support
+   - Admin commands

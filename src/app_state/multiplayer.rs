@@ -39,6 +39,8 @@ pub struct MultiplayerState {
     pub pending_block_changes: Vec<crate::net::protocol::BlockChanged>,
     /// Pending chunks received from server (position, chunk data).
     pending_chunks: Vec<(Vector3<i32>, Chunk)>,
+    /// Pending chunk requests from clients (server-side, when hosting).
+    pending_chunk_requests: Vec<(u64, Vec<[i32; 3]>)>,
 }
 
 impl Default for MultiplayerState {
@@ -61,6 +63,7 @@ impl MultiplayerState {
             input_sequence: 0,
             pending_block_changes: Vec::new(),
             pending_chunks: Vec::new(),
+            pending_chunk_requests: Vec::new(),
         }
     }
 
@@ -93,12 +96,23 @@ impl MultiplayerState {
 
     /// Updates the multiplayer state (call every frame).
     pub fn update(&mut self, duration: Duration) {
-        // Update server if hosting
-        if let Some(ref mut server) = self.server {
+        // Collect events and messages from server first to avoid double borrow
+        let (server_events, client_messages) = if let Some(ref mut server) = self.server {
             let events = server.update(duration);
-            for event in events {
-                self.handle_server_event(event);
-            }
+            let messages = server.receive_client_messages();
+            (events, messages)
+        } else {
+            (Vec::new(), Vec::new())
+        };
+
+        // Process server events (now that server borrow is released)
+        for event in server_events {
+            self.handle_server_event(event);
+        }
+
+        // Process client messages
+        for (client_id, msg) in client_messages {
+            self.handle_client_message(client_id, msg);
         }
 
         // Update client if connected
@@ -109,6 +123,55 @@ impl MultiplayerState {
             let messages = client.receive_messages();
             for msg in messages {
                 self.handle_server_message(&msg);
+            }
+        }
+    }
+
+    /// Handles a message received from a client (server-side, when hosting).
+    fn handle_client_message(&mut self, client_id: u64, msg: crate::net::protocol::ClientMessage) {
+        use crate::net::protocol::ClientMessage;
+
+        match msg {
+            ClientMessage::RequestChunks(request) => {
+                // Queue chunk request for processing by game loop
+                self.pending_chunk_requests
+                    .push((client_id, request.positions));
+            }
+            ClientMessage::PlayerInput(input) => {
+                // Update player state on server
+                if let Some(ref mut server) = self.server {
+                    server.update_player_state(
+                        client_id,
+                        input.position,
+                        input.velocity,
+                        input.yaw,
+                        input.pitch,
+                        input.sequence,
+                    );
+                }
+            }
+            ClientMessage::PlaceBlock(place) => {
+                // TODO: Validate and apply block placement server-side
+                // For now, broadcast to all clients including the sender
+                if let Some(ref mut server) = self.server {
+                    server.broadcast_block_change(crate::net::protocol::BlockChanged {
+                        position: place.position,
+                        block: place.block,
+                    });
+                }
+            }
+            ClientMessage::BreakBlock(break_msg) => {
+                // TODO: Validate and apply block break server-side
+                // For now, broadcast to all clients
+                if let Some(ref mut server) = self.server {
+                    server.broadcast_block_change(crate::net::protocol::BlockChanged {
+                        position: break_msg.position,
+                        block: crate::net::protocol::BlockData::default(), // Air
+                    });
+                }
+            }
+            _ => {
+                // Other message types not yet implemented
             }
         }
     }
@@ -318,5 +381,44 @@ impl MultiplayerState {
     /// Returns the number of pending chunks.
     pub fn pending_chunk_count(&self) -> usize {
         self.pending_chunks.len()
+    }
+
+    /// Takes all pending chunk requests from clients and clears the queue.
+    /// Call this from the game loop when hosting to fulfill chunk requests.
+    /// Returns (client_id, requested_chunk_positions) pairs.
+    pub fn take_pending_chunk_requests(&mut self) -> Vec<(u64, Vec<[i32; 3]>)> {
+        std::mem::take(&mut self.pending_chunk_requests)
+    }
+
+    /// Returns true if there are pending chunk requests from clients.
+    pub fn has_pending_chunk_requests(&self) -> bool {
+        !self.pending_chunk_requests.is_empty()
+    }
+
+    /// Sends chunk data to a specific client (server-side, when hosting).
+    /// The game loop calls this after retrieving chunk data from the world.
+    pub fn send_chunk_to_client(&mut self, client_id: u64, position: [i32; 3], chunk: &Chunk) {
+        if let Some(ref mut server) = self.server {
+            // Serialize the chunk
+            let serialized = SerializedChunk::from_chunk(position, chunk);
+
+            // Compress for network transmission
+            match serialized.compress() {
+                Ok(compressed) => {
+                    let chunk_data = crate::net::protocol::ChunkData {
+                        position,
+                        version: serialized.version,
+                        compressed_data: compressed,
+                    };
+                    server.send_chunk(client_id, chunk_data);
+                }
+                Err(e) => {
+                    eprintln!(
+                        "[Multiplayer] Failed to compress chunk at {:?}: {}",
+                        position, e
+                    );
+                }
+            }
+        }
     }
 }

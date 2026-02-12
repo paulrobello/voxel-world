@@ -327,4 +327,29 @@ impl App {
 
         self.multiplayer.take_pending_chunks()
     }
+
+    /// Fulfills chunk requests from clients (server-side, when hosting).
+    /// Call this from the game loop after multiplayer.update() to process
+    /// pending chunk requests and send chunk data to clients.
+    pub fn fulfill_chunk_requests(&mut self) {
+        if !self.multiplayer.has_pending_chunk_requests() {
+            return;
+        }
+
+        let requests = self.multiplayer.take_pending_chunk_requests();
+        for (client_id, positions) in requests {
+            for chunk_pos in positions {
+                // Convert to World's chunk coordinate format
+                let pos = nalgebra::Vector3::new(chunk_pos[0], chunk_pos[1], chunk_pos[2]);
+
+                // Check if chunk exists in the world
+                if let Some(chunk) = self.sim.world.get_chunk(pos) {
+                    // Send the chunk to the client
+                    self.multiplayer
+                        .send_chunk_to_client(client_id, chunk_pos, chunk);
+                }
+                // If chunk doesn't exist, we skip it (client will re-request later)
+            }
+        }
+    }
 }
