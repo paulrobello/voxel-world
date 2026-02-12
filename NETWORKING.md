@@ -309,10 +309,11 @@ make run ARGS="--connect 127.0.0.1:5000"
 - [x] Area of Interest (AoI)
 - [x] Block metadata sync
 
-### Phase 4: Chunk Streaming
-- [ ] Chunk request/response system
+### Phase 4: Chunk Streaming ✅
+- [x] Chunk request/response system
 - [x] LZ4 compression
 - [x] Priority queue with cancellation
+- [x] Chunk deserialization and world integration
 - [ ] Delta compression (future)
 
 ### Phase 5: Integrated Server ✅
@@ -357,10 +358,12 @@ make run ARGS="--connect 127.0.0.1:5000"
 - ✅ Phase 1: Foundation - Networking module, protocol, channels, authentication
 - ✅ Phase 2: Player Synchronization - Prediction, reconciliation, interpolation, remote player rendering
 - ✅ Phase 3: Block Synchronization - Block change broadcast, metadata sync, AoI filtering, validation
+- ✅ Phase 4: Chunk Streaming - LZ4 compression, priority queue, chunk request/response, world integration
 - ✅ Phase 5: Integrated Server - CLI arguments, MultiplayerState, game loop integration, block sync hooks
 
 **In Progress:**
-- Phase 4: Chunk Streaming (LZ4 compression and priority queue implemented, needs world integration)
+- Server-side chunk serialization and response handling
+- Server thread management
 
 **Future:**
 - Phase 6: Dedicated Server
@@ -372,10 +375,12 @@ make run ARGS="--connect 127.0.0.1:5000"
 3. **Block Synchronization**: Block place/break events sync between server and all clients
 4. **Metadata Sync**: Model data, paint data, tint indices, and water types all sync correctly
 5. **Remote Change Application**: Server-authoritative block changes applied to local world
+6. **Chunk Request System**: Client requests chunks from server based on player position and view direction
+7. **Chunk Deserialization**: Network chunks decompressed and applied to local world
 
 ### Known Limitations
 
-- Chunk streaming not yet integrated (players see each other's changes but chunks don't load from server)
+- Server does not yet send chunk data in response to client requests (client-side ready)
 - Server runs on main thread (may impact performance)
 - No UI for host/join (CLI only)
 - No dedicated server binary yet

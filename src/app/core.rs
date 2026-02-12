@@ -275,4 +275,56 @@ impl App {
 
         self.prefs.save();
     }
+
+    /// Requests chunks from the server when in multiplayer client mode.
+    /// This should be called every frame to maintain chunk loading around the player.
+    pub fn request_network_chunks(&mut self) {
+        // Get player position and look direction for chunk prioritization
+        let player_world_pos = self
+            .sim
+            .player
+            .feet_pos(self.sim.world_extent, self.sim.texture_origin);
+
+        let yaw = self.sim.player.camera.rotation.y as f32;
+        let look_dir = [yaw.sin(), 0.0, -yaw.cos()]; // XZ direction player is looking
+
+        // Update chunk sync with player state and get chunks to cancel
+        let _to_cancel = self.multiplayer.chunk_sync.update_player_state(
+            [
+                player_world_pos.x as f32,
+                player_world_pos.y as f32,
+                player_world_pos.z as f32,
+            ],
+            look_dir,
+        );
+
+        // TODO: Send cancellation to server when implemented
+
+        // Calculate player's chunk position
+        let player_chunk = self
+            .sim
+            .player
+            .get_chunk_pos(self.sim.world_extent, self.sim.texture_origin);
+
+        // Request chunks around the player
+        if let Some(request) = self.multiplayer.chunk_sync.request_chunks_around(
+            [player_chunk.x, player_chunk.y, player_chunk.z],
+            self.sim.view_distance,
+        ) {
+            // Send chunk request to server
+            if let Some(ref mut client) = self.multiplayer.client {
+                client.send_chunk_request(request.positions);
+            }
+        }
+    }
+
+    /// Applies pending network chunks to the world.
+    /// Call this from the chunk loading system to apply chunks received from server.
+    pub fn apply_network_chunks(&mut self) -> Vec<(nalgebra::Vector3<i32>, crate::chunk::Chunk)> {
+        if !self.multiplayer.has_pending_chunks() {
+            return Vec::new();
+        }
+
+        self.multiplayer.take_pending_chunks()
+    }
 }

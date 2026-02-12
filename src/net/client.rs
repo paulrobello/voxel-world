@@ -300,6 +300,17 @@ impl GameClient {
         }
     }
 
+    /// Sends a chunk request to the server.
+    /// The server will respond with ChunkData messages for each requested chunk.
+    pub fn send_chunk_request(&mut self, positions: Vec<[i32; 3]>) {
+        use crate::net::protocol::RequestChunks;
+        let msg = ClientMessage::RequestChunks(RequestChunks { positions });
+
+        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+            self.client.send_message(2, renet::Bytes::from(encoded)); // Channel 2 = ChunkStream
+        }
+    }
+
     /// Returns connection state.
     pub fn connection_state(&self) -> ConnectionState {
         self.connection.state()

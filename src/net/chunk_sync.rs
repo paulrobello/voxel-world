@@ -9,9 +9,11 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Instant;
 
-use crate::chunk::{BlockModelData, BlockPaintData, CHUNK_SIZE, CHUNK_VOLUME, WaterType};
+use crate::chunk::{
+    BlockModelData, BlockPaintData, BlockType, CHUNK_SIZE, CHUNK_VOLUME, Chunk, WaterType,
+};
 use crate::net::protocol::RequestChunks;
-use lz4_flex::compress_prepend_size;
+use lz4_flex::{compress_prepend_size, decompress_size_prepended};
 
 /// Priority level for chunk requests.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -375,6 +377,160 @@ impl SerializedChunk {
 
         // Compress with LZ4
         Ok(compress_prepend_size(&raw))
+    }
+
+    /// Decompresses chunk data from network transmission.
+    /// Returns a SerializedChunk ready for conversion to a Chunk.
+    pub fn decompress(compressed_data: &[u8]) -> Result<Self, &'static str> {
+        // Decompress with LZ4
+        let raw = decompress_size_prepended(compressed_data)
+            .map_err(|_| "Failed to decompress chunk data")?;
+
+        if raw.len() < CHUNK_VOLUME {
+            return Err("Compressed chunk data too small");
+        }
+
+        let mut cursor = 0;
+
+        // Read block data
+        let blocks: Vec<u8> = raw[cursor..cursor + CHUNK_VOLUME].to_vec();
+        cursor += CHUNK_VOLUME;
+
+        // Helper to read u16
+        let read_u16 = |data: &[u8], pos: &mut usize| -> Result<u16, &'static str> {
+            if *pos + 2 > data.len() {
+                return Err("Unexpected end of chunk data");
+            }
+            let val = u16::from_le_bytes([data[*pos], data[*pos + 1]]);
+            *pos += 2;
+            Ok(val)
+        };
+
+        // Helper to read u32
+        let read_u32 = |data: &[u8], pos: &mut usize| -> Result<u32, &'static str> {
+            if *pos + 4 > data.len() {
+                return Err("Unexpected end of chunk data");
+            }
+            let val =
+                u32::from_le_bytes([data[*pos], data[*pos + 1], data[*pos + 2], data[*pos + 3]]);
+            *pos += 4;
+            Ok(val)
+        };
+
+        // Helper to read u8
+        let read_u8 = |data: &[u8], pos: &mut usize| -> Result<u8, &'static str> {
+            if *pos >= data.len() {
+                return Err("Unexpected end of chunk data");
+            }
+            let val = data[*pos];
+            *pos += 1;
+            Ok(val)
+        };
+
+        // Read model data
+        let model_count = read_u16(&raw, &mut cursor)? as usize;
+        let mut model_data = Vec::with_capacity(model_count);
+        for _ in 0..model_count {
+            let idx = read_u32(&raw, &mut cursor)? as usize;
+            let model_id = read_u8(&raw, &mut cursor)?;
+            let rotation = read_u8(&raw, &mut cursor)?;
+            let waterlogged_byte = read_u8(&raw, &mut cursor)?;
+            let custom_data = read_u32(&raw, &mut cursor)?;
+            model_data.push((
+                idx,
+                BlockModelData {
+                    model_id,
+                    rotation,
+                    waterlogged: waterlogged_byte != 0,
+                    custom_data,
+                },
+            ));
+        }
+
+        // Read paint data
+        let paint_count = read_u16(&raw, &mut cursor)? as usize;
+        let mut paint_data = Vec::with_capacity(paint_count);
+        for _ in 0..paint_count {
+            let idx = read_u32(&raw, &mut cursor)? as usize;
+            let texture_idx = read_u8(&raw, &mut cursor)?;
+            let tint_idx = read_u8(&raw, &mut cursor)?;
+            let blend_mode = read_u8(&raw, &mut cursor)?;
+            paint_data.push((
+                idx,
+                BlockPaintData {
+                    texture_idx,
+                    tint_idx,
+                    blend_mode,
+                },
+            ));
+        }
+
+        // Read tint data
+        let tint_count = read_u16(&raw, &mut cursor)? as usize;
+        let mut tint_data = Vec::with_capacity(tint_count);
+        for _ in 0..tint_count {
+            let idx = read_u32(&raw, &mut cursor)? as usize;
+            let tint = read_u8(&raw, &mut cursor)?;
+            tint_data.push((idx, tint));
+        }
+
+        // Read water data
+        let water_count = read_u16(&raw, &mut cursor)? as usize;
+        let mut water_data = Vec::with_capacity(water_count);
+        for _ in 0..water_count {
+            let idx = read_u32(&raw, &mut cursor)? as usize;
+            let water_type_byte = read_u8(&raw, &mut cursor)?;
+            water_data.push((idx, WaterType::from_u8(water_type_byte)));
+        }
+
+        Ok(Self {
+            position: [0, 0, 0], // Position is set by caller from ChunkData message
+            version: 0,          // Version is set by caller from ChunkData message
+            blocks,
+            model_data,
+            paint_data,
+            tint_data,
+            water_data,
+        })
+    }
+
+    /// Converts serialized chunk data into a Chunk struct.
+    /// This creates a fully populated Chunk ready for insertion into the World.
+    pub fn to_chunk(&self) -> Result<Chunk, &'static str> {
+        if self.blocks.len() != CHUNK_VOLUME {
+            return Err("Invalid block data size");
+        }
+
+        // Convert raw block bytes to BlockType array
+        let mut blocks: Box<[BlockType; CHUNK_VOLUME]> = Box::new([BlockType::Air; CHUNK_VOLUME]);
+        for (i, &byte) in self.blocks.iter().enumerate() {
+            blocks[i] = BlockType::from(byte);
+        }
+
+        // Convert sparse metadata to HashMaps
+        let model_data: HashMap<usize, BlockModelData> = self.model_data.iter().cloned().collect();
+        let tint_data: HashMap<usize, u8> = self.tint_data.iter().cloned().collect();
+        let painted_data: HashMap<usize, BlockPaintData> =
+            self.paint_data.iter().cloned().collect();
+        let water_data: HashMap<usize, WaterType> = self.water_data.iter().cloned().collect();
+
+        // Count light blocks for optimization
+        let mut light_block_count = 0;
+        for block in blocks.iter() {
+            if block.is_light_source() {
+                light_block_count += 1;
+            }
+        }
+
+        // Create the chunk with populated data
+        Ok(Chunk::from_network_data(
+            blocks,
+            model_data,
+            tint_data,
+            painted_data,
+            water_data,
+            light_block_count,
+        ))
     }
 }
 

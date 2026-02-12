@@ -328,6 +328,11 @@ impl App {
 
             // Apply any remote block changes received from server
             self.apply_remote_block_changes();
+
+            // Request chunks from server when in client mode
+            if self.multiplayer.mode == crate::config::GameMode::Client {
+                self.request_network_chunks();
+            }
         }
 
         if self.input.close_requested() {

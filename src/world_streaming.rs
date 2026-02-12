@@ -520,6 +520,10 @@ impl App {
         // Append new completions to deferred (which we already drained)
         completed.append(&mut completed_in_bounds);
 
+        // === STEP 1b: Receive network chunks (multiplayer mode) ===
+        // In multiplayer client mode, we also receive chunks from the server
+        let network_chunks = self.apply_network_chunks();
+
         // Sort completed chunks by distance to player (closer chunks processed first)
         // This ensures nearby chunks become visible before distant chunks, even when
         // workers complete chunks out of request order (due to varying terrain complexity)
@@ -663,6 +667,86 @@ impl App {
 
                 // Already uploaded this frame; avoid a second upload in upload_world_to_gpu
                 self.sim.world.remove_dirty_positions(&uploaded_positions);
+            }
+
+            // === Process network chunks (multiplayer mode) ===
+            // Network chunks are simpler - no overflow handling needed
+            if !network_chunks.is_empty() {
+                let mut network_uploads: Vec<Upload> = Vec::new();
+
+                for (pos, chunk) in network_chunks {
+                    // Skip chunks outside texture bounds
+                    if world_pos_to_chunk_index(self.sim.texture_origin, pos).is_none() {
+                        continue;
+                    }
+
+                    // Insert chunk into world
+                    self.sim.world.insert_chunk(pos, chunk);
+
+                    // Extract data for upload
+                    let chunk = self
+                        .sim
+                        .world
+                        .get_chunk(pos)
+                        .expect("Chunk should exist after insert");
+                    network_uploads.push(Upload {
+                        pos,
+                        block: chunk.to_block_data(),
+                        meta: chunk.to_model_metadata(),
+                        custom: chunk.custom_data_bytes().to_vec(),
+                    });
+                    loaded += 1;
+                }
+
+                // Upload network chunks to GPU
+                if !network_uploads.is_empty() {
+                    let uploaded_positions: Vec<_> =
+                        network_uploads.iter().map(|u| u.pos).collect();
+
+                    // Compute metadata updates
+                    for upload in &network_uploads {
+                        if let Some(idx) =
+                            world_pos_to_chunk_index(self.sim.texture_origin, upload.pos)
+                        {
+                            let svt = ChunkSVT::from_bytes(&upload.block);
+                            let word_idx = idx / 32;
+                            let bit_idx = idx % 32;
+                            metadata_updates.push(MetadataUpdate {
+                                idx,
+                                word_idx,
+                                bit_idx,
+                                is_empty: svt.brick_mask == 0,
+                                mask_low: svt.brick_mask as u32,
+                                mask_high: (svt.brick_mask >> 32) as u32,
+                                packed_dist: pack_distances(&svt.brick_distances),
+                            });
+                        }
+                    }
+
+                    // Upload to GPU
+                    let upload_slices: Vec<_> = network_uploads
+                        .iter()
+                        .map(|u| {
+                            (
+                                u.pos,
+                                u.block.as_slice(),
+                                u.meta.as_slice(),
+                                u.custom.as_slice(),
+                            )
+                        })
+                        .collect();
+                    self.upload_chunk_refs(&upload_slices);
+
+                    // Mark chunks clean
+                    for pos in &uploaded_positions {
+                        if let Some(chunk) = self.sim.world.get_chunk_mut(*pos) {
+                            chunk.mark_clean();
+                        }
+                    }
+
+                    // Avoid duplicate upload
+                    self.sim.world.remove_dirty_positions(&uploaded_positions);
+                }
             }
         }
 

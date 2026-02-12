@@ -798,6 +798,44 @@ impl Chunk {
         }
     }
 
+    /// Creates a chunk from network data (received from server).
+    /// This is used when loading chunks from multiplayer.
+    pub fn from_network_data(
+        blocks: Box<[BlockType; CHUNK_VOLUME]>,
+        model_data: HashMap<usize, BlockModelData>,
+        tint_data: HashMap<usize, u8>,
+        painted_data: HashMap<usize, BlockPaintData>,
+        water_data: HashMap<usize, WaterType>,
+        light_block_count: usize,
+    ) -> Self {
+        // Calculate caches
+        let is_empty = blocks.iter().all(|&b| b == BlockType::Air);
+        let is_solid = !is_empty && blocks.iter().all(|&b| b.is_solid());
+
+        Self {
+            blocks,
+            model_data,
+            tint_data,
+            painted_data,
+            water_data,
+            model_metadata_buf: RefCell::new(vec![0u8; CHUNK_VOLUME * 2]),
+            model_metadata_dirty: Cell::new(true), // Need to compute on first request
+            custom_data_buf: RefCell::new(vec![0u8; CHUNK_VOLUME * 4]),
+            custom_data_dirty: Cell::new(true),
+            light_block_count,
+            dirty: true,
+            persistence_dirty: false, // Network chunks are not locally modified
+            gpu_texture: None,
+            cached_is_empty: is_empty,
+            cached_is_fully_solid: is_solid,
+            metadata_dirty: false,
+            cached_brick_mask: 0,
+            cached_brick_distances: [255; 64],
+            svt_dirty: true,        // Need to compute SVT
+            dirty_bricks: u64::MAX, // All bricks are potentially dirty
+        }
+    }
+
     /// Converts local coordinates to a flat array index.
     #[inline]
     fn index(x: usize, y: usize, z: usize) -> usize {

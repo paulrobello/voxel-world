@@ -9,10 +9,13 @@
 use std::net::SocketAddr;
 use std::time::Duration;
 
+use crate::chunk::Chunk;
 use crate::config::GameMode;
 use crate::net::{
     BlockSyncManager, ChunkSyncManager, GameClient, GameServer, PredictionState, RemotePlayer,
+    SerializedChunk,
 };
+use nalgebra::Vector3;
 
 /// Multiplayer state for the game.
 pub struct MultiplayerState {
@@ -34,6 +37,8 @@ pub struct MultiplayerState {
     pub input_sequence: u32,
     /// Pending block changes to apply to the world (received from server).
     pub pending_block_changes: Vec<crate::net::protocol::BlockChanged>,
+    /// Pending chunks received from server (position, chunk data).
+    pending_chunks: Vec<(Vector3<i32>, Chunk)>,
 }
 
 impl Default for MultiplayerState {
@@ -55,6 +60,7 @@ impl MultiplayerState {
             block_sync: BlockSyncManager::new(false),
             input_sequence: 0,
             pending_block_changes: Vec::new(),
+            pending_chunks: Vec::new(),
         }
     }
 
@@ -169,7 +175,31 @@ impl MultiplayerState {
             ServerMessage::ChunkData(chunk) => {
                 // Mark chunk as received
                 self.chunk_sync.mark_received(chunk.position);
-                // TODO: Decompress and apply chunk data
+
+                // Decompress and deserialize chunk data
+                match SerializedChunk::decompress(&chunk.compressed_data) {
+                    Ok(serialized) => {
+                        // Convert to Chunk struct
+                        match serialized.to_chunk() {
+                            Ok(chunk_data) => {
+                                // Store for later application to world
+                                self.receive_chunk(chunk.position, chunk_data);
+                            }
+                            Err(e) => {
+                                eprintln!(
+                                    "[Multiplayer] Failed to convert chunk at {:?}: {}",
+                                    chunk.position, e
+                                );
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "[Multiplayer] Failed to decompress chunk at {:?}: {}",
+                            chunk.position, e
+                        );
+                    }
+                }
             }
             ServerMessage::BlockChanged(change) => {
                 // Queue block change for application to world
@@ -266,5 +296,27 @@ impl MultiplayerState {
         for remote in &mut self.remote_players {
             remote.interpolate(current_time);
         }
+    }
+
+    /// Receives a chunk from the server and stores it for later application.
+    pub fn receive_chunk(&mut self, position: [i32; 3], chunk: Chunk) {
+        let pos = Vector3::new(position[0], position[1], position[2]);
+        self.pending_chunks.push((pos, chunk));
+    }
+
+    /// Takes all pending chunks and clears the queue.
+    /// Call this from the game loop to apply chunks to the world.
+    pub fn take_pending_chunks(&mut self) -> Vec<(Vector3<i32>, Chunk)> {
+        std::mem::take(&mut self.pending_chunks)
+    }
+
+    /// Returns true if there are pending chunks to apply.
+    pub fn has_pending_chunks(&self) -> bool {
+        !self.pending_chunks.is_empty()
+    }
+
+    /// Returns the number of pending chunks.
+    pub fn pending_chunk_count(&self) -> usize {
+        self.pending_chunks.len()
     }
 }
