@@ -224,9 +224,36 @@ When hosting a game, the server fulfills chunk requests from clients:
 2. **Parse**: `GameServer::receive_client_messages()` deserializes typed messages
 3. **Queue**: `MultiplayerState::handle_client_message()` stores in `pending_chunk_requests`
 4. **Process**: `App::fulfill_chunk_requests()` retrieves chunks from world
-5. **Serialize**: `SerializedChunk::from_chunk()` extracts block data and metadata
-6. **Compress**: LZ4 compression via `compress_prepend_size()`
-7. **Send**: `GameServer::send_chunk()` transmits `ChunkData` to client
+5. **Check Modification**: If chunk has `persistence_dirty = false`, send `ChunkGenerateLocal`
+6. **Serialize** (modified chunks only): `SerializedChunk::from_chunk()` extracts data
+7. **Compress** (modified chunks only): LZ4 compression via `compress_prepend_size()`
+8. **Send**: `GameServer::send_chunk()` or `send_chunk_generate_local()` transmits to client
+
+### Local Chunk Generation (Bandwidth Optimization)
+
+Unmodified chunks are generated locally by the client instead of being sent over the network:
+
+**Protocol:**
+- `ChunkGenerateLocal { position: [i32; 3] }` - ~12 bytes vs 50-100KB for full chunk
+
+**Flow:**
+1. Client receives `world_seed` and `world_gen` on connect
+2. Client requests chunks from server
+3. Server checks `chunk.persistence_dirty`:
+   - `false` → Send `ChunkGenerateLocal` (unmodified, generate from seed)
+   - `true` → Send `ChunkData` (modified, full data required)
+4. Client generates unmodified chunks locally via `chunk_loader`
+5. Client decompresses and applies modified chunks from server
+
+**Benefits:**
+- 90%+ bandwidth reduction for unmodified terrain
+- Server CPU savings (no serialization/compression)
+- Faster chunk loading (parallel local generation)
+
+**Implementation:**
+- `Chunk.persistence_dirty` flag tracks player modifications
+- `MultiplayerState.pending_local_chunks` queue for local generation
+- Game loop requests local chunks from `chunk_loader`
 
 ```rust
 // In App::fulfill_chunk_requests():
@@ -597,6 +624,7 @@ make run
 - ✅ Phase 4: Chunk Streaming - LZ4 compression, priority queue, chunk request/response, world integration, server-side serialization
 - ✅ Phase 5: Integrated Server - CLI arguments, MultiplayerState, game loop integration, block sync hooks, chunk request fulfillment, multiplayer UI, LAN discovery
 - ✅ Server thread management (experimental) - ServerThread wrapper with crossbeam channels
+- ✅ Local chunk generation - Bandwidth optimization for unmodified terrain
 
 **Future:**
 - Phase 6: Dedicated Server
@@ -611,11 +639,12 @@ make run
 6. **Chunk Request System**: Client requests chunks from server based on player position and view direction
 7. **Chunk Deserialization**: Network chunks decompressed and applied to local world
 8. **Server-Side Chunk Streaming**: Server processes chunk requests and sends compressed chunk data to clients
-9. **Multiplayer UI**: Press O to open multiplayer panel with Host/Join tabs
-10. **LAN Discovery**: Automatic server scanning finds games on local network
-11. **Connection Status Overlay**: Top-right display shows connection info when connected
-12. **Player List**: Press Tab to see connected players
-13. **Threaded Server Mode**: Optional dedicated thread for server network processing (experimental)
+9. **Local Chunk Generation**: Unmodified chunks generated locally from seed (90%+ bandwidth savings)
+10. **Multiplayer UI**: Press O to open multiplayer panel with Host/Join tabs
+11. **LAN Discovery**: Automatic server scanning finds games on local network
+12. **Connection Status Overlay**: Top-right display shows connection info when connected
+13. **Player List**: Press Tab to see connected players
+14. **Threaded Server Mode**: Optional dedicated thread for server network processing (experimental)
 
 ### Known Limitations
 
@@ -630,9 +659,10 @@ The multiplayer system is feature-complete for LAN play. Future improvements inc
    - Enable by default after stability testing
    - Add configuration option for thread mode selection
 
-2. **Delta compression** (optimization):
-   - Send only changed portions of chunks
-   - Reduce bandwidth for partially modified chunks
+2. **Delta compression** (further optimization for modified chunks):
+   - Send only changed blocks within modified chunks
+   - Useful for chunks with small player modifications
+   - Combined with local generation, provides optimal bandwidth
 
 3. **Dedicated server**:
    - Separate headless binary for server-only operation

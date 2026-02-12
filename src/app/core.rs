@@ -328,6 +328,17 @@ impl App {
         self.multiplayer.take_pending_chunks()
     }
 
+    /// Returns positions of chunks that should be generated locally from seed.
+    /// These are unmodified chunks that the server told us to generate locally.
+    pub fn take_pending_local_chunks(&mut self) -> Vec<[i32; 3]> {
+        self.multiplayer.take_pending_local_chunks()
+    }
+
+    /// Returns true if there are local chunks to generate.
+    pub fn has_pending_local_chunks(&self) -> bool {
+        self.multiplayer.has_pending_local_chunks()
+    }
+
     /// Fulfills chunk requests from clients (server-side, when hosting).
     /// Call this from the game loop after multiplayer.update() to process
     /// pending chunk requests and send chunk data to clients.

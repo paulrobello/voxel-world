@@ -15,8 +15,8 @@ use renet_netcode::NetcodeServerTransport;
 use crate::net::auth::ServerAuth;
 use crate::net::channel::create_connection_config;
 use crate::net::protocol::{
-    BlockChanged, BlocksChanged, ChunkData, ClientMessage, ConnectionAccepted, PlayerId,
-    PlayerJoined, PlayerLeft, PlayerState, ServerMessage, TimeUpdate,
+    BlockChanged, BlocksChanged, ChunkData, ChunkGenerateLocal, ClientMessage, ConnectionAccepted,
+    PlayerId, PlayerJoined, PlayerLeft, PlayerState, ServerMessage, TimeUpdate,
 };
 
 /// Server tick rate (updates per second).
@@ -215,6 +215,16 @@ impl GameServer {
     /// Sends chunk data to a specific client.
     pub fn send_chunk(&mut self, client_id: u64, chunk: ChunkData) {
         let msg = ServerMessage::ChunkData(chunk);
+        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+            self.server
+                .send_message(client_id, 3, renet::Bytes::from(encoded)); // Channel 3 = ChunkStream
+        }
+    }
+
+    /// Instructs a client to generate a chunk locally (for unmodified chunks).
+    /// This saves bandwidth by not sending the full chunk data.
+    pub fn send_chunk_generate_local(&mut self, client_id: u64, position: [i32; 3]) {
+        let msg = ServerMessage::ChunkGenerateLocal(ChunkGenerateLocal { position });
         if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
             self.server
                 .send_message(client_id, 3, renet::Bytes::from(encoded)); // Channel 3 = ChunkStream

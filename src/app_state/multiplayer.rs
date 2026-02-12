@@ -48,6 +48,8 @@ pub struct MultiplayerState {
     pub pending_block_changes: Vec<crate::net::protocol::BlockChanged>,
     /// Pending chunks received from server (position, chunk data).
     pending_chunks: Vec<(Vector3<i32>, Chunk)>,
+    /// Positions of chunks that should be generated locally from seed (bandwidth optimization).
+    pending_local_chunks: Vec<[i32; 3]>,
     /// Pending chunk requests from clients (server-side, when hosting).
     pending_chunk_requests: Vec<(u64, Vec<[i32; 3]>)>,
 
@@ -92,6 +94,7 @@ impl MultiplayerState {
             input_sequence: 0,
             pending_block_changes: Vec::new(),
             pending_chunks: Vec::new(),
+            pending_local_chunks: Vec::new(),
             pending_chunk_requests: Vec::new(),
             discovery: None,
             discovery_responder: None,
@@ -482,6 +485,11 @@ impl MultiplayerState {
                     }
                 }
             }
+            ServerMessage::ChunkGenerateLocal(msg) => {
+                // Server says this chunk has no modifications - generate it locally
+                self.chunk_sync.mark_received(msg.position);
+                self.pending_local_chunks.push(msg.position);
+            }
             ServerMessage::BlockChanged(change) => {
                 // Queue block change for application to world
                 self.pending_block_changes.push(change.clone());
@@ -601,6 +609,17 @@ impl MultiplayerState {
         self.pending_chunks.len()
     }
 
+    /// Takes all pending local chunk positions and clears the queue.
+    /// These chunks should be generated locally using the world seed.
+    pub fn take_pending_local_chunks(&mut self) -> Vec<[i32; 3]> {
+        std::mem::take(&mut self.pending_local_chunks)
+    }
+
+    /// Returns true if there are pending local chunks to generate.
+    pub fn has_pending_local_chunks(&self) -> bool {
+        !self.pending_local_chunks.is_empty()
+    }
+
     /// Takes all pending chunk requests from clients and clears the queue.
     /// Call this from the game loop when hosting to fulfill chunk requests.
     /// Returns (client_id, requested_chunk_positions) pairs.
@@ -615,8 +634,24 @@ impl MultiplayerState {
 
     /// Sends chunk data to a specific client (server-side, when hosting).
     /// The game loop calls this after retrieving chunk data from the world.
+    /// If the chunk hasn't been modified by players, sends a "generate locally"
+    /// message instead of full chunk data (bandwidth optimization).
     pub fn send_chunk_to_client(&mut self, client_id: u64, position: [i32; 3], chunk: &Chunk) {
-        // Serialize the chunk (happens on main thread regardless of mode)
+        // Check if chunk has been modified by players
+        if !chunk.persistence_dirty {
+            // Chunk is unmodified - tell client to generate it locally from seed
+            if let Some(ref mut server) = self.server {
+                server.send_chunk_generate_local(client_id, position);
+            } else if let Some(ref server_thread) = self.server_thread {
+                let _ = server_thread.send_command(ServerCommand::SendChunkGenerateLocal {
+                    client_id,
+                    position,
+                });
+            }
+            return;
+        }
+
+        // Chunk has modifications - serialize and send full data
         let serialized = SerializedChunk::from_chunk(position, chunk);
 
         // Compress for network transmission

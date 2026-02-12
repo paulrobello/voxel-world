@@ -228,6 +228,14 @@ pub struct ChunkData {
     pub compressed_data: Vec<u8>,
 }
 
+/// Instructs the client to generate a chunk locally using the world seed.
+/// Sent when the chunk has no player modifications (bandwidth optimization).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChunkGenerateLocal {
+    /// Chunk position (chunk coordinates).
+    pub position: [i32; 3],
+}
+
 /// Notification that a player joined the game.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PlayerJoined {
@@ -288,8 +296,10 @@ pub enum ServerMessage {
     BlockChanged(BlockChanged),
     /// Multiple blocks changed.
     BlocksChanged(BlocksChanged),
-    /// Chunk data.
+    /// Full chunk data (for modified chunks).
     ChunkData(ChunkData),
+    /// Instruct client to generate chunk locally (for unmodified chunks).
+    ChunkGenerateLocal(ChunkGenerateLocal),
     /// Player joined notification.
     PlayerJoined(PlayerJoined),
     /// Player left notification.

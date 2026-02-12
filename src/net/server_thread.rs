@@ -26,6 +26,8 @@ use super::protocol::{BlockChanged, ChunkData, ClientMessage};
 pub enum ServerCommand {
     /// Send chunk data to a specific client.
     SendChunk { client_id: u64, chunk: ChunkData },
+    /// Instruct client to generate chunk locally (for unmodified chunks).
+    SendChunkGenerateLocal { client_id: u64, position: [i32; 3] },
     /// Broadcast a block change to all clients.
     BroadcastBlockChange(BlockChanged),
     /// Broadcast player states to all clients.
@@ -136,6 +138,12 @@ impl ServerThread {
                 match cmd {
                     ServerCommand::SendChunk { client_id, chunk } => {
                         server.send_chunk(client_id, chunk);
+                    }
+                    ServerCommand::SendChunkGenerateLocal {
+                        client_id,
+                        position,
+                    } => {
+                        server.send_chunk_generate_local(client_id, position);
                     }
                     ServerCommand::BroadcastBlockChange(change) => {
                         server.broadcast_block_change(change);

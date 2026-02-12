@@ -100,9 +100,10 @@ pub use discovery::{DiscoveredServer, DiscoveryResponder, LanDiscovery, ServerAn
 pub use player_sync::{PredictionState, RemotePlayer};
 #[allow(unused_imports)]
 pub use protocol::{
-    BlockChanged, BlockData, BlocksChanged, BreakBlock, BulkOperation, ChunkData, ClientMessage,
-    ConnectionAccepted, ConnectionRejected, ConsoleCommand, InputActions, PlaceBlock, PlayerId,
-    PlayerInput, PlayerJoined, PlayerLeft, PlayerState, RequestChunks, ServerMessage, TimeUpdate,
+    BlockChanged, BlockData, BlocksChanged, BreakBlock, BulkOperation, ChunkData,
+    ChunkGenerateLocal, ClientMessage, ConnectionAccepted, ConnectionRejected, ConsoleCommand,
+    InputActions, PlaceBlock, PlayerId, PlayerInput, PlayerJoined, PlayerLeft, PlayerState,
+    RequestChunks, ServerMessage, TimeUpdate,
 };
 #[allow(unused_imports)]
 pub use server::{GameServer, PlayerInfo};

@@ -332,6 +332,18 @@ impl App {
             // Request chunks from server when in client mode
             if self.multiplayer.mode == crate::config::GameMode::Client {
                 self.request_network_chunks();
+
+                // Handle chunks that should be generated locally (bandwidth optimization)
+                // Server sends ChunkGenerateLocal for unmodified chunks
+                if self.has_pending_local_chunks() {
+                    let local_positions = self.take_pending_local_chunks();
+                    let positions: Vec<nalgebra::Vector3<i32>> = local_positions
+                        .iter()
+                        .map(|p| nalgebra::Vector3::new(p[0], p[1], p[2]))
+                        .collect();
+                    // Request from chunk_loader - it will generate using same seed as server
+                    let _ = self.sim.chunk_loader.request_chunks(&positions);
+                }
             }
 
             // Fulfill chunk requests from clients when hosting
