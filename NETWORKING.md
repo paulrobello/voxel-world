@@ -178,6 +178,44 @@ Chunk data is compressed with LZ4 before transmission:
 - Model metadata: Variable (sparse)
 - Typical compression ratio: 5-10x
 
+### Chunk Data Format
+
+The `SerializedChunk` format is used for network transmission:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Block Data (CHUNK_VOLUME bytes)                            │
+│  - One byte per block, representing BlockType               │
+├─────────────────────────────────────────────────────────────┤
+│  Model Metadata (sparse)                                    │
+│  - count: u16                                               │
+│  - entries: [index: u32, model_id: u8, rotation: u8,        │
+│              waterlogged: u8, custom_data: u32]             │
+├─────────────────────────────────────────────────────────────┤
+│  Paint Metadata (sparse)                                    │
+│  - count: u16                                               │
+│  - entries: [index: u32, texture_idx: u8, tint_idx: u8,     │
+│              blend_mode: u8]                                │
+├─────────────────────────────────────────────────────────────┤
+│  Tint Metadata (sparse)                                     │
+│  - count: u16                                               │
+│  - entries: [index: u32, tint: u8]                          │
+├─────────────────────────────────────────────────────────────┤
+│  Water Metadata (sparse)                                    │
+│  - count: u16                                               │
+│  - entries: [index: u32, water_type: u8]                    │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Client-Side Chunk Processing
+
+1. **Receive**: `ChunkData` message arrives from server
+2. **Decompress**: LZ4 decompression via `decompress_size_prepended()`
+3. **Deserialize**: Parse block data and sparse metadata
+4. **Convert**: Create `Chunk` struct via `from_network_data()`
+5. **Queue**: Store in `MultiplayerState.pending_chunks`
+6. **Apply**: Insert into world and upload to GPU in `update_chunk_loading()`
+
 ## File Structure
 
 ```
@@ -189,15 +227,25 @@ src/
 │   ├── server.rs           # GameServer wrapper (RenetServer)
 │   ├── client.rs           # GameClient wrapper (RenetClient)
 │   ├── chunk_sync.rs       # Chunk streaming with priority queue
+│   │                       # - ChunkSyncManager: tracks requests/received
+│   │                       # - SerializedChunk: compression/decompression
+│   │                       # - Priority calculation based on position/view
 │   ├── player_sync.rs      # Player position sync + prediction
 │   ├── block_sync.rs       # Block change broadcasting + AoI
 │   └── auth.rs             # Connection handshake (renet_netcode)
 ├── app_state/
 │   └── multiplayer.rs      # MultiplayerState (server/client management)
+│                           # - pending_chunks: received but not yet applied
+│                           # - pending_block_changes: remote block updates
 ├── config.rs               # CLI args (--host, --connect, --port)
 ├── block_interaction.rs    # Block place/break (multiplayer sync hooks)
+├── chunk.rs                # Chunk struct with from_network_data()
+├── world_streaming.rs      # update_chunk_loading() with network chunk support
 └── app/
     ├── core.rs             # App struct with multiplayer helpers
+    │                       # - request_network_chunks()
+    │                       # - apply_network_chunks()
+    │                       # - apply_remote_block_changes()
     ├── init.rs             # Multiplayer initialization from CLI
     └── update.rs           # Game loop with multiplayer.update()
 ```
@@ -215,6 +263,46 @@ if self.multiplayer.mode != GameMode::SinglePlayer {
 
     // Apply any remote block changes received from server
     self.apply_remote_block_changes();
+
+    // Request chunks from server when in client mode
+    if self.multiplayer.mode == GameMode::Client {
+        self.request_network_chunks();
+    }
+}
+```
+
+### Chunk Streaming Integration
+
+Chunk requests are sent from the client in `src/app/core.rs`:
+
+```rust
+pub fn request_network_chunks(&mut self) {
+    // Get player position and look direction for prioritization
+    let player_world_pos = self.sim.player.feet_pos(...);
+    let look_dir = [yaw.sin(), 0.0, -yaw.cos()];
+
+    // Update chunk sync manager and get chunks to request
+    let request = self.multiplayer.chunk_sync.request_chunks_around(
+        [player_chunk.x, player_chunk.y, player_chunk.z],
+        self.sim.view_distance,
+    );
+
+    // Send chunk request to server
+    if let Some(ref mut client) = self.multiplayer.client {
+        client.send_chunk_request(request.positions);
+    }
+}
+```
+
+Network chunks are applied in `src/world_streaming.rs`:
+
+```rust
+// In update_chunk_loading():
+let network_chunks = self.apply_network_chunks();
+
+for (pos, chunk) in network_chunks {
+    self.sim.world.insert_chunk(pos, chunk);
+    // Upload to GPU with metadata updates
 }
 ```
 
@@ -384,3 +472,32 @@ make run ARGS="--connect 127.0.0.1:5000"
 - Server runs on main thread (may impact performance)
 - No UI for host/join (CLI only)
 - No dedicated server binary yet
+
+## Next Steps
+
+To complete the chunk streaming system, the server-side needs:
+
+1. **Handle RequestChunks messages** in `GameServer`:
+   - Receive `ClientMessage::RequestChunks` from clients
+   - Look up requested chunks in the world
+   - Serialize chunks using `SerializedChunk::compress()`
+   - Send `ServerMessage::ChunkData` responses
+
+2. **Chunk serialization on server**:
+   ```rust
+   // In server.rs, handle chunk requests:
+   fn handle_chunk_request(&mut self, client_id: u64, positions: Vec<[i32; 3]>) {
+       for pos in positions {
+           if let Some(chunk) = self.world.get_chunk(pos) {
+               let serialized = SerializedChunk::from_chunk(pos, chunk);
+               let compressed = serialized.compress();
+               self.send_chunk_data(client_id, pos, compressed);
+           }
+       }
+   }
+   ```
+
+3. **Server-side world access**:
+   - The server needs access to the `World` to retrieve chunks
+   - Currently the server runs independently without world access
+   - Need to integrate world reference into `GameServer`
