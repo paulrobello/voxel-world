@@ -216,6 +216,30 @@ The `SerializedChunk` format is used for network transmission:
 5. **Queue**: Store in `MultiplayerState.pending_chunks`
 6. **Apply**: Insert into world and upload to GPU in `update_chunk_loading()`
 
+### Server-Side Chunk Fulfillment
+
+When hosting a game, the server fulfills chunk requests from clients:
+
+1. **Receive Request**: `ClientMessage::RequestChunks` arrives from client
+2. **Parse**: `GameServer::receive_client_messages()` deserializes typed messages
+3. **Queue**: `MultiplayerState::handle_client_message()` stores in `pending_chunk_requests`
+4. **Process**: `App::fulfill_chunk_requests()` retrieves chunks from world
+5. **Serialize**: `SerializedChunk::from_chunk()` extracts block data and metadata
+6. **Compress**: LZ4 compression via `compress_prepend_size()`
+7. **Send**: `GameServer::send_chunk()` transmits `ChunkData` to client
+
+```rust
+// In App::fulfill_chunk_requests():
+let requests = self.multiplayer.take_pending_chunk_requests();
+for (client_id, positions) in requests {
+    for chunk_pos in positions {
+        if let Some(chunk) = self.sim.world.get_chunk(pos) {
+            self.multiplayer.send_chunk_to_client(client_id, chunk_pos, chunk);
+        }
+    }
+}
+```
+
 ## File Structure
 
 ```
@@ -225,10 +249,15 @@ src/
 │   ├── channel.rs          # Renet channel configuration
 │   ├── protocol.rs         # Message types (bincode serialization)
 │   ├── server.rs           # GameServer wrapper (RenetServer)
+│   │                       # - receive_client_messages(): parse typed messages
+│   │                       # - send_chunk(): send ChunkData to client
+│   │                       # - broadcast_block_change(): broadcast to all clients
 │   ├── client.rs           # GameClient wrapper (RenetClient)
 │   ├── chunk_sync.rs       # Chunk streaming with priority queue
 │   │                       # - ChunkSyncManager: tracks requests/received
 │   │                       # - SerializedChunk: compression/decompression
+│   │                       #   - from_chunk(): serialize for transmission
+│   │                       #   - to_chunk(): deserialize to Chunk
 │   │                       # - Priority calculation based on position/view
 │   ├── player_sync.rs      # Player position sync + prediction
 │   ├── block_sync.rs       # Block change broadcasting + AoI
@@ -237,15 +266,20 @@ src/
 │   └── multiplayer.rs      # MultiplayerState (server/client management)
 │                           # - pending_chunks: received but not yet applied
 │                           # - pending_block_changes: remote block updates
+│                           # - pending_chunk_requests: server-side queue
+│                           # - handle_client_message(): route client messages
+│                           # - send_chunk_to_client(): send chunk to client
+│                           # - take_pending_chunk_requests(): get requests
 ├── config.rs               # CLI args (--host, --connect, --port)
 ├── block_interaction.rs    # Block place/break (multiplayer sync hooks)
 ├── chunk.rs                # Chunk struct with from_network_data()
 ├── world_streaming.rs      # update_chunk_loading() with network chunk support
 └── app/
     ├── core.rs             # App struct with multiplayer helpers
-    │                       # - request_network_chunks()
-    │                       # - apply_network_chunks()
-    │                       # - apply_remote_block_changes()
+    │                       # - request_network_chunks(): client requests
+    │                       # - apply_network_chunks(): apply received chunks
+    │                       # - apply_remote_block_changes(): apply block changes
+    │                       # - fulfill_chunk_requests(): server sends chunks
     ├── init.rs             # Multiplayer initialization from CLI
     └── update.rs           # Game loop with multiplayer.update()
 ```
@@ -267,6 +301,11 @@ if self.multiplayer.mode != GameMode::SinglePlayer {
     // Request chunks from server when in client mode
     if self.multiplayer.mode == GameMode::Client {
         self.request_network_chunks();
+    }
+
+    // Fulfill chunk requests from clients when hosting
+    if self.multiplayer.is_hosting() {
+        self.fulfill_chunk_requests();
     }
 }
 ```
