@@ -19,6 +19,7 @@ use crate::shape_tools::{
 };
 use crate::templates::{TemplateLibrary, TemplatePlacement, TemplateSelection, TemplateUi};
 use crate::textures::TextureLibrary;
+use crate::ui::multiplayer::MultiplayerPanelState;
 use crate::ui::paint_panel::PaintPanelState;
 use crate::ui::texture_generator::TextureGeneratorState;
 use crate::ui::tools::ToolsPaletteState;
@@ -211,4 +212,7 @@ pub struct UiState {
 
     /// Paint panel UI state.
     pub paint_panel: PaintPanelState,
+
+    /// Multiplayer panel UI state.
+    pub multiplayer_panel: MultiplayerPanelState,
 }

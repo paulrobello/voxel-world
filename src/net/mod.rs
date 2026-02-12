@@ -76,6 +76,7 @@ pub mod block_sync;
 pub mod channel;
 pub mod chunk_sync;
 pub mod client;
+pub mod discovery;
 pub mod player_sync;
 pub mod protocol;
 pub mod server;
@@ -92,6 +93,8 @@ pub use channel::Channel;
 pub use chunk_sync::{ChunkPriority, ChunkRequest, ChunkSyncManager, SerializedChunk};
 #[allow(unused_imports)]
 pub use client::{GameClient, RemotePlayerInfo};
+#[allow(unused_imports)]
+pub use discovery::{DiscoveredServer, DiscoveryResponder, LanDiscovery, ServerAnnouncement};
 #[allow(unused_imports)]
 pub use player_sync::{PredictionState, RemotePlayer};
 #[allow(unused_imports)]

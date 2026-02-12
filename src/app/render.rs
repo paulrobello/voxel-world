@@ -201,6 +201,9 @@ impl App {
             minimap_image,
             camera_yaw,
             player_world_pos,
+            &mut self.multiplayer,
+            self.args.seed.unwrap_or(314159),
+            self.args.world_gen,
         );
         let scale_changed_from_dynamic = self.ui.pending_scale_change;
         self.ui.pending_scale_change = false;

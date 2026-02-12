@@ -240,6 +240,75 @@ for (client_id, positions) in requests {
 }
 ```
 
+## LAN Discovery Protocol
+
+UDP broadcast-based server discovery allows clients to find servers on the local network without manual IP entry.
+
+### Protocol Details
+
+- **Discovery Port**: 5001 (separate from game port 5000)
+- **Magic Bytes**: `VXLD` (identifies voxel-world discovery packets)
+- **Timeout**: 5 seconds (stale server entries removed)
+
+### Packet Types
+
+| Type | Code | Direction | Description |
+|------|------|-----------|-------------|
+| DiscoveryRequest | 0x01 | Client → Broadcast | Client scanning for servers |
+| ServerAnnouncement | 0x02 | Server → Client | Server response with info |
+
+### Server Announcement Format
+
+```rust
+struct ServerAnnouncement {
+    game_port: u16,      // Actual game server port (5000)
+    server_name: String, // Human-readable server name
+    player_count: u8,    // Current players
+    max_players: u8,     // Maximum capacity
+}
+```
+
+### Discovery Flow
+
+1. **Client broadcasts** discovery request to `255.255.255.255:5001`
+2. **Servers respond** with `ServerAnnouncement` (unicast to client)
+3. **Client tracks** discovered servers with timestamp
+4. **Stale entries** (5s timeout) are automatically removed
+
+## Multiplayer UI
+
+In-game multiplayer panels provide a graphical interface for hosting and joining games.
+
+### UI Components
+
+| Panel | Trigger | Description |
+|-------|---------|-------------|
+| Multiplayer Panel | O key | Tabbed Host/Join interface |
+| Connection Status | Auto | Top-right overlay when connected |
+| Player List | Tab key | Shows connected players |
+
+### Host Tab Features
+
+- Server name configuration (displayed in LAN discovery)
+- Port selection (default: 5000)
+- Start/Stop hosting controls
+- Status display with player count
+
+### Join Tab Features
+
+- **Direct Connect**: Manual IP:port entry
+- **LAN Discovery**: Automatic server scanning
+- Server list with name, players, and address
+- Double-click or "Join Selected" to connect
+
+### Keyboard Shortcuts
+
+| Key | Action |
+|-----|--------|
+| O | Toggle multiplayer panel |
+| Tab | Toggle player list (when connected) |
+| Escape | Close multiplayer panel |
+
 ## File Structure
 
 ```
@@ -261,12 +330,28 @@ src/
 │   │                       # - Priority calculation based on position/view
 │   ├── player_sync.rs      # Player position sync + prediction
 │   ├── block_sync.rs       # Block change broadcasting + AoI
+│   ├── discovery.rs        # LAN server discovery (UDP broadcast)
+│   │                       # - LanDiscovery: client-side listener
+│   │                       # - DiscoveryResponder: server-side broadcaster
+│   │                       # - ServerAnnouncement: protocol message
+│   │                       # - DiscoveredServer: tracked server entry
 │   └── auth.rs             # Connection handshake (renet_netcode)
+├── ui/
+│   ├── mod.rs              # HUD rendering with multiplayer support
+│   └── multiplayer.rs      # Multiplayer UI panels
+│                           # - MultiplayerPanelState: panel state
+│                           # - HostPanelState: host configuration
+│                           # - JoinPanelState: join/discovery state
+│                           # - MultiplayerAction: UI action results
+│                           # - MultiplayerUI::draw(): panel renderer
 ├── app_state/
+│   ├── ui_state.rs         # UiState with multiplayer_panel field
 │   └── multiplayer.rs      # MultiplayerState (server/client management)
 │                           # - pending_chunks: received but not yet applied
 │                           # - pending_block_changes: remote block updates
 │                           # - pending_chunk_requests: server-side queue
+│                           # - discovery: Option<LanDiscovery>
+│                           # - discovery_responder: Option<DiscoveryResponder>
 │                           # - handle_client_message(): route client messages
 │                           # - send_chunk_to_client(): send chunk to client
 │                           # - take_pending_chunk_requests(): get requests
@@ -281,6 +366,8 @@ src/
     │                       # - apply_remote_block_changes(): apply block changes
     │                       # - fulfill_chunk_requests(): server sends chunks
     ├── init.rs             # Multiplayer initialization from CLI
+    ├── input.rs            # Keyboard shortcuts (O, Tab, Escape)
+    ├── hud.rs              # HUD rendering with multiplayer actions
     └── update.rs           # Game loop with multiplayer.update()
 ```
 
@@ -451,8 +538,9 @@ make run ARGS="--connect 127.0.0.1:5000"
 - [x] Game loop integration (multiplayer.update())
 - [x] Block sync integration (send/receive block changes)
 - [x] Chunk request fulfillment (server processes client requests)
+- [x] UI for host/join (O key opens multiplayer panel)
+- [x] LAN server discovery (UDP broadcast on port 5001)
 - [ ] Server thread management
-- [ ] UI for host/join
 
 ### Phase 6: Dedicated Server
 - [ ] Separate binary target
@@ -462,7 +550,7 @@ make run ARGS="--connect 127.0.0.1:5000"
 
 ## Testing
 
-### Local Testing
+### Local Testing (CLI)
 
 ```bash
 # Terminal 1: Host game
@@ -470,6 +558,21 @@ make run ARGS="--host"
 
 # Terminal 2: Join game (in a separate terminal)
 make run ARGS="--connect 127.0.0.1:5000"
+```
+
+### Local Testing (UI)
+
+```bash
+# Terminal 1: Start game and host via UI
+make run
+# Press O to open multiplayer panel
+# Click "Host" tab, configure server name/port, click "Start Hosting"
+
+# Terminal 2: Start another game and join
+make run
+# Press O to open multiplayer panel
+# Click "Join" tab, click "Scan for Servers" or enter address directly
+# Click "Connect"
 ```
 
 ### Verification Checklist
@@ -488,11 +591,10 @@ make run ARGS="--connect 127.0.0.1:5000"
 - ✅ Phase 2: Player Synchronization - Prediction, reconciliation, interpolation, remote player rendering
 - ✅ Phase 3: Block Synchronization - Block change broadcast, metadata sync, AoI filtering, validation
 - ✅ Phase 4: Chunk Streaming - LZ4 compression, priority queue, chunk request/response, world integration, server-side serialization
-- ✅ Phase 5: Integrated Server - CLI arguments, MultiplayerState, game loop integration, block sync hooks, chunk request fulfillment
+- ✅ Phase 5: Integrated Server - CLI arguments, MultiplayerState, game loop integration, block sync hooks, chunk request fulfillment, multiplayer UI, LAN discovery
 
 **In Progress:**
 - Server thread management
-- UI for host/join
 
 **Future:**
 - Phase 6: Dedicated Server
@@ -507,30 +609,29 @@ make run ARGS="--connect 127.0.0.1:5000"
 6. **Chunk Request System**: Client requests chunks from server based on player position and view direction
 7. **Chunk Deserialization**: Network chunks decompressed and applied to local world
 8. **Server-Side Chunk Streaming**: Server processes chunk requests and sends compressed chunk data to clients
+9. **Multiplayer UI**: Press O to open multiplayer panel with Host/Join tabs
+10. **LAN Discovery**: Automatic server scanning finds games on local network
+11. **Connection Status Overlay**: Top-right display shows connection info when connected
+12. **Player List**: Press Tab to see connected players
 
 ### Known Limitations
 
 - Server runs on main thread (may impact performance)
-- No UI for host/join (CLI only)
 - No dedicated server binary yet
 
 ## Next Steps
 
-The chunk streaming system is now complete. Future improvements include:
+The multiplayer system is now feature-complete for LAN play. Future improvements include:
 
 1. **Server thread management**:
    - Move server processing to a dedicated thread
    - Use async channels for communication with main game loop
 
-2. **UI for host/join**:
-   - Add in-game UI for hosting and joining multiplayer games
-   - Replace CLI-only workflow
-
-3. **Delta compression** (optimization):
+2. **Delta compression** (optimization):
    - Send only changed portions of chunks
    - Reduce bandwidth for partially modified chunks
 
-4. **Dedicated server**:
+3. **Dedicated server**:
    - Separate headless binary for server-only operation
    - Configuration file support
    - Admin commands

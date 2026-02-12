@@ -1,12 +1,13 @@
-use crate::app_state::{UiState, WorldSim};
+use crate::app_state::{MultiplayerState, UiState, WorldSim};
 use crate::chunk::BlockType;
+use crate::config::WorldGenType;
 use crate::editor::EditorAction;
 use crate::editor::rasterizer::generate_model_sprite;
 use crate::gpu_resources::RenderContext;
 use crate::pictures::{PictureBrowserAction, draw_picture_browser};
 use crate::stencils::{StencilBrowserAction, draw_stencil_browser};
 use crate::templates::{TemplateBrowserAction, draw_save_template_dialog, draw_template_browser};
-use crate::ui::{FluidStats, HUDRenderer, HudInputs, ToolAction};
+use crate::ui::{FluidStats, HUDRenderer, HudInputs, MultiplayerAction, ToolAction};
 use crate::user_prefs::UserPreferences;
 use egui_winit_vulkano::egui;
 use nalgebra::Vector3;
@@ -23,6 +24,9 @@ pub fn render_hud(
     minimap_image: Option<egui::ColorImage>,
     camera_yaw: f32,
     player_world_pos: Vector3<f64>,
+    multiplayer: &mut MultiplayerState,
+    world_seed: u32,
+    world_gen: WorldGenType,
 ) -> bool {
     // Gather fluid stats for debug display
     let fluid_stats = FluidStats {
@@ -37,7 +41,10 @@ pub fn render_hud(
     let has_selection =
         ui.template_selection.pos1.is_some() && ui.template_selection.pos2.is_some();
 
-    let (scale_changed, editor_action, tool_action) = HUDRenderer.render(
+    // Get discovered servers for multiplayer panel
+    ui.multiplayer_panel.join.discovered_servers = multiplayer.get_discovered_servers();
+
+    let (scale_changed, editor_action, tool_action, multiplayer_action) = HUDRenderer.render(
         &mut rcx.gui,
         HudInputs {
             fps: ui.fps,
@@ -112,8 +119,20 @@ pub fn render_hud(
             hollow_tool: &mut ui.hollow_tool,
             terrain_brush: &mut ui.terrain_brush,
             has_selection,
+            // Multiplayer fields
+            multiplayer_panel: &mut ui.multiplayer_panel,
+            game_mode: multiplayer.mode,
+            is_connected: multiplayer.is_connected(),
+            player_count: multiplayer.get_player_count(),
+            max_players: multiplayer.get_max_players(),
+            server_address: multiplayer.get_server_address(),
+            ping_ms: multiplayer.get_ping_ms(),
+            player_names: multiplayer.get_player_names(),
         },
     );
+
+    // Handle multiplayer panel actions
+    handle_multiplayer_action(multiplayer, &multiplayer_action, world_seed, world_gen);
 
     // Handle tool palette actions
     match tool_action {
@@ -1019,4 +1038,71 @@ pub fn render_hud(
     );
 
     scale_changed
+}
+
+/// Handle multiplayer panel actions.
+fn handle_multiplayer_action(
+    multiplayer: &mut MultiplayerState,
+    action: &MultiplayerAction,
+    world_seed: u32,
+    world_gen: WorldGenType,
+) {
+    // Handle start hosting
+    if let Some((server_name, port)) = &action.start_hosting {
+        let world_gen_byte = match world_gen {
+            WorldGenType::Normal => 0,
+            WorldGenType::Flat => 1,
+            WorldGenType::Benchmark => 2,
+        };
+        match multiplayer.start_host(server_name.clone(), *port, world_seed, world_gen_byte) {
+            Ok(()) => {
+                println!(
+                    "[Multiplayer] Started hosting '{}' on port {}",
+                    server_name, port
+                );
+            }
+            Err(e) => {
+                eprintln!("[Multiplayer] Failed to start hosting: {}", e);
+            }
+        }
+    }
+
+    // Handle stop hosting
+    if action.stop_hosting {
+        multiplayer.stop_host();
+        println!("[Multiplayer] Stopped hosting");
+    }
+
+    // Handle connect
+    if let Some(addr) = action.connect {
+        match multiplayer.connect(&addr.to_string()) {
+            Ok(()) => {
+                println!("[Multiplayer] Connecting to {}", addr);
+            }
+            Err(e) => {
+                eprintln!("[Multiplayer] Failed to connect: {}", e);
+            }
+        }
+    }
+
+    // Handle disconnect
+    if action.disconnect {
+        multiplayer.disconnect();
+        println!("[Multiplayer] Disconnected");
+    }
+
+    // Handle start discovery
+    if action.start_discovery {
+        if let Err(e) = multiplayer.start_discovery() {
+            eprintln!("[Multiplayer] Failed to start discovery: {}", e);
+        } else {
+            println!("[Multiplayer] Started LAN discovery");
+        }
+    }
+
+    // Handle stop discovery
+    if action.stop_discovery {
+        multiplayer.stop_discovery();
+        println!("[Multiplayer] Stopped LAN discovery");
+    }
 }

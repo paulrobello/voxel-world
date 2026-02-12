@@ -666,6 +666,7 @@ impl App {
             pictures_need_upload: true, // Trigger upload of all pictures on first render
             picture_ui: crate::pictures::PictureUi::new(),
             paint_panel: crate::ui::paint_panel::PaintPanelState::new(),
+            multiplayer_panel: crate::ui::multiplayer::MultiplayerPanelState::default(),
         };
 
         let input = InputState {
@@ -687,7 +688,12 @@ impl App {
             match args.game_mode() {
                 crate::config::GameMode::Host => {
                     println!("[Multiplayer] Starting server on port {}...", args.port);
-                    match multiplayer.start_host(args.port, seed, world_gen_type) {
+                    match multiplayer.start_host(
+                        "Voxel World Server".to_string(),
+                        args.port,
+                        seed,
+                        world_gen_type,
+                    ) {
                         Ok(()) => {
                             println!("[Multiplayer] Server started. Local client connecting...")
                         }

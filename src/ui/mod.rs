@@ -11,7 +11,7 @@
 use crate::app_state::{PaletteItem, PaletteTab};
 use crate::block_update::BlockUpdateQueue;
 use crate::chunk::BlockType;
-use crate::config::Settings;
+use crate::config::{GameMode, Settings};
 use crate::console::ConsoleState;
 use crate::editor::{EditorAction, EditorState};
 use crate::gpu_resources::SpriteIcons;
@@ -41,6 +41,7 @@ pub mod hollow_tool;
 pub mod hotbar;
 pub mod minimap;
 pub mod mirror_tool;
+pub mod multiplayer;
 pub mod paint_panel;
 pub mod palette;
 pub mod pattern_tool;
@@ -72,6 +73,8 @@ use hollow_tool::HollowToolUI;
 use hotbar::HotbarUI;
 use minimap::MinimapUI;
 use mirror_tool::MirrorToolUI;
+pub use multiplayer::MultiplayerAction;
+use multiplayer::MultiplayerUI;
 use palette::PaletteUI;
 use pattern_tool::PatternToolUI;
 use polygon_tool::PolygonToolUI;
@@ -176,6 +179,15 @@ pub struct HudInputs<'a> {
     pub hollow_tool: &'a mut crate::shape_tools::HollowToolState,
     pub terrain_brush: &'a mut crate::shape_tools::TerrainBrushState,
     pub has_selection: bool,
+    // Multiplayer fields
+    pub multiplayer_panel: &'a mut crate::ui::multiplayer::MultiplayerPanelState,
+    pub game_mode: GameMode,
+    pub is_connected: bool,
+    pub player_count: u8,
+    pub max_players: u8,
+    pub server_address: Option<std::net::SocketAddr>,
+    pub ping_ms: Option<u32>,
+    pub player_names: &'a [String],
 }
 
 pub struct HUDRenderer;
@@ -185,7 +197,7 @@ impl HUDRenderer {
         &self,
         gui: &mut egui_winit_vulkano::Gui,
         input: HudInputs<'_>,
-    ) -> (bool, EditorAction, ToolAction) {
+    ) -> (bool, EditorAction, ToolAction, MultiplayerAction) {
         let HudInputs {
             fps,
             chunk_stats,
@@ -259,10 +271,19 @@ impl HUDRenderer {
             hollow_tool,
             terrain_brush,
             has_selection,
+            multiplayer_panel,
+            game_mode,
+            is_connected,
+            player_count,
+            max_players,
+            server_address,
+            ping_ms,
+            player_names,
         } = input;
         let mut scale_changed = false;
         let mut editor_action = EditorAction::None;
         let mut tool_action = ToolAction::None;
+        let mut multiplayer_action = MultiplayerAction::default();
         gui.immediate_ui(|gui| {
             let ctx = gui.context();
 
@@ -534,9 +555,27 @@ impl HUDRenderer {
             if template_selection.visual_mode {
                 Self::draw_selection_mode_overlay(&ctx, template_selection);
             }
+
+            // Multiplayer panel
+            multiplayer_action = MultiplayerUI::draw(
+                &ctx,
+                multiplayer_panel,
+                game_mode,
+                is_connected,
+                player_count,
+                max_players,
+                server_address,
+                ping_ms,
+                player_names,
+            );
         });
 
-        (scale_changed, editor_action, tool_action)
+        (
+            scale_changed,
+            editor_action,
+            tool_action,
+            multiplayer_action,
+        )
     }
 
     fn draw_selection_mode_overlay(

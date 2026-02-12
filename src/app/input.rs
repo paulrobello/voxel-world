@@ -42,7 +42,8 @@ impl App {
             let other_panel_open = self.ui.editor.active
                 || self.ui.console.active
                 || self.ui.texture_generator.open
-                || self.ui.paint_panel.open;
+                || self.ui.paint_panel.open
+                || self.ui.multiplayer_panel.open;
             if !other_panel_open && self.ui.palette_previously_focused {
                 self.input.focused = true;
                 self.input.pending_grab = Some(true);
@@ -70,6 +71,24 @@ impl App {
             return true;
         }
 
+        // Close multiplayer panel with Escape
+        if self.input.key_pressed(KeyCode::Escape) && self.ui.multiplayer_panel.open {
+            self.ui.multiplayer_panel.open = false;
+            // Only restore focus if no other cursor-needing panels are still open
+            let other_panel_open = self.ui.palette_open
+                || self.ui.editor.active
+                || self.ui.console.active
+                || self.ui.texture_generator.open
+                || self.ui.paint_panel.open;
+            if !other_panel_open && self.ui.multiplayer_panel.previously_focused {
+                self.input.focused = true;
+                self.input.pending_grab = Some(true);
+                self.input.skip_input_frame = true;
+                self.ui.multiplayer_panel.previously_focused = false;
+            }
+            return true;
+        }
+
         // Close editor with Escape (restores focus if it was focused before opening)
         if self.input.key_pressed(KeyCode::Escape) && self.ui.editor.active {
             self.ui.editor.active = false;
@@ -77,7 +96,8 @@ impl App {
             let other_panel_open = self.ui.palette_open
                 || self.ui.console.active
                 || self.ui.texture_generator.open
-                || self.ui.paint_panel.open;
+                || self.ui.paint_panel.open
+                || self.ui.multiplayer_panel.open;
             if !other_panel_open && self.ui.editor_previously_focused {
                 self.input.focused = true;
                 self.input.pending_grab = Some(true);
@@ -95,7 +115,8 @@ impl App {
             let other_panel_open = self.ui.palette_open
                 || self.ui.editor.active
                 || self.ui.texture_generator.open
-                || self.ui.paint_panel.open;
+                || self.ui.paint_panel.open
+                || self.ui.multiplayer_panel.open;
             if !other_panel_open && self.ui.console_previously_focused {
                 self.input.focused = true;
                 self.input.pending_grab = Some(true);
@@ -167,7 +188,8 @@ impl App {
             || self.ui.template_ui.browser_open
             || self.ui.stencil_ui.browser_open
             || self.ui.texture_generator.open
-            || self.ui.paint_panel.open;
+            || self.ui.paint_panel.open
+            || self.ui.multiplayer_panel.open;
 
         if !self.input.focused && self.input.mouse_pressed(MouseButton::Left) && !panel_open {
             println!("Focus click...");
@@ -1005,6 +1027,16 @@ impl App {
             println!("Mirror axis: {}", self.ui.mirror_tool.axis.name());
         }
 
+        // Handle Tab key for player list (when connected or hosting)
+        let is_multiplayer = self.multiplayer.mode != crate::config::GameMode::SinglePlayer;
+        if is_multiplayer && self.input.key_pressed(KeyCode::Tab) {
+            // Toggle player list (only when not in mirror tool)
+            if !self.ui.mirror_tool.active {
+                self.ui.multiplayer_panel.show_player_list =
+                    !self.ui.multiplayer_panel.show_player_list;
+            }
+        }
+
         // Handle mirror tool plane setting with right-click (only when plane not yet set)
         if self.input.focused
             && self.ui.mirror_tool.active
@@ -1314,6 +1346,11 @@ impl App {
             );
         }
 
+        // Toggle multiplayer panel (O key for Online)
+        if self.input.key_pressed(KeyCode::KeyO) {
+            self.toggle_multiplayer_panel();
+        }
+
         // Stencil opacity adjustment ([ and ] keys)
         if self.input.key_pressed(KeyCode::BracketLeft) {
             self.ui.stencil_manager.adjust_global_opacity(-0.1);
@@ -1480,7 +1517,8 @@ impl App {
             let other_panel_open = self.ui.palette_open
                 || self.ui.console.active
                 || self.ui.texture_generator.open
-                || self.ui.paint_panel.open;
+                || self.ui.paint_panel.open
+                || self.ui.multiplayer_panel.open;
             if !other_panel_open && self.ui.editor_previously_focused {
                 self.input.focused = true;
                 self.input.pending_grab = Some(true);
@@ -1504,7 +1542,8 @@ impl App {
             let other_panel_open = self.ui.palette_open
                 || self.ui.editor.active
                 || self.ui.texture_generator.open
-                || self.ui.paint_panel.open;
+                || self.ui.paint_panel.open
+                || self.ui.multiplayer_panel.open;
             if !other_panel_open && self.ui.console_previously_focused {
                 self.input.focused = true;
                 self.input.pending_grab = Some(true);
@@ -1529,7 +1568,8 @@ impl App {
                 || self.ui.editor.active
                 || self.ui.console.active
                 || self.ui.texture_generator.open
-                || self.ui.paint_panel.open;
+                || self.ui.paint_panel.open
+                || self.ui.multiplayer_panel.open;
             if !other_panel_open && self.ui.template_previously_focused {
                 self.input.focused = true;
                 self.input.pending_grab = Some(true);
@@ -1555,7 +1595,8 @@ impl App {
                 || self.ui.editor.active
                 || self.ui.console.active
                 || self.ui.texture_generator.open
-                || self.ui.paint_panel.open;
+                || self.ui.paint_panel.open
+                || self.ui.multiplayer_panel.open;
             if !other_panel_open && self.ui.stencil_previously_focused {
                 self.input.focused = true;
                 self.input.pending_grab = Some(true);
@@ -1563,6 +1604,32 @@ impl App {
                 self.ui.stencil_previously_focused = false;
             }
             println!("Stencil browser: OFF");
+        }
+    }
+
+    /// Toggles the multiplayer panel on/off.
+    fn toggle_multiplayer_panel(&mut self) {
+        self.ui.multiplayer_panel.open = !self.ui.multiplayer_panel.open;
+        if self.ui.multiplayer_panel.open {
+            // Opening multiplayer panel: release cursor, store previous focus
+            self.ui.multiplayer_panel.previously_focused = self.input.focused;
+            self.input.focused = false;
+            self.input.pending_grab = Some(false);
+            println!("Multiplayer panel: ON");
+        } else {
+            // Closing multiplayer panel: restore focus if we were focused before and no other panel is open
+            let other_panel_open = self.ui.palette_open
+                || self.ui.editor.active
+                || self.ui.console.active
+                || self.ui.texture_generator.open
+                || self.ui.paint_panel.open;
+            if !other_panel_open && self.ui.multiplayer_panel.previously_focused {
+                self.input.focused = true;
+                self.input.pending_grab = Some(true);
+                self.input.skip_input_frame = true;
+                self.ui.multiplayer_panel.previously_focused = false;
+            }
+            println!("Multiplayer panel: OFF");
         }
     }
 }
