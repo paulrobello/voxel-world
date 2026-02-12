@@ -110,6 +110,17 @@ impl SettingsUI {
                                 ui.label("  Esc - Release cursor/close panels");
                                 ui.label("  F12 - Screenshot");
                             });
+
+                            ui.collapsing("Multiplayer", |ui| {
+                                ui.label("  O - Toggle multiplayer panel");
+                                ui.label("  Tab - Show player list (when connected)");
+                                ui.label("  Esc - Close multiplayer panel");
+                                ui.label("");
+                                ui.label("Multiplayer Panel:");
+                                ui.label("  Host tab - Start/stop hosting a server");
+                                ui.label("  Join tab - Connect to a server");
+                                ui.label("  LAN Discovery - Find servers on local network");
+                            });
                         });
                         ui.separator();
 
