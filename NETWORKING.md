@@ -195,10 +195,49 @@ src/
 ├── app_state/
 │   └── multiplayer.rs      # MultiplayerState (server/client management)
 ├── config.rs               # CLI args (--host, --connect, --port)
+├── block_interaction.rs    # Block place/break (multiplayer sync hooks)
 └── app/
-    ├── core.rs             # App struct with multiplayer field
-    └── init.rs             # Multiplayer initialization
+    ├── core.rs             # App struct with multiplayer helpers
+    ├── init.rs             # Multiplayer initialization from CLI
+    └── update.rs           # Game loop with multiplayer.update()
 ```
+
+## Integration Points
+
+### Game Loop Integration
+
+The multiplayer system is integrated into the main game loop in `src/app/update.rs`:
+
+```rust
+// Update multiplayer networking (process server/client updates)
+if self.multiplayer.mode != GameMode::SinglePlayer {
+    self.multiplayer.update(Duration::from_secs_f64(delta_time));
+
+    // Apply any remote block changes received from server
+    self.apply_remote_block_changes();
+}
+```
+
+### Block Change Sync
+
+Block changes are synchronized in `src/block_interaction.rs`:
+
+```rust
+// After breaking a block:
+self.sync_block_break([target.x, target.y, target.z]);
+
+// After placing a block:
+let block_data = BlockData { block_type, model_data, ... };
+self.sync_block_placement([place_pos.x, place_pos.y, place_pos.z], block_data);
+```
+
+### Remote Block Changes
+
+Remote block changes from the server are applied via `apply_remote_block_changes()` in `src/app/core.rs`:
+
+- Handles all block types (Model, TintedGlass, Crystal, Painted, Water, etc.)
+- Applies metadata (model_data, paint_data, tint_index, water_type)
+- Invalidates minimap cache for affected chunks
 
 ## CLI Arguments
 
@@ -315,13 +354,28 @@ make run ARGS="--connect 127.0.0.1:5000"
 ## Current Status
 
 **Completed:**
-- ✅ Phase 1: Foundation - Networking module, protocol, channels
-- ✅ Phase 2: Player Synchronization - Prediction, reconciliation, interpolation
-- ✅ Phase 3: Block Synchronization - Block change broadcast, metadata sync, AoI
-- ✅ Phase 5: Integrated Server - CLI arguments, MultiplayerState, game loop integration
+- ✅ Phase 1: Foundation - Networking module, protocol, channels, authentication
+- ✅ Phase 2: Player Synchronization - Prediction, reconciliation, interpolation, remote player rendering
+- ✅ Phase 3: Block Synchronization - Block change broadcast, metadata sync, AoI filtering, validation
+- ✅ Phase 5: Integrated Server - CLI arguments, MultiplayerState, game loop integration, block sync hooks
 
 **In Progress:**
 - Phase 4: Chunk Streaming (LZ4 compression and priority queue implemented, needs world integration)
 
 **Future:**
 - Phase 6: Dedicated Server
+
+### What's Working Now
+
+1. **Server/Client Startup**: `--host` starts integrated server, `--connect <addr>` joins remote server
+2. **Player Synchronization**: Position broadcasting, client-side prediction, server reconciliation
+3. **Block Synchronization**: Block place/break events sync between server and all clients
+4. **Metadata Sync**: Model data, paint data, tint indices, and water types all sync correctly
+5. **Remote Change Application**: Server-authoritative block changes applied to local world
+
+### Known Limitations
+
+- Chunk streaming not yet integrated (players see each other's changes but chunks don't load from server)
+- Server runs on main thread (may impact performance)
+- No UI for host/join (CLI only)
+- No dedicated server binary yet
