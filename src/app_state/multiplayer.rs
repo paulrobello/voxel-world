@@ -282,27 +282,25 @@ impl MultiplayerState {
     }
 
     /// Returns remote player markers for minimap display.
-    /// Each marker includes position (x, z) and a color index based on player ID.
+    /// Each marker includes position (x, z) and player_id for color assignment.
     /// The local player is NOT included in this list.
     pub fn get_minimap_markers(&self) -> Vec<crate::ui::minimap::RemotePlayerMarker> {
         self.remote_players
             .iter()
-            .enumerate()
-            .map(|(idx, player)| crate::ui::minimap::RemotePlayerMarker {
+            .map(|player| crate::ui::minimap::RemotePlayerMarker {
                 name: player.name.clone(),
                 position: (player.position[0], player.position[2]),
-                color_index: idx,
+                player_id: player.player_id,
             })
             .collect()
     }
 
     /// Returns remote player positions for 3D rendering.
-    /// Each tuple contains (position [x, y, z], color_index).
-    pub fn get_remote_player_positions(&self) -> Vec<([f32; 3], usize)> {
+    /// Each tuple contains (position [x, y, z], player_id for color).
+    pub fn get_remote_player_positions(&self) -> Vec<([f32; 3], u64)> {
         self.remote_players
             .iter()
-            .enumerate()
-            .map(|(idx, player)| (player.position, idx))
+            .map(|player| (player.position, player.player_id))
             .collect()
     }
 
@@ -572,6 +570,15 @@ impl MultiplayerState {
                 );
                 // When hosting, spawn new players
                 if let Some(ref mut server) = self.server {
+                    // Check if this is the host's own client connection (first client in Host mode)
+                    // The host connects to itself as a client - this is the loopback connection
+                    if self.mode == GameMode::Host && server.host_client_id().is_none() {
+                        println!(
+                            "[Server] First client in Host mode - marking as host's loopback client"
+                        );
+                        server.set_host_client_id(client_id);
+                    }
+
                     // TODO: Get actual spawn position from world
                     server.handle_client_connected(client_id, [0.0, 64.0, 0.0]);
                     println!(

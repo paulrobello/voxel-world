@@ -118,7 +118,7 @@ impl App {
             prepare_minimap_image(&mut self.ui, &mut self.sim, player_world_pos, camera_yaw);
 
         // Collect remote player data for rendering (before rcx borrow)
-        let remote_player_data: Vec<([f32; 3], usize)> = if self.is_multiplayer() {
+        let remote_player_data: Vec<([f32; 3], u64)> = if self.is_multiplayer() {
             self.multiplayer.get_remote_player_positions()
         } else {
             Vec::new()
@@ -1123,10 +1123,19 @@ impl App {
         let remote_player_count = if !remote_player_data.is_empty() {
             let tex_origin = self.sim.texture_origin;
             let mut write = self.graphics.remote_player_buffer.write().unwrap();
-            for (i, (pos, color_idx)) in remote_player_data.iter().enumerate() {
+            for (i, (pos, player_id)) in remote_player_data.iter().enumerate() {
                 if i >= MAX_REMOTE_PLAYERS {
                     break;
                 }
+                // Assign color based on player_id (same logic as minimap):
+                // Host (player_id 0) always gets red (index 0)
+                // Other players get colors 1-7 based on their player_id hash
+                let color_index = if *player_id == 0 {
+                    0 // Host is always red
+                } else {
+                    ((player_id.wrapping_mul(0x5851F42E4C957F2D) % 7) + 1) as u32
+                };
+
                 // Convert world position to texture position
                 let gpu_player = GpuRemotePlayer::new(
                     [
@@ -1134,7 +1143,7 @@ impl App {
                         pos[1] - tex_origin.y as f32,
                         pos[2] - tex_origin.z as f32,
                     ],
-                    *color_idx as u32,
+                    color_index,
                     1.8, // 2-block tall player
                 );
                 write[i] = gpu_player;

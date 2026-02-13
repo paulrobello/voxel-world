@@ -32,6 +32,9 @@ pub struct GameServer {
     players: HashMap<u64, PlayerInfo>,
     /// Host player info (the server's own player).
     host_player: Option<PlayerInfo>,
+    /// Host's client ID (the loopback connection from host to itself).
+    /// This client should not be broadcast to other clients.
+    host_client_id: Option<u64>,
     /// Server start time.
     start_time: Instant,
     /// Last tick time.
@@ -79,6 +82,7 @@ impl GameServer {
             transport,
             players: HashMap::new(),
             host_player: None,
+            host_client_id: None,
             start_time: Instant::now(),
             last_tick: Instant::now(),
             world_seed,
@@ -99,6 +103,18 @@ impl GameServer {
             pitch: 0.0,
             connected_at: Instant::now(),
         });
+    }
+
+    /// Sets the host's client ID (the loopback connection from host to itself).
+    /// This is used to exclude the host's own client from broadcasts to other clients.
+    pub fn set_host_client_id(&mut self, client_id: u64) {
+        self.host_client_id = Some(client_id);
+        println!("[GameServer] Set host_client_id={}", client_id);
+    }
+
+    /// Returns the host's client ID if set.
+    pub fn host_client_id(&self) -> Option<u64> {
+        self.host_client_id
     }
 
     /// Updates the host player's state.
@@ -373,15 +389,20 @@ impl GameServer {
         }
 
         // Then, broadcast each connected player's state to all other clients (and potentially the host)
+        // Skip the host's own client connection (it's just a loopback, external clients shouldn't see it)
         for (&client_id, info) in &self.players {
+            // Skip the host's loopback client - external clients should only see player_id=0 for the host
+            if self.host_client_id == Some(client_id) {
+                println!(
+                    "[GameServer] Skipping host's loopback client_id={}, player_id={}",
+                    client_id, info.player_id
+                );
+                continue;
+            }
+
             println!(
-                "[GameServer] Broadcasting client_id={}, player_id={}, pos=({:.1}, {:.1}, {:.1}) to {} other clients",
-                client_id,
-                info.player_id,
-                info.position[0],
-                info.position[1],
-                info.position[2],
-                self.players.len().saturating_sub(1)
+                "[GameServer] Broadcasting client_id={}, player_id={}, pos=({:.1}, {:.1}, {:.1}) to other clients",
+                client_id, info.player_id, info.position[0], info.position[1], info.position[2]
             );
             let state = PlayerState {
                 player_id: info.player_id,
@@ -395,9 +416,10 @@ impl GameServer {
             let msg = ServerMessage::PlayerState(state);
             if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
                 let bytes = renet::Bytes::from(encoded);
-                // Send to all other clients
+                // Send to all other clients (excluding the player themselves AND the host's loopback)
                 for &other_client_id in self.players.keys() {
-                    if other_client_id != client_id {
+                    if other_client_id != client_id && self.host_client_id != Some(other_client_id)
+                    {
                         self.server.send_message(other_client_id, 0, bytes.clone());
                     }
                 }

@@ -3,16 +3,17 @@
 use crate::hud::Minimap;
 use egui_winit_vulkano::egui;
 
-/// Player colors for minimap markers (8 distinct colors).
+/// Player colors for minimap markers.
+/// Host (player_id 0) is always RED, then clients get Blue, Green, Purple, etc.
 const PLAYER_COLORS: [egui::Color32; 8] = [
-    egui::Color32::from_rgb(0, 200, 255),   // Cyan
-    egui::Color32::from_rgb(255, 100, 100), // Light red
-    egui::Color32::from_rgb(100, 255, 100), // Light green
-    egui::Color32::from_rgb(255, 200, 50),  // Gold
-    egui::Color32::from_rgb(200, 100, 255), // Purple
-    egui::Color32::from_rgb(255, 150, 200), // Pink
-    egui::Color32::from_rgb(100, 150, 255), // Light blue
-    egui::Color32::from_rgb(255, 180, 100), // Orange
+    egui::Color32::from_rgb(255, 50, 50),   // Red - Host
+    egui::Color32::from_rgb(50, 100, 255),  // Blue - 1st client
+    egui::Color32::from_rgb(50, 200, 50),   // Green - 2nd client
+    egui::Color32::from_rgb(180, 50, 255),  // Purple - 3rd client
+    egui::Color32::from_rgb(255, 200, 50),  // Gold - 4th client
+    egui::Color32::from_rgb(255, 150, 200), // Pink - 5th client
+    egui::Color32::from_rgb(50, 200, 200),  // Cyan - 6th client
+    egui::Color32::from_rgb(255, 150, 50),  // Orange - 7th client
 ];
 
 /// Remote player marker for minimap display.
@@ -22,8 +23,8 @@ pub struct RemotePlayerMarker {
     pub name: String,
     /// World position (x, z).
     pub position: (f32, f32),
-    /// Color index for this player (0-7).
-    pub color_index: usize,
+    /// Player ID (0 = host).
+    pub player_id: u64,
 }
 
 /// Remote player data for 3D name label rendering.
@@ -161,8 +162,17 @@ impl MinimapUI {
                                             (perimeter_x, perimeter_y, true)
                                         };
 
-                                    let color =
-                                        PLAYER_COLORS[player.color_index % PLAYER_COLORS.len()];
+                                    // Assign color based on player_id:
+                                    // Host (player_id 0) always gets red (index 0)
+                                    // Other players get colors 1-7 based on their player_id hash
+                                    let color_index = if player.player_id == 0 {
+                                        0 // Host is always red
+                                    } else {
+                                        // Use player_id hash to get a consistent color (1-7)
+                                        ((player.player_id.wrapping_mul(0x5851F42E4C957F2D) % 7)
+                                            + 1) as usize
+                                    };
+                                    let color = PLAYER_COLORS[color_index % PLAYER_COLORS.len()];
 
                                     if is_perimeter {
                                         // Draw as a small arrow/triangle pointing outward for perimeter markers
