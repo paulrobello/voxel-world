@@ -48,7 +48,7 @@ impl Default for HostPanelState {
 }
 
 /// State for the join panel tab.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct JoinPanelState {
     /// Direct connect address input.
     pub address_input: String,
@@ -60,6 +60,18 @@ pub struct JoinPanelState {
     pub discovery_active: bool,
     /// Connection status message.
     pub status_message: Option<String>,
+}
+
+impl Default for JoinPanelState {
+    fn default() -> Self {
+        Self {
+            address_input: "127.0.0.1:5000".to_string(),
+            discovered_servers: Vec::new(),
+            selected_server: None,
+            discovery_active: false,
+            status_message: None,
+        }
+    }
 }
 
 /// Main multiplayer panel state.
@@ -123,8 +135,11 @@ impl MultiplayerUI {
         let mut action = MultiplayerAction::default();
 
         if !state.open {
+            // Panel is closed, no action
             return action;
         }
+
+        println!("[MultiplayerUI] Panel is open, tab: {:?}", state.tab);
 
         // Update internal hosting state from game mode
         state.host.is_hosting = game_mode == GameMode::Host;
@@ -183,6 +198,17 @@ impl MultiplayerUI {
         // Draw player list overlay (Tab key toggles this separately)
         if state.show_player_list && (is_connected || game_mode == GameMode::Host) {
             Self::draw_player_list(ctx, player_names, player_count, max_players);
+        }
+
+        // Debug: log action being returned
+        if action.connect.is_some()
+            || action.disconnect
+            || action.start_hosting.is_some()
+            || action.stop_hosting
+            || action.start_discovery
+            || action.stop_discovery
+        {
+            println!("[MultiplayerUI] Returning action: {:?}", action);
         }
 
         action
@@ -295,14 +321,28 @@ impl MultiplayerUI {
                 let address_valid = join.address_input.parse::<SocketAddr>().is_ok()
                     || Self::parse_simple_address(&join.address_input).is_some();
 
-                if ui
-                    .add_enabled(address_valid, egui::Button::new("Connect"))
-                    .clicked()
-                {
+                // Debug: log address validation
+                if !join.address_input.is_empty() {
+                    println!(
+                        "[MultiplayerUI] Address '{}' valid: {}",
+                        join.address_input, address_valid
+                    );
+                }
+
+                let connect_response = ui.add_enabled(address_valid, egui::Button::new("Connect"));
+                if connect_response.clicked() {
+                    println!("[MultiplayerUI] Connect button clicked!");
                     if let Ok(addr) = join.address_input.parse::<SocketAddr>() {
+                        println!("[MultiplayerUI] Parsed as SocketAddr: {}", addr);
                         action.connect = Some(addr);
                     } else if let Some(addr) = Self::parse_simple_address(&join.address_input) {
+                        println!("[MultiplayerUI] Parsed via simple parser: {}", addr);
                         action.connect = Some(addr);
+                    } else {
+                        eprintln!(
+                            "[MultiplayerUI] Failed to parse address: '{}'",
+                            join.address_input
+                        );
                     }
                 }
             }

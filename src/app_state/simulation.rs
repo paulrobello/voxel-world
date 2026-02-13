@@ -178,4 +178,63 @@ impl WorldSim {
 
         self.save_metadata(measurement_markers);
     }
+
+    /// Updates the terrain generator and chunk loader with a new seed.
+    /// Used when a client connects to a server and needs to use the server's world seed.
+    /// Also clears the current world to start fresh with the server's world.
+    pub fn set_world_seed(&mut self, seed: u32, world_gen: WorldGenType) {
+        println!(
+            "[WorldSim] Updating world seed to {} (world_gen: {:?})",
+            seed, world_gen
+        );
+
+        // Update seed and world_gen
+        self.seed = seed;
+        self.world_gen = world_gen;
+
+        // Clear the current world - we're loading a new world from the server
+        let chunk_count = self.world.chunk_count();
+        self.world.clear();
+        println!("[WorldSim] Cleared {} chunks from local world", chunk_count);
+
+        // Clear fluid grids
+        self.water_grid.clear();
+        self.lava_grid.clear();
+
+        // Clear block update queue
+        self.block_updates.clear();
+
+        // Clear falling blocks
+        self.falling_blocks.clear();
+
+        // Clear deferred uploads
+        self.deferred_uploads.clear();
+        self.reupload_queue.clear();
+
+        // Create new terrain generator with the new seed
+        self.terrain_generator = TerrainGenerator::new(seed);
+
+        // Recreate chunk loader with new terrain generator
+        let terrain = self.terrain_generator.clone();
+        let benchmark_terrain = match world_gen {
+            WorldGenType::Benchmark => crate::config::BenchmarkTerrain::Hills,
+            _ => crate::config::BenchmarkTerrain::Flat,
+        };
+        let world_dir = self.world_dir.clone();
+
+        self.chunk_loader = ChunkLoader::new(
+            move |pos| {
+                // Generate chunk with overflow blocks for cross-chunk structures
+                crate::terrain_gen::generate_chunk_terrain(
+                    &terrain,
+                    pos,
+                    world_gen,
+                    benchmark_terrain,
+                )
+            },
+            Some(world_dir),
+        );
+
+        println!("[WorldSim] Chunk loader updated with new seed");
+    }
 }

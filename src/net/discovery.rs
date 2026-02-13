@@ -78,7 +78,9 @@ pub struct LanDiscovery {
 impl LanDiscovery {
     /// Creates a new LAN discovery client.
     pub fn new() -> io::Result<Self> {
-        let socket = UdpSocket::bind(("0.0.0.0", DISCOVERY_PORT))?;
+        // Bind to port 0 (any available port) - we don't need port 5001
+        // The server listens on 5001, we just need to be able to receive responses
+        let socket = UdpSocket::bind(("0.0.0.0", 0))?;
         socket.set_nonblocking(true)?;
         socket.set_broadcast(true)?;
 
@@ -99,6 +101,10 @@ impl LanDiscovery {
         packet.extend_from_slice(DISCOVERY_MAGIC);
         packet.push(PacketType::DiscoveryRequest as u8);
 
+        println!(
+            "[Discovery] Sending discovery request to {}",
+            broadcast_addr
+        );
         self.socket.send_to(&packet, broadcast_addr)?;
         self.last_request = Some(Instant::now());
 
@@ -117,7 +123,9 @@ impl LanDiscovery {
             .unwrap_or(true);
 
         if should_request {
-            let _ = self.send_discovery_request();
+            if let Err(e) = self.send_discovery_request() {
+                eprintln!("[Discovery] Failed to send discovery request: {}", e);
+            }
         }
 
         // Receive pending packets
@@ -125,9 +133,18 @@ impl LanDiscovery {
         loop {
             match self.socket.recv_from(&mut buf) {
                 Ok((len, addr)) => {
+                    println!("[Discovery] Received {} bytes from {}", len, addr);
                     if let Some(server) = Self::parse_announcement(&buf[..len], addr) {
+                        println!(
+                            "[Discovery] Found server: {} at {}:{}",
+                            server.server_name,
+                            server.address.ip(),
+                            server.game_port
+                        );
                         let key = format!("{}:{}", server.address.ip(), server.game_port);
                         self.servers.insert(key, server);
+                    } else {
+                        println!("[Discovery] Failed to parse announcement");
                     }
                 }
                 Err(ref e) if e.kind() == ErrorKind::WouldBlock => {
@@ -230,8 +247,11 @@ impl DiscoveryResponder {
             match self.socket.recv_from(&mut buf) {
                 Ok((len, addr)) => {
                     if self.is_discovery_request(&buf[..len]) {
+                        println!("[Discovery] Received discovery request from {}", addr);
                         if let Err(e) = self.send_announcement(addr, player_count) {
                             eprintln!("[Discovery] Failed to send announcement: {}", e);
+                        } else {
+                            println!("[Discovery] Sent announcement to {}", addr);
                         }
                     }
                 }

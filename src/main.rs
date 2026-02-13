@@ -85,6 +85,10 @@ use app::App;
 use winit::event_loop::EventLoop;
 
 fn main() {
+    // Initialize logger to see renet's internal error messages
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn,renet=debug,renet_netcode=debug"))
+        .init();
+
     let event_loop = EventLoop::new().unwrap();
     let mut app = App::new(&event_loop);
 

@@ -37,13 +37,11 @@ pub struct ServerAuth {
 }
 
 impl ServerAuth {
-    /// Creates new server authentication with a random private key.
+    /// Creates new server authentication.
+    /// Uses unsecure mode for development/LAN play.
     pub fn new(address: SocketAddr) -> Self {
-        let mut private_key = [0u8; 32];
-        // Generate random key (in production, use proper RNG)
-        for (i, byte) in private_key.iter_mut().enumerate() {
-            *byte = (i.wrapping_mul(17) ^ 0x5A) as u8;
-        }
+        // For development, use a fixed key that clients can also use
+        let private_key = Self::generate_dev_key();
 
         Self {
             private_key,
@@ -59,16 +57,23 @@ impl ServerAuth {
         }
     }
 
+    /// Generates the development key used by both server and client.
+    pub fn generate_dev_key() -> [u8; 32] {
+        let mut key = [0u8; 32];
+        let seed = b"voxel-world-dev-key-v1-32-byte!!";
+        key.copy_from_slice(seed);
+        key
+    }
+
     /// Creates a NetcodeServerTransport for the server.
+    /// Uses Unsecure mode for development/LAN play.
     pub fn create_transport(&self) -> Result<NetcodeServerTransport, String> {
         let server_config = ServerConfig {
             current_time: Duration::ZERO,
             max_clients: MAX_CONNECTIONS,
             protocol_id: PROTOCOL_VERSION.len() as u64,
             public_addresses: vec![self.address],
-            authentication: ServerAuthentication::Secure {
-                private_key: self.private_key,
-            },
+            authentication: ServerAuthentication::Unsecure,
         };
 
         let socket = std::net::UdpSocket::bind(self.address)
@@ -129,7 +134,7 @@ impl ClientAuth {
 
         let client_id = generate_client_id();
 
-        // Use unsecure authentication for development
+        // Use unsecure authentication for development/LAN play
         let authentication = ClientAuthentication::Unsecure {
             protocol_id: PROTOCOL_VERSION.len() as u64,
             client_id,
@@ -162,12 +167,8 @@ fn generate_client_id() -> u64 {
 
 /// Generates a private key for localhost connections.
 fn generate_local_key() -> [u8; 32] {
-    // Deterministic key for localhost development
-    let mut key = [0u8; 32];
-    let seed = b"voxel-world-localhost-key-v1";
-    let len = seed.len().min(32);
-    key[..len].copy_from_slice(&seed[..len]);
-    key
+    // Use the same development key as the server
+    ServerAuth::generate_dev_key()
 }
 
 /// Connection state tracking.

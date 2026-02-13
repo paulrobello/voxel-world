@@ -108,23 +108,53 @@ impl GameClient {
 
     /// Updates the client (should be called every frame).
     pub fn update(&mut self, duration: Duration) {
+        let prev_state = self.connection.state();
+
         // Update the client
         self.client.update(duration);
-        // Update the transport
-        let _ = self.transport.update(duration, &mut self.client);
+        // Update the transport - receives packets
+        let transport_result = self.transport.update(duration, &mut self.client);
+
+        // Log connection status periodically
+        static UPDATE_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let count = UPDATE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if count % 60 == 0 { // Log every 60 frames
+            println!("[Client] Update #{}, connected: {}, client.is_connected(): {}, transport_result: {:?}",
+                count, self.connection.is_connected(), self.client.is_connected(), transport_result);
+        }
 
         // Check for connection timeout
         if self.connection.has_timed_out() {
             self.connection.mark_failed("Connection timed out");
+            println!("[Client] Connection timed out");
         }
 
         // Check if connected
         if self.client.is_connected() {
             if self.connection.state() == ConnectionState::Connecting {
                 self.connection.mark_connected();
+                println!("[Client] Connected to server!");
             }
         } else if self.connection.state() == ConnectionState::Connected {
             self.connection.mark_disconnected(Some("Connection lost"));
+            println!("[Client] Disconnected from server");
+        }
+
+        // Log state changes
+        let new_state = self.connection.state();
+        if prev_state != new_state {
+            println!(
+                "[Client] Connection state: {:?} -> {:?}",
+                prev_state, new_state
+            );
+        }
+    }
+
+    /// Sends queued packets to the server.
+    /// Call this AFTER sending messages (send_input, send_chunk_request, etc).
+    pub fn flush_packets(&mut self) {
+        if let Err(e) = self.transport.send_packets(&mut self.client) {
+            println!("[Client] Error flushing packets: {:?}", e);
         }
     }
 
@@ -132,49 +162,78 @@ impl GameClient {
     /// Returns a list of server messages to handle.
     pub fn receive_messages(&mut self) -> Vec<ServerMessage> {
         let mut messages = Vec::new();
+        let mut total_received = 0usize;
 
         while let Some(message) = self.client.receive_message(0) {
             // PlayerMovement channel
+            total_received += 1;
+            println!("[Client] Received message on channel 0 (PlayerMovement), {} bytes", message.len());
             if let Ok((msg, _)) = bincode::serde::decode_from_slice::<ServerMessage, _>(
                 &message,
                 bincode::config::standard(),
             ) {
+                println!("[Client] Decoded message: {:?}", std::mem::discriminant(&msg));
                 self.handle_server_message(&msg);
                 messages.push(msg);
+            } else {
+                println!("[Client] Failed to decode message on channel 0!");
             }
         }
 
         while let Some(message) = self.client.receive_message(1) {
             // BlockUpdates channel
+            total_received += 1;
+            println!("[Client] Received message on channel 1 (BlockUpdates), {} bytes", message.len());
             if let Ok((msg, _)) = bincode::serde::decode_from_slice::<ServerMessage, _>(
                 &message,
                 bincode::config::standard(),
             ) {
+                println!("[Client] Decoded message: {:?}", std::mem::discriminant(&msg));
                 self.handle_server_message(&msg);
                 messages.push(msg);
+            } else {
+                println!("[Client] Failed to decode message on channel 1!");
             }
         }
 
         while let Some(message) = self.client.receive_message(2) {
             // GameState channel
+            total_received += 1;
+            println!("[Client] Received message on channel 2 (GameState), {} bytes", message.len());
+            // Log first few bytes for debugging
+            if message.len() >= 8 {
+                println!("[Client] First 8 bytes: {:02x?}", &message[..8]);
+            }
             if let Ok((msg, _)) = bincode::serde::decode_from_slice::<ServerMessage, _>(
                 &message,
                 bincode::config::standard(),
             ) {
+                println!("[Client] Decoded message on channel 2: {:?}", std::mem::discriminant(&msg));
                 self.handle_server_message(&msg);
                 messages.push(msg);
+            } else {
+                println!("[Client] Failed to decode message on channel 2!");
             }
         }
 
         while let Some(message) = self.client.receive_message(3) {
             // ChunkStream channel
+            total_received += 1;
+            println!("[Client] Received message on channel 3 (ChunkStream), {} bytes", message.len());
             if let Ok((msg, _)) = bincode::serde::decode_from_slice::<ServerMessage, _>(
                 &message,
                 bincode::config::standard(),
             ) {
+                println!("[Client] Decoded message: {:?}", std::mem::discriminant(&msg));
                 self.handle_server_message(&msg);
                 messages.push(msg);
+            } else {
+                println!("[Client] Failed to decode message on channel 3!");
             }
+        }
+
+        if total_received > 0 {
+            println!("[Client] Total raw messages received: {}", total_received);
         }
 
         messages
@@ -304,10 +363,13 @@ impl GameClient {
     /// The server will respond with ChunkData messages for each requested chunk.
     pub fn send_chunk_request(&mut self, positions: Vec<[i32; 3]>) {
         use crate::net::protocol::RequestChunks;
+        let pos_count = positions.len();
         let msg = ClientMessage::RequestChunks(RequestChunks { positions });
 
         if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
-            self.client.send_message(2, renet::Bytes::from(encoded)); // Channel 2 = ChunkStream
+            let len = encoded.len();
+            self.client.send_message(2, renet::Bytes::from(encoded)); // Channel 2 = GameState
+            println!("[Client] Sent chunk request for {} positions ({} bytes)", pos_count, len);
         }
     }
 
@@ -349,13 +411,10 @@ impl GameClient {
 
 /// Generates a client key for the given server address.
 /// In production, this would be obtained from the server or a matchmaker.
-fn generate_client_key(address: SocketAddr) -> [u8; 32] {
-    // Deterministic key based on address for development
-    let mut key = [0u8; 32];
-    let addr_bytes = address.to_string().as_bytes().to_vec();
-    let len = addr_bytes.len().min(32);
-    key[..len].copy_from_slice(&addr_bytes[..len]);
-    key
+/// For development with Unsecure mode, the key is not actually used.
+fn generate_client_key(_address: SocketAddr) -> [u8; 32] {
+    // Return a dummy key since we're using Unsecure mode
+    [0u8; 32]
 }
 
 #[cfg(test)]

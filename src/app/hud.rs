@@ -1047,6 +1047,25 @@ fn handle_multiplayer_action(
     world_seed: u32,
     world_gen: WorldGenType,
 ) {
+    // Debug: log if we received any action
+    if action.connect.is_some()
+        || action.disconnect
+        || action.start_hosting.is_some()
+        || action.stop_hosting
+        || action.start_discovery
+        || action.stop_discovery
+    {
+        println!(
+            "[handle_multiplayer_action] Received action: connect={:?}, disconnect={}, start_hosting={:?}, stop_hosting={}, start_discovery={}, stop_discovery={}",
+            action.connect,
+            action.disconnect,
+            action.start_hosting,
+            action.stop_hosting,
+            action.start_discovery,
+            action.stop_discovery
+        );
+    }
+
     // Handle start hosting
     if let Some((server_name, port)) = &action.start_hosting {
         let world_gen_byte = match world_gen {
@@ -1075,6 +1094,7 @@ fn handle_multiplayer_action(
 
     // Handle connect
     if let Some(addr) = action.connect {
+        println!("[Multiplayer] Connect action triggered for {}", addr);
         match multiplayer.connect(&addr.to_string()) {
             Ok(()) => {
                 println!("[Multiplayer] Connecting to {}", addr);
@@ -1093,6 +1113,7 @@ fn handle_multiplayer_action(
 
     // Handle start discovery
     if action.start_discovery {
+        println!("[Multiplayer] Start discovery action triggered");
         if let Err(e) = multiplayer.start_discovery() {
             eprintln!("[Multiplayer] Failed to start discovery: {}", e);
         } else {

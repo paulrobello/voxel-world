@@ -52,6 +52,8 @@ pub struct MultiplayerState {
     pending_local_chunks: Vec<[i32; 3]>,
     /// Pending chunk requests from clients (server-side, when hosting).
     pending_chunk_requests: Vec<(u64, Vec<[i32; 3]>)>,
+    /// Pending server world seed (received on ConnectionAccepted, needs to be applied).
+    pending_server_seed: Option<(u32, u8)>,
 
     // LAN Discovery
     /// Client-side LAN discovery (for finding servers).
@@ -96,6 +98,7 @@ impl MultiplayerState {
             pending_chunks: Vec::new(),
             pending_local_chunks: Vec::new(),
             pending_chunk_requests: Vec::new(),
+            pending_server_seed: None,
             discovery: None,
             discovery_responder: None,
             server_name: String::new(),
@@ -116,13 +119,16 @@ impl MultiplayerState {
         world_gen: u8,
     ) -> Result<(), String> {
         let addr: SocketAddr = ([0, 0, 0, 0], port).into();
+        println!("[Multiplayer] Starting host on {} with seed {}", addr, world_seed);
 
         if self.use_threaded_server {
             // Spawn server in dedicated thread
             self.server_thread = Some(ServerThread::spawn(addr, world_seed, world_gen)?);
+            println!("[Multiplayer] Server thread spawned");
         } else {
             // Direct server mode (legacy)
             self.server = Some(GameServer::new(addr, world_seed, world_gen)?);
+            println!("[Multiplayer] Direct server created");
         }
 
         self.mode = GameMode::Host;
@@ -133,6 +139,7 @@ impl MultiplayerState {
         match DiscoveryResponder::new(server_name, port, self.max_players) {
             Ok(responder) => {
                 self.discovery_responder = Some(responder);
+                println!("[Multiplayer] Discovery responder started");
             }
             Err(e) => {
                 eprintln!("[Multiplayer] Failed to start discovery responder: {}", e);
@@ -141,8 +148,10 @@ impl MultiplayerState {
 
         // Create local client that connects to localhost
         let localhost: SocketAddr = ([127, 0, 0, 1], port).into();
+        println!("[Multiplayer] Creating local client connecting to {}", localhost);
         self.client = Some(GameClient::new(localhost)?);
         self.client.as_mut().unwrap().connect();
+        println!("[Multiplayer] Local client created and connection started");
 
         Ok(())
     }
@@ -168,10 +177,12 @@ impl MultiplayerState {
             .parse()
             .map_err(|e| format!("Invalid address '{}': {}", address, e))?;
 
+        println!("[Multiplayer] Connecting to {}...", addr);
         self.client = Some(GameClient::new(addr)?);
         self.client.as_mut().unwrap().connect();
         self.mode = GameMode::Client;
         self.server_address = Some(addr);
+        println!("[Multiplayer] Client created and connection started to {}", addr);
 
         Ok(())
     }
@@ -241,6 +252,14 @@ impl MultiplayerState {
 
     /// Updates the multiplayer state (call every frame).
     pub fn update(&mut self, duration: Duration) {
+        // Log update call periodically
+        static UPDATE_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let count = UPDATE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if count % 60 == 0 { // Log every 60 frames (~1 second)
+            println!("[Multiplayer] Update #{}, mode: {:?}, has_server: {}, has_client: {}",
+                count, self.mode, self.server.is_some(), self.client.is_some());
+        }
+
         // Handle threaded server events
         if let Some(ref server_thread) = self.server_thread {
             for event in server_thread.recv_events() {
@@ -262,20 +281,40 @@ impl MultiplayerState {
             self.handle_server_event(event);
         }
 
+        // CRITICAL: Flush packets after processing events (which may queue messages)
+        if let Some(ref mut server) = self.server {
+            server.flush_packets();
+        }
+
         // Process client messages from direct server
         for (client_id, msg) in client_messages {
             self.handle_client_message_direct(client_id, msg);
         }
 
         // Update client if connected
-        if let Some(ref mut client) = self.client {
+        let client_messages: Vec<crate::net::protocol::ServerMessage> = if let Some(ref mut client) = self.client {
             client.update(duration);
 
             // Process received messages
             let messages = client.receive_messages();
-            for msg in messages {
-                self.handle_server_message(&msg);
+            if !messages.is_empty() {
+                println!(
+                    "[Multiplayer] Client received {} message(s)",
+                    messages.len()
+                );
             }
+
+            // Flush packets (send any queued outgoing messages)
+            client.flush_packets();
+
+            messages
+        } else {
+            Vec::new()
+        };
+
+        // Process messages after client borrow ends
+        for msg in client_messages {
+            self.handle_server_message(&msg);
         }
 
         // Update discovery responder (server-side)
@@ -339,6 +378,11 @@ impl MultiplayerState {
 
         match msg {
             ClientMessage::RequestChunks(request) => {
+                println!(
+                    "[Server] Received chunk request from client {} for {} chunks",
+                    client_id,
+                    request.positions.len()
+                );
                 // Queue chunk request for processing by game loop
                 self.pending_chunk_requests
                     .push((client_id, request.positions));
@@ -368,12 +412,17 @@ impl MultiplayerState {
             ClientMessage::PlaceBlock(place) => {
                 // TODO: Validate and apply block placement server-side
                 // For now, broadcast to all clients including the sender
+                println!(
+                    "[Server] Received PlaceBlock at {:?} from client {}",
+                    place.position, client_id
+                );
                 let change = crate::net::protocol::BlockChanged {
                     position: place.position,
                     block: place.block,
                 };
                 if let Some(ref mut server) = self.server {
                     server.broadcast_block_change(change);
+                    println!("[Server] Broadcasted block change to all clients");
                 } else if let Some(ref server_thread) = self.server_thread {
                     let _ = server_thread.send_command(ServerCommand::BroadcastBlockChange(change));
                 }
@@ -381,12 +430,17 @@ impl MultiplayerState {
             ClientMessage::BreakBlock(break_msg) => {
                 // TODO: Validate and apply block break server-side
                 // For now, broadcast to all clients
+                println!(
+                    "[Server] Received BreakBlock at {:?} from client {}",
+                    break_msg.position, client_id
+                );
                 let change = crate::net::protocol::BlockChanged {
                     position: break_msg.position,
                     block: crate::net::protocol::BlockData::default(), // Air
                 };
                 if let Some(ref mut server) = self.server {
                     server.broadcast_block_change(change);
+                    println!("[Server] Broadcasted block break to all clients");
                 } else if let Some(ref server_thread) = self.server_thread {
                     let _ = server_thread.send_command(ServerCommand::BroadcastBlockChange(change));
                 }
@@ -399,15 +453,21 @@ impl MultiplayerState {
 
     /// Handles a server event (for the host).
     fn handle_server_event(&mut self, event: renet::ServerEvent) {
+        println!("[Multiplayer] Processing server event: {:?}", event);
         match event {
             renet::ServerEvent::ClientConnected { client_id } => {
+                println!("[Server] Client {} connected - calling handle_client_connected", client_id);
                 // When hosting, spawn new players
                 if let Some(ref mut server) = self.server {
                     // TODO: Get actual spawn position from world
                     server.handle_client_connected(client_id, [0.0, 64.0, 0.0]);
+                    println!("[Server] handle_client_connected returned for client {}", client_id);
+                } else {
+                    println!("[Server] ERROR: No server instance available!");
                 }
             }
             renet::ServerEvent::ClientDisconnected { client_id, reason } => {
+                println!("[Server] Client {} disconnected: {:?}", client_id, reason);
                 if let Some(ref mut server) = self.server {
                     server.handle_client_disconnected(client_id);
                 }
@@ -421,8 +481,13 @@ impl MultiplayerState {
         use crate::net::protocol::ServerMessage;
 
         match msg {
-            ServerMessage::ConnectionAccepted(_accepted) => {
-                // Connection established, prediction is enabled by default
+            ServerMessage::ConnectionAccepted(accepted) => {
+                // Connection established - store server's world seed for later application
+                println!(
+                    "[Client] Connection accepted by server. Player ID: {}, World seed: {}, World gen: {}",
+                    accepted.player_id, accepted.world_seed, accepted.world_gen
+                );
+                self.pending_server_seed = Some((accepted.world_seed, accepted.world_gen));
             }
             ServerMessage::PlayerState(state) => {
                 // Reconcile with server
@@ -459,6 +524,7 @@ impl MultiplayerState {
             ServerMessage::ChunkData(chunk) => {
                 // Mark chunk as received
                 self.chunk_sync.mark_received(chunk.position);
+                println!("[Client] Received ChunkData for {:?}", chunk.position);
 
                 // Decompress and deserialize chunk data
                 match SerializedChunk::decompress(&chunk.compressed_data) {
@@ -468,6 +534,10 @@ impl MultiplayerState {
                             Ok(chunk_data) => {
                                 // Store for later application to world
                                 self.receive_chunk(chunk.position, chunk_data);
+                                println!(
+                                    "[Client] Chunk {:?} ready for application",
+                                    chunk.position
+                                );
                             }
                             Err(e) => {
                                 eprintln!(
@@ -489,13 +559,25 @@ impl MultiplayerState {
                 // Server says this chunk has no modifications - generate it locally
                 self.chunk_sync.mark_received(msg.position);
                 self.pending_local_chunks.push(msg.position);
+                println!(
+                    "[Client] Received ChunkGenerateLocal for {:?}",
+                    msg.position
+                );
             }
             ServerMessage::BlockChanged(change) => {
                 // Queue block change for application to world
+                println!(
+                    "[Client] Received BlockChanged at {:?}: {:?}",
+                    change.position, change.block.block_type
+                );
                 self.pending_block_changes.push(change.clone());
             }
             ServerMessage::BlocksChanged(changes) => {
                 // Queue multiple block changes
+                println!(
+                    "[Client] Received BlocksChanged with {} changes",
+                    changes.changes.len()
+                );
                 self.pending_block_changes
                     .extend(changes.changes.iter().map(|(pos, block)| {
                         crate::net::protocol::BlockChanged {
@@ -532,6 +614,8 @@ impl MultiplayerState {
     pub fn send_place_block(&mut self, position: [i32; 3], block: crate::net::protocol::BlockData) {
         if let Some(ref mut client) = self.client {
             client.send_place_block(position, block);
+            // Flush immediately for responsive block sync
+            client.flush_packets();
         }
     }
 
@@ -539,6 +623,8 @@ impl MultiplayerState {
     pub fn send_break_block(&mut self, position: [i32; 3]) {
         if let Some(ref mut client) = self.client {
             client.send_break_block(position);
+            // Flush immediately for responsive block sync
+            client.flush_packets();
         }
     }
 
@@ -630,6 +716,17 @@ impl MultiplayerState {
     /// Returns true if there are pending chunk requests from clients.
     pub fn has_pending_chunk_requests(&self) -> bool {
         !self.pending_chunk_requests.is_empty()
+    }
+
+    /// Returns the pending server world seed if one was received.
+    /// Call this from the game loop to apply the server's seed to the world generator.
+    pub fn take_pending_server_seed(&mut self) -> Option<(u32, u8)> {
+        self.pending_server_seed.take()
+    }
+
+    /// Returns true if there's a pending server seed to apply.
+    pub fn has_pending_server_seed(&self) -> bool {
+        self.pending_server_seed.is_some()
     }
 
     /// Sends chunk data to a specific client (server-side, when hosting).

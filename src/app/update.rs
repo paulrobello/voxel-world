@@ -326,11 +326,37 @@ impl App {
         if self.multiplayer.mode != crate::config::GameMode::SinglePlayer {
             self.multiplayer.update(Duration::from_secs_f64(delta_time));
 
+            // Check if we received the server's world seed (on ConnectionAccepted)
+            if self.multiplayer.has_pending_server_seed() {
+                if let Some((seed, world_gen_byte)) = self.multiplayer.take_pending_server_seed() {
+                    let world_gen = match world_gen_byte {
+                        1 => crate::config::WorldGenType::Flat,
+                        2 => crate::config::WorldGenType::Benchmark,
+                        _ => crate::config::WorldGenType::Normal,
+                    };
+                    println!(
+                        "[Client] Applying server's world seed: {} (gen: {:?})",
+                        seed, world_gen
+                    );
+
+                    // Clear the chunk sync state so we request fresh chunks
+                    self.multiplayer.chunk_sync.clear_received();
+
+                    // Update world seed and clear local world
+                    self.sim.set_world_seed(seed, world_gen);
+
+                    println!("[Client] World reset complete, ready to load server's world");
+                }
+            }
+
             // Apply any remote block changes received from server
             self.apply_remote_block_changes();
 
-            // Request chunks from server when in client mode
-            if self.multiplayer.mode == crate::config::GameMode::Client {
+            // Request chunks from server when in client mode (or as host's local client)
+            // Both pure clients AND hosts need to request chunks (host has a local client)
+            if self.multiplayer.mode == crate::config::GameMode::Client
+                || self.multiplayer.mode == crate::config::GameMode::Host
+            {
                 self.request_network_chunks();
 
                 // Handle chunks that should be generated locally (bandwidth optimization)
@@ -343,6 +369,16 @@ impl App {
                         .collect();
                     // Request from chunk_loader - it will generate using same seed as server
                     let _ = self.sim.chunk_loader.request_chunks(&positions);
+                }
+
+                // Apply chunks received from server (full chunk data)
+                if self.multiplayer.has_pending_chunks() {
+                    let chunks = self.apply_network_chunks();
+                    for (pos, chunk) in chunks {
+                        // Insert the received chunk into the world
+                        self.sim.world.insert_chunk(pos, chunk);
+                        println!("[Client] Applied received chunk at {:?}", pos);
+                    }
                 }
             }
 

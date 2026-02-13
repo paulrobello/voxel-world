@@ -86,18 +86,48 @@ impl GameServer {
     /// Updates the server (should be called every frame).
     /// Returns server events that need processing.
     pub fn update(&mut self, duration: Duration) -> Vec<ServerEvent> {
+        // Log update start periodically
+        static UPDATE_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let count = UPDATE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if count % 60 == 0 {
+            println!("[GameServer] Update #{}, player_count: {}", count, self.players.len());
+        }
+
+        // Log clients before update
+        let clients_before = self.server.clients_id();
+        if !clients_before.is_empty() && count % 60 == 0 {
+            println!("[GameServer] Clients before update: {:?}", clients_before);
+        }
+
         // Update the server logic
         self.server.update(duration);
-        // Update the transport layer
-        let _ = self.transport.update(duration, &mut self.server);
+
+        // Update the transport layer - receives packets and handles connections
+        let transport_result = self.transport.update(duration, &mut self.server);
+        if count % 60 == 0 {
+            println!("[GameServer] Transport update result: {:?}", transport_result);
+        }
 
         let mut events = Vec::new();
         while let Some(event) = self.server.get_event() {
+            println!("[GameServer] Received server event: {:?}", event);
             events.push(event);
+        }
+
+        // Log connected clients count
+        let client_count = self.server.clients_id().len();
+        if client_count > 0 && count % 60 == 0 {
+            println!("[GameServer] Connected clients: {}", client_count);
         }
 
         self.last_tick = Instant::now();
         events
+    }
+
+    /// Sends queued packets to all connected clients.
+    /// Call this AFTER processing events and sending messages.
+    pub fn flush_packets(&mut self) {
+        self.transport.send_packets(&mut self.server);
     }
 
     /// Handles a new client connection.
@@ -106,6 +136,8 @@ impl GameServer {
         client_id: u64,
         spawn_position: [f32; 3],
     ) -> Option<PlayerInfo> {
+        println!("[GameServer] handle_client_connected called for client {}", client_id);
+
         // Generate unique player ID
         let player_id = generate_player_id(client_id);
 
@@ -130,9 +162,26 @@ impl GameServer {
             world_gen: self.world_gen,
         });
 
+        println!(
+            "[GameServer] Sending ConnectionAccepted to client {}: player_id={}, seed={}, gen={}",
+            client_id, player_id, self.world_seed, self.world_gen
+        );
+
         if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+            let len = encoded.len();
+            println!("[GameServer] ConnectionAccepted encoded successfully, {} bytes", len);
+            // Log first few bytes for debugging
+            if len >= 8 {
+                println!("[GameServer] First 8 bytes: {:02x?}", &encoded[..8]);
+            }
             self.server
                 .send_message(client_id, 2, renet::Bytes::from(encoded)); // Channel 2 = GameState
+            println!(
+                "[GameServer] ConnectionAccepted message QUEUED for client {}",
+                client_id
+            );
+        } else {
+            eprintln!("[GameServer] Failed to encode ConnectionAccepted message!");
         }
 
         // Broadcast player joined to other clients
@@ -216,8 +265,10 @@ impl GameServer {
     pub fn send_chunk(&mut self, client_id: u64, chunk: ChunkData) {
         let msg = ServerMessage::ChunkData(chunk);
         if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+            let len = encoded.len();
             self.server
                 .send_message(client_id, 3, renet::Bytes::from(encoded)); // Channel 3 = ChunkStream
+            println!("[GameServer] Sent ChunkData to client {} ({} bytes)", client_id, len);
         }
     }
 
@@ -226,8 +277,10 @@ impl GameServer {
     pub fn send_chunk_generate_local(&mut self, client_id: u64, position: [i32; 3]) {
         let msg = ServerMessage::ChunkGenerateLocal(ChunkGenerateLocal { position });
         if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+            let len = encoded.len();
             self.server
                 .send_message(client_id, 3, renet::Bytes::from(encoded)); // Channel 3 = ChunkStream
+            println!("[GameServer] Sent ChunkGenerateLocal for {:?} to client {} ({} bytes)", position, client_id, len);
         }
     }
 
@@ -286,12 +339,17 @@ impl GameServer {
     pub fn receive_client_messages(&mut self) -> Vec<(u64, ClientMessage)> {
         let mut parsed_messages = Vec::new();
 
-        for (client_id, _channel_id, data) in self.receive_messages() {
+        for (client_id, channel_id, data) in self.receive_messages() {
+            println!("[GameServer] Received {} bytes from client {} on channel {}",
+                data.len(), client_id, channel_id);
             if let Ok((msg, _)) = bincode::serde::decode_from_slice::<ClientMessage, _>(
                 &data,
                 bincode::config::standard(),
             ) {
+                println!("[GameServer] Decoded message from client {}: {:?}", client_id, std::mem::discriminant(&msg));
                 parsed_messages.push((client_id, msg));
+            } else {
+                println!("[GameServer] Failed to decode message from client {}!", client_id);
             }
         }
 
@@ -316,6 +374,12 @@ impl GameServer {
     /// Returns server uptime.
     pub fn uptime(&self) -> Duration {
         self.start_time.elapsed()
+    }
+
+    /// Returns the number of messages waiting to be sent.
+    pub fn has_pending_messages(&self) -> bool {
+        // Check if there are any connected clients
+        !self.server.clients_id().is_empty()
     }
 }
 

@@ -37,6 +37,8 @@ renet = "2.0"
 renet_netcode = "2.0"
 lz4_flex = "0.11"
 tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "time", "macros"] }
+log = "0.4"
+env_logger = "0.11"
 
 # macOS cursor handling (winit's set_cursor_visible crashes)
 [target.'cfg(target_os = "macos")'.dependencies]

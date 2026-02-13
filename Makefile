@@ -111,10 +111,10 @@ new-normal: reset-world build-release
 
 # Multi-instance targets (isolated data directories)
 run-p1: build-release
-	./target/release/voxel-world --data-dir data_p1 $(ARGS)
+	./target/release/voxel-world --data-dir data_p1 --seed 314159 $(ARGS)
 
 run-p2: build-release
-	./target/release/voxel-world --data-dir data_p2 $(ARGS)
+	./target/release/voxel-world --data-dir data_p2 --seed 99999 $(ARGS)
 
 reset-p1:
 	rm -rf data_p1

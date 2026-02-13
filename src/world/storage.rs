@@ -153,6 +153,16 @@ impl World {
         self.chunks.len()
     }
 
+    /// Clears all chunks and cached data from the world.
+    /// Used when a client connects to a server and needs to load a new world.
+    pub fn clear(&mut self) {
+        self.chunks.clear();
+        self.dirty_chunks.clear();
+        self.dirty_set.clear();
+        self.minimap_height_cache.clear();
+        self.pending_overflow.clear();
+    }
+
     /// Drains the dirty chunks queue.
     ///
     /// Returns all chunk positions that need GPU re-upload.

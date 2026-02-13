@@ -36,6 +36,7 @@ impl App {
         block: crate::net::protocol::BlockData,
     ) {
         if self.is_connected_to_server() {
+            println!("[Client] Syncing block placement at {:?}", position);
             self.multiplayer.send_place_block(position, block);
         }
     }
@@ -43,6 +44,7 @@ impl App {
     /// Syncs a block break to the server (if in multiplayer mode).
     pub fn sync_block_break(&mut self, position: [i32; 3]) {
         if self.is_connected_to_server() {
+            println!("[Client] Syncing block break at {:?}", position);
             self.multiplayer.send_break_block(position);
         }
     }
@@ -54,10 +56,28 @@ impl App {
             return;
         }
 
+        use crate::block_update::BlockUpdateType;
+
         let changes = self.multiplayer.take_pending_block_changes();
+        println!("[Client] Applying {} remote block change(s)", changes.len());
+
+        let player_pos = self
+            .sim
+            .player
+            .feet_pos(self.sim.world_extent, self.sim.texture_origin)
+            .cast::<f32>();
+
         for change in changes {
             let pos =
                 nalgebra::Vector3::new(change.position[0], change.position[1], change.position[2]);
+
+            println!(
+                "[Client] Applying remote block change at {:?}: {:?}",
+                pos, change.block.block_type
+            );
+
+            // Get the previous block type before changing (for physics triggers)
+            let prev_block_type = self.sim.world.get_block(pos);
 
             // Apply block type and metadata based on type
             let block_type = change.block.block_type;
@@ -107,6 +127,51 @@ impl App {
 
             // Invalidate minimap cache
             self.sim.world.invalidate_minimap_cache(pos.x, pos.z);
+
+            // Trigger physics checks if block was removed (changed to Air or Water)
+            // This ensures tree physics sync across all clients
+            if block_type == BlockType::Air || block_type == BlockType::Water {
+                // Queue gravity check for block above
+                self.sim.block_updates.enqueue(
+                    pos + nalgebra::Vector3::new(0, 1, 0),
+                    BlockUpdateType::Gravity,
+                    player_pos,
+                );
+
+                // Queue ground support check for model block above
+                self.sim.block_updates.enqueue(
+                    pos + nalgebra::Vector3::new(0, 1, 0),
+                    BlockUpdateType::ModelGroundSupport,
+                    player_pos,
+                );
+
+                // If the removed block was a log, queue tree support checks
+                if let Some(prev) = prev_block_type {
+                    if prev.is_log() {
+                        self.sim.block_updates.enqueue_neighbors(
+                            pos,
+                            BlockUpdateType::TreeSupport,
+                            player_pos,
+                        );
+                    }
+                }
+
+                // Always queue tree support checks in radius (tree might have lost support)
+                self.sim.block_updates.enqueue_radius(
+                    pos,
+                    3,
+                    BlockUpdateType::TreeSupport,
+                    player_pos,
+                );
+
+                // Queue orphaned leaves checks
+                self.sim.block_updates.enqueue_radius(
+                    pos,
+                    4,
+                    BlockUpdateType::OrphanedLeaves,
+                    player_pos,
+                );
+            }
         }
     }
 
@@ -313,7 +378,14 @@ impl App {
         ) {
             // Send chunk request to server
             if let Some(ref mut client) = self.multiplayer.client {
+                println!(
+                    "[Client] Requesting {} chunks around player at chunk {:?}",
+                    request.positions.len(),
+                    player_chunk
+                );
                 client.send_chunk_request(request.positions);
+                // Flush immediately to ensure request is sent
+                client.flush_packets();
             }
         }
     }
@@ -348,7 +420,13 @@ impl App {
         }
 
         let requests = self.multiplayer.take_pending_chunk_requests();
+        println!("[Server] Fulfilling {} chunk request(s)", requests.len());
         for (client_id, positions) in requests {
+            println!(
+                "[Server] Client {} requested {} chunk(s)",
+                client_id,
+                positions.len()
+            );
             for chunk_pos in positions {
                 // Convert to World's chunk coordinate format
                 let pos = nalgebra::Vector3::new(chunk_pos[0], chunk_pos[1], chunk_pos[2]);
@@ -358,6 +436,12 @@ impl App {
                     // Send the chunk to the client
                     self.multiplayer
                         .send_chunk_to_client(client_id, chunk_pos, chunk);
+                    println!(
+                        "[Server] Sent chunk {:?} to client {} (dirty={})",
+                        chunk_pos, client_id, chunk.persistence_dirty
+                    );
+                } else {
+                    println!("[Server] Chunk {:?} not found, skipping", chunk_pos);
                 }
                 // If chunk doesn't exist, we skip it (client will re-request later)
             }
