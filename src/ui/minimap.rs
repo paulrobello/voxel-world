@@ -100,6 +100,9 @@ impl MinimapUI {
 
                                 // Draw remote player markers as colored dots
                                 let minimap_radius = size / 2.0;
+                                let edge_offset = 8.0; // How far from the edge to draw perimeter markers
+                                let inner_radius = minimap_radius - edge_offset;
+
                                 for player in remote_players {
                                     // Calculate relative position from local player
                                     let dx = player.position.0 - player_world_pos.0;
@@ -127,23 +130,63 @@ impl MinimapUI {
                                     let marker_x = center.x + rel_x * scale;
                                     let marker_y = center.y - rel_y * scale; // Y is inverted in screen coords
 
-                                    // Only draw if within minimap bounds
-                                    let dist_from_center = ((marker_x - center.x).powi(2)
+                                    // Calculate distance from center in screen pixels
+                                    let screen_dist = ((marker_x - center.x).powi(2)
                                         + (marker_y - center.y).powi(2))
                                     .sqrt();
-                                    if dist_from_center < minimap_radius - 4.0 {
-                                        let color =
-                                            PLAYER_COLORS[player.color_index % PLAYER_COLORS.len()];
+
+                                    let (final_x, final_y, is_perimeter) =
+                                        if screen_dist < inner_radius {
+                                            // Player is within visible range - draw normally
+                                            (marker_x, marker_y, false)
+                                        } else {
+                                            // Player is outside visible range - clamp to perimeter
+                                            let angle =
+                                                (marker_y - center.y).atan2(marker_x - center.x);
+                                            let perimeter_x = center.x + angle.cos() * inner_radius;
+                                            let perimeter_y = center.y + angle.sin() * inner_radius;
+                                            (perimeter_x, perimeter_y, true)
+                                        };
+
+                                    let color =
+                                        PLAYER_COLORS[player.color_index % PLAYER_COLORS.len()];
+
+                                    if is_perimeter {
+                                        // Draw as a small arrow/triangle pointing outward for perimeter markers
+                                        let angle = (final_y - center.y).atan2(final_x - center.x);
+                                        let arrow_size = 5.0;
+
+                                        // Triangle pointing away from center
+                                        let tip = egui::pos2(
+                                            final_x + angle.cos() * arrow_size,
+                                            final_y + angle.sin() * arrow_size,
+                                        );
+                                        let left = egui::pos2(
+                                            final_x + (angle + 2.5).cos() * arrow_size * 0.7,
+                                            final_y + (angle + 2.5).sin() * arrow_size * 0.7,
+                                        );
+                                        let right = egui::pos2(
+                                            final_x + (angle - 2.5).cos() * arrow_size * 0.7,
+                                            final_y + (angle - 2.5).sin() * arrow_size * 0.7,
+                                        );
+
+                                        ui.painter().add(egui::Shape::convex_polygon(
+                                            vec![tip, left, right],
+                                            color,
+                                            egui::Stroke::new(1.0, egui::Color32::WHITE),
+                                        ));
+                                    } else {
+                                        // Draw as a circle for in-range players
                                         let dot_radius = 4.0;
 
                                         // Draw colored dot with outline
                                         ui.painter().circle_filled(
-                                            egui::pos2(marker_x, marker_y),
+                                            egui::pos2(final_x, final_y),
                                             dot_radius,
                                             color,
                                         );
                                         ui.painter().circle_stroke(
-                                            egui::pos2(marker_x, marker_y),
+                                            egui::pos2(final_x, final_y),
                                             dot_radius,
                                             egui::Stroke::new(1.0, egui::Color32::WHITE),
                                         );
