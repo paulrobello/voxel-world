@@ -340,8 +340,19 @@ impl GameServer {
     /// Broadcasts player states to all clients.
     /// Includes both connected players and the host player.
     pub fn broadcast_player_states(&mut self) {
+        // Debug: Log what we're broadcasting
+        println!(
+            "[GameServer] broadcast_player_states: host_player={}, players_count={}",
+            self.host_player.is_some(),
+            self.players.len()
+        );
+
         // First, broadcast the host player's state to all connected clients
         if let Some(ref host) = self.host_player {
+            println!(
+                "[GameServer] Broadcasting host player_id={}, pos=({:.1}, {:.1}, {:.1})",
+                host.player_id, host.position[0], host.position[1], host.position[2]
+            );
             let state = PlayerState {
                 player_id: host.player_id,
                 position: host.position,
@@ -363,6 +374,15 @@ impl GameServer {
 
         // Then, broadcast each connected player's state to all other clients (and potentially the host)
         for (&client_id, info) in &self.players {
+            println!(
+                "[GameServer] Broadcasting client_id={}, player_id={}, pos=({:.1}, {:.1}, {:.1}) to {} other clients",
+                client_id,
+                info.player_id,
+                info.position[0],
+                info.position[1],
+                info.position[2],
+                self.players.len().saturating_sub(1)
+            );
             let state = PlayerState {
                 player_id: info.player_id,
                 position: info.position,

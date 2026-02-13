@@ -116,8 +116,10 @@ impl MinimapUI {
 
                                 for player in remote_players {
                                     // Calculate relative position from local player
+                                    // Note: In this game, -Z is forward, but minimaps show forward at top
+                                    // So we negate dz to map -Z (forward) to +screen_y (top)
                                     let dx = player.position.0 - player_world_pos.0;
-                                    let dz = player.position.1 - player_world_pos.1;
+                                    let dz = -(player.position.1 - player_world_pos.1); // Negate for correct direction
 
                                     // Scale based on minimap zoom
                                     // At zoom 1.0, the minimap shows ~64 blocks radius

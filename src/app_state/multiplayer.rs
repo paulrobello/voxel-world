@@ -609,12 +609,28 @@ impl MultiplayerState {
                 // Reconcile with server
                 self.prediction.reconcile(state);
 
+                // Debug: Log received PlayerState
+                println!(
+                    "[Client] Received PlayerState for player_id={}, pos=({:.1}, {:.1}, {:.1}), mode={:?}",
+                    state.player_id,
+                    state.position[0],
+                    state.position[1],
+                    state.position[2],
+                    self.mode
+                );
+
                 // Update remote player rendering
                 if let Some(ref client) = self.client {
                     // Check if this is a remote player (not ourselves)
                     // Host has player_id 0, clients have their own assigned IDs
                     let is_local_player = client.player_id() == Some(state.player_id)
                         || (self.mode == GameMode::Host && state.player_id == 0);
+                    println!(
+                        "[Client] is_local_player={}, client.player_id={:?}, state.player_id={}",
+                        is_local_player,
+                        client.player_id(),
+                        state.player_id
+                    );
                     if !is_local_player {
                         let timestamp = std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
