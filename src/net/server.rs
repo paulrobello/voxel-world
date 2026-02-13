@@ -90,7 +90,11 @@ impl GameServer {
         static UPDATE_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let count = UPDATE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         if count % 60 == 0 {
-            println!("[GameServer] Update #{}, player_count: {}", count, self.players.len());
+            println!(
+                "[GameServer] Update #{}, player_count: {}",
+                count,
+                self.players.len()
+            );
         }
 
         // Log clients before update
@@ -105,7 +109,10 @@ impl GameServer {
         // Update the transport layer - receives packets and handles connections
         let transport_result = self.transport.update(duration, &mut self.server);
         if count % 60 == 0 {
-            println!("[GameServer] Transport update result: {:?}", transport_result);
+            println!(
+                "[GameServer] Transport update result: {:?}",
+                transport_result
+            );
         }
 
         let mut events = Vec::new();
@@ -136,7 +143,10 @@ impl GameServer {
         client_id: u64,
         spawn_position: [f32; 3],
     ) -> Option<PlayerInfo> {
-        println!("[GameServer] handle_client_connected called for client {}", client_id);
+        println!(
+            "[GameServer] handle_client_connected called for client {}",
+            client_id
+        );
 
         // Generate unique player ID
         let player_id = generate_player_id(client_id);
@@ -169,7 +179,10 @@ impl GameServer {
 
         if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
             let len = encoded.len();
-            println!("[GameServer] ConnectionAccepted encoded successfully, {} bytes", len);
+            println!(
+                "[GameServer] ConnectionAccepted encoded successfully, {} bytes",
+                len
+            );
             // Log first few bytes for debugging
             if len >= 8 {
                 println!("[GameServer] First 8 bytes: {:02x?}", &encoded[..8]);
@@ -268,7 +281,10 @@ impl GameServer {
             let len = encoded.len();
             self.server
                 .send_message(client_id, 3, renet::Bytes::from(encoded)); // Channel 3 = ChunkStream
-            println!("[GameServer] Sent ChunkData to client {} ({} bytes)", client_id, len);
+            println!(
+                "[GameServer] Sent ChunkData to client {} ({} bytes)",
+                client_id, len
+            );
         }
     }
 
@@ -280,7 +296,10 @@ impl GameServer {
             let len = encoded.len();
             self.server
                 .send_message(client_id, 3, renet::Bytes::from(encoded)); // Channel 3 = ChunkStream
-            println!("[GameServer] Sent ChunkGenerateLocal for {:?} to client {} ({} bytes)", position, client_id, len);
+            println!(
+                "[GameServer] Sent ChunkGenerateLocal for {:?} to client {} ({} bytes)",
+                position, client_id, len
+            );
         }
     }
 
@@ -340,16 +359,27 @@ impl GameServer {
         let mut parsed_messages = Vec::new();
 
         for (client_id, channel_id, data) in self.receive_messages() {
-            println!("[GameServer] Received {} bytes from client {} on channel {}",
-                data.len(), client_id, channel_id);
+            println!(
+                "[GameServer] Received {} bytes from client {} on channel {}",
+                data.len(),
+                client_id,
+                channel_id
+            );
             if let Ok((msg, _)) = bincode::serde::decode_from_slice::<ClientMessage, _>(
                 &data,
                 bincode::config::standard(),
             ) {
-                println!("[GameServer] Decoded message from client {}: {:?}", client_id, std::mem::discriminant(&msg));
+                println!(
+                    "[GameServer] Decoded message from client {}: {:?}",
+                    client_id,
+                    std::mem::discriminant(&msg)
+                );
                 parsed_messages.push((client_id, msg));
             } else {
-                println!("[GameServer] Failed to decode message from client {}!", client_id);
+                println!(
+                    "[GameServer] Failed to decode message from client {}!",
+                    client_id
+                );
             }
         }
 

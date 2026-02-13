@@ -3,6 +3,29 @@
 use crate::hud::Minimap;
 use egui_winit_vulkano::egui;
 
+/// Player colors for minimap markers (8 distinct colors).
+const PLAYER_COLORS: [egui::Color32; 8] = [
+    egui::Color32::from_rgb(0, 200, 255),   // Cyan
+    egui::Color32::from_rgb(255, 100, 100), // Light red
+    egui::Color32::from_rgb(100, 255, 100), // Light green
+    egui::Color32::from_rgb(255, 200, 50),  // Gold
+    egui::Color32::from_rgb(200, 100, 255), // Purple
+    egui::Color32::from_rgb(255, 150, 200), // Pink
+    egui::Color32::from_rgb(100, 150, 255), // Light blue
+    egui::Color32::from_rgb(255, 180, 100), // Orange
+];
+
+/// Remote player marker for minimap display.
+#[allow(dead_code)]
+pub struct RemotePlayerMarker {
+    /// Player display name.
+    pub name: String,
+    /// World position (x, z).
+    pub position: (f32, f32),
+    /// Color index for this player (0-7).
+    pub color_index: usize,
+}
+
 pub struct MinimapUI;
 
 impl MinimapUI {
@@ -16,6 +39,8 @@ impl MinimapUI {
         camera_yaw: f32,
         show_compass: bool,
         biome_name: &str,
+        player_world_pos: (f32, f32),
+        remote_players: &[RemotePlayerMarker],
     ) {
         // Draw minimap
         if *show_minimap {
@@ -72,6 +97,58 @@ impl MinimapUI {
                                     egui::Color32::RED,
                                     egui::Stroke::new(1.0, egui::Color32::WHITE),
                                 ));
+
+                                // Draw remote player markers as colored dots
+                                let minimap_radius = size / 2.0;
+                                for player in remote_players {
+                                    // Calculate relative position from local player
+                                    let dx = player.position.0 - player_world_pos.0;
+                                    let dz = player.position.1 - player_world_pos.1;
+
+                                    // Scale based on minimap zoom
+                                    // At zoom 1.0, the minimap shows ~64 blocks radius
+                                    // Higher zoom = fewer blocks visible = larger scale
+                                    let base_range = 64.0;
+                                    let view_distance = base_range / minimap.zoom;
+                                    let scale = minimap_radius / view_distance;
+
+                                    // Rotate offset if minimap rotates
+                                    let (rel_x, rel_y) = if minimap.rotate {
+                                        // When rotating, subtract camera yaw
+                                        let (sin_a, cos_a) = camera_yaw.sin_cos();
+                                        let rx = dx * cos_a - dz * sin_a;
+                                        let ry = dx * sin_a + dz * cos_a;
+                                        (rx, ry)
+                                    } else {
+                                        (dx, dz)
+                                    };
+
+                                    // Convert to minimap coordinates
+                                    let marker_x = center.x + rel_x * scale;
+                                    let marker_y = center.y - rel_y * scale; // Y is inverted in screen coords
+
+                                    // Only draw if within minimap bounds
+                                    let dist_from_center = ((marker_x - center.x).powi(2)
+                                        + (marker_y - center.y).powi(2))
+                                    .sqrt();
+                                    if dist_from_center < minimap_radius - 4.0 {
+                                        let color =
+                                            PLAYER_COLORS[player.color_index % PLAYER_COLORS.len()];
+                                        let dot_radius = 4.0;
+
+                                        // Draw colored dot with outline
+                                        ui.painter().circle_filled(
+                                            egui::pos2(marker_x, marker_y),
+                                            dot_radius,
+                                            color,
+                                        );
+                                        ui.painter().circle_stroke(
+                                            egui::pos2(marker_x, marker_y),
+                                            dot_radius,
+                                            egui::Stroke::new(1.0, egui::Color32::WHITE),
+                                        );
+                                    }
+                                }
 
                                 // Biome name label below the minimap
                                 ui.add_space(2.0);

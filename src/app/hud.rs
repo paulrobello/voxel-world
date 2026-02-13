@@ -128,6 +128,7 @@ pub fn render_hud(
             server_address: multiplayer.get_server_address(),
             ping_ms: multiplayer.get_ping_ms(),
             player_names: multiplayer.get_player_names(),
+            remote_players: &multiplayer.get_minimap_markers(),
         },
     );
 

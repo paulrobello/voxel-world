@@ -119,7 +119,10 @@ impl MultiplayerState {
         world_gen: u8,
     ) -> Result<(), String> {
         let addr: SocketAddr = ([0, 0, 0, 0], port).into();
-        println!("[Multiplayer] Starting host on {} with seed {}", addr, world_seed);
+        println!(
+            "[Multiplayer] Starting host on {} with seed {}",
+            addr, world_seed
+        );
 
         if self.use_threaded_server {
             // Spawn server in dedicated thread
@@ -148,7 +151,10 @@ impl MultiplayerState {
 
         // Create local client that connects to localhost
         let localhost: SocketAddr = ([127, 0, 0, 1], port).into();
-        println!("[Multiplayer] Creating local client connecting to {}", localhost);
+        println!(
+            "[Multiplayer] Creating local client connecting to {}",
+            localhost
+        );
         self.client = Some(GameClient::new(localhost)?);
         self.client.as_mut().unwrap().connect();
         println!("[Multiplayer] Local client created and connection started");
@@ -182,7 +188,10 @@ impl MultiplayerState {
         self.client.as_mut().unwrap().connect();
         self.mode = GameMode::Client;
         self.server_address = Some(addr);
-        println!("[Multiplayer] Client created and connection started to {}", addr);
+        println!(
+            "[Multiplayer] Client created and connection started to {}",
+            addr
+        );
 
         Ok(())
     }
@@ -235,6 +244,21 @@ impl MultiplayerState {
         &self.player_names
     }
 
+    /// Returns remote player markers for minimap display.
+    /// Each marker includes position (x, z) and a color index based on player ID.
+    /// The local player is NOT included in this list.
+    pub fn get_minimap_markers(&self) -> Vec<crate::ui::minimap::RemotePlayerMarker> {
+        self.remote_players
+            .iter()
+            .enumerate()
+            .map(|(idx, player)| crate::ui::minimap::RemotePlayerMarker {
+                name: player.name.clone(),
+                position: (player.position[0], player.position[2]),
+                color_index: idx,
+            })
+            .collect()
+    }
+
     /// Returns the server name (if hosting).
     pub fn get_server_name(&self) -> &str {
         &self.server_name
@@ -255,9 +279,15 @@ impl MultiplayerState {
         // Log update call periodically
         static UPDATE_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let count = UPDATE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        if count % 60 == 0 { // Log every 60 frames (~1 second)
-            println!("[Multiplayer] Update #{}, mode: {:?}, has_server: {}, has_client: {}",
-                count, self.mode, self.server.is_some(), self.client.is_some());
+        if count % 60 == 0 {
+            // Log every 60 frames (~1 second)
+            println!(
+                "[Multiplayer] Update #{}, mode: {:?}, has_server: {}, has_client: {}",
+                count,
+                self.mode,
+                self.server.is_some(),
+                self.client.is_some()
+            );
         }
 
         // Handle threaded server events
@@ -292,25 +322,26 @@ impl MultiplayerState {
         }
 
         // Update client if connected
-        let client_messages: Vec<crate::net::protocol::ServerMessage> = if let Some(ref mut client) = self.client {
-            client.update(duration);
+        let client_messages: Vec<crate::net::protocol::ServerMessage> =
+            if let Some(ref mut client) = self.client {
+                client.update(duration);
 
-            // Process received messages
-            let messages = client.receive_messages();
-            if !messages.is_empty() {
-                println!(
-                    "[Multiplayer] Client received {} message(s)",
-                    messages.len()
-                );
-            }
+                // Process received messages
+                let messages = client.receive_messages();
+                if !messages.is_empty() {
+                    println!(
+                        "[Multiplayer] Client received {} message(s)",
+                        messages.len()
+                    );
+                }
 
-            // Flush packets (send any queued outgoing messages)
-            client.flush_packets();
+                // Flush packets (send any queued outgoing messages)
+                client.flush_packets();
 
-            messages
-        } else {
-            Vec::new()
-        };
+                messages
+            } else {
+                Vec::new()
+            };
 
         // Process messages after client borrow ends
         for msg in client_messages {
@@ -456,12 +487,18 @@ impl MultiplayerState {
         println!("[Multiplayer] Processing server event: {:?}", event);
         match event {
             renet::ServerEvent::ClientConnected { client_id } => {
-                println!("[Server] Client {} connected - calling handle_client_connected", client_id);
+                println!(
+                    "[Server] Client {} connected - calling handle_client_connected",
+                    client_id
+                );
                 // When hosting, spawn new players
                 if let Some(ref mut server) = self.server {
                     // TODO: Get actual spawn position from world
                     server.handle_client_connected(client_id, [0.0, 64.0, 0.0]);
-                    println!("[Server] handle_client_connected returned for client {}", client_id);
+                    println!(
+                        "[Server] handle_client_connected returned for client {}",
+                        client_id
+                    );
                 } else {
                     println!("[Server] ERROR: No server instance available!");
                 }

@@ -188,6 +188,8 @@ pub struct HudInputs<'a> {
     pub server_address: Option<std::net::SocketAddr>,
     pub ping_ms: Option<u32>,
     pub player_names: &'a [String],
+    /// Remote player markers for minimap (position in world X/Z coordinates).
+    pub remote_players: &'a [minimap::RemotePlayerMarker],
 }
 
 pub struct HUDRenderer;
@@ -279,6 +281,7 @@ impl HUDRenderer {
             server_address,
             ping_ms,
             player_names,
+            remote_players,
         } = input;
         let mut scale_changed = false;
         let mut editor_action = EditorAction::None;
@@ -492,6 +495,8 @@ impl HUDRenderer {
                 camera_yaw,
                 settings.show_compass,
                 biome_name,
+                (player_world_pos.x as f32, player_world_pos.z as f32),
+                remote_players,
             );
 
             HotbarUI::draw_hotbar(
