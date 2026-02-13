@@ -326,6 +326,23 @@ impl App {
         if self.multiplayer.mode != crate::config::GameMode::SinglePlayer {
             self.multiplayer.update(Duration::from_secs_f64(delta_time));
 
+            // Update host player position on server (so it's broadcast to clients)
+            if self.multiplayer.mode == crate::config::GameMode::Host {
+                let player_pos = self.sim.player.camera.position;
+                let player_yaw = self.sim.player.camera.rotation.y as f32;
+                let player_pitch = self.sim.player.camera.rotation.x as f32;
+                self.multiplayer.update_host_position(
+                    [
+                        player_pos.x as f32,
+                        player_pos.y as f32,
+                        player_pos.z as f32,
+                    ],
+                    [0.0, 0.0, 0.0], // TODO: get actual velocity
+                    player_yaw,
+                    player_pitch,
+                );
+            }
+
             // Check if we received the server's world seed (on ConnectionAccepted)
             if self.multiplayer.has_pending_server_seed() {
                 if let Some((seed, world_gen_byte)) = self.multiplayer.take_pending_server_seed() {

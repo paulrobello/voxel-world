@@ -149,6 +149,18 @@ impl MultiplayerState {
             }
         }
 
+        // Initialize host player on the server
+        // Host gets player_id 0, first connected client gets 1, etc.
+        if let Some(ref mut server) = self.server {
+            server.set_host_player(0, "Host".to_string(), [0.0, 64.0, 0.0]);
+        } else if let Some(ref server_thread) = self.server_thread {
+            let _ = server_thread.send_command(ServerCommand::SetHostPlayer {
+                player_id: 0,
+                name: "Host".to_string(),
+                position: [0.0, 64.0, 0.0],
+            });
+        }
+
         // Create local client that connects to localhost
         let localhost: SocketAddr = ([127, 0, 0, 1], port).into();
         println!(
@@ -160,6 +172,31 @@ impl MultiplayerState {
         println!("[Multiplayer] Local client created and connection started");
 
         Ok(())
+    }
+
+    /// Updates the host player's position on the server.
+    /// This should be called every frame with the local player's position.
+    pub fn update_host_position(
+        &mut self,
+        position: [f32; 3],
+        velocity: [f32; 3],
+        yaw: f32,
+        pitch: f32,
+    ) {
+        if self.mode != GameMode::Host {
+            return;
+        }
+
+        if let Some(ref mut server) = self.server {
+            server.update_host_player(position, velocity, yaw, pitch);
+        } else if let Some(ref server_thread) = self.server_thread {
+            let _ = server_thread.send_command(ServerCommand::UpdateHostPlayer {
+                position,
+                velocity,
+                yaw,
+                pitch,
+            });
+        }
     }
 
     /// Stops hosting the server.
@@ -342,6 +379,15 @@ impl MultiplayerState {
         // Process direct server events (now that server borrow is released)
         for event in server_events {
             self.handle_server_event(event);
+        }
+
+        // Broadcast player states periodically (every 3 frames = ~20 times per second at 60fps)
+        if count % 3 == 0 {
+            if let Some(ref mut server) = self.server {
+                server.broadcast_player_states();
+            } else if let Some(ref server_thread) = self.server_thread {
+                let _ = server_thread.send_command(ServerCommand::BroadcastPlayerStates);
+            }
         }
 
         // CRITICAL: Flush packets after processing events (which may queue messages)
@@ -565,18 +611,40 @@ impl MultiplayerState {
 
                 // Update remote player rendering
                 if let Some(ref client) = self.client {
-                    // Check if this is a remote player
+                    // Check if this is a remote player (not ourselves)
                     if Some(state.player_id) != client.player_id() {
+                        let timestamp = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs_f64();
+
+                        // Try to find existing remote player
                         if let Some(remote) = self
                             .remote_players
                             .iter_mut()
                             .find(|p| p.player_id == state.player_id)
                         {
-                            let timestamp = std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .unwrap_or_default()
-                                .as_secs_f64();
                             remote.update_state(state, timestamp);
+                        } else {
+                            // Player not found - this might be the host or a new player
+                            // Add them to remote_players with a placeholder name
+                            println!(
+                                "[Client] Adding unknown player {} to remote_players",
+                                state.player_id
+                            );
+                            let mut remote = RemotePlayer::new(
+                                state.player_id,
+                                if state.player_id == 0 {
+                                    "Host".to_string()
+                                } else {
+                                    format!("Player {}", state.player_id)
+                                },
+                                state.position,
+                            );
+                            remote.velocity = state.velocity;
+                            remote.yaw = state.yaw;
+                            remote.update_state(state, timestamp);
+                            self.remote_players.push(remote);
                         }
                     }
                 }

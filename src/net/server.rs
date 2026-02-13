@@ -30,6 +30,8 @@ pub struct GameServer {
     transport: NetcodeServerTransport,
     /// Connected players (client_id -> player info).
     players: HashMap<u64, PlayerInfo>,
+    /// Host player info (the server's own player).
+    host_player: Option<PlayerInfo>,
     /// Server start time.
     start_time: Instant,
     /// Last tick time.
@@ -76,11 +78,43 @@ impl GameServer {
             server,
             transport,
             players: HashMap::new(),
+            host_player: None,
             start_time: Instant::now(),
             last_tick: Instant::now(),
             world_seed,
             world_gen,
         })
+    }
+
+    /// Sets the host player info.
+    pub fn set_host_player(&mut self, player_id: PlayerId, name: String, position: [f32; 3]) {
+        self.host_player = Some(PlayerInfo {
+            player_id,
+            client_id: 0, // Host doesn't have a client_id
+            name,
+            position,
+            velocity: [0.0, 0.0, 0.0],
+            last_sequence: 0,
+            yaw: 0.0,
+            pitch: 0.0,
+            connected_at: Instant::now(),
+        });
+    }
+
+    /// Updates the host player's state.
+    pub fn update_host_player(
+        &mut self,
+        position: [f32; 3],
+        velocity: [f32; 3],
+        yaw: f32,
+        pitch: f32,
+    ) {
+        if let Some(ref mut host) = self.host_player {
+            host.position = position;
+            host.velocity = velocity;
+            host.yaw = yaw;
+            host.pitch = pitch;
+        }
     }
 
     /// Updates the server (should be called every frame).
@@ -304,7 +338,30 @@ impl GameServer {
     }
 
     /// Broadcasts player states to all clients.
+    /// Includes both connected players and the host player.
     pub fn broadcast_player_states(&mut self) {
+        // First, broadcast the host player's state to all connected clients
+        if let Some(ref host) = self.host_player {
+            let state = PlayerState {
+                player_id: host.player_id,
+                position: host.position,
+                velocity: host.velocity,
+                last_sequence: host.last_sequence,
+                yaw: host.yaw,
+                pitch: host.pitch,
+            };
+
+            let msg = ServerMessage::PlayerState(state);
+            if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+                let bytes = renet::Bytes::from(encoded);
+                // Send to all connected clients
+                for &client_id in self.players.keys() {
+                    self.server.send_message(client_id, 0, bytes.clone());
+                }
+            }
+        }
+
+        // Then, broadcast each connected player's state to all other clients (and potentially the host)
         for (&client_id, info) in &self.players {
             let state = PlayerState {
                 player_id: info.player_id,

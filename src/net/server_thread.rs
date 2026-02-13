@@ -43,6 +43,19 @@ pub enum ServerCommand {
         pitch: f32,
         sequence: u32,
     },
+    /// Set the host player info (server's own player).
+    SetHostPlayer {
+        player_id: u64,
+        name: String,
+        position: [f32; 3],
+    },
+    /// Update the host player's state.
+    UpdateHostPlayer {
+        position: [f32; 3],
+        velocity: [f32; 3],
+        yaw: f32,
+        pitch: f32,
+    },
     /// Handle a new client connection (send acceptance, etc.).
     HandleClientConnected {
         client_id: u64,
@@ -165,6 +178,21 @@ impl ServerThread {
                         server.update_player_state(
                             client_id, position, velocity, yaw, pitch, sequence,
                         );
+                    }
+                    ServerCommand::SetHostPlayer {
+                        player_id,
+                        name,
+                        position,
+                    } => {
+                        server.set_host_player(player_id, name, position);
+                    }
+                    ServerCommand::UpdateHostPlayer {
+                        position,
+                        velocity,
+                        yaw,
+                        pitch,
+                    } => {
+                        server.update_host_player(position, velocity, yaw, pitch);
                     }
                     ServerCommand::HandleClientConnected {
                         client_id,
