@@ -284,49 +284,110 @@ impl MultiplayerState {
     /// Returns remote player markers for minimap display.
     /// Each marker includes position (x, z) and a color index based on player ID.
     /// The local player is NOT included in this list.
+    /// For hosts, also includes connected clients from the server.
     pub fn get_minimap_markers(&self) -> Vec<crate::ui::minimap::RemotePlayerMarker> {
-        self.remote_players
-            .iter()
-            .enumerate()
-            .map(|(idx, player)| crate::ui::minimap::RemotePlayerMarker {
+        let mut markers = Vec::new();
+
+        // Add players from remote_players list (populated by PlayerState messages)
+        for (idx, player) in self.remote_players.iter().enumerate() {
+            markers.push(crate::ui::minimap::RemotePlayerMarker {
                 name: player.name.clone(),
                 position: (player.position[0], player.position[2]),
                 color_index: idx,
-            })
-            .collect()
+            });
+        }
+
+        // For hosts: also add connected clients directly from server
+        // (hosts don't receive PlayerState messages for clients they're hosting)
+        if let Some(ref server) = self.server {
+            let base_idx = markers.len();
+            for (idx, player_info) in server.players().enumerate() {
+                markers.push(crate::ui::minimap::RemotePlayerMarker {
+                    name: player_info.name.clone(),
+                    position: (player_info.position[0], player_info.position[2]),
+                    color_index: base_idx + idx,
+                });
+            }
+        }
+
+        markers
     }
 
     /// Returns remote player positions for 3D rendering.
     /// Each tuple contains (position [x, y, z], color_index).
+    /// For hosts, also includes connected clients from the server.
     pub fn get_remote_player_positions(&self) -> Vec<([f32; 3], usize)> {
-        self.remote_players
-            .iter()
-            .enumerate()
-            .map(|(idx, player)| (player.position, idx))
-            .collect()
+        let mut positions = Vec::new();
+
+        // Add players from remote_players list
+        for (idx, player) in self.remote_players.iter().enumerate() {
+            positions.push((player.position, idx));
+        }
+
+        // For hosts: also add connected clients directly from server
+        if let Some(ref server) = self.server {
+            let base_idx = positions.len();
+            for (idx, player_info) in server.players().enumerate() {
+                positions.push((player_info.position, base_idx + idx));
+            }
+        }
+
+        positions
     }
 
     /// Returns remote player data for 3D name label rendering.
     /// Each tuple contains (name, position [x, y, z], color_index).
+    /// For hosts, also includes connected clients from the server.
     pub fn get_remote_players_for_labels(&self) -> Vec<(String, [f32; 3], usize)> {
-        self.remote_players
-            .iter()
-            .enumerate()
-            .map(|(idx, player)| (player.name.clone(), player.position, idx))
-            .collect()
+        let mut labels = Vec::new();
+
+        // Add players from remote_players list
+        for (idx, player) in self.remote_players.iter().enumerate() {
+            labels.push((player.name.clone(), player.position, idx));
+        }
+
+        // For hosts: also add connected clients directly from server
+        if let Some(ref server) = self.server {
+            let base_idx = labels.len();
+            for (idx, player_info) in server.players().enumerate() {
+                labels.push((
+                    player_info.name.clone(),
+                    player_info.position,
+                    base_idx + idx,
+                ));
+            }
+        }
+
+        labels
     }
 
     /// Returns remote player labels for HUD rendering.
+    /// For hosts, also includes connected clients from the server.
     pub fn get_remote_player_labels(&self) -> Vec<crate::ui::minimap::RemotePlayerLabel> {
-        self.remote_players
-            .iter()
-            .enumerate()
-            .map(|(idx, player)| crate::ui::minimap::RemotePlayerLabel {
+        let mut labels = Vec::new();
+
+        // Add players from remote_players list
+        for (idx, player) in self.remote_players.iter().enumerate() {
+            labels.push(crate::ui::minimap::RemotePlayerLabel {
                 name: player.name.clone(),
                 position: player.position,
                 color_index: idx,
-            })
-            .collect()
+            });
+        }
+
+        // For hosts: also add connected clients directly from server
+        if let Some(ref server) = self.server {
+            let base_idx = labels.len();
+            for (idx, player_info) in server.players().enumerate() {
+                labels.push(crate::ui::minimap::RemotePlayerLabel {
+                    name: player_info.name.clone(),
+                    position: player_info.position,
+                    color_index: base_idx + idx,
+                });
+            }
+        }
+
+        labels
     }
 
     /// Returns the server name (if hosting).
