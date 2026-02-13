@@ -612,7 +612,10 @@ impl MultiplayerState {
                 // Update remote player rendering
                 if let Some(ref client) = self.client {
                     // Check if this is a remote player (not ourselves)
-                    if Some(state.player_id) != client.player_id() {
+                    // Host has player_id 0, clients have their own assigned IDs
+                    let is_local_player = client.player_id() == Some(state.player_id)
+                        || (self.mode == GameMode::Host && state.player_id == 0);
+                    if !is_local_player {
                         let timestamp = std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
                             .unwrap_or_default()
