@@ -35,6 +35,7 @@ use crate::chunk::{BlockType, CHUNK_SIZE};
 use crate::constants::{LOADED_CHUNKS_X, LOADED_CHUNKS_Z, WORLD_CHUNKS_Y};
 use crate::falling_block::{GpuFallingBlock, MAX_FALLING_BLOCKS};
 use crate::particles;
+use crate::remote_player::{GpuRemotePlayer, MAX_REMOTE_PLAYERS};
 use crate::sub_voxel::{MAX_MODELS, ModelRegistry, PALETTE_SIZE};
 
 /// Helper to allocate a storage buffer with the common flags used across GPU resources.
@@ -546,6 +547,8 @@ pub struct PushConstants {
     pub sky_horizon_b: f32,
     // Picture frame rendering
     pub selected_picture_id: u32,
+    // Remote player rendering
+    pub remote_player_count: u32,
 }
 
 pub fn get_swapchain_images(
@@ -1357,8 +1360,8 @@ pub struct GpuStencilBlock {
 
 pub const MAX_STENCIL_BLOCKS: usize = 4096;
 
-/// Creates storage buffers and descriptor set for particle, falling block, water source, template block, and stencil block data.
-/// All share set index 3: particles at binding 0, falling blocks at binding 1, water sources at binding 2, template blocks at binding 3, stencil blocks at binding 4.
+/// Creates storage buffers and descriptor set for particle, falling block, water source, template block, stencil block, and remote player data.
+/// All share set index 3: particles at binding 0, falling blocks at binding 1, water sources at binding 2, template blocks at binding 3, stencil blocks at binding 4, remote players at binding 5.
 #[allow(clippy::type_complexity)]
 pub fn get_particle_and_falling_block_set(
     memory_allocator: Arc<StandardMemoryAllocator>,
@@ -1370,6 +1373,7 @@ pub fn get_particle_and_falling_block_set(
     Subbuffer<[GpuWaterSource]>,
     Subbuffer<[GpuTemplateBlock]>,
     Subbuffer<[GpuStencilBlock]>,
+    Subbuffer<[GpuRemotePlayer]>,
     Arc<DescriptorSet>,
 ) {
     use particles::{GpuParticle, MAX_PARTICLES};
@@ -1385,6 +1389,8 @@ pub fn get_particle_and_falling_block_set(
         make_storage_buffer::<GpuTemplateBlock>(&memory_allocator, MAX_TEMPLATE_BLOCKS as u64);
     let stencil_block_buffer =
         make_storage_buffer::<GpuStencilBlock>(&memory_allocator, MAX_STENCIL_BLOCKS as u64);
+    let remote_player_buffer =
+        make_storage_buffer::<GpuRemotePlayer>(&memory_allocator, MAX_REMOTE_PLAYERS as u64);
 
     // Create descriptor set at set index 3 with all buffers
     let descriptor_set = make_set(
@@ -1397,6 +1403,7 @@ pub fn get_particle_and_falling_block_set(
             WriteDescriptorSet::buffer(2, water_source_buffer.clone()),
             WriteDescriptorSet::buffer(3, template_block_buffer.clone()),
             WriteDescriptorSet::buffer(4, stencil_block_buffer.clone()),
+            WriteDescriptorSet::buffer(5, remote_player_buffer.clone()),
         ],
     );
 
@@ -1406,6 +1413,7 @@ pub fn get_particle_and_falling_block_set(
         water_source_buffer,
         template_block_buffer,
         stencil_block_buffer,
+        remote_player_buffer,
         descriptor_set,
     )
 }

@@ -15,6 +15,7 @@ use crate::falling_block::GpuFallingBlock;
 use crate::gpu_resources::{self, GpuLight};
 use crate::hot_reload::HotReloadComputePipeline;
 use crate::particles;
+use crate::remote_player::GpuRemotePlayer;
 
 pub struct Graphics {
     pub instance: Arc<Instance>,
@@ -64,6 +65,8 @@ pub struct Graphics {
     pub template_block_buffer: Subbuffer<[gpu_resources::GpuTemplateBlock]>,
     #[allow(dead_code)] // Will be used when stencils are fully integrated
     pub stencil_block_buffer: Subbuffer<[gpu_resources::GpuStencilBlock]>,
+    /// Remote player buffer for multiplayer player rendering
+    pub remote_player_buffer: Subbuffer<[GpuRemotePlayer]>,
     pub voxel_image: Arc<Image>,
     pub model_atlas_8: Arc<Image>,
     pub model_atlas_16: Arc<Image>,

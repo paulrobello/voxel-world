@@ -236,6 +236,8 @@ layout(push_constant) uniform PushConstants {
     float sky_horizon_b;
     // Picture frame rendering
     uint selected_picture_id;  // Currently selected picture for frame placement (0 = no picture)
+    // Remote player rendering
+    uint remote_player_count;
 } pc;
 
 // Particles (set 3)
@@ -278,6 +280,15 @@ struct StencilBlock {
 };
 layout(set = 3, binding = 4) readonly buffer StencilBlockBuffer {
     StencilBlock stencil_blocks[];
+};
+
+// Remote players for multiplayer (shares particle set)
+struct RemotePlayer {
+    vec4 pos_color;      // xyz = feet position, w = color index (0-7)
+    vec4 height_padding; // x = height (typically 1.8), yzw = padding
+};
+layout(set = 3, binding = 5) readonly buffer RemotePlayerBuffer {
+    RemotePlayer remote_players[];
 };
 
 // Point lights (set 4)

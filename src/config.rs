@@ -201,6 +201,8 @@ pub struct Settings {
     pub show_water_sources: bool,
     pub show_biome_debug: bool,
     pub debug_cutaway_enabled: bool,
+    /// Show name labels above remote players in multiplayer
+    pub show_player_names: bool,
 
     pub enable_ao: bool,
     pub enable_shadows: bool,
@@ -252,6 +254,7 @@ impl Default for Settings {
             show_water_sources: false,
             show_biome_debug: false,
             debug_cutaway_enabled: false,
+            show_player_names: true,
 
             enable_ao: true,
             enable_shadows: true,

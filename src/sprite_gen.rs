@@ -103,6 +103,7 @@ pub fn run(_args: &Args, event_loop: &EventLoop<()>) -> Result<(), Box<dyn Error
         _water_source_buffer,
         _template_block_buffer,
         _stencil_block_buffer,
+        _remote_player_buffer,
         particle_set,
     ) = get_particle_and_falling_block_set(
         memory_allocator.clone(),
@@ -720,6 +721,7 @@ fn render_icon(
         sky_horizon_g: 0.75,
         sky_horizon_b: 0.95,
         selected_picture_id: 0,
+        remote_player_count: 0,
     };
 
     // Render

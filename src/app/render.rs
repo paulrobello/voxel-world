@@ -9,6 +9,7 @@ use crate::gpu_resources::{
 };
 use crate::player::HEAD_BOB_AMPLITUDE;
 use crate::raycast::get_place_position;
+use crate::remote_player::{GpuRemotePlayer, MAX_REMOTE_PLAYERS};
 use nalgebra::Vector3;
 use std::time::Instant;
 use vulkano::{
@@ -116,6 +117,13 @@ impl App {
         let minimap_image =
             prepare_minimap_image(&mut self.ui, &mut self.sim, player_world_pos, camera_yaw);
 
+        // Collect remote player data for rendering (before rcx borrow)
+        let remote_player_data: Vec<([f32; 3], usize)> = if self.is_multiplayer() {
+            self.multiplayer.get_remote_player_positions()
+        } else {
+            Vec::new()
+        };
+
         let rcx = self.graphics.rcx.as_mut().unwrap();
 
         if self.input.window_resized().is_some() {
@@ -191,6 +199,12 @@ impl App {
         // Get atlas texture id before borrowing gui
         let _atlas_texture_id = rcx.atlas_texture_id;
 
+        // Get camera data for HUD rendering
+        let camera_pitch = self.sim.player.camera.rotation.x as f32;
+        let camera_position = self.sim.player.camera.position;
+        let camera_fov = self.sim.player.camera.fov;
+        let screen_extent = self.sim.player.camera.extent;
+
         // Check if scale changed from dynamic render scale or UI
         let scale_changed_from_ui = render_hud(
             rcx,
@@ -200,6 +214,10 @@ impl App {
             selected_block,
             minimap_image,
             camera_yaw,
+            camera_pitch,
+            camera_position,
+            camera_fov,
+            screen_extent,
             player_world_pos,
             &mut self.multiplayer,
             self.args.seed.unwrap_or(314159),
@@ -1101,6 +1119,31 @@ impl App {
             }
         }
 
+        // Update remote player buffer for multiplayer
+        let remote_player_count = if !remote_player_data.is_empty() {
+            let tex_origin = self.sim.texture_origin;
+            let mut write = self.graphics.remote_player_buffer.write().unwrap();
+            for (i, (pos, color_idx)) in remote_player_data.iter().enumerate() {
+                if i >= MAX_REMOTE_PLAYERS {
+                    break;
+                }
+                // Convert world position to texture position
+                let gpu_player = GpuRemotePlayer::new(
+                    [
+                        pos[0] - tex_origin.x as f32,
+                        pos[1] - tex_origin.y as f32,
+                        pos[2] - tex_origin.z as f32,
+                    ],
+                    *color_idx as u32,
+                    1.8, // 2-block tall player
+                );
+                write[i] = gpu_player;
+            }
+            remote_player_data.len().min(MAX_REMOTE_PLAYERS) as u32
+        } else {
+            0
+        };
+
         let push_constants = PushConstants {
             pixel_to_ray: pixel_to_ray.cast(),
             texture_size_x: self.sim.world_extent[0],
@@ -1443,6 +1486,7 @@ impl App {
             sky_horizon_g: self.sim.atmosphere.sky_color_horizon[1],
             sky_horizon_b: self.sim.atmosphere.sky_color_horizon[2],
             selected_picture_id: self.ui.selected_picture_id.unwrap_or(0),
+            remote_player_count,
         };
 
         let mut builder = AutoCommandBufferBuilder::primary(

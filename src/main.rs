@@ -61,6 +61,7 @@ mod placement;
 mod player;
 mod preview;
 mod raycast;
+mod remote_player;
 mod render_mode;
 mod shape_tools;
 mod sprite_gen;

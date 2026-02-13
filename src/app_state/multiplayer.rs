@@ -259,6 +259,39 @@ impl MultiplayerState {
             .collect()
     }
 
+    /// Returns remote player positions for 3D rendering.
+    /// Each tuple contains (position [x, y, z], color_index).
+    pub fn get_remote_player_positions(&self) -> Vec<([f32; 3], usize)> {
+        self.remote_players
+            .iter()
+            .enumerate()
+            .map(|(idx, player)| (player.position, idx))
+            .collect()
+    }
+
+    /// Returns remote player data for 3D name label rendering.
+    /// Each tuple contains (name, position [x, y, z], color_index).
+    pub fn get_remote_players_for_labels(&self) -> Vec<(String, [f32; 3], usize)> {
+        self.remote_players
+            .iter()
+            .enumerate()
+            .map(|(idx, player)| (player.name.clone(), player.position, idx))
+            .collect()
+    }
+
+    /// Returns remote player labels for HUD rendering.
+    pub fn get_remote_player_labels(&self) -> Vec<crate::ui::minimap::RemotePlayerLabel> {
+        self.remote_players
+            .iter()
+            .enumerate()
+            .map(|(idx, player)| crate::ui::minimap::RemotePlayerLabel {
+                name: player.name.clone(),
+                position: player.position,
+                color_index: idx,
+            })
+            .collect()
+    }
+
     /// Returns the server name (if hosting).
     pub fn get_server_name(&self) -> &str {
         &self.server_name

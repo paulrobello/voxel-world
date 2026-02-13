@@ -606,6 +606,8 @@ impl SettingsUI {
                         // HUD visibility
                         ui.checkbox(&mut settings.show_position, "Show position");
                         ui.checkbox(&mut settings.show_stats, "Show FPS/stats");
+                        ui.checkbox(&mut settings.show_player_names, "Show player name labels")
+                            .on_hover_text("Display name labels above other players in multiplayer");
 
                         ui.separator();
 

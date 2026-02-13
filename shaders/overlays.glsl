@@ -721,3 +721,77 @@ bool renderMeasurementLines(vec3 origin, vec3 dir, inout vec3 color, float scene
 
     return anyHit;
 }
+
+// Player colors for rendering (8 distinct colors, matching minimap)
+const vec3 PLAYER_COLORS[8] = vec3[](
+    vec3(0.0, 0.78, 1.0),   // Cyan
+    vec3(1.0, 0.39, 0.39),  // Light red
+    vec3(0.39, 1.0, 0.39),  // Light green
+    vec3(1.0, 0.78, 0.2),   // Gold
+    vec3(0.78, 0.39, 1.0),  // Purple
+    vec3(1.0, 0.59, 0.78),  // Pink
+    vec3(0.39, 0.59, 1.0),  // Light blue
+    vec3(1.0, 0.71, 0.39)   // Orange
+);
+
+// Render remote players as 2-block tall colored placeholders
+bool renderRemotePlayers(vec3 origin, vec3 dir, inout vec3 color, inout float hitDistance) {
+    if (pc.remote_player_count == 0) {
+        return false;
+    }
+
+    bool anyHit = false;
+    float dirLen = length(dir);
+    if (dirLen < 1e-6) return false;
+
+    float closestT = hitDistance;
+    vec3 closestColor = color;
+
+    for (uint i = 0; i < pc.remote_player_count; i++) {
+        RemotePlayer rp = remote_players[i];
+        vec3 feetPos = rp.pos_color.xyz;
+        float colorIndex = rp.pos_color.w;
+        float height = rp.height_padding.x > 0.0 ? rp.height_padding.x : 1.8;
+
+        // Create 2-block tall bounding box (0.6 wide for body-like proportions)
+        float halfWidth = 0.3;
+        vec3 boxMin = vec3(feetPos.x - halfWidth, feetPos.y, feetPos.z - halfWidth);
+        vec3 boxMax = vec3(feetPos.x + halfWidth, feetPos.y + height, feetPos.z + halfWidth);
+
+        vec3 hitNormal;
+        float tHit;
+        if (!rayBoxHit(origin, dir, boxMin, boxMax, tHit, hitNormal)) {
+            continue;
+        }
+
+        float tWorld = tHit * dirLen;
+        if (tHit < 0.0 || tWorld > closestT) {
+            continue;
+        }
+
+        // Get player color based on index
+        uint colorIdx = uint(colorIndex) % 8u;
+        vec3 playerColor = PLAYER_COLORS[colorIdx];
+
+        // Apply lighting
+        vec3 sunDir = getCurrentSunDir();
+        float daylight = getDaylightFactor(pc.time_of_day);
+        float sunLight = max(0.0, dot(hitNormal, sunDir));
+        float ambient = mix(0.3, 0.5, daylight);
+        float direct = mix(0.2, 0.5, daylight) * sunLight;
+        vec3 litColor = playerColor * (ambient + direct);
+
+        closestT = tWorld;
+        closestColor = litColor;
+        anyHit = true;
+    }
+
+    if (anyHit) {
+        // Semi-transparent overlay
+        float alpha = 0.85;
+        color = mix(color, closestColor, alpha);
+        hitDistance = min(hitDistance, closestT);
+    }
+
+    return anyHit;
+}

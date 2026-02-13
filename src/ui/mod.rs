@@ -127,6 +127,10 @@ pub struct HudInputs<'a> {
     pub atlas_texture_id: egui::TextureId,
     pub sprite_icons: Option<&'a SpriteIcons>,
     pub camera_yaw: f32,
+    pub camera_pitch: f32,
+    pub camera_position: Vector3<f64>,
+    pub camera_fov: f64,
+    pub screen_extent: [f64; 2],
     pub player_world_pos: Vector3<f64>,
     pub time_of_day: &'a mut f32,
     pub day_cycle_paused: &'a mut bool,
@@ -190,6 +194,8 @@ pub struct HudInputs<'a> {
     pub player_names: &'a [String],
     /// Remote player markers for minimap (position in world X/Z coordinates).
     pub remote_players: &'a [minimap::RemotePlayerMarker],
+    /// Remote player data for 3D name labels (position in world X/Y/Z coordinates).
+    pub remote_player_labels: &'a [minimap::RemotePlayerLabel],
 }
 
 pub struct HUDRenderer;
@@ -221,6 +227,10 @@ impl HUDRenderer {
             atlas_texture_id,
             sprite_icons,
             camera_yaw,
+            camera_pitch,
+            camera_position,
+            camera_fov,
+            screen_extent,
             player_world_pos,
             time_of_day,
             day_cycle_paused,
@@ -282,6 +292,7 @@ impl HUDRenderer {
             ping_ms,
             player_names,
             remote_players,
+            remote_player_labels,
         } = input;
         let mut scale_changed = false;
         let mut editor_action = EditorAction::None;
@@ -573,6 +584,19 @@ impl HUDRenderer {
                 ping_ms,
                 player_names,
             );
+
+            // Player name labels (3D world labels projected to 2D)
+            if settings.show_player_names && !remote_player_labels.is_empty() {
+                Self::draw_player_name_labels(
+                    &ctx,
+                    remote_player_labels,
+                    camera_position,
+                    camera_yaw,
+                    camera_pitch,
+                    camera_fov,
+                    screen_extent,
+                );
+            }
         });
 
         (
@@ -1230,6 +1254,137 @@ impl HUDRenderer {
                     ),
                 ],
                 bracket_stroke,
+            );
+        }
+    }
+
+    /// Draw player name labels above remote players' heads in 3D space.
+    fn draw_player_name_labels(
+        ctx: &egui::Context,
+        remote_players: &[minimap::RemotePlayerLabel],
+        camera_position: Vector3<f64>,
+        camera_yaw: f32,
+        camera_pitch: f32,
+        camera_fov: f64,
+        screen_extent: [f64; 2],
+    ) {
+        // Player colors matching minimap
+        const PLAYER_COLORS: [egui::Color32; 8] = [
+            egui::Color32::from_rgb(0, 200, 255),   // Cyan
+            egui::Color32::from_rgb(255, 100, 100), // Light red
+            egui::Color32::from_rgb(100, 255, 100), // Light green
+            egui::Color32::from_rgb(255, 200, 50),  // Gold
+            egui::Color32::from_rgb(200, 100, 255), // Purple
+            egui::Color32::from_rgb(255, 150, 200), // Pink
+            egui::Color32::from_rgb(100, 150, 255), // Light blue
+            egui::Color32::from_rgb(255, 180, 100), // Orange
+        ];
+
+        let aspect = screen_extent[0] / screen_extent[1];
+        let tan_fov = (camera_fov.to_radians() * 0.5).tan();
+
+        // Use a painter for drawing the labels
+        let painter = ctx.layer_painter(egui::LayerId::new(
+            egui::Order::Foreground,
+            egui::Id::new("player_name_labels"),
+        ));
+
+        for player in remote_players {
+            // Player head position (feet y + 2.0 to place label above head)
+            let label_y = player.position[1] as f64 + 2.0;
+
+            // Calculate relative position to camera
+            let dx = player.position[0] as f64 - camera_position.x;
+            let dy = label_y - camera_position.y;
+            let dz = player.position[2] as f64 - camera_position.z;
+
+            // Apply yaw rotation (yaw=0 looks at -Z)
+            let (sin_yaw, cos_yaw) = (camera_yaw.sin() as f64, camera_yaw.cos() as f64);
+            let view_x = dx * cos_yaw - dz * sin_yaw;
+            let view_z = dx * sin_yaw + dz * cos_yaw;
+
+            // Check if in front of camera (forward is -Z)
+            if view_z >= 0.0 {
+                continue; // Behind camera
+            }
+
+            // Apply pitch rotation
+            let (sin_pitch, cos_pitch) = (camera_pitch.sin() as f64, camera_pitch.cos() as f64);
+            let rotated_y = dy * cos_pitch - (-view_z) * sin_pitch;
+            let rotated_z = dy * sin_pitch + (-view_z) * cos_pitch;
+
+            if rotated_z >= 0.0 {
+                continue; // Behind camera after pitch
+            }
+
+            // Project to screen
+            let z = -rotated_z;
+            let screen_x = screen_extent[0] / 2.0
+                + (view_x / z) * (screen_extent[0] / 2.0) / (tan_fov * aspect.max(1.0));
+            let screen_y =
+                screen_extent[1] / 2.0 - (rotated_y / z) * (screen_extent[1] / 2.0) / tan_fov;
+
+            // Check if on screen
+            if screen_x < 0.0
+                || screen_x > screen_extent[0]
+                || screen_y < 0.0
+                || screen_y > screen_extent[1]
+            {
+                continue;
+            }
+
+            // Calculate distance for fade
+            let distance = (dx * dx + dy * dy + dz * dz).sqrt() as f32;
+
+            // Skip if too far (max 100 blocks)
+            if distance > 100.0 {
+                continue;
+            }
+
+            // Fade out with distance
+            let alpha = if distance > 50.0 {
+                ((100.0 - distance) / 50.0).min(1.0)
+            } else {
+                1.0
+            };
+
+            let color = PLAYER_COLORS[player.color_index % PLAYER_COLORS.len()];
+            let faded_color = egui::Color32::from_rgba_unmultiplied(
+                color.r(),
+                color.g(),
+                color.b(),
+                (alpha * 220.0) as u8,
+            );
+
+            // Draw the name label
+            let pos = egui::pos2(screen_x as f32, screen_y as f32);
+
+            // Background
+            let text = &player.name;
+            let font_id = egui::FontId::proportional(14.0);
+            let galley =
+                ctx.fonts(|f| f.layout_no_wrap(text.clone(), font_id.clone(), faded_color));
+
+            let text_size = galley.size();
+            let bg_rect = egui::Rect::from_min_size(
+                egui::pos2(
+                    pos.x - text_size.x / 2.0 - 4.0,
+                    pos.y - text_size.y / 2.0 - 2.0,
+                ),
+                egui::vec2(text_size.x + 8.0, text_size.y + 4.0),
+            );
+
+            painter.rect_filled(
+                bg_rect,
+                3.0,
+                egui::Color32::from_rgba_unmultiplied(0, 0, 0, (alpha * 180.0) as u8),
+            );
+
+            // Text
+            painter.galley(
+                egui::pos2(pos.x - text_size.x / 2.0, pos.y - text_size.y / 2.0),
+                galley,
+                faded_color,
             );
         }
     }

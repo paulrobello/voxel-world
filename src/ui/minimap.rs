@@ -26,6 +26,17 @@ pub struct RemotePlayerMarker {
     pub color_index: usize,
 }
 
+/// Remote player data for 3D name label rendering.
+#[allow(dead_code)]
+pub struct RemotePlayerLabel {
+    /// Player display name.
+    pub name: String,
+    /// World position (x, y, z).
+    pub position: [f32; 3],
+    /// Color index for this player (0-7).
+    pub color_index: usize,
+}
+
 pub struct MinimapUI;
 
 impl MinimapUI {

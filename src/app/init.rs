@@ -247,6 +247,7 @@ impl App {
             water_source_buffer,
             template_block_buffer,
             stencil_block_buffer,
+            remote_player_buffer,
             particle_set,
         ) = get_particle_and_falling_block_set(
             vk.memory_allocator.clone(),
@@ -416,6 +417,7 @@ impl App {
             water_source_buffer,
             template_block_buffer,
             stencil_block_buffer,
+            remote_player_buffer,
             voxel_image,
             model_atlas_8,
             model_atlas_16,

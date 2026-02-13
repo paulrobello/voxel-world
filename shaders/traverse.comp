@@ -1046,6 +1046,11 @@ void main() {
         }
     }
 
+    // Render remote players in multiplayer
+    if (pc.remote_player_count > 0 && pc.render_mode != STEPS) {
+        renderRemotePlayers(o, d, color, hitDistance);
+    }
+
     if (pc.render_mode != STEPS) {
         renderPreviewBlock(o, d, color, hitDistance);
         renderTemplatePreview(o, d, color, hitDistance);
