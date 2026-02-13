@@ -327,20 +327,54 @@ impl App {
             self.multiplayer.update(Duration::from_secs_f64(delta_time));
 
             // Update host player position on server (so it's broadcast to clients)
+            // IMPORTANT: Use world coordinates, not normalized texture coordinates
             if self.multiplayer.mode == crate::config::GameMode::Host {
-                let player_pos = self.sim.player.camera.position;
+                let world_extent = self.sim.world_extent;
+                let texture_origin = self.sim.texture_origin;
+                let player_world_pos = self.sim.player.feet_pos(world_extent, texture_origin);
                 let player_yaw = self.sim.player.camera.rotation.y as f32;
                 let player_pitch = self.sim.player.camera.rotation.x as f32;
                 self.multiplayer.update_host_position(
                     [
-                        player_pos.x as f32,
-                        player_pos.y as f32,
-                        player_pos.z as f32,
+                        player_world_pos.x as f32,
+                        player_world_pos.y as f32,
+                        player_world_pos.z as f32,
                     ],
                     [0.0, 0.0, 0.0], // TODO: get actual velocity
                     player_yaw,
                     player_pitch,
                 );
+            }
+
+            // Send client position to server (both pure clients and host's local client)
+            // This is separate from host position update above - that updates the server's
+            // knowledge of the host player, this sends our position as a client
+            if self.multiplayer.mode == crate::config::GameMode::Client
+                || self.multiplayer.mode == crate::config::GameMode::Host
+            {
+                let world_extent = self.sim.world_extent;
+                let texture_origin = self.sim.texture_origin;
+                let player_world_pos = self.sim.player.feet_pos(world_extent, texture_origin);
+                let player_yaw = self.sim.player.camera.rotation.y as f32;
+                let player_pitch = self.sim.player.camera.rotation.x as f32;
+
+                // Send input ~20 times per second (every 3 frames at 60fps)
+                static INPUT_COUNTER: std::sync::atomic::AtomicU64 =
+                    std::sync::atomic::AtomicU64::new(0);
+                let count = INPUT_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                if count % 3 == 0 {
+                    self.multiplayer.send_input(
+                        [
+                            player_world_pos.x as f32,
+                            player_world_pos.y as f32,
+                            player_world_pos.z as f32,
+                        ],
+                        [0.0, 0.0, 0.0], // TODO: get actual velocity
+                        player_yaw,
+                        player_pitch,
+                        crate::net::protocol::InputActions::new(0),
+                    );
+                }
             }
 
             // Check if we received the server's world seed (on ConnectionAccepted)
