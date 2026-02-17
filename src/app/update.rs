@@ -326,6 +326,9 @@ impl App {
         if self.multiplayer.mode != crate::config::GameMode::SinglePlayer {
             self.multiplayer.update(Duration::from_secs_f64(delta_time));
 
+            // Interpolate remote player positions for smooth rendering
+            self.multiplayer.update_remote_players();
+
             // Update host player position on server (so it's broadcast to clients)
             // IMPORTANT: Use world coordinates, not normalized texture coordinates
             if self.multiplayer.mode == crate::config::GameMode::Host {
