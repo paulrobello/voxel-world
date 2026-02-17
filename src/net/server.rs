@@ -416,10 +416,10 @@ impl GameServer {
             let msg = ServerMessage::PlayerState(state);
             if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
                 let bytes = renet::Bytes::from(encoded);
-                // Send to all other clients (excluding the player themselves AND the host's loopback)
+                // Send to all other clients (excluding only the player themselves)
+                // Include host's loopback client so the host can see other players
                 for &other_client_id in self.players.keys() {
-                    if other_client_id != client_id && self.host_client_id != Some(other_client_id)
-                    {
+                    if other_client_id != client_id {
                         self.server.send_message(other_client_id, 0, bytes.clone());
                     }
                 }
