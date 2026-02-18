@@ -298,6 +298,16 @@ impl MultiplayerState {
     /// Returns remote player positions for 3D rendering.
     /// Each tuple contains (position [x, y, z], player_id for color).
     pub fn get_remote_player_positions(&self) -> Vec<([f32; 3], u64)> {
+        // Debug: log what we're returning
+        static LOG_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let count = LOG_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if count % 60 == 0 && !self.remote_players.is_empty() {
+            println!(
+                "[Multiplayer] get_remote_player_positions: {} players: {:?}",
+                self.remote_players.len(),
+                self.remote_players.iter().map(|p| (p.player_id, p.name.clone())).collect::<Vec<_>>()
+            );
+        }
         self.remote_players
             .iter()
             .map(|player| (player.position, player.player_id))
@@ -664,10 +674,12 @@ impl MultiplayerState {
                 }
             }
             ServerMessage::PlayerJoined(joined) => {
-                // Add new remote player
-                let remote =
-                    RemotePlayer::new(joined.player_id, joined.name.clone(), joined.position);
-                self.remote_players.push(remote);
+                // Add new remote player (check for duplicates)
+                if !self.remote_players.iter().any(|p| p.player_id == joined.player_id) {
+                    let remote =
+                        RemotePlayer::new(joined.player_id, joined.name.clone(), joined.position);
+                    self.remote_players.push(remote);
+                }
             }
             ServerMessage::PlayerLeft(left) => {
                 self.remote_players

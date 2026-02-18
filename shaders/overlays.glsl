@@ -723,15 +723,16 @@ bool renderMeasurementLines(vec3 origin, vec3 dir, inout vec3 color, float scene
 }
 
 // Player colors for rendering (8 distinct colors, matching minimap)
+// Host (player_id 0) is always RED, then clients get Blue, Green, Purple, etc.
 const vec3 PLAYER_COLORS[8] = vec3[](
-    vec3(0.0, 0.78, 1.0),   // Cyan
-    vec3(1.0, 0.39, 0.39),  // Light red
-    vec3(0.39, 1.0, 0.39),  // Light green
-    vec3(1.0, 0.78, 0.2),   // Gold
-    vec3(0.78, 0.39, 1.0),  // Purple
-    vec3(1.0, 0.59, 0.78),  // Pink
-    vec3(0.39, 0.59, 1.0),  // Light blue
-    vec3(1.0, 0.71, 0.39)   // Orange
+    vec3(1.0, 0.2, 0.2),    // Red - Host
+    vec3(0.2, 0.39, 1.0),   // Blue - 1st client
+    vec3(0.2, 0.78, 0.2),   // Green - 2nd client
+    vec3(0.71, 0.2, 1.0),   // Purple - 3rd client
+    vec3(1.0, 0.78, 0.2),   // Gold - 4th client
+    vec3(1.0, 0.59, 0.78),  // Pink - 5th client
+    vec3(0.2, 0.78, 0.78),  // Cyan - 6th client
+    vec3(1.0, 0.59, 0.2)    // Orange - 7th client
 );
 
 // Render remote players as 2-block tall colored placeholders
