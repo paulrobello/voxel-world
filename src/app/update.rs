@@ -284,12 +284,20 @@ impl App {
         // Always update chunks and upload to GPU, even before delta_time is available
         // This ensures initial chunks are uploaded on the first frame
         let t0 = Instant::now();
-        let (loaded, _unloaded) = self.update_chunk_loading();
+        let (loaded_positions, loaded, _unloaded) = self.update_chunk_loading();
         self.sim.profiler.chunk_loading_us += t0.elapsed().as_micros() as u64;
 
         // Invalidate minimap cache when new chunks are loaded so it refreshes
         if loaded > 0 {
             self.ui.minimap_cached_image = None;
+        }
+
+        // Mark loaded chunks as complete in multiplayer chunk sync
+        // This ensures chunks from ChunkGenerateLocal are properly tracked
+        for pos in &loaded_positions {
+            self.multiplayer
+                .chunk_sync
+                .try_complete_local_generation([pos.x, pos.y, pos.z]);
         }
 
         let t1 = Instant::now();

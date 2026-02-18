@@ -471,7 +471,7 @@ impl App {
             .unwrap()
     }
 
-    pub fn update_chunk_loading(&mut self) -> (usize, usize) {
+    pub fn update_chunk_loading(&mut self) -> (Vec<Vector3<i32>>, usize, usize) {
         // Check if we need to shift the texture origin first
         let shifted = self.check_and_shift_texture_origin();
         if shifted {
@@ -564,6 +564,7 @@ impl App {
         }
         let mut metadata_updates: Vec<MetadataUpdate> = Vec::new();
         let mut loaded = 0;
+        let mut loaded_positions: Vec<Vector3<i32>> = Vec::new();
         {
             struct Upload {
                 pos: Vector3<i32>,
@@ -615,6 +616,7 @@ impl App {
                     meta: chunk.to_model_metadata(),
                     custom: chunk.custom_data_bytes().to_vec(),
                 });
+                loaded_positions.push(result.position);
                 loaded += 1;
             }
 
@@ -695,6 +697,7 @@ impl App {
                         meta: chunk.to_model_metadata(),
                         custom: chunk.custom_data_bytes().to_vec(),
                     });
+                    loaded_positions.push(pos);
                     loaded += 1;
                 }
 
@@ -938,7 +941,7 @@ impl App {
         // Update last player chunk
         self.sim.last_player_chunk = player_chunk;
 
-        (loaded, unloaded)
+        (loaded_positions, loaded, unloaded)
     }
 
     pub fn upload_world_to_gpu(&mut self) {

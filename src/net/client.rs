@@ -108,7 +108,7 @@ impl GameClient {
 
     /// Updates the client (should be called every frame).
     pub fn update(&mut self, duration: Duration) {
-        let prev_state = self.connection.state();
+        let _prev_state = self.connection.state();
 
         // Update the client
         self.client.update(duration);

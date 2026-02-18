@@ -655,7 +655,11 @@ impl MultiplayerState {
             }
             ServerMessage::PlayerJoined(joined) => {
                 // Add new remote player (check for duplicates)
-                if !self.remote_players.iter().any(|p| p.player_id == joined.player_id) {
+                if !self
+                    .remote_players
+                    .iter()
+                    .any(|p| p.player_id == joined.player_id)
+                {
                     let remote =
                         RemotePlayer::new(joined.player_id, joined.name.clone(), joined.position);
                     self.remote_players.push(remote);
@@ -701,7 +705,8 @@ impl MultiplayerState {
             }
             ServerMessage::ChunkGenerateLocal(msg) => {
                 // Server says this chunk has no modifications - generate it locally
-                self.chunk_sync.mark_received(msg.position);
+                // Mark as pending local generation (NOT received) until chunk_loader finishes
+                self.chunk_sync.mark_pending_local_generation(msg.position);
                 self.pending_local_chunks.push(msg.position);
                 println!(
                     "[Client] Received ChunkGenerateLocal for {:?}",
@@ -848,6 +853,13 @@ impl MultiplayerState {
     /// Returns true if there are pending local chunks to generate.
     pub fn has_pending_local_chunks(&self) -> bool {
         !self.pending_local_chunks.is_empty()
+    }
+
+    /// Marks a locally-generated chunk as complete (received and applied to world).
+    /// This should be called when a chunk that was requested via ChunkGenerateLocal
+    /// is successfully generated and inserted into the world.
+    pub fn mark_local_chunk_complete(&mut self, position: [i32; 3]) {
+        self.chunk_sync.try_complete_local_generation(position);
     }
 
     /// Takes all pending chunk requests from clients and clears the queue.

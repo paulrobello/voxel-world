@@ -51,8 +51,11 @@ pub struct ChunkSyncManager {
     pending_requests: HashMap<[i32; 3], ChunkRequest>,
     /// Priority queue ordered by priority (highest first).
     priority_queue: VecDeque<[i32; 3]>,
-    /// Chunks that have been received.
+    /// Chunks that have been received and applied to the world.
     received_chunks: HashSet<[i32; 3]>,
+    /// Chunks queued for local generation (ChunkGenerateLocal received but not yet generated).
+    /// These should NOT be re-requested, but also not considered "received" until generated.
+    pending_local_generation: HashSet<[i32; 3]>,
     /// Last player position (for distance calculations).
     last_player_pos: [f32; 3],
     /// Last player look direction (for view priority).
@@ -74,6 +77,7 @@ impl ChunkSyncManager {
             pending_requests: HashMap::new(),
             priority_queue: VecDeque::new(),
             received_chunks: HashSet::new(),
+            pending_local_generation: HashSet::new(),
             last_player_pos: [0.0, 0.0, 0.0],
             last_look_dir: [0.0, 0.0, -1.0],
         }
@@ -132,9 +136,10 @@ impl ChunkSyncManager {
                         player_chunk[2] + dz,
                     ];
 
-                    // Skip if already received or already requested
+                    // Skip if already received, already requested, or pending local generation
                     if self.received_chunks.contains(&pos)
                         || self.pending_requests.contains_key(&pos)
+                        || self.pending_local_generation.contains(&pos)
                     {
                         continue;
                     }
@@ -192,11 +197,43 @@ impl ChunkSyncManager {
         self.received_chunks.insert(position);
     }
 
+    /// Marks a chunk as pending local generation (ChunkGenerateLocal received).
+    /// The chunk is NOT considered received until `mark_local_generation_complete` is called.
+    pub fn mark_pending_local_generation(&mut self, position: [i32; 3]) {
+        self.pending_requests.remove(&position);
+        self.pending_local_generation.insert(position);
+    }
+
+    /// Marks a locally-generated chunk as complete and received.
+    /// Call this after the chunk_loader has finished generating the chunk.
+    pub fn mark_local_generation_complete(&mut self, position: [i32; 3]) {
+        self.pending_local_generation.remove(&position);
+        self.received_chunks.insert(position);
+    }
+
     /// Clears received chunks (e.g., on teleport or world change).
     pub fn clear_received(&mut self) {
         self.received_chunks.clear();
         self.pending_requests.clear();
         self.priority_queue.clear();
+        self.pending_local_generation.clear();
+    }
+
+    /// Marks a chunk as received if it was pending local generation.
+    /// Returns true if the chunk was pending local generation (and is now marked received).
+    /// This should be called when a chunk is successfully applied to the world.
+    pub fn try_complete_local_generation(&mut self, position: [i32; 3]) -> bool {
+        if self.pending_local_generation.remove(&position) {
+            self.received_chunks.insert(position);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Returns the number of pending local generation chunks.
+    pub fn pending_local_count(&self) -> usize {
+        self.pending_local_generation.len()
     }
 
     /// Returns the number of pending requests.
