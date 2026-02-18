@@ -8,7 +8,7 @@ export VK_ICD_FILENAMES := /opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json
 export CMAKE_POLICY_VERSION_MINIMUM := 3.5
 export SHADERC_LIB_DIR := /opt/homebrew/lib
 
-.PHONY: build build-release build-debug run run-release run-debug profile run-profile auto-profile-flat auto-profile-normal clean test check fmt lint checkall sprite-gen run-p1 run-p2 reset reset-world reset-profiles reset-p1 reset-p2 new-flat new-normal run-cap-exit
+.PHONY: build build-release build-debug run run-release run-debug profile run-profile auto-profile-flat auto-profile-normal clean test check fmt lint checkall sprite-gen run-p1 run-p2 reset reset-world reset-profiles reset-p1 reset-p2 new-flat new-normal run-cap-exit run-host run-client reset-host reset-client
 
 # Default target
 all: build-release
@@ -121,6 +121,21 @@ reset-p1:
 
 reset-p2:
 	rm -rf data_p2
+
+# Multiplayer targets
+# Host mode - starts server and connects as localhost client
+run-host: build-release
+	./target/release/voxel-world --data-dir data_host --host --seed $(SEED) $(ARGS)
+
+# Client mode - connects to localhost server
+run-client: build-release
+	./target/release/voxel-world --data-dir data_client --client --connect 127.0.0.1:12345 --seed $(SEED) $(ARGS)
+
+reset-host:
+	rm -rf data_host
+
+reset-client:
+	rm -rf data_client
 
 # Benchmark targets for controlled profiling
 # Resets world but preserves profiles for comparison. Use 'make reset' to clear profiles.
