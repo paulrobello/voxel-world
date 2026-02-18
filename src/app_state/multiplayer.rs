@@ -298,16 +298,6 @@ impl MultiplayerState {
     /// Returns remote player positions for 3D rendering.
     /// Each tuple contains (position [x, y, z], player_id for color).
     pub fn get_remote_player_positions(&self) -> Vec<([f32; 3], u64)> {
-        // Debug: log what we're returning
-        static LOG_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        let count = LOG_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        if count % 60 == 0 && !self.remote_players.is_empty() {
-            println!(
-                "[Multiplayer] get_remote_player_positions: {} players: {:?}",
-                self.remote_players.len(),
-                self.remote_players.iter().map(|p| (p.player_id, p.name.clone())).collect::<Vec<_>>()
-            );
-        }
         self.remote_players
             .iter()
             .map(|player| (player.position, player.player_id))
@@ -354,19 +344,9 @@ impl MultiplayerState {
 
     /// Updates the multiplayer state (call every frame).
     pub fn update(&mut self, duration: Duration) {
-        // Log update call periodically
+        // Frame counter for periodic operations (no logging)
         static UPDATE_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let count = UPDATE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        if count % 60 == 0 {
-            // Log every 60 frames (~1 second)
-            println!(
-                "[Multiplayer] Update #{}, mode: {:?}, has_server: {}, has_client: {}",
-                count,
-                self.mode,
-                self.server.is_some(),
-                self.client.is_some()
-            );
-        }
 
         // Handle threaded server events
         if let Some(ref server_thread) = self.server_thread {

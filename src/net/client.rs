@@ -113,21 +113,7 @@ impl GameClient {
         // Update the client
         self.client.update(duration);
         // Update the transport - receives packets and handles connection
-        let transport_result = self.transport.update(duration, &mut self.client);
-
-        // Log connection status periodically
-        static UPDATE_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        let count = UPDATE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        if count % 60 == 0 {
-            // Log every 60 frames
-            println!(
-                "[Client] Update #{}, renet_connected: {}, tracker_connected: {}, transport: {:?}",
-                count,
-                self.client.is_connected(),
-                self.connection.is_connected(),
-                transport_result
-            );
-        }
+        let _ = self.transport.update(duration, &mut self.client);
 
         // Check for connection timeout
         if self.connection.has_timed_out() {
@@ -144,15 +130,6 @@ impl GameClient {
         } else if self.connection.state() == ConnectionState::Connected {
             self.connection.mark_disconnected(Some("Connection lost"));
             println!("[Client] Disconnected from server");
-        }
-
-        // Log state changes
-        let new_state = self.connection.state();
-        if prev_state != new_state {
-            println!(
-                "[Client] Connection state: {:?} -> {:?}",
-                prev_state, new_state
-            );
         }
     }
 
@@ -171,102 +148,18 @@ impl GameClient {
     /// Returns a list of server messages to handle.
     pub fn receive_messages(&mut self) -> Vec<ServerMessage> {
         let mut messages = Vec::new();
-        let mut total_received = 0usize;
 
-        while let Some(message) = self.client.receive_message(0) {
-            // PlayerMovement channel
-            total_received += 1;
-            println!(
-                "[Client] Received message on channel 0 (PlayerMovement), {} bytes",
-                message.len()
-            );
-            if let Ok((msg, _)) = bincode::serde::decode_from_slice::<ServerMessage, _>(
-                &message,
-                bincode::config::standard(),
-            ) {
-                println!(
-                    "[Client] Decoded message: {:?}",
-                    std::mem::discriminant(&msg)
-                );
-                self.handle_server_message(&msg);
-                messages.push(msg);
-            } else {
-                println!("[Client] Failed to decode message on channel 0!");
+        // Receive from all channels
+        for channel in [0, 1, 2, 3] {
+            while let Some(message) = self.client.receive_message(channel) {
+                if let Ok((msg, _)) = bincode::serde::decode_from_slice::<ServerMessage, _>(
+                    &message,
+                    bincode::config::standard(),
+                ) {
+                    self.handle_server_message(&msg);
+                    messages.push(msg);
+                }
             }
-        }
-
-        while let Some(message) = self.client.receive_message(1) {
-            // BlockUpdates channel
-            total_received += 1;
-            println!(
-                "[Client] Received message on channel 1 (BlockUpdates), {} bytes",
-                message.len()
-            );
-            if let Ok((msg, _)) = bincode::serde::decode_from_slice::<ServerMessage, _>(
-                &message,
-                bincode::config::standard(),
-            ) {
-                println!(
-                    "[Client] Decoded message: {:?}",
-                    std::mem::discriminant(&msg)
-                );
-                self.handle_server_message(&msg);
-                messages.push(msg);
-            } else {
-                println!("[Client] Failed to decode message on channel 1!");
-            }
-        }
-
-        while let Some(message) = self.client.receive_message(2) {
-            // GameState channel
-            total_received += 1;
-            println!(
-                "[Client] Received message on channel 2 (GameState), {} bytes",
-                message.len()
-            );
-            // Log first few bytes for debugging
-            if message.len() >= 8 {
-                println!("[Client] First 8 bytes: {:02x?}", &message[..8]);
-            }
-            if let Ok((msg, _)) = bincode::serde::decode_from_slice::<ServerMessage, _>(
-                &message,
-                bincode::config::standard(),
-            ) {
-                println!(
-                    "[Client] Decoded message on channel 2: {:?}",
-                    std::mem::discriminant(&msg)
-                );
-                self.handle_server_message(&msg);
-                messages.push(msg);
-            } else {
-                println!("[Client] Failed to decode message on channel 2!");
-            }
-        }
-
-        while let Some(message) = self.client.receive_message(3) {
-            // ChunkStream channel
-            total_received += 1;
-            println!(
-                "[Client] Received message on channel 3 (ChunkStream), {} bytes",
-                message.len()
-            );
-            if let Ok((msg, _)) = bincode::serde::decode_from_slice::<ServerMessage, _>(
-                &message,
-                bincode::config::standard(),
-            ) {
-                println!(
-                    "[Client] Decoded message: {:?}",
-                    std::mem::discriminant(&msg)
-                );
-                self.handle_server_message(&msg);
-                messages.push(msg);
-            } else {
-                println!("[Client] Failed to decode message on channel 3!");
-            }
-        }
-
-        if total_received > 0 {
-            println!("[Client] Total raw messages received: {}", total_received);
         }
 
         messages

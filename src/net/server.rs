@@ -136,45 +136,15 @@ impl GameServer {
     /// Updates the server (should be called every frame).
     /// Returns server events that need processing.
     pub fn update(&mut self, duration: Duration) -> Vec<ServerEvent> {
-        // Log update start periodically
-        static UPDATE_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        let count = UPDATE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        if count % 60 == 0 {
-            println!(
-                "[GameServer] Update #{}, player_count: {}",
-                count,
-                self.players.len()
-            );
-        }
-
-        // Log clients before update
-        let clients_before = self.server.clients_id();
-        if !clients_before.is_empty() && count % 60 == 0 {
-            println!("[GameServer] Clients before update: {:?}", clients_before);
-        }
-
         // Update the server logic
         self.server.update(duration);
 
         // Update the transport layer - receives packets and handles connections
-        let transport_result = self.transport.update(duration, &mut self.server);
-        if count % 60 == 0 {
-            println!(
-                "[GameServer] Transport update result: {:?}",
-                transport_result
-            );
-        }
+        let _ = self.transport.update(duration, &mut self.server);
 
         let mut events = Vec::new();
         while let Some(event) = self.server.get_event() {
-            println!("[GameServer] Received server event: {:?}", event);
             events.push(event);
-        }
-
-        // Log connected clients count
-        let client_count = self.server.clients_id().len();
-        if client_count > 0 && count % 60 == 0 {
-            println!("[GameServer] Connected clients: {}", client_count);
         }
 
         self.last_tick = Instant::now();
@@ -193,11 +163,6 @@ impl GameServer {
         client_id: u64,
         spawn_position: [f32; 3],
     ) -> Option<PlayerInfo> {
-        println!(
-            "[GameServer] handle_client_connected called for client {}",
-            client_id
-        );
-
         // Generate unique player ID
         let player_id = generate_player_id(client_id);
 
@@ -213,6 +178,11 @@ impl GameServer {
             connected_at: Instant::now(),
         };
 
+        println!(
+            "[GameServer] Client {} connected as player_id={}",
+            client_id, player_id
+        );
+
         // Send connection accepted message
         let msg = ServerMessage::ConnectionAccepted(ConnectionAccepted {
             player_id,
@@ -222,27 +192,9 @@ impl GameServer {
             world_gen: self.world_gen,
         });
 
-        println!(
-            "[GameServer] Sending ConnectionAccepted to client {}: player_id={}, seed={}, gen={}",
-            client_id, player_id, self.world_seed, self.world_gen
-        );
-
         if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
-            let len = encoded.len();
-            println!(
-                "[GameServer] ConnectionAccepted encoded successfully, {} bytes",
-                len
-            );
-            // Log first few bytes for debugging
-            if len >= 8 {
-                println!("[GameServer] First 8 bytes: {:02x?}", &encoded[..8]);
-            }
             self.server
                 .send_message(client_id, 2, renet::Bytes::from(encoded)); // Channel 2 = GameState
-            println!(
-                "[GameServer] ConnectionAccepted message QUEUED for client {}",
-                client_id
-            );
         } else {
             eprintln!("[GameServer] Failed to encode ConnectionAccepted message!");
         }
@@ -356,19 +308,8 @@ impl GameServer {
     /// Broadcasts player states to all clients.
     /// Includes both connected players and the host player.
     pub fn broadcast_player_states(&mut self) {
-        // Debug: Log what we're broadcasting
-        println!(
-            "[GameServer] broadcast_player_states: host_player={}, players_count={}",
-            self.host_player.is_some(),
-            self.players.len()
-        );
-
         // First, broadcast the host player's state to all connected clients
         if let Some(ref host) = self.host_player {
-            println!(
-                "[GameServer] Broadcasting host player_id={}, pos=({:.1}, {:.1}, {:.1})",
-                host.player_id, host.position[0], host.position[1], host.position[2]
-            );
             let state = PlayerState {
                 player_id: host.player_id,
                 position: host.position,
@@ -393,17 +334,9 @@ impl GameServer {
         for (&client_id, info) in &self.players {
             // Skip the host's loopback client - external clients should only see player_id=0 for the host
             if self.host_client_id == Some(client_id) {
-                println!(
-                    "[GameServer] Skipping host's loopback client_id={}, player_id={}",
-                    client_id, info.player_id
-                );
                 continue;
             }
 
-            println!(
-                "[GameServer] Broadcasting client_id={}, player_id={}, pos=({:.1}, {:.1}, {:.1}) to other clients",
-                client_id, info.player_id, info.position[0], info.position[1], info.position[2]
-            );
             let state = PlayerState {
                 player_id: info.player_id,
                 position: info.position,
@@ -457,28 +390,12 @@ impl GameServer {
     pub fn receive_client_messages(&mut self) -> Vec<(u64, ClientMessage)> {
         let mut parsed_messages = Vec::new();
 
-        for (client_id, channel_id, data) in self.receive_messages() {
-            println!(
-                "[GameServer] Received {} bytes from client {} on channel {}",
-                data.len(),
-                client_id,
-                channel_id
-            );
+        for (client_id, _channel_id, data) in self.receive_messages() {
             if let Ok((msg, _)) = bincode::serde::decode_from_slice::<ClientMessage, _>(
                 &data,
                 bincode::config::standard(),
             ) {
-                println!(
-                    "[GameServer] Decoded message from client {}: {:?}",
-                    client_id,
-                    std::mem::discriminant(&msg)
-                );
                 parsed_messages.push((client_id, msg));
-            } else {
-                println!(
-                    "[GameServer] Failed to decode message from client {}!",
-                    client_id
-                );
             }
         }
 
