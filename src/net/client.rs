@@ -112,7 +112,7 @@ impl GameClient {
 
         // Update the client
         self.client.update(duration);
-        // Update the transport - receives packets
+        // Update the transport - receives packets and handles connection
         let transport_result = self.transport.update(duration, &mut self.client);
 
         // Log connection status periodically
@@ -121,10 +121,10 @@ impl GameClient {
         if count % 60 == 0 {
             // Log every 60 frames
             println!(
-                "[Client] Update #{}, connected: {}, client.is_connected(): {}, transport_result: {:?}",
+                "[Client] Update #{}, renet_connected: {}, tracker_connected: {}, transport: {:?}",
                 count,
-                self.connection.is_connected(),
                 self.client.is_connected(),
+                self.connection.is_connected(),
                 transport_result
             );
         }
@@ -135,7 +135,7 @@ impl GameClient {
             println!("[Client] Connection timed out");
         }
 
-        // Check if connected
+        // Check if connected (renet client state)
         if self.client.is_connected() {
             if self.connection.state() == ConnectionState::Connecting {
                 self.connection.mark_connected();
@@ -159,8 +159,11 @@ impl GameClient {
     /// Sends queued packets to the server.
     /// Call this AFTER sending messages (send_input, send_chunk_request, etc).
     pub fn flush_packets(&mut self) {
-        if let Err(e) = self.transport.send_packets(&mut self.client) {
-            println!("[Client] Error flushing packets: {:?}", e);
+        // Only flush if connected to avoid error spam
+        if self.client.is_connected() {
+            if let Err(e) = self.transport.send_packets(&mut self.client) {
+                println!("[Client] Error flushing packets: {:?}", e);
+            }
         }
     }
 
