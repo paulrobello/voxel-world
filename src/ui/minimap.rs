@@ -131,10 +131,13 @@ impl MinimapUI {
 
                                     // Rotate offset if minimap rotates
                                     let (rel_x, rel_y) = if minimap.rotate {
-                                        // When rotating, subtract camera yaw
+                                        // When minimap rotates with camera, we need to rotate markers
+                                        // in the opposite direction to keep world positions correct
+                                        // This is equivalent to rotating by -camera_yaw
                                         let (sin_a, cos_a) = camera_yaw.sin_cos();
-                                        let rx = dx * cos_a - dz * sin_a;
-                                        let ry = dx * sin_a + dz * cos_a;
+                                        // Rotate by -yaw: swap signs on sin terms
+                                        let rx = dx * cos_a + dz * sin_a;
+                                        let ry = -dx * sin_a + dz * cos_a;
                                         (rx, ry)
                                     } else {
                                         (dx, dz)
