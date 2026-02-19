@@ -549,6 +549,8 @@ pub struct PushConstants {
     pub selected_picture_id: u32,
     // Remote player rendering
     pub remote_player_count: u32,
+    // Custom texture count for multiplayer
+    pub custom_texture_count: u32,
 }
 
 pub fn get_swapchain_images(

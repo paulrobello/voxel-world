@@ -213,6 +213,8 @@ pub struct CustomTextureCache {
     textures: HashMap<u8, Vec<u8>>,
     /// Slots currently being requested (avoid duplicate requests).
     pending_requests: std::collections::HashSet<u8>,
+    /// Slots that have been uploaded to the GPU.
+    uploaded_slots: std::collections::HashSet<u8>,
 }
 
 impl CustomTextureCache {
@@ -222,6 +224,7 @@ impl CustomTextureCache {
             max_slots,
             textures: HashMap::new(),
             pending_requests: std::collections::HashSet::new(),
+            uploaded_slots: std::collections::HashSet::new(),
         }
     }
 
@@ -275,6 +278,23 @@ impl CustomTextureCache {
     pub fn clear(&mut self) {
         self.textures.clear();
         self.pending_requests.clear();
+        self.uploaded_slots.clear();
+    }
+
+    /// Returns textures that haven't been uploaded to the GPU yet.
+    pub fn get_new_textures(&self) -> Vec<(u8, Vec<u8>)> {
+        self.textures
+            .iter()
+            .filter(|(slot, _)| !self.uploaded_slots.contains(slot))
+            .map(|(slot, data)| (*slot, data.clone()))
+            .collect()
+    }
+
+    /// Marks textures as uploaded to the GPU.
+    pub fn mark_uploaded(&mut self, textures: &[(u8, Vec<u8>)]) {
+        for (slot, _) in textures {
+            self.uploaded_slots.insert(*slot);
+        }
     }
 }
 

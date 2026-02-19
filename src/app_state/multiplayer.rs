@@ -56,6 +56,8 @@ pub struct MultiplayerState {
     pending_server_seed: Option<(u32, u8)>,
     /// Custom texture cache (client-side).
     pub texture_cache: CustomTextureCache,
+    /// Flag indicating GPU textures need initialization.
+    pending_gpu_texture_init: Option<u8>,
 
     // LAN Discovery
     /// Client-side LAN discovery (for finding servers).
@@ -102,6 +104,7 @@ impl MultiplayerState {
             pending_chunk_requests: Vec::new(),
             pending_server_seed: None,
             texture_cache: CustomTextureCache::new(0), // Will be set on connect
+            pending_gpu_texture_init: None,
             discovery: None,
             discovery_responder: None,
             server_name: String::new(),
@@ -618,6 +621,10 @@ impl MultiplayerState {
                 );
                 self.pending_server_seed = Some((accepted.world_seed, accepted.world_gen));
                 self.texture_cache = CustomTextureCache::new(accepted.custom_texture_count);
+                // Flag GPU texture initialization if we have custom textures
+                if accepted.custom_texture_count > 0 {
+                    self.pending_gpu_texture_init = Some(accepted.custom_texture_count);
+                }
             }
             ServerMessage::PlayerState(state) => {
                 // Reconcile with server
@@ -988,5 +995,15 @@ impl MultiplayerState {
     /// Returns the texture cache for rendering.
     pub fn texture_cache(&self) -> &CustomTextureCache {
         &self.texture_cache
+    }
+
+    /// Returns a mutable reference to the texture cache for GPU uploads.
+    pub fn texture_cache_mut(&mut self) -> &mut CustomTextureCache {
+        &mut self.texture_cache
+    }
+
+    /// Checks if GPU textures need initialization and returns the max slot count.
+    pub fn take_pending_gpu_texture_init(&mut self) -> Option<u8> {
+        self.pending_gpu_texture_init.take()
     }
 }

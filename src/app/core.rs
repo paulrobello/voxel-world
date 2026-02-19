@@ -447,4 +447,74 @@ impl App {
             }
         }
     }
+
+    /// Initializes the multiplayer texture array when connecting to a server.
+    /// This creates the GPU texture array with the specified number of slots.
+    pub fn init_multiplayer_textures(&mut self, max_slots: u32) {
+        if self.graphics.multiplayer_texture_array.is_some() {
+            return; // Already initialized
+        }
+
+        let (image, view, sampler) = crate::gpu_resources::create_multiplayer_texture_array(
+            self.graphics.memory_allocator.clone(),
+            max_slots,
+        );
+
+        self.graphics.multiplayer_texture_array = Some(image);
+        self.graphics.multiplayer_texture_array_view = Some(view);
+        self.graphics.multiplayer_texture_sampler = Some(sampler);
+        self.graphics.multiplayer_texture_count = max_slots;
+
+        println!("[Multiplayer] Initialized texture array with {} slots", max_slots);
+    }
+
+    /// Uploads any pending custom textures from the multiplayer cache to the GPU.
+    /// Call this after multiplayer.update() to sync received textures to the GPU.
+    pub fn upload_multiplayer_textures(&mut self) {
+        // Check if we need to initialize the GPU texture array
+        if let Some(max_slots) = self.multiplayer.take_pending_gpu_texture_init() {
+            self.init_multiplayer_textures(max_slots as u32);
+        }
+
+        // Check if we have any textures to upload
+        let texture_cache = self.multiplayer.texture_cache();
+        let new_textures = texture_cache.get_new_textures();
+
+        if new_textures.is_empty() {
+            return;
+        }
+
+        // Ensure texture array is initialized
+        if self.graphics.multiplayer_texture_array.is_none() {
+            // Initialize with default max slots
+            self.init_multiplayer_textures(32);
+        }
+
+        let texture_array = match &self.graphics.multiplayer_texture_array {
+            Some(arr) => arr.clone(),
+            None => return,
+        };
+
+        // Upload each new texture
+        for (slot, data) in &new_textures {
+            match crate::gpu_resources::update_multiplayer_texture_slot(
+                self.graphics.memory_allocator.clone(),
+                self.graphics.command_buffer_allocator.clone(),
+                &self.graphics.queue,
+                &texture_array,
+                *slot as u32,
+                data,
+            ) {
+                Ok(()) => {
+                    println!("[Multiplayer] Uploaded custom texture to slot {}", slot);
+                }
+                Err(e) => {
+                    eprintln!("[Multiplayer] Failed to upload texture slot {}: {}", slot, e);
+                }
+            }
+        }
+
+        // Mark textures as uploaded
+        self.multiplayer.texture_cache_mut().mark_uploaded(&new_textures);
+    }
 }

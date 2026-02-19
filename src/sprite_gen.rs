@@ -723,6 +723,7 @@ fn render_icon(
         sky_horizon_b: 0.95,
         selected_picture_id: 0,
         remote_player_count: 0,
+        custom_texture_count: 0,
     };
 
     // Render

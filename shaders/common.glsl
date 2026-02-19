@@ -238,6 +238,8 @@ layout(push_constant) uniform PushConstants {
     uint selected_picture_id;  // Currently selected picture for frame placement (0 = no picture)
     // Remote player rendering
     uint remote_player_count;
+    // Custom texture count for multiplayer
+    uint custom_texture_count;
 } pc;
 
 // Particles (set 3)

@@ -6,7 +6,7 @@ use vulkano::{
     buffer::Subbuffer,
     descriptor_set::DescriptorSet,
     device::{Device, Queue},
-    image::{Image, view::ImageView},
+    image::{Image, sampler::Sampler, view::ImageView},
     instance::Instance,
     memory::allocator::StandardMemoryAllocator,
 };
@@ -50,6 +50,14 @@ pub struct Graphics {
     pub picture_atlas: Arc<Image>,
     /// Picture atlas image view for shader access.
     pub picture_atlas_view: Arc<ImageView>,
+    /// Multiplayer custom texture array (64x64 per slot, up to 32 slots by default).
+    pub multiplayer_texture_array: Option<Arc<Image>>,
+    /// Multiplayer texture array view for shader access.
+    pub multiplayer_texture_array_view: Option<Arc<ImageView>>,
+    /// Multiplayer texture array sampler.
+    pub multiplayer_texture_sampler: Option<Arc<vulkano::image::sampler::Sampler>>,
+    /// Number of active slots in the multiplayer texture array.
+    pub multiplayer_texture_count: u32,
 
     pub particle_buffer: Subbuffer<[particles::GpuParticle]>,
     pub particle_set: Arc<DescriptorSet>,

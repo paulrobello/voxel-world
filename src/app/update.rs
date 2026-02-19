@@ -334,6 +334,9 @@ impl App {
         if self.multiplayer.mode != crate::config::GameMode::SinglePlayer {
             self.multiplayer.update(Duration::from_secs_f64(delta_time));
 
+            // Upload any received custom textures to the GPU
+            self.upload_multiplayer_textures();
+
             // Interpolate remote player positions for smooth rendering
             self.multiplayer.update_remote_players();
 

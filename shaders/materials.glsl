@@ -2,7 +2,7 @@
 
 // Custom texture array (slot 0 = 128, slot 1 = 129, etc.)
 layout(set = 0, binding = 10) uniform sampler2DArray custom_texture_array;
-uniform int custom_texture_count = 0;
+// Note: custom_texture_count is now in push constants (pc.custom_texture_count)
 
 // Texture atlas constants
 // Slots 0-16: standard blocks (Air through Bedrock)
@@ -83,7 +83,7 @@ vec4 sampleTextureArray(int texture_idx, vec2 uv) {
     } else {
         // Custom texture (128 + slot)
         int slot = texture_idx - 128;
-        if (custom_texture_count > 0 && slot < custom_texture_count) {
+        if (pc.custom_texture_count > 0u && slot < int(pc.custom_texture_count)) {
             return texture(custom_texture_array, vec3(uv, float(slot)));
         }
         return vec4(1.0, 0.0, 1.0, 1.0); // Magenta for missing

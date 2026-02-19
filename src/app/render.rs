@@ -1498,6 +1498,7 @@ impl App {
             sky_horizon_b: self.sim.atmosphere.sky_color_horizon[2],
             selected_picture_id: self.ui.selected_picture_id.unwrap_or(0),
             remote_player_count,
+            custom_texture_count: self.graphics.multiplayer_texture_count,
         };
 
         let mut builder = AutoCommandBufferBuilder::primary(
