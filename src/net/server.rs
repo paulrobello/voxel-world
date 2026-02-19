@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 
+use lz4_flex::compress_prepend_size;
 use renet::{RenetServer, ServerEvent};
 use renet_netcode::NetcodeServerTransport;
 
@@ -18,6 +19,8 @@ use crate::net::protocol::{
     BlockChanged, BlocksChanged, ChunkData, ChunkGenerateLocal, ClientMessage, ConnectionAccepted,
     PlayerId, PlayerJoined, PlayerLeft, PlayerState, ServerMessage, TimeUpdate,
 };
+use crate::net::texture_slots::TextureSlotManager;
+use crate::storage::model_format::{DoorPairStore, WorldModelStore};
 
 /// Server tick rate (updates per second).
 const TICK_RATE: u64 = 20;
@@ -43,6 +46,10 @@ pub struct GameServer {
     world_seed: u32,
     /// World generation type.
     world_gen: u8,
+    /// Custom texture slot manager.
+    texture_manager: Option<TextureSlotManager>,
+    /// World directory path (for loading models.dat).
+    world_dir: Option<std::path::PathBuf>,
 }
 
 /// Information about a connected player.
@@ -87,6 +94,8 @@ impl GameServer {
             last_tick: Instant::now(),
             world_seed,
             world_gen,
+            texture_manager: None,
+            world_dir: None,
         })
     }
 
@@ -103,6 +112,16 @@ impl GameServer {
             pitch: 0.0,
             connected_at: Instant::now(),
         });
+    }
+
+    /// Sets the world directory for loading models and textures.
+    pub fn set_world_dir(&mut self, path: std::path::PathBuf, max_textures: u8) {
+        self.world_dir = Some(path.clone());
+        let mut manager = TextureSlotManager::new(path.join("custom_textures"), max_textures);
+        if let Err(e) = manager.init() {
+            eprintln!("[Server] Failed to initialize texture manager: {}", e);
+        }
+        self.texture_manager = Some(manager);
     }
 
     /// Sets the host's client ID (the loopback connection from host to itself).
@@ -183,6 +202,13 @@ impl GameServer {
             client_id, player_id
         );
 
+        // Get custom texture count from texture manager
+        let custom_texture_count = self
+            .texture_manager
+            .as_ref()
+            .map(|m| m.max_slots())
+            .unwrap_or(0);
+
         // Send connection accepted message
         let msg = ServerMessage::ConnectionAccepted(ConnectionAccepted {
             player_id,
@@ -190,7 +216,7 @@ impl GameServer {
             spawn_position,
             world_seed: self.world_seed,
             world_gen: self.world_gen,
-            custom_texture_count: 0, // TODO: integrate with TextureSlotManager
+            custom_texture_count,
         });
 
         if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
@@ -199,6 +225,9 @@ impl GameServer {
         } else {
             eprintln!("[GameServer] Failed to encode ConnectionAccepted message!");
         }
+
+        // Send model registry sync after connection accepted
+        self.send_model_registry(client_id);
 
         // Broadcast player joined to other clients
         let join_msg = ServerMessage::PlayerJoined(PlayerJoined {
@@ -367,6 +396,66 @@ impl GameServer {
         if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
             self.server
                 .broadcast_message(2, renet::Bytes::from(encoded));
+        }
+    }
+
+    /// Sends model registry and door pairs to a client.
+    pub fn send_model_registry(&mut self, client_id: u64) {
+        let world_dir = match &self.world_dir {
+            Some(d) => d,
+            None => return,
+        };
+
+        // Load and compress models.dat
+        let models_data = match WorldModelStore::load(world_dir) {
+            Ok(Some(store)) => {
+                let serialized = bincode::serde::encode_to_vec(&store, bincode::config::legacy())
+                    .unwrap_or_default();
+                compress_prepend_size(&serialized)
+            }
+            _ => Vec::new(),
+        };
+
+        // Load and compress door_pairs.dat
+        let door_pairs_data = match DoorPairStore::load(world_dir) {
+            Ok(Some(store)) => {
+                let serialized = bincode::serde::encode_to_vec(&store, bincode::config::legacy())
+                    .unwrap_or_default();
+                compress_prepend_size(&serialized)
+            }
+            _ => Vec::new(),
+        };
+
+        let msg = crate::net::protocol::ModelRegistrySync {
+            models_data,
+            door_pairs_data,
+        };
+
+        if let Ok(encoded) = bincode::serde::encode_to_vec(
+            ServerMessage::ModelRegistrySync(msg),
+            bincode::config::standard(),
+        ) {
+            self.server
+                .send_message(client_id, 2, renet::Bytes::from(encoded)); // Channel 2 = GameState
+        }
+    }
+
+    /// Handles a texture request from a client.
+    pub fn handle_texture_request(&mut self, client_id: u64, slot: u8) {
+        let manager = match &self.texture_manager {
+            Some(m) => m,
+            None => return,
+        };
+
+        if let Some(data) = manager.get_texture(slot) {
+            let msg = crate::net::protocol::TextureData { slot, data };
+            if let Ok(encoded) = bincode::serde::encode_to_vec(
+                ServerMessage::TextureData(msg),
+                bincode::config::standard(),
+            ) {
+                self.server
+                    .send_message(client_id, 2, renet::Bytes::from(encoded)); // Channel 2 = GameState
+            }
         }
     }
 
