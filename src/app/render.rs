@@ -169,6 +169,7 @@ impl App {
                 &self.graphics.resample_pipeline,
                 render_extent,
                 window_extent,
+                None, // Multiplayer texture array will be wired in Task 12
             );
 
             // Recreate distance buffer for two-pass beam optimization
@@ -244,6 +245,7 @@ impl App {
                 &self.graphics.resample_pipeline,
                 render_extent,
                 window_extent,
+                None, // Multiplayer texture array will be wired in Task 12
             );
             // Recreate distance buffer for two-pass beam optimization
             (rcx.distance_image, rcx.distance_set) = get_distance_image_and_set(

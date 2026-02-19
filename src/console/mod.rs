@@ -505,6 +505,26 @@ impl ConsoleState {
                 aliases: &["listpos", "lp", "positions"],
                 params: &[],
             },
+            CommandSignature {
+                name: "texture_add",
+                aliases: &["texadd"],
+                params: &[ParamType::Text, ParamType::Text], // filepath, name
+            },
+            CommandSignature {
+                name: "texture_list",
+                aliases: &["texlist", "textures"],
+                params: &[],
+            },
+            CommandSignature {
+                name: "texture_remove",
+                aliases: &["texremove", "texdel"],
+                params: &[ParamType::Text], // slot
+            },
+            CommandSignature {
+                name: "texture_info",
+                aliases: &[],
+                params: &[ParamType::Text], // name or slot
+            },
         ]
     }
 
@@ -1229,6 +1249,10 @@ impl ConsoleState {
             "save_pos" | "savepos" | "sp" => commands::save_pos(args),
             "delete_pos" | "deletepos" | "delpos" | "dp" => commands::delete_pos(args),
             "list_pos" | "listpos" | "lp" | "positions" => commands::list_pos(),
+            "texture_add" | "texadd" => commands::texture_add(args),
+            "texture_list" | "texlist" | "textures" => commands::texture_list(),
+            "texture_remove" | "texremove" | "texdel" => commands::texture_remove(args),
+            "texture_info" => commands::texture_info(args),
             _ => CommandResult::Error(format!(
                 "Unknown command: '{}'. Type 'help' for commands.",
                 cmd

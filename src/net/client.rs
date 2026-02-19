@@ -302,6 +302,17 @@ impl GameClient {
         }
     }
 
+    /// Sends a texture request to the server.
+    /// The server will respond with TextureData for the requested slot.
+    pub fn send_texture_request(&mut self, slot: u8) {
+        use crate::net::protocol::RequestTexture;
+        let msg = ClientMessage::RequestTexture(RequestTexture { slot });
+
+        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+            self.client.send_message(2, renet::Bytes::from(encoded)); // Channel 2 = GameState
+        }
+    }
+
     /// Returns connection state.
     pub fn connection_state(&self) -> ConnectionState {
         self.connection.state()

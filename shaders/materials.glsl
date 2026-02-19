@@ -1,5 +1,9 @@
 // Material sampling, AO, and surface helpers
 
+// Custom texture array (slot 0 = 128, slot 1 = 129, etc.)
+layout(set = 0, binding = 10) uniform sampler2DArray custom_texture_array;
+uniform int custom_texture_count = 0;
+
 // Texture atlas constants
 // Slots 0-16: standard blocks (Air through Bedrock)
 // Slot 17: grass_side, Slot 18: log_top
@@ -65,6 +69,25 @@ vec3 sampleTextureAuto(uint textureIndex, vec2 uv) {
         return sampleCustomTexture(customIndex, uv);
     }
     return sampleTexture(textureIndex, uv);
+}
+
+// Sample texture from the custom texture array (for multiplayer custom assets)
+// texture_idx: 128+ indicates custom texture slot (128 = slot 0, 129 = slot 1, etc.)
+// Returns magenta for missing textures to make errors visible
+vec4 sampleTextureArray(int texture_idx, vec2 uv) {
+    if (texture_idx < 128) {
+        // Standard atlas texture - use existing sampling logic
+        float atlasU = (float(texture_idx) + fract(uv.x)) * ATLAS_TILE_SIZE;
+        float atlasV = fract(uv.y);
+        return vec4(texture(textureAtlas, vec2(atlasU, atlasV)).rgb, 1.0);
+    } else {
+        // Custom texture (128 + slot)
+        int slot = texture_idx - 128;
+        if (custom_texture_count > 0 && slot < custom_texture_count) {
+            return texture(custom_texture_array, vec3(uv, float(slot)));
+        }
+        return vec4(1.0, 0.0, 1.0, 1.0); // Magenta for missing
+    }
 }
 
 // ============================================================================

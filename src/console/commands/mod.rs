@@ -15,6 +15,7 @@ mod select;
 mod sphere;
 mod stencil;
 mod template;
+mod texture;
 mod tp;
 
 pub use boxme::boxme;
@@ -33,6 +34,7 @@ pub use sphere::sphere;
 pub use stencil::stencil;
 #[allow(unused_imports)] // TODO: Remove once integrated with main.rs
 pub use template::template;
+pub use texture::{texture_add, texture_info, texture_list, texture_remove};
 pub use tp::tp;
 
 use super::CommandResult;
@@ -111,6 +113,20 @@ pub fn help() -> CommandResult {
     set <id>: Select picture for frame placement
     clear: Deselect (place empty frames)
     debug: Show cluster picture size guide
+
+  texture_add <filepath> <name>, texadd
+    Add a custom texture from a PNG file (host only).
+    The texture will be synced to all connected clients.
+    Max file size: 1MB, recommended size: 64x64 pixels.
+
+  texture_list, texlist, textures
+    List all custom textures with their slot numbers.
+
+  texture_remove <slot>, texremove, texdel
+    Remove a custom texture by slot number (host only).
+
+  texture_info <name|slot>
+    Show detailed info about a specific texture.
 
   measure clear
     Clear all measurement markers from the world.

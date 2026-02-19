@@ -61,6 +61,7 @@ pub fn run(_args: &Args, event_loop: &EventLoop<()>) -> Result<(), Box<dyn Error
         &resample_pipeline,
         render_extent,
         window_extent,
+        None, // No multiplayer textures needed for sprite generation
     );
 
     let (distance_image, distance_set) = get_distance_image_and_set(

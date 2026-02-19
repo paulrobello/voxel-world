@@ -644,6 +644,7 @@ pub fn get_images_and_sets(
     resample_pipeline: &ComputePipeline,
     render_extent: [u32; 2],
     window_extent: [u32; 2],
+    multiplayer_texture_array: Option<(Arc<ImageView>, Arc<Sampler>, u32)>,
 ) -> (
     Arc<Image>,
     Arc<DescriptorSet>,
@@ -653,12 +654,25 @@ pub fn get_images_and_sets(
     let (render_image, render_image_view) =
         get_render_image(memory_allocator.clone(), render_extent);
 
-    let render_set = make_set(
-        &descriptor_set_allocator,
-        render_pipeline,
-        0,
-        [WriteDescriptorSet::image_view(0, render_image_view.clone())],
-    );
+    // Create render set with optional multiplayer texture array at binding 10
+    let render_set = if let Some((texture_view, sampler, _count)) = multiplayer_texture_array {
+        make_set(
+            &descriptor_set_allocator,
+            render_pipeline,
+            0,
+            [
+                WriteDescriptorSet::image_view(0, render_image_view.clone()),
+                WriteDescriptorSet::image_view_sampler(10, texture_view, sampler),
+            ],
+        )
+    } else {
+        make_set(
+            &descriptor_set_allocator,
+            render_pipeline,
+            0,
+            [WriteDescriptorSet::image_view(0, render_image_view.clone())],
+        )
+    };
 
     let (resample_image, resample_image_view) = get_resample_image(memory_allocator, window_extent);
 
@@ -902,6 +916,157 @@ pub const PICTURE_ATLAS_SLOTS: u32 = 64;
 pub const PICTURE_ATLAS_SIZE: u32 = 128; // Each picture slot is 128×128 pixels
 pub const PICTURE_ATLAS_WIDTH: u32 = PICTURE_ATLAS_SLOTS * PICTURE_ATLAS_SIZE; // 8192
 pub const PICTURE_ATLAS_HEIGHT: u32 = PICTURE_ATLAS_SIZE; // 128
+
+/// Multiplayer custom texture array dimensions
+/// Each texture is 64×64 RGBA, with up to 32 slots by default
+pub const MULTIPLAYER_TEXTURE_SIZE: u32 = 64;
+pub const MULTIPLAYER_TEXTURE_DEFAULT_SLOTS: u32 = 32;
+
+/// Create the multiplayer custom texture array (2DArray).
+/// Returns (image, image_view, sampler) for use in descriptor sets.
+pub fn create_multiplayer_texture_array(
+    memory_allocator: Arc<StandardMemoryAllocator>,
+    max_slots: u32,
+) -> (
+    Arc<Image>,
+    Arc<ImageView>,
+    Arc<Sampler>,
+) {
+    let extent = [MULTIPLAYER_TEXTURE_SIZE, MULTIPLAYER_TEXTURE_SIZE, 1];
+    let array_layers = max_slots;
+
+    let image = Image::new(
+        memory_allocator.clone(),
+        ImageCreateInfo {
+            image_type: ImageType::Dim2d,
+            format: Format::R8G8B8A8_UNORM,
+            extent,
+            array_layers,
+            usage: ImageUsage::SAMPLED | ImageUsage::TRANSFER_DST,
+            ..Default::default()
+        },
+        AllocationCreateInfo::default(),
+    )
+    .unwrap();
+
+    // Create image view for the array
+    let image_view = ImageView::new(
+        image.clone(),
+        ImageViewCreateInfo {
+            ..ImageViewCreateInfo::from_image(&image)
+        },
+    )
+    .unwrap();
+
+    // Create sampler with nearest-neighbor filtering for pixel art
+    let sampler = Sampler::new(
+        memory_allocator.device().clone(),
+        SamplerCreateInfo {
+            mag_filter: Filter::Nearest,
+            min_filter: Filter::Nearest,
+            address_mode: [SamplerAddressMode::Repeat; 3],
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    println!(
+        "Created multiplayer texture array: {}x{}x{} slots",
+        MULTIPLAYER_TEXTURE_SIZE, MULTIPLAYER_TEXTURE_SIZE, max_slots
+    );
+
+    (image, image_view, sampler)
+}
+
+/// Update a slot in the multiplayer texture array with new PNG data.
+/// Decodes PNG and uploads to the GPU at the specified array layer.
+pub fn update_multiplayer_texture_slot(
+    memory_allocator: Arc<StandardMemoryAllocator>,
+    command_buffer_allocator: Arc<StandardCommandBufferAllocator>,
+    queue: &Arc<Queue>,
+    texture_array: &Arc<Image>,
+    slot: u32,
+    png_data: &[u8],
+) -> Result<(), String> {
+    // Decode PNG
+    let decoder = png::Decoder::new(std::io::Cursor::new(png_data));
+    let mut reader = decoder.read_info().map_err(|e| format!("Invalid PNG: {}", e))?;
+
+    if reader.info().width != MULTIPLAYER_TEXTURE_SIZE
+        || reader.info().height != MULTIPLAYER_TEXTURE_SIZE
+    {
+        return Err(format!(
+            "Texture must be {}x{}, got {}x{}",
+            MULTIPLAYER_TEXTURE_SIZE,
+            MULTIPLAYER_TEXTURE_SIZE,
+            reader.info().width,
+            reader.info().height
+        ));
+    }
+
+    let output_buffer_size = reader.output_buffer_size().unwrap_or(0);
+    let mut buf = vec![0u8; output_buffer_size];
+    reader.next_frame(&mut buf).map_err(|e| format!("Failed to decode PNG: {}", e))?;
+
+    // Create staging buffer
+    let src_buffer = Buffer::from_iter(
+        memory_allocator.clone(),
+        BufferCreateInfo {
+            usage: BufferUsage::TRANSFER_SRC,
+            ..Default::default()
+        },
+        AllocationCreateInfo {
+            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+            ..Default::default()
+        },
+        buf,
+    )
+    .unwrap();
+
+    // Copy to the specific array layer using BufferImageCopy
+    let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
+        command_buffer_allocator.clone(),
+        queue.queue_family_index(),
+        CommandBufferUsage::OneTimeSubmit,
+    )
+    .unwrap();
+
+    // Get subresource layers for this specific array layer
+    let subresource = vulkano::image::ImageSubresourceLayers {
+        aspects: vulkano::image::ImageAspects::COLOR,
+        mip_level: 0,
+        array_layers: slot..slot + 1,
+    };
+
+    command_buffer_builder
+        .copy_buffer_to_image(CopyBufferToImageInfo {
+            regions: vec![BufferImageCopy {
+                buffer_offset: 0,
+                buffer_row_length: MULTIPLAYER_TEXTURE_SIZE as u32,
+                buffer_image_height: MULTIPLAYER_TEXTURE_SIZE as u32,
+                image_subresource: subresource,
+                image_offset: [0, 0, 0],
+                image_extent: [MULTIPLAYER_TEXTURE_SIZE, MULTIPLAYER_TEXTURE_SIZE, 1],
+                ..Default::default()
+            }]
+            .into(),
+            ..CopyBufferToImageInfo::buffer_image(src_buffer, texture_array.clone())
+        })
+        .map_err(|e| format!("Failed to copy to image: {}", e))?;
+
+    command_buffer_builder
+        .build()
+        .unwrap()
+        .execute(queue.clone())
+        .unwrap()
+        .then_signal_fence_and_flush()
+        .unwrap()
+        .wait(None)
+        .unwrap();
+
+    Ok(())
+}
 
 /// Load texture atlases (main, custom, and picture) and create a combined descriptor set.
 /// Returns (descriptor_set, sampler, main_image_view, custom_image_view, custom_image, picture_image_view, picture_image)

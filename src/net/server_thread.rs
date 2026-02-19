@@ -63,6 +63,11 @@ pub enum ServerCommand {
     },
     /// Handle a client disconnection.
     HandleClientDisconnected { client_id: u64 },
+    /// Handle a texture request from a client.
+    HandleTextureRequest {
+        client_id: u64,
+        slot: u8,
+    },
     /// Stop the server thread.
     Stop,
 }
@@ -202,6 +207,9 @@ impl ServerThread {
                     }
                     ServerCommand::HandleClientDisconnected { client_id } => {
                         server.handle_client_disconnected(client_id);
+                    }
+                    ServerCommand::HandleTextureRequest { client_id, slot } => {
+                        server.handle_texture_request(client_id, slot);
                     }
                     ServerCommand::Stop => {
                         running.store(false, Ordering::Relaxed);

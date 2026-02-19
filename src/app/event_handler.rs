@@ -53,6 +53,7 @@ impl ApplicationHandler for App {
             &self.graphics.resample_pipeline,
             render_extent,
             window_extent,
+            None, // Multiplayer texture array will be wired in Task 12
         );
 
         // Create distance buffer for two-pass beam optimization

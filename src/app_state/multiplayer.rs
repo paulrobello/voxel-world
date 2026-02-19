@@ -12,9 +12,9 @@ use std::time::Duration;
 use crate::chunk::Chunk;
 use crate::config::GameMode;
 use crate::net::{
-    BlockSyncManager, ChunkSyncManager, DiscoveredServer, DiscoveryResponder, GameClient,
-    GameServer, LanDiscovery, PredictionState, RemotePlayer, SerializedChunk, ServerCommand,
-    ServerThread, ServerThreadEvent,
+    BlockSyncManager, ChunkSyncManager, CustomTextureCache, DiscoveredServer, DiscoveryResponder,
+    GameClient, GameServer, LanDiscovery, PredictionState, RemotePlayer, SerializedChunk,
+    ServerCommand, ServerThread, ServerThreadEvent,
 };
 use nalgebra::Vector3;
 
@@ -54,6 +54,8 @@ pub struct MultiplayerState {
     pending_chunk_requests: Vec<(u64, Vec<[i32; 3]>)>,
     /// Pending server world seed (received on ConnectionAccepted, needs to be applied).
     pending_server_seed: Option<(u32, u8)>,
+    /// Custom texture cache (client-side).
+    pub texture_cache: CustomTextureCache,
 
     // LAN Discovery
     /// Client-side LAN discovery (for finding servers).
@@ -99,6 +101,7 @@ impl MultiplayerState {
             pending_local_chunks: Vec::new(),
             pending_chunk_requests: Vec::new(),
             pending_server_seed: None,
+            texture_cache: CustomTextureCache::new(0), // Will be set on connect
             discovery: None,
             discovery_responder: None,
             server_name: String::new(),
@@ -543,6 +546,20 @@ impl MultiplayerState {
                     let _ = server_thread.send_command(ServerCommand::BroadcastBlockChange(change));
                 }
             }
+            ClientMessage::RequestTexture(req) => {
+                println!(
+                    "[Server] Received texture request for slot {} from client {}",
+                    req.slot, client_id
+                );
+                if let Some(ref mut server) = self.server {
+                    server.handle_texture_request(client_id, req.slot);
+                } else if let Some(ref server_thread) = self.server_thread {
+                    let _ = server_thread.send_command(ServerCommand::HandleTextureRequest {
+                        client_id,
+                        slot: req.slot,
+                    });
+                }
+            }
             _ => {
                 // Other message types not yet implemented
             }
@@ -595,12 +612,12 @@ impl MultiplayerState {
 
         match msg {
             ServerMessage::ConnectionAccepted(accepted) => {
-                // Connection established - store server's world seed for later application
                 println!(
-                    "[Client] Connection accepted by server. Player ID: {}, World seed: {}, World gen: {}",
-                    accepted.player_id, accepted.world_seed, accepted.world_gen
+                    "[Client] Connection accepted. Player ID: {}, World seed: {}, Custom textures: {}",
+                    accepted.player_id, accepted.world_seed, accepted.custom_texture_count
                 );
                 self.pending_server_seed = Some((accepted.world_seed, accepted.world_gen));
+                self.texture_cache = CustomTextureCache::new(accepted.custom_texture_count);
             }
             ServerMessage::PlayerState(state) => {
                 // Reconcile with server
@@ -734,6 +751,31 @@ impl MultiplayerState {
                             block: block.clone(),
                         }
                     }));
+            }
+            ServerMessage::ModelRegistrySync(sync) => {
+                println!("[Client] Received ModelRegistrySync");
+                if !sync.models_data.is_empty() {
+                    println!(
+                        "[Client] Received {} bytes of model data",
+                        sync.models_data.len()
+                    );
+                }
+                if !sync.door_pairs_data.is_empty() {
+                    println!(
+                        "[Client] Received {} bytes of door pair data",
+                        sync.door_pairs_data.len()
+                    );
+                }
+            }
+            ServerMessage::TextureData(tex) => {
+                println!("[Client] Received texture for slot {}", tex.slot);
+                self.texture_cache.store_texture(tex.slot, tex.data.clone());
+            }
+            ServerMessage::TextureAdded(tex) => {
+                println!(
+                    "[Client] Texture added: slot {} = '{}'",
+                    tex.slot, tex.name
+                );
             }
             _ => {}
         }
@@ -932,5 +974,19 @@ impl MultiplayerState {
                 );
             }
         }
+    }
+
+    /// Requests a custom texture if not cached.
+    pub fn request_texture_if_needed(&mut self, slot: u8) {
+        if self.texture_cache.request_if_needed(slot) {
+            if let Some(ref mut client) = self.client {
+                client.send_texture_request(slot);
+            }
+        }
+    }
+
+    /// Returns the texture cache for rendering.
+    pub fn texture_cache(&self) -> &CustomTextureCache {
+        &self.texture_cache
     }
 }
