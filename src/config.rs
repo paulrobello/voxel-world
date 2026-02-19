@@ -240,6 +240,8 @@ pub struct Settings {
     pub break_cooldown_duration: f32,
     pub place_cooldown_duration: f32,
     pub collision_enabled_fly: bool,
+    /// Maximum custom texture slots for hosted servers (default: 32).
+    pub max_custom_textures: u8,
 }
 
 impl Default for Settings {
@@ -284,6 +286,7 @@ impl Default for Settings {
             break_cooldown_duration: 0.05,
             place_cooldown_duration: 0.5,
             collision_enabled_fly: false,
+            max_custom_textures: 32,
         }
     }
 }
