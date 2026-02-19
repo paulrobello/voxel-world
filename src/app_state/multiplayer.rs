@@ -779,10 +779,7 @@ impl MultiplayerState {
                 self.texture_cache.store_texture(tex.slot, tex.data.clone());
             }
             ServerMessage::TextureAdded(tex) => {
-                println!(
-                    "[Client] Texture added: slot {} = '{}'",
-                    tex.slot, tex.name
-                );
+                println!("[Client] Texture added: slot {} = '{}'", tex.slot, tex.name);
             }
             _ => {}
         }

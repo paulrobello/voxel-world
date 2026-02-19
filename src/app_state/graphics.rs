@@ -6,7 +6,7 @@ use vulkano::{
     buffer::Subbuffer,
     descriptor_set::DescriptorSet,
     device::{Device, Queue},
-    image::{Image, sampler::Sampler, view::ImageView},
+    image::{Image, view::ImageView},
     instance::Instance,
     memory::allocator::StandardMemoryAllocator,
 };

@@ -465,7 +465,10 @@ impl App {
         self.graphics.multiplayer_texture_sampler = Some(sampler);
         self.graphics.multiplayer_texture_count = max_slots;
 
-        println!("[Multiplayer] Initialized texture array with {} slots", max_slots);
+        println!(
+            "[Multiplayer] Initialized texture array with {} slots",
+            max_slots
+        );
     }
 
     /// Uploads any pending custom textures from the multiplayer cache to the GPU.
@@ -509,12 +512,17 @@ impl App {
                     println!("[Multiplayer] Uploaded custom texture to slot {}", slot);
                 }
                 Err(e) => {
-                    eprintln!("[Multiplayer] Failed to upload texture slot {}: {}", slot, e);
+                    eprintln!(
+                        "[Multiplayer] Failed to upload texture slot {}: {}",
+                        slot, e
+                    );
                 }
             }
         }
 
         // Mark textures as uploaded
-        self.multiplayer.texture_cache_mut().mark_uploaded(&new_textures);
+        self.multiplayer
+            .texture_cache_mut()
+            .mark_uploaded(&new_textures);
     }
 }

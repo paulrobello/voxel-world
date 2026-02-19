@@ -64,10 +64,7 @@ pub enum ServerCommand {
     /// Handle a client disconnection.
     HandleClientDisconnected { client_id: u64 },
     /// Handle a texture request from a client.
-    HandleTextureRequest {
-        client_id: u64,
-        slot: u8,
-    },
+    HandleTextureRequest { client_id: u64, slot: u8 },
     /// Stop the server thread.
     Stop,
 }

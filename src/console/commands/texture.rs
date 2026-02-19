@@ -45,7 +45,7 @@ pub fn texture_add(args: &[&str]) -> CommandResult {
     let png_data = match std::fs::read(&path) {
         Ok(d) => d,
         Err(e) => {
-            return CommandResult::Error(format!("Failed to read file '{}': {}", filepath, e))
+            return CommandResult::Error(format!("Failed to read file '{}': {}", filepath, e));
         }
     };
 
@@ -115,7 +115,7 @@ pub fn texture_remove(args: &[&str]) -> CommandResult {
             return CommandResult::Error(format!(
                 "Invalid slot number: '{}'. Must be 0-255.",
                 args[0]
-            ))
+            ));
         }
     };
 

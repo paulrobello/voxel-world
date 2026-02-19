@@ -922,18 +922,13 @@ pub const PICTURE_ATLAS_HEIGHT: u32 = PICTURE_ATLAS_SIZE; // 128
 /// Multiplayer custom texture array dimensions
 /// Each texture is 64×64 RGBA, with up to 32 slots by default
 pub const MULTIPLAYER_TEXTURE_SIZE: u32 = 64;
-pub const MULTIPLAYER_TEXTURE_DEFAULT_SLOTS: u32 = 32;
 
 /// Create the multiplayer custom texture array (2DArray).
 /// Returns (image, image_view, sampler) for use in descriptor sets.
 pub fn create_multiplayer_texture_array(
     memory_allocator: Arc<StandardMemoryAllocator>,
     max_slots: u32,
-) -> (
-    Arc<Image>,
-    Arc<ImageView>,
-    Arc<Sampler>,
-) {
+) -> (Arc<Image>, Arc<ImageView>, Arc<Sampler>) {
     let extent = [MULTIPLAYER_TEXTURE_SIZE, MULTIPLAYER_TEXTURE_SIZE, 1];
     let array_layers = max_slots;
 
@@ -992,7 +987,9 @@ pub fn update_multiplayer_texture_slot(
 ) -> Result<(), String> {
     // Decode PNG
     let decoder = png::Decoder::new(std::io::Cursor::new(png_data));
-    let mut reader = decoder.read_info().map_err(|e| format!("Invalid PNG: {}", e))?;
+    let mut reader = decoder
+        .read_info()
+        .map_err(|e| format!("Invalid PNG: {}", e))?;
 
     if reader.info().width != MULTIPLAYER_TEXTURE_SIZE
         || reader.info().height != MULTIPLAYER_TEXTURE_SIZE
@@ -1008,7 +1005,9 @@ pub fn update_multiplayer_texture_slot(
 
     let output_buffer_size = reader.output_buffer_size().unwrap_or(0);
     let mut buf = vec![0u8; output_buffer_size];
-    reader.next_frame(&mut buf).map_err(|e| format!("Failed to decode PNG: {}", e))?;
+    reader
+        .next_frame(&mut buf)
+        .map_err(|e| format!("Failed to decode PNG: {}", e))?;
 
     // Create staging buffer
     let src_buffer = Buffer::from_iter(
@@ -1045,8 +1044,8 @@ pub fn update_multiplayer_texture_slot(
         .copy_buffer_to_image(CopyBufferToImageInfo {
             regions: vec![BufferImageCopy {
                 buffer_offset: 0,
-                buffer_row_length: MULTIPLAYER_TEXTURE_SIZE as u32,
-                buffer_image_height: MULTIPLAYER_TEXTURE_SIZE as u32,
+                buffer_row_length: MULTIPLAYER_TEXTURE_SIZE,
+                buffer_image_height: MULTIPLAYER_TEXTURE_SIZE,
                 image_subresource: subresource,
                 image_offset: [0, 0, 0],
                 image_extent: [MULTIPLAYER_TEXTURE_SIZE, MULTIPLAYER_TEXTURE_SIZE, 1],
