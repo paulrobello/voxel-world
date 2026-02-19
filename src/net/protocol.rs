@@ -172,6 +172,8 @@ pub enum ClientMessage {
     RequestChunks(RequestChunks),
     /// Console command.
     ConsoleCommand(ConsoleCommand),
+    /// Request texture data.
+    RequestTexture(RequestTexture),
 }
 
 // ============================================================================
@@ -274,6 +276,8 @@ pub struct ConnectionAccepted {
     pub world_seed: u32,
     /// World generation type.
     pub world_gen: u8,
+    /// Number of custom textures in the server's texture pool.
+    pub custom_texture_count: u8,
 }
 
 /// Connection rejected response from server.
@@ -281,6 +285,38 @@ pub struct ConnectionAccepted {
 pub struct ConnectionRejected {
     /// Reason for rejection.
     pub reason: String,
+}
+
+/// Sync custom models from server to client.
+/// Sent immediately after ConnectionAccepted.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModelRegistrySync {
+    /// LZ4 compressed WorldModelStore data (same format as models.dat)
+    pub models_data: Vec<u8>,
+    /// LZ4 compressed DoorPairStore data (same format as door_pairs.dat)
+    pub door_pairs_data: Vec<u8>,
+}
+
+/// Sent when client requests a texture they don't have.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TextureData {
+    /// Slot index (0-based)
+    pub slot: u8,
+    /// PNG data (64x64 RGBA)
+    pub data: Vec<u8>,
+}
+
+/// Notification that a new texture was added to the pool.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TextureAdded {
+    pub slot: u8,
+    pub name: String,
+}
+
+/// Client requests a texture they encountered but don't have.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RequestTexture {
+    pub slot: u8,
 }
 
 /// All messages that can be sent from server to client.
@@ -306,6 +342,12 @@ pub enum ServerMessage {
     PlayerLeft(PlayerLeft),
     /// Time of day update.
     TimeUpdate(TimeUpdate),
+    /// Sync custom models from server.
+    ModelRegistrySync(ModelRegistrySync),
+    /// Texture data response.
+    TextureData(TextureData),
+    /// Notification of new texture added.
+    TextureAdded(TextureAdded),
 }
 
 #[cfg(test)]

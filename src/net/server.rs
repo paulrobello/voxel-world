@@ -190,6 +190,7 @@ impl GameServer {
             spawn_position,
             world_seed: self.world_seed,
             world_gen: self.world_gen,
+            custom_texture_count: 0, // TODO: integrate with TextureSlotManager
         });
 
         if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
