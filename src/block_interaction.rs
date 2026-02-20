@@ -1335,6 +1335,8 @@ impl App {
             let water_type = WaterType::from_u8(self.ui.hotbar_tint_indices[self.ui.hotbar_index]);
             self.sim.water_grid.place_source(place_pos, water_type);
             self.sim.world.set_water_block(place_pos, water_type);
+            // Sync water source to all clients (server-authoritative)
+            self.sync_water_source([place_pos.x, place_pos.y, place_pos.z], water_type);
         } else if waterlogged {
             // Ensure water grid knows about waterlogged block (if not already there)
             if !self.sim.water_grid.has_water(place_pos) {
@@ -1345,6 +1347,8 @@ impl App {
                     .get_water_type(place_pos)
                     .unwrap_or(WaterType::Ocean);
                 self.sim.water_grid.place_source(place_pos, water_type);
+                // Sync waterlogged state to all clients
+                self.sync_water_source([place_pos.x, place_pos.y, place_pos.z], water_type);
             }
         } else {
             self.sim.water_grid.on_block_placed(place_pos);

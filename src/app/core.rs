@@ -49,6 +49,46 @@ impl App {
         }
     }
 
+    /// Syncs a water source placement to all clients (if hosting).
+    /// This is server-authoritative: the host broadcasts to all clients.
+    pub fn sync_water_source(&mut self, position: [i32; 3], water_type: crate::chunk::WaterType) {
+        if self.multiplayer.is_host() {
+            println!("[Host] Broadcasting water source at {:?}", position);
+            self.multiplayer
+                .broadcast_water_source(position, water_type);
+        }
+    }
+
+    /// Applies pending water updates from the server to the local simulation.
+    /// Call this from the game loop to apply remote water changes.
+    pub fn apply_remote_water_updates(&mut self) {
+        if !self.multiplayer.has_pending_water_updates() {
+            return;
+        }
+
+        let updates = self.multiplayer.take_pending_water_updates();
+        for update in updates {
+            let pos =
+                nalgebra::Vector3::new(update.position[0], update.position[1], update.position[2]);
+
+            if update.mass <= 0.0 {
+                // Remove water
+                self.sim.water_grid.remove_water(pos, 1.0);
+                self.sim.world.set_block(pos, BlockType::Air);
+            } else if update.is_source {
+                // Add/update water source
+                self.sim.water_grid.place_source(pos, update.water_type);
+                self.sim.world.set_water_block(pos, update.water_type);
+            } else {
+                // Add/update non-source water
+                self.sim
+                    .water_grid
+                    .set_water(pos, update.mass, false, update.water_type);
+                self.sim.world.set_water_block(pos, update.water_type);
+            }
+        }
+    }
+
     /// Applies pending block changes from the server to the world.
     /// Call this from the game loop to apply remote block changes.
     pub fn apply_remote_block_changes(&mut self) {
@@ -117,6 +157,8 @@ impl App {
                         .block
                         .water_type
                         .unwrap_or(crate::chunk::WaterType::Ocean);
+                    // Add water source to grid for simulation
+                    self.sim.water_grid.place_source(pos, water_type);
                     self.sim.world.set_water_block(pos, water_type);
                 }
                 _ => {

@@ -179,6 +179,16 @@ pub struct UploadTexture {
     pub png_data: Vec<u8>,
 }
 
+/// Client requests to place a water source at a position.
+/// Server will process this authoritatively and broadcast to all clients.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlaceWaterSource {
+    /// World position (block coordinates) for the water source.
+    pub position: [i32; 3],
+    /// Type of water to place.
+    pub water_type: WaterType,
+}
+
 /// All messages that can be sent from client to server.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ClientMessage {
@@ -200,6 +210,8 @@ pub enum ClientMessage {
     UploadModel(UploadModel),
     /// Upload a custom texture to the server.
     UploadTexture(UploadTexture),
+    /// Place a water source (water bucket).
+    PlaceWaterSource(PlaceWaterSource),
 }
 
 // ============================================================================
@@ -208,6 +220,29 @@ pub enum ClientMessage {
 
 /// Player ID type.
 pub type PlayerId = u64;
+
+/// Single water cell update for multiplayer synchronization.
+/// Sent by the server to all clients when water state changes.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WaterCellUpdate {
+    /// World position of the water cell.
+    pub position: [i32; 3],
+    /// Water mass (0.0 to 1.0+ for pressurized water).
+    /// Mass <= 0 indicates the cell should be removed.
+    pub mass: f32,
+    /// Whether this is an infinite water source.
+    pub is_source: bool,
+    /// Type of water (determines color and flow behavior).
+    pub water_type: WaterType,
+}
+
+/// Batch water cell updates for multiplayer synchronization.
+/// Sent by the server at a throttled rate (2-5 Hz) to conserve bandwidth.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WaterCellsChanged {
+    /// List of water cell updates.
+    pub updates: Vec<WaterCellUpdate>,
+}
 
 /// Authoritative player state from server.
 /// Used for reconciliation when prediction differs.
@@ -389,6 +424,8 @@ pub enum ServerMessage {
     TextureAdded(TextureAdded),
     /// Notification of new custom model added.
     ModelAdded(ModelAdded),
+    /// Batch water cell updates (throttled to 2-5 Hz).
+    WaterCellsChanged(WaterCellsChanged),
 }
 
 #[cfg(test)]

@@ -64,6 +64,8 @@ pub struct MultiplayerState {
     pub pending_model_uploads: Vec<(u64, crate::net::protocol::UploadModel)>,
     /// Pending texture uploads from clients (server-side, when hosting).
     pub pending_texture_uploads: Vec<(u64, crate::net::protocol::UploadTexture)>,
+    /// Pending water cell updates received from server (client-side).
+    pub pending_water_updates: Vec<crate::net::protocol::WaterCellUpdate>,
 
     // LAN Discovery
     /// Client-side LAN discovery (for finding servers).
@@ -114,6 +116,7 @@ impl MultiplayerState {
             pending_models: Vec::new(),
             pending_model_uploads: Vec::new(),
             pending_texture_uploads: Vec::new(),
+            pending_water_updates: Vec::new(),
             discovery: None,
             discovery_responder: None,
             server_name: String::new(),
@@ -813,6 +816,14 @@ impl MultiplayerState {
                 );
                 self.pending_models.push(model.clone());
             }
+            ServerMessage::WaterCellsChanged(water) => {
+                println!(
+                    "[Client] Received WaterCellsChanged with {} updates",
+                    water.updates.len()
+                );
+                self.pending_water_updates
+                    .extend(water.updates.iter().cloned());
+            }
             _ => {}
         }
     }
@@ -1088,5 +1099,62 @@ impl MultiplayerState {
     /// Checks if GPU textures need initialization and returns the max slot count.
     pub fn take_pending_gpu_texture_init(&mut self) -> Option<u8> {
         self.pending_gpu_texture_init.take()
+    }
+
+    /// Broadcasts water source placement to all clients (server-side, when hosting).
+    pub fn broadcast_water_source(
+        &mut self,
+        position: [i32; 3],
+        water_type: crate::chunk::WaterType,
+    ) {
+        let update = crate::net::protocol::WaterCellUpdate {
+            position,
+            mass: 1.0, // Source is always full
+            is_source: true,
+            water_type,
+        };
+        if let Some(ref mut server) = self.server {
+            server.broadcast_water_cells_changed(vec![update]);
+        }
+        // Note: Threaded server mode would need ServerCommand variant added
+    }
+
+    /// Broadcasts batch water cell updates to all clients (server-side, when hosting).
+    /// This is called after each water simulation tick to sync changed cells.
+    /// The updates are throttled by the water simulation tick rate (default 20 Hz).
+    pub fn broadcast_water_cell_updates(
+        &mut self,
+        updates: Vec<crate::water::WaterCellSyncUpdate>,
+    ) {
+        if updates.is_empty() {
+            return;
+        }
+
+        // Convert to protocol format
+        let protocol_updates: Vec<crate::net::protocol::WaterCellUpdate> = updates
+            .into_iter()
+            .map(|u| crate::net::protocol::WaterCellUpdate {
+                position: [u.position.x, u.position.y, u.position.z],
+                mass: u.mass,
+                is_source: u.is_source,
+                water_type: u.water_type,
+            })
+            .collect();
+
+        if let Some(ref mut server) = self.server {
+            server.broadcast_water_cells_changed(protocol_updates);
+        }
+        // Note: Threaded server mode would need ServerCommand variant added
+    }
+
+    /// Takes all pending water updates and clears the queue.
+    /// Call this from the game loop to apply water changes to the local simulation.
+    pub fn take_pending_water_updates(&mut self) -> Vec<crate::net::protocol::WaterCellUpdate> {
+        std::mem::take(&mut self.pending_water_updates)
+    }
+
+    /// Returns true if there are pending water updates to apply.
+    pub fn has_pending_water_updates(&self) -> bool {
+        !self.pending_water_updates.is_empty()
     }
 }

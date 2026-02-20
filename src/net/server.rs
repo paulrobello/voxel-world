@@ -306,6 +306,20 @@ impl GameServer {
         }
     }
 
+    /// Broadcasts water cell changes to all clients.
+    /// Used for server-authoritative water simulation sync.
+    pub fn broadcast_water_cells_changed(
+        &mut self,
+        updates: Vec<crate::net::protocol::WaterCellUpdate>,
+    ) {
+        let msg =
+            ServerMessage::WaterCellsChanged(crate::net::protocol::WaterCellsChanged { updates });
+        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+            self.server
+                .broadcast_message(1, renet::Bytes::from(encoded)); // Channel 1 = BlockUpdates
+        }
+    }
+
     /// Sends chunk data to a specific client.
     pub fn send_chunk(&mut self, client_id: u64, chunk: ChunkData) {
         let msg = ServerMessage::ChunkData(chunk);
