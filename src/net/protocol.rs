@@ -523,6 +523,42 @@ pub struct FramePictureSet {
     pub picture_id: Option<u16>,
 }
 
+/// Stencil ID type.
+pub type StencilId = u64;
+
+/// Notification that a stencil was loaded into the world.
+/// Sent by the server when a stencil is loaded via console command.
+/// The stencil data is zstd-compressed StencilFile bytes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StencilLoaded {
+    /// Unique stencil ID assigned by the server.
+    pub stencil_id: StencilId,
+    /// Stencil name.
+    pub name: String,
+    /// LZ4 compressed StencilFile data (same format as .vxs files).
+    pub stencil_data: Vec<u8>,
+}
+
+/// Notification that a stencil's transform was updated.
+/// Sent by the server when a stencil is moved, rotated, or placed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StencilTransformUpdate {
+    /// Stencil ID.
+    pub stencil_id: StencilId,
+    /// World position (anchor point).
+    pub position: [i32; 3],
+    /// Rotation (0-3 for 0°/90°/180°/270° around Y-axis).
+    pub rotation: u8,
+}
+
+/// Notification that a stencil was removed from the world.
+/// Sent by the server when a stencil is cleared.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StencilRemoved {
+    /// Stencil ID that was removed.
+    pub stencil_id: StencilId,
+}
+
 /// All messages that can be sent from server to client.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ServerMessage {
@@ -572,6 +608,12 @@ pub enum ServerMessage {
     FallingBlockLanded(FallingBlockLanded),
     /// Tree fell notification (batch of falling blocks).
     TreeFell(TreeFell),
+    /// Stencil loaded notification.
+    StencilLoaded(StencilLoaded),
+    /// Stencil transform update.
+    StencilTransformUpdate(StencilTransformUpdate),
+    /// Stencil removed notification.
+    StencilRemoved(StencilRemoved),
 }
 
 #[cfg(test)]
@@ -1101,6 +1143,247 @@ mod tests {
                 assert_eq!(f.picture_id, Some(u16::MAX));
             }
             _ => panic!("Expected FramePictureSet"),
+        }
+    }
+
+    #[test]
+    fn test_stencil_loaded_serialization() {
+        // Test StencilLoaded message serialization
+        let stencil_msg = StencilLoaded {
+            stencil_id: 42,
+            name: "castle_wall".to_string(),
+            stencil_data: vec![0x53, 0x54, 0x43, 0x4C, 0x00, 0x01], // "STCL" magic + version
+        };
+        let encoded =
+            bincode::serde::encode_to_vec(&stencil_msg, bincode::config::standard()).unwrap();
+        let decoded: StencilLoaded =
+            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
+                .unwrap()
+                .0;
+        assert_eq!(decoded.stencil_id, 42);
+        assert_eq!(decoded.name, "castle_wall");
+        assert_eq!(decoded.stencil_data.len(), 6);
+        // Verify magic bytes preserved
+        assert_eq!(&decoded.stencil_data[0..4], b"STCL");
+    }
+
+    #[test]
+    fn test_server_message_stencil_loaded() {
+        // Test ServerMessage::StencilLoaded serialization
+        let msg = ServerMessage::StencilLoaded(StencilLoaded {
+            stencil_id: 100,
+            name: "tower_base".to_string(),
+            stencil_data: vec![0x00, 0x01, 0x02, 0x03],
+        });
+        let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
+        let decoded: ServerMessage =
+            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
+                .unwrap()
+                .0;
+
+        match decoded {
+            ServerMessage::StencilLoaded(s) => {
+                assert_eq!(s.stencil_id, 100);
+                assert_eq!(s.name, "tower_base");
+                assert_eq!(s.stencil_data, vec![0x00, 0x01, 0x02, 0x03]);
+            }
+            _ => panic!("Expected StencilLoaded variant"),
+        }
+    }
+
+    #[test]
+    fn test_stencil_transform_update_serialization() {
+        // Test StencilTransformUpdate struct serialization
+        let transform = StencilTransformUpdate {
+            stencil_id: 42,
+            position: [100, 64, 200],
+            rotation: 2,
+        };
+        let encoded =
+            bincode::serde::encode_to_vec(&transform, bincode::config::standard()).unwrap();
+        let decoded: StencilTransformUpdate =
+            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
+                .unwrap()
+                .0;
+        assert_eq!(decoded.stencil_id, 42);
+        assert_eq!(decoded.position, [100, 64, 200]);
+        assert_eq!(decoded.rotation, 2);
+    }
+
+    #[test]
+    fn test_server_message_stencil_transform_update() {
+        // Test ServerMessage::StencilTransformUpdate serialization
+        let msg = ServerMessage::StencilTransformUpdate(StencilTransformUpdate {
+            stencil_id: 5,
+            position: [50, 32, -100],
+            rotation: 1,
+        });
+        let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
+        let decoded: ServerMessage =
+            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
+                .unwrap()
+                .0;
+
+        match decoded {
+            ServerMessage::StencilTransformUpdate(t) => {
+                assert_eq!(t.stencil_id, 5);
+                assert_eq!(t.position, [50, 32, -100]);
+                assert_eq!(t.rotation, 1);
+            }
+            _ => panic!("Expected StencilTransformUpdate variant"),
+        }
+    }
+
+    #[test]
+    fn test_stencil_removed_serialization() {
+        // Test StencilRemoved struct serialization
+        let removed = StencilRemoved { stencil_id: 42 };
+        let encoded = bincode::serde::encode_to_vec(&removed, bincode::config::standard()).unwrap();
+        let decoded: StencilRemoved =
+            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
+                .unwrap()
+                .0;
+        assert_eq!(decoded.stencil_id, 42);
+    }
+
+    #[test]
+    fn test_server_message_stencil_removed() {
+        // Test ServerMessage::StencilRemoved serialization
+        let msg = ServerMessage::StencilRemoved(StencilRemoved { stencil_id: 999 });
+        let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
+        let decoded: ServerMessage =
+            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
+                .unwrap()
+                .0;
+
+        match decoded {
+            ServerMessage::StencilRemoved(r) => {
+                assert_eq!(r.stencil_id, 999);
+            }
+            _ => panic!("Expected StencilRemoved variant"),
+        }
+    }
+
+    #[test]
+    fn test_stencil_sync_full_flow() {
+        // Test the complete stencil sync flow:
+        // 1. Server broadcasts StencilLoaded
+        // 2. Server broadcasts StencilTransformUpdate
+        // 3. Server broadcasts StencilRemoved
+        // 4. All messages serialize/deserialize correctly
+
+        // Step 1: Server broadcasts StencilLoaded
+        let loaded = StencilLoaded {
+            stencil_id: 1,
+            name: "test_stencil".to_string(),
+            stencil_data: vec![0x53, 0x54, 0x43, 0x4C], // STCL magic
+        };
+        let msg1 = ServerMessage::StencilLoaded(loaded);
+        let encoded1 = bincode::serde::encode_to_vec(&msg1, bincode::config::standard())
+            .expect("StencilLoaded should encode");
+        let decoded1: ServerMessage =
+            bincode::serde::decode_from_slice(&encoded1, bincode::config::standard())
+                .expect("StencilLoaded should decode")
+                .0;
+
+        match decoded1 {
+            ServerMessage::StencilLoaded(s) => {
+                assert_eq!(s.stencil_id, 1);
+                assert_eq!(s.name, "test_stencil");
+            }
+            _ => panic!("Expected StencilLoaded"),
+        }
+
+        // Step 2: Server broadcasts StencilTransformUpdate
+        let transform = StencilTransformUpdate {
+            stencil_id: 1,
+            position: [100, 64, 200],
+            rotation: 1,
+        };
+        let msg2 = ServerMessage::StencilTransformUpdate(transform);
+        let encoded2 = bincode::serde::encode_to_vec(&msg2, bincode::config::standard())
+            .expect("StencilTransformUpdate should encode");
+        let decoded2: ServerMessage =
+            bincode::serde::decode_from_slice(&encoded2, bincode::config::standard())
+                .expect("StencilTransformUpdate should decode")
+                .0;
+
+        match decoded2 {
+            ServerMessage::StencilTransformUpdate(t) => {
+                assert_eq!(t.stencil_id, 1);
+                assert_eq!(t.position, [100, 64, 200]);
+                assert_eq!(t.rotation, 1);
+            }
+            _ => panic!("Expected StencilTransformUpdate"),
+        }
+
+        // Step 3: Server broadcasts StencilRemoved
+        let removed = StencilRemoved { stencil_id: 1 };
+        let msg3 = ServerMessage::StencilRemoved(removed);
+        let encoded3 = bincode::serde::encode_to_vec(&msg3, bincode::config::standard())
+            .expect("StencilRemoved should encode");
+        let decoded3: ServerMessage =
+            bincode::serde::decode_from_slice(&encoded3, bincode::config::standard())
+                .expect("StencilRemoved should decode")
+                .0;
+
+        match decoded3 {
+            ServerMessage::StencilRemoved(r) => {
+                assert_eq!(r.stencil_id, 1);
+            }
+            _ => panic!("Expected StencilRemoved"),
+        }
+    }
+
+    #[test]
+    fn test_stencil_with_large_data() {
+        // Test StencilLoaded with large data (simulating real stencil)
+        let large_data: Vec<u8> = (0..1000).map(|i| (i % 256) as u8).collect();
+        let stencil = StencilLoaded {
+            stencil_id: u64::MAX,
+            name: "large_stencil_with_long_name".to_string(),
+            stencil_data: large_data.clone(),
+        };
+        let msg = ServerMessage::StencilLoaded(stencil);
+        let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
+        let decoded: ServerMessage =
+            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
+                .unwrap()
+                .0;
+
+        match decoded {
+            ServerMessage::StencilLoaded(s) => {
+                assert_eq!(s.stencil_id, u64::MAX);
+                assert_eq!(s.name, "large_stencil_with_long_name");
+                assert_eq!(s.stencil_data.len(), 1000);
+                assert_eq!(s.stencil_data, large_data);
+            }
+            _ => panic!("Expected StencilLoaded"),
+        }
+    }
+
+    #[test]
+    fn test_stencil_rotation_values() {
+        // Test all valid rotation values (0-3)
+        for rotation in 0..=3 {
+            let transform = StencilTransformUpdate {
+                stencil_id: 1,
+                position: [0, 0, 0],
+                rotation,
+            };
+            let msg = ServerMessage::StencilTransformUpdate(transform);
+            let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
+            let decoded: ServerMessage =
+                bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
+                    .unwrap()
+                    .0;
+
+            match decoded {
+                ServerMessage::StencilTransformUpdate(t) => {
+                    assert_eq!(t.rotation, rotation);
+                }
+                _ => panic!("Expected StencilTransformUpdate"),
+            }
         }
     }
 }
