@@ -420,6 +420,22 @@ impl GameServer {
         }
     }
 
+    /// Broadcasts a new custom texture to all clients.
+    pub fn broadcast_texture_added(&mut self, slot: u8, name: String, png_data: Vec<u8>) {
+        let msg = ServerMessage::TextureData(crate::net::protocol::TextureData {
+            slot,
+            data: png_data,
+        });
+        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+            self.server
+                .broadcast_message(2, renet::Bytes::from(encoded)); // Channel 2 = GameState
+            println!(
+                "[Server] Broadcast TextureData (slot {}, '{}') to all clients",
+                slot, name
+            );
+        }
+    }
+
     /// Sends model registry and door pairs to a client.
     pub fn send_model_registry(&mut self, client_id: u64) {
         let world_dir = match &self.world_dir {
@@ -478,6 +494,17 @@ impl GameServer {
                     .send_message(client_id, 2, renet::Bytes::from(encoded)); // Channel 2 = GameState
             }
         }
+    }
+
+    /// Adds a new texture to the pool.
+    /// Returns the assigned slot, or error if pool is full or validation fails.
+    pub fn add_texture(&mut self, name: &str, png_data: &[u8]) -> Result<u8, String> {
+        let manager = match &mut self.texture_manager {
+            Some(m) => m,
+            None => return Err("Texture manager not initialized".to_string()),
+        };
+
+        manager.add_texture(name, png_data)
     }
 
     /// Receives messages from clients.

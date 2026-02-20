@@ -330,6 +330,19 @@ impl GameClient {
         }
     }
 
+    /// Uploads a custom texture to the server.
+    /// The server will register the texture, save it, and broadcast to all clients.
+    pub fn send_upload_texture(&mut self, name: String, png_data: Vec<u8>) {
+        use crate::net::protocol::UploadTexture;
+        let msg = ClientMessage::UploadTexture(UploadTexture { name, png_data });
+
+        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+            let len = encoded.len();
+            self.client.send_message(2, renet::Bytes::from(encoded)); // Channel 2 = GameState
+            println!("[Client] Sent texture upload: {} bytes", len);
+        }
+    }
+
     /// Returns connection state.
     pub fn connection_state(&self) -> ConnectionState {
         self.connection.state()

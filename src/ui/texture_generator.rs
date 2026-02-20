@@ -41,6 +41,8 @@ pub struct TextureGeneratorState {
     pub color2_picker_open: bool,
     /// Flag indicating custom textures need GPU sync.
     pub needs_gpu_sync: bool,
+    /// Slot of texture that needs multiplayer sync (set when saved).
+    pub pending_multiplayer_upload: Option<u8>,
     /// Status message to display.
     status_message: Option<String>,
     /// When the status message was set.
@@ -94,6 +96,7 @@ impl TextureGeneratorState {
             color1_picker_open: false,
             color2_picker_open: false,
             needs_gpu_sync: false,
+            pending_multiplayer_upload: None,
             status_message: None,
             status_time: None,
             canvas: CanvasState::with_size(default_size),
@@ -1507,6 +1510,8 @@ impl TextureGeneratorUI {
         // Signal that GPU sync is needed
         if success {
             state.needs_gpu_sync = true;
+            // Set flag for multiplayer sync
+            state.pending_multiplayer_upload = state.selected_slot;
         }
     }
 }

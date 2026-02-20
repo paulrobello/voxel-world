@@ -62,6 +62,8 @@ pub struct MultiplayerState {
     pub pending_models: Vec<crate::net::protocol::ModelAdded>,
     /// Pending model uploads from clients (server-side, when hosting).
     pub pending_model_uploads: Vec<(u64, crate::net::protocol::UploadModel)>,
+    /// Pending texture uploads from clients (server-side, when hosting).
+    pub pending_texture_uploads: Vec<(u64, crate::net::protocol::UploadTexture)>,
 
     // LAN Discovery
     /// Client-side LAN discovery (for finding servers).
@@ -111,6 +113,7 @@ impl MultiplayerState {
             pending_gpu_texture_init: None,
             pending_models: Vec::new(),
             pending_model_uploads: Vec::new(),
+            pending_texture_uploads: Vec::new(),
             discovery: None,
             discovery_responder: None,
             server_name: String::new(),
@@ -577,6 +580,14 @@ impl MultiplayerState {
                 // Queue for processing by game loop (needs access to model registry)
                 self.pending_model_uploads.push((client_id, upload));
             }
+            ClientMessage::UploadTexture(upload) => {
+                println!(
+                    "[Server] Received texture upload '{}' from client {}",
+                    upload.name, client_id
+                );
+                // Queue for processing by game loop (needs access to texture manager)
+                self.pending_texture_uploads.push((client_id, upload));
+            }
             _ => {
                 // Other message types not yet implemented
             }
@@ -851,6 +862,13 @@ impl MultiplayerState {
         }
     }
 
+    /// Uploads a custom texture to the server.
+    pub fn send_upload_texture(&mut self, name: String, png_data: Vec<u8>) {
+        if let Some(ref mut client) = self.client {
+            client.send_upload_texture(name, png_data);
+        }
+    }
+
     /// Takes pending block changes and clears the queue.
     /// Call this from the game loop to apply changes to the world.
     pub fn take_pending_block_changes(&mut self) -> Vec<crate::net::protocol::BlockChanged> {
@@ -973,6 +991,19 @@ impl MultiplayerState {
     /// Returns true if there are pending model uploads to process.
     pub fn has_pending_model_uploads(&self) -> bool {
         !self.pending_model_uploads.is_empty()
+    }
+
+    /// Takes all pending texture uploads from clients and clears the queue.
+    /// Call this from the game loop when hosting to process texture uploads.
+    pub fn take_pending_texture_uploads(
+        &mut self,
+    ) -> Vec<(u64, crate::net::protocol::UploadTexture)> {
+        std::mem::take(&mut self.pending_texture_uploads)
+    }
+
+    /// Returns true if there are pending texture uploads to process.
+    pub fn has_pending_texture_uploads(&self) -> bool {
+        !self.pending_texture_uploads.is_empty()
     }
 
     /// Returns the pending server world seed if one was received.

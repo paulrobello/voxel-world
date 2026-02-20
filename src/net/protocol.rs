@@ -169,6 +169,16 @@ pub struct UploadModel {
     pub model_data: Vec<u8>,
 }
 
+/// Client uploads a new custom texture to the server.
+/// Server will assign a slot and broadcast to all clients.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UploadTexture {
+    /// Texture name.
+    pub name: String,
+    /// PNG data (64x64 RGBA).
+    pub png_data: Vec<u8>,
+}
+
 /// All messages that can be sent from client to server.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ClientMessage {
@@ -188,6 +198,8 @@ pub enum ClientMessage {
     RequestTexture(RequestTexture),
     /// Upload a custom model to the server.
     UploadModel(UploadModel),
+    /// Upload a custom texture to the server.
+    UploadTexture(UploadTexture),
 }
 
 // ============================================================================

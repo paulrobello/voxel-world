@@ -452,6 +452,8 @@ impl App {
                 self.fulfill_chunk_requests();
                 // Process model uploads from clients
                 self.process_model_uploads();
+                // Process texture uploads from clients
+                self.process_texture_uploads();
             }
 
             // Register models received from server (all connected clients)
@@ -478,6 +480,26 @@ impl App {
         if self.ui.texture_generator.needs_gpu_sync {
             self.sync_custom_textures();
             self.ui.texture_generator.needs_gpu_sync = false;
+        }
+
+        // Upload texture to server if needed (multiplayer sync)
+        if let Some(slot) = self.ui.texture_generator.pending_multiplayer_upload.take() {
+            // Only upload if connected as client (not host)
+            if self.multiplayer.is_connected() && !self.multiplayer.is_host() {
+                // Get the texture from the library
+                if let Some(texture) = self.ui.texture_library.get(slot) {
+                    // Convert pixels to PNG
+                    if !texture.pixels.is_empty() {
+                        let png_data = self.encode_texture_as_png(&texture.pixels);
+                        self.multiplayer
+                            .send_upload_texture(texture.name.clone(), png_data);
+                        println!(
+                            "[Texture] Uploading texture '{}' (slot {}) to server",
+                            texture.name, slot
+                        );
+                    }
+                }
+            }
         }
 
         // Restore focus if palette was closed externally and no other panel is open

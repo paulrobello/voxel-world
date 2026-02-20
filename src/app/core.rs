@@ -310,6 +310,19 @@ impl App {
         }
     }
 
+    /// Encodes 64x64 RGBA pixel data as a PNG file.
+    /// Used for uploading textures to the server.
+    pub fn encode_texture_as_png(&self, pixels: &[u8]) -> Vec<u8> {
+        use std::io::Cursor;
+        // pixels should be 64x64x4 = 16384 bytes
+        let img = image::RgbaImage::from_raw(64, 64, pixels.to_vec())
+            .expect("Failed to create image from pixels");
+        let mut cursor = Cursor::new(Vec::new());
+        img.write_to(&mut cursor, image::ImageFormat::Png)
+            .expect("Failed to encode PNG");
+        cursor.into_inner()
+    }
+
     /// Saves user preferences to disk.
     pub fn save_preferences(&mut self) {
         self.prefs.settings = self.ui.settings.clone();
@@ -512,6 +525,39 @@ impl App {
                     upload.author.clone(),
                     upload.model_data.clone(),
                 );
+            }
+        }
+    }
+
+    /// Processes pending texture uploads from clients (server-side, when hosting).
+    /// Registers textures in the server's texture manager, saves them, and broadcasts to all clients.
+    pub fn process_texture_uploads(&mut self) {
+        if !self.multiplayer.has_pending_texture_uploads() {
+            return;
+        }
+
+        let uploads = self.multiplayer.take_pending_texture_uploads();
+        println!("[Server] Processing {} texture upload(s)", uploads.len());
+
+        for (_client_id, upload) in uploads {
+            // Use the server's TextureSlotManager if available
+            if let Some(ref mut manager) = self.multiplayer.server {
+                // Add texture to the manager (which saves to disk)
+                let slot = match manager.add_texture(&upload.name, &upload.png_data) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        eprintln!("[Server] Failed to add texture '{}': {}", upload.name, e);
+                        continue;
+                    }
+                };
+
+                println!(
+                    "[Server] Added texture '{}' to slot {} from client",
+                    upload.name, slot
+                );
+
+                // Broadcast to all clients
+                manager.broadcast_texture_added(slot, upload.name.clone(), upload.png_data.clone());
             }
         }
     }
