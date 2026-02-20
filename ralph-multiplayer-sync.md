@@ -112,21 +112,21 @@ Implement all missing multiplayer synchronization points documented in SYNC.md. 
 ## Infrastructure Tasks
 
 ### Protocol Extension
-- [ ] Add all new message structs to `src/net/protocol.rs`
-- [ ] Update `ClientMessage` enum with new variants
-- [ ] Update `ServerMessage` enum with new variants
-- [ ] Ensure bincode serialization works for all new types
+- [x] Add all new message structs to `src/net/protocol.rs`
+- [x] Update `ClientMessage` enum with new variants
+- [x] Update `ServerMessage` enum with new variants
+- [x] Ensure bincode serialization works for all new types
 
 ### Server Authority Model
-- [ ] Add server-side physics simulation hooks
-- [ ] Implement Area of Interest (AoI) filtering for broadcasts
-- [ ] Add rate limiting for high-frequency updates (water/lava)
-- [ ] Implement batch message collection per tick
+- [x] Add server-side physics simulation hooks
+- [x] Implement Area of Interest (AoI) filtering for broadcasts
+- [x] Add rate limiting for high-frequency updates (water/lava)
+- [x] Implement batch message collection per tick
 
 ### Client-Side Handlers
-- [ ] Add handlers in `src/app_state/multiplayer.rs` for all new ServerMessage variants
-- [ ] Implement pending state buffers for smooth interpolation
-- [ ] Handle message ordering and potential packet loss
+- [x] Add handlers in `src/app_state/multiplayer.rs` for all new ServerMessage variants
+- [x] Implement pending state buffers for smooth interpolation
+- [x] Handle message ordering and potential packet loss
 
 ### Testing
 - [ ] Manual test: Two clients, verify water placement syncs
