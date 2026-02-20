@@ -197,6 +197,16 @@ pub struct PlaceLavaSource {
     pub position: [i32; 3],
 }
 
+/// Client uploads a new picture to the server for use in picture frames.
+/// Server will assign an ID and broadcast to all clients.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UploadPicture {
+    /// Picture name.
+    pub name: String,
+    /// PNG data (RGBA).
+    pub png_data: Vec<u8>,
+}
+
 /// All messages that can be sent from client to server.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ClientMessage {
@@ -222,6 +232,8 @@ pub enum ClientMessage {
     PlaceWaterSource(PlaceWaterSource),
     /// Place a lava source (lava bucket).
     PlaceLavaSource(PlaceLavaSource),
+    /// Upload a picture to the server for picture frames.
+    UploadPicture(UploadPicture),
 }
 
 // ============================================================================

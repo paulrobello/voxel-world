@@ -78,7 +78,7 @@ Implement all missing multiplayer synchronization points documented in SYNC.md. 
 - [x] Test: Respawn position syncs after spawn command
 
 ### Picture Frames
-- [ ] Add `ClientMessage::UploadPicture(UploadPicture)` with name, png_data
+- [x] Add `ClientMessage::UploadPicture(UploadPicture)` with name, png_data
 - [ ] Add `ServerMessage::PictureAdded(PictureAdded)` with picture_id, name
 - [ ] Add `ServerMessage::FramePictureSet(FramePictureSet)` with position, picture_id
 - [ ] Server stores uploaded pictures and assigns IDs
