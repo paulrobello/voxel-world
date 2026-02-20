@@ -63,8 +63,8 @@ Implement all missing multiplayer synchronization points documented in SYNC.md. 
 - [x] Test: Time syncs when one player pauses/unpauses
 
 ### Model Ground Support Breaks
-- [ ] Ensure `process_model_ground_support_update()` runs server-side only in multiplayer
-- [ ] Torch/fence/gate breaks broadcast as `BlockChanged(Air)`
+- [x] Ensure `process_model_ground_support_update()` runs server-side only in multiplayer
+- [x] Torch/fence/gate breaks broadcast as `BlockChanged(Air)`
 - [ ] Clients render break particles locally
 - [ ] Test: Torch breaks for all players when support removed
 

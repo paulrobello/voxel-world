@@ -20,6 +20,14 @@ pub struct FallingBlockSpawnEvent {
     pub block_type: BlockType,
 }
 
+/// Information about a model block that broke due to losing ground support.
+/// Used for multiplayer synchronization (torches, fences, gates, etc.).
+#[derive(Debug, Clone, Copy)]
+pub struct ModelGroundSupportBreakEvent {
+    /// Grid position where the block broke.
+    pub position: Vector3<i32>,
+}
+
 use crate::constants::ORTHO_DIRS;
 use crate::utils::y_in_bounds;
 
@@ -205,7 +213,9 @@ impl BlockUpdateQueue {
 
     /// Processes queued block physics updates.
     ///
-    /// Returns a vector of falling block spawn events for multiplayer synchronization.
+    /// Returns a tuple of:
+    /// - Vector of falling block spawn events for multiplayer synchronization
+    /// - Vector of model ground support break events for multiplayer synchronization
     pub fn process_updates(
         &mut self,
         world: &mut crate::world::World,
@@ -213,9 +223,13 @@ impl BlockUpdateQueue {
         particles: &mut crate::particles::ParticleSystem,
         model_registry: &crate::sub_voxel::ModelRegistry,
         _player_pos: Vector3<f32>,
-    ) -> Vec<FallingBlockSpawnEvent> {
+    ) -> (
+        Vec<FallingBlockSpawnEvent>,
+        Vec<ModelGroundSupportBreakEvent>,
+    ) {
         let batch = self.take_batch();
         let mut spawn_events = Vec::new();
+        let mut model_break_events = Vec::new();
 
         for update in batch {
             match update.update_type {
@@ -235,17 +249,18 @@ impl BlockUpdateQueue {
                     spawn_events.extend(spawns);
                 }
                 BlockUpdateType::ModelGroundSupport => {
-                    self.process_model_ground_support_update(
+                    let breaks = self.process_model_ground_support_update(
                         update.position,
                         world,
                         particles,
                         model_registry,
                     );
+                    model_break_events.extend(breaks);
                 }
             }
         }
 
-        spawn_events
+        (spawn_events, model_break_events)
     }
 
     fn process_gravity_update(
@@ -408,10 +423,12 @@ impl BlockUpdateQueue {
         world: &mut crate::world::World,
         particles: &mut crate::particles::ParticleSystem,
         model_registry: &crate::sub_voxel::ModelRegistry,
-    ) {
+    ) -> Vec<ModelGroundSupportBreakEvent> {
+        let mut break_events = Vec::new();
+
         use crate::chunk::BlockType;
         if pos.y < 1 || !y_in_bounds(pos.y) {
-            return;
+            return break_events;
         }
 
         if let Some(BlockType::Model) = world.get_block(pos) {
@@ -435,10 +452,15 @@ impl BlockUpdateQueue {
                         world.set_block(pos, BlockType::Air);
                         world.invalidate_minimap_cache(pos.x, pos.z);
                         world.update_fence_connections(pos);
+
+                        // Record break event for multiplayer sync
+                        break_events.push(ModelGroundSupportBreakEvent { position: pos });
                     }
                 }
             }
         }
+
+        break_events
     }
 }
 
