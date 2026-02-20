@@ -527,6 +527,22 @@ impl App {
             self.ui.dragging_item = None;
         }
 
+        // Apply pending day cycle pause state from server (client-side)
+        if let Some(pause) = self.multiplayer.take_pending_day_cycle_pause() {
+            self.sim.day_cycle_paused = pause.paused;
+            self.sim.time_of_day = pause.time_of_day;
+            println!(
+                "[Client] Applied day cycle sync: {} at time {:.3}",
+                if pause.paused { "PAUSED" } else { "RUNNING" },
+                pause.time_of_day
+            );
+        }
+
+        // Apply pending time of day update from server (client-side)
+        if let Some(time) = self.multiplayer.take_pending_time_update() {
+            self.sim.time_of_day = time;
+        }
+
         // Update day/night cycle
         if !self.sim.day_cycle_paused {
             self.sim.time_of_day += delta_time as f32 / DAY_CYCLE_DURATION;

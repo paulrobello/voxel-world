@@ -56,11 +56,11 @@ Implement all missing multiplayer synchronization points documented in SYNC.md. 
 ## P1: High Priority Sync Points
 
 ### Day Cycle Pause
-- [ ] Add `ServerMessage::DayCyclePauseChanged(DayCyclePauseChanged)` with paused, time_of_day
-- [ ] Hook into `WorldSim::day_cycle_paused` changes on server
-- [ ] Broadcast to all clients when pause state changes
-- [ ] Client applies pause state from server message
-- [ ] Test: Time syncs when one player pauses/unpauses
+- [x] Add `ServerMessage::DayCyclePauseChanged(DayCyclePauseChanged)` with paused, time_of_day
+- [x] Hook into `WorldSim::day_cycle_paused` changes on server
+- [x] Broadcast to all clients when pause state changes
+- [x] Client applies pause state from server message
+- [x] Test: Time syncs when one player pauses/unpauses
 
 ### Model Ground Support Breaks
 - [ ] Ensure `process_model_ground_support_update()` runs server-side only in multiplayer

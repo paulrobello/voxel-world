@@ -363,6 +363,24 @@ impl App {
             }
         }
 
+        // Toggle day cycle pause (H key for "Halt time")
+        if self.input.key_pressed(KeyCode::KeyH) {
+            self.sim.day_cycle_paused = !self.sim.day_cycle_paused;
+            println!(
+                "Day cycle: {}",
+                if self.sim.day_cycle_paused {
+                    "PAUSED"
+                } else {
+                    "RUNNING"
+                }
+            );
+            // Broadcast to clients if we're the server/host
+            if self.multiplayer.is_hosting() {
+                self.multiplayer
+                    .broadcast_day_cycle_pause(self.sim.day_cycle_paused, self.sim.time_of_day);
+            }
+        }
+
         // Toggle chunk boundary debug (B key)
         if self.input.key_pressed(KeyCode::KeyB) {
             self.ui.settings.show_chunk_boundaries = !self.ui.settings.show_chunk_boundaries;

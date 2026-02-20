@@ -405,6 +405,15 @@ pub struct TimeUpdate {
     pub time_of_day: f32,
 }
 
+/// Day cycle pause state synchronization.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DayCyclePauseChanged {
+    /// Whether the day cycle is paused.
+    pub paused: bool,
+    /// Current time of day when pause state changed.
+    pub time_of_day: f32,
+}
+
 /// Connection accepted response from server.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConnectionAccepted {
@@ -497,6 +506,8 @@ pub enum ServerMessage {
     PlayerLeft(PlayerLeft),
     /// Time of day update.
     TimeUpdate(TimeUpdate),
+    /// Day cycle pause state changed.
+    DayCyclePauseChanged(DayCyclePauseChanged),
     /// Sync custom models from server.
     ModelRegistrySync(ModelRegistrySync),
     /// Texture data response.
@@ -695,5 +706,58 @@ mod tests {
                 .unwrap()
                 .0;
         assert_eq!(decoded.blocks.len(), 50);
+    }
+
+    #[test]
+    fn test_day_cycle_pause_changed_serialization() {
+        // Test DayCyclePauseChanged message serialization
+        let pause_msg = DayCyclePauseChanged {
+            paused: true,
+            time_of_day: 0.5,
+        };
+        let encoded =
+            bincode::serde::encode_to_vec(&pause_msg, bincode::config::standard()).unwrap();
+        let decoded: DayCyclePauseChanged =
+            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
+                .unwrap()
+                .0;
+        assert_eq!(pause_msg.paused, decoded.paused);
+        assert_eq!(pause_msg.time_of_day, decoded.time_of_day);
+
+        // Test with paused = false
+        let resume_msg = DayCyclePauseChanged {
+            paused: false,
+            time_of_day: 0.25,
+        };
+        let encoded =
+            bincode::serde::encode_to_vec(&resume_msg, bincode::config::standard()).unwrap();
+        let decoded: DayCyclePauseChanged =
+            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
+                .unwrap()
+                .0;
+        assert!(!decoded.paused);
+        assert!((decoded.time_of_day - 0.25).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_server_message_day_cycle_pause_changed() {
+        // Test ServerMessage::DayCyclePauseChanged serialization
+        let msg = ServerMessage::DayCyclePauseChanged(DayCyclePauseChanged {
+            paused: true,
+            time_of_day: 0.75,
+        });
+        let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
+        let decoded: ServerMessage =
+            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
+                .unwrap()
+                .0;
+
+        match decoded {
+            ServerMessage::DayCyclePauseChanged(pause) => {
+                assert!(pause.paused);
+                assert!((pause.time_of_day - 0.75).abs() < f32::EPSILON);
+            }
+            _ => panic!("Expected DayCyclePauseChanged variant"),
+        }
     }
 }

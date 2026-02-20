@@ -464,6 +464,23 @@ impl GameServer {
         }
     }
 
+    /// Broadcasts day cycle pause state to all clients.
+    pub fn broadcast_day_cycle_pause(&mut self, paused: bool, time_of_day: f32) {
+        use crate::net::protocol::DayCyclePauseChanged;
+        let msg = ServerMessage::DayCyclePauseChanged(DayCyclePauseChanged {
+            paused,
+            time_of_day,
+        });
+        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+            self.server
+                .broadcast_message(2, renet::Bytes::from(encoded));
+            println!(
+                "[Server] Broadcast DayCyclePauseChanged: {}",
+                if paused { "PAUSED" } else { "RUNNING" }
+            );
+        }
+    }
+
     /// Broadcasts a new custom model to all clients.
     pub fn broadcast_model_added(
         &mut self,

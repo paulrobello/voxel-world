@@ -110,8 +110,8 @@ pub use player_sync::{PredictionState, RemotePlayer};
 pub use protocol::{
     BlockChanged, BlockData, BlocksChanged, BreakBlock, BulkOperation, ChunkData,
     ChunkGenerateLocal, ClientMessage, ConnectionAccepted, ConnectionRejected, ConsoleCommand,
-    InputActions, PlaceBlock, PlayerId, PlayerInput, PlayerJoined, PlayerLeft, PlayerState,
-    RequestChunks, ServerMessage, TimeUpdate,
+    DayCyclePauseChanged, InputActions, PlaceBlock, PlayerId, PlayerInput, PlayerJoined,
+    PlayerLeft, PlayerState, RequestChunks, ServerMessage, TimeUpdate,
 };
 #[allow(unused_imports)]
 pub use server::{GameServer, PlayerInfo};

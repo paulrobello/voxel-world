@@ -74,6 +74,10 @@ pub struct MultiplayerState {
     pub pending_falling_block_lands: Vec<crate::net::protocol::FallingBlockLanded>,
     /// Pending tree fall events received from server (client-side).
     pub pending_tree_falls: Vec<crate::net::protocol::TreeFell>,
+    /// Pending day cycle pause state change from server (client-side).
+    pub pending_day_cycle_pause: Option<crate::net::protocol::DayCyclePauseChanged>,
+    /// Pending time of day update from server (client-side).
+    pub pending_time_update: Option<f32>,
     /// Water sync bandwidth optimizer (server-side, when hosting).
     water_sync_optimizer: WaterSyncOptimizer,
 
@@ -131,6 +135,8 @@ impl MultiplayerState {
             pending_falling_block_spawns: Vec::new(),
             pending_falling_block_lands: Vec::new(),
             pending_tree_falls: Vec::new(),
+            pending_day_cycle_pause: None,
+            pending_time_update: None,
             water_sync_optimizer: WaterSyncOptimizer::new(),
             discovery: None,
             discovery_responder: None,
@@ -868,6 +874,18 @@ impl MultiplayerState {
                 );
                 self.pending_tree_falls.push(tree_fell.clone());
             }
+            ServerMessage::DayCyclePauseChanged(pause) => {
+                println!(
+                    "[Client] Received DayCyclePauseChanged: {} at time {:.3}",
+                    if pause.paused { "PAUSED" } else { "RUNNING" },
+                    pause.time_of_day
+                );
+                self.pending_day_cycle_pause = Some(pause.clone());
+            }
+            ServerMessage::TimeUpdate(time) => {
+                println!("[Client] Received TimeUpdate: {:.3}", time.time_of_day);
+                self.pending_time_update = Some(time.time_of_day);
+            }
             _ => {}
         }
     }
@@ -1434,5 +1452,40 @@ impl MultiplayerState {
         for (entity_id, position, block_type) in lands {
             self.broadcast_falling_block_land(entity_id, position, block_type);
         }
+    }
+
+    /// Broadcasts day cycle pause state change to all clients (server-side, when hosting).
+    ///
+    /// # Arguments
+    /// * `paused` - Whether the day cycle is now paused
+    /// * `time_of_day` - Current time of day (0.0-1.0, where 0.5 = noon)
+    pub fn broadcast_day_cycle_pause(&mut self, paused: bool, time_of_day: f32) {
+        if let Some(ref mut server) = self.server {
+            server.broadcast_day_cycle_pause(paused, time_of_day);
+        }
+    }
+
+    /// Takes pending day cycle pause state change (client-side).
+    /// Returns None if no pending change.
+    pub fn take_pending_day_cycle_pause(
+        &mut self,
+    ) -> Option<crate::net::protocol::DayCyclePauseChanged> {
+        self.pending_day_cycle_pause.take()
+    }
+
+    /// Returns true if there's a pending day cycle pause change.
+    pub fn has_pending_day_cycle_pause(&self) -> bool {
+        self.pending_day_cycle_pause.is_some()
+    }
+
+    /// Takes pending time of day update (client-side).
+    /// Returns None if no pending update.
+    pub fn take_pending_time_update(&mut self) -> Option<f32> {
+        self.pending_time_update.take()
+    }
+
+    /// Returns true if there's a pending time update.
+    pub fn has_pending_time_update(&self) -> bool {
+        self.pending_time_update.is_some()
     }
 }
