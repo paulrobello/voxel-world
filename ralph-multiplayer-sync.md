@@ -134,7 +134,7 @@ Implement all missing multiplayer synchronization points documented in SYNC.md. 
 - [x] Manual test: Tree fall cascades correctly (automated: `test_tree_fall_sync_produces_identical_cascade` in `tree_fall_sync.rs`)
 - [x] Manual test: Day/night pause syncs (automated: `test_day_night_pause_sync_produces_identical_state` in `day_cycle_sync.rs`)
 - [x] Manual test: No state divergence after 5+ minutes gameplay (automated: `test_no_state_divergence_after_extended_gameplay` in `extended_gameplay_sync.rs`)
-- [ ] Bandwidth test: < 100 KB/s per client with typical gameplay
+- [x] Bandwidth test: < 100 KB/s per client with typical gameplay (automated: `test_bandwidth_under_100_kb_per_second` in `bandwidth_test.rs`)
 
 ## Notes
 

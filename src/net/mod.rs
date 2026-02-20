@@ -72,6 +72,7 @@
 //! ```
 
 pub mod auth;
+pub mod bandwidth_test;
 pub mod block_sync;
 pub mod channel;
 pub mod chunk_sync;
