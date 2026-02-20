@@ -82,6 +82,7 @@ pub mod protocol;
 pub mod server;
 pub mod server_thread;
 pub mod texture_slots;
+pub mod water_sync;
 
 // Re-export main types for convenience
 // These are intentionally unused until multiplayer is integrated into the game
@@ -115,6 +116,8 @@ pub use texture_slots::{
     CustomTextureCache, DEFAULT_MAX_TEXTURE_SLOTS, TEXTURE_SIZE, TexturePoolMetadata,
     TextureSlotManager,
 };
+#[allow(unused_imports)]
+pub use water_sync::{WaterSyncOptimizer, WaterSyncStats};
 
 /// Default server port.
 #[allow(dead_code)]

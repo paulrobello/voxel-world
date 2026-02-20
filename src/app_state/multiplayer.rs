@@ -14,7 +14,7 @@ use crate::config::GameMode;
 use crate::net::{
     BlockSyncManager, ChunkSyncManager, CustomTextureCache, DiscoveredServer, DiscoveryResponder,
     GameClient, GameServer, LanDiscovery, PredictionState, RemotePlayer, SerializedChunk,
-    ServerCommand, ServerThread, ServerThreadEvent,
+    ServerCommand, ServerThread, ServerThreadEvent, WaterSyncOptimizer,
 };
 use nalgebra::Vector3;
 
@@ -66,6 +66,8 @@ pub struct MultiplayerState {
     pub pending_texture_uploads: Vec<(u64, crate::net::protocol::UploadTexture)>,
     /// Pending water cell updates received from server (client-side).
     pub pending_water_updates: Vec<crate::net::protocol::WaterCellUpdate>,
+    /// Water sync bandwidth optimizer (server-side, when hosting).
+    water_sync_optimizer: WaterSyncOptimizer,
 
     // LAN Discovery
     /// Client-side LAN discovery (for finding servers).
@@ -117,6 +119,7 @@ impl MultiplayerState {
             pending_model_uploads: Vec::new(),
             pending_texture_uploads: Vec::new(),
             pending_water_updates: Vec::new(),
+            water_sync_optimizer: WaterSyncOptimizer::new(),
             discovery: None,
             discovery_responder: None,
             server_name: String::new(),
@@ -1120,8 +1123,14 @@ impl MultiplayerState {
     }
 
     /// Broadcasts batch water cell updates to all clients (server-side, when hosting).
-    /// This is called after each water simulation tick to sync changed cells.
-    /// The updates are throttled by the water simulation tick rate (default 20 Hz).
+    ///
+    /// Uses bandwidth optimization:
+    /// - **Delta encoding**: Only sends cells with significant mass changes (> 5%)
+    /// - **AoI filtering**: Only sends cells within 128 blocks of any player
+    /// - **Rate limiting**: Max 5 Hz update rate regardless of simulation speed
+    ///
+    /// Call this after each water simulation tick. The optimizer will accumulate
+    /// changes and broadcast them when appropriate.
     pub fn broadcast_water_cell_updates(
         &mut self,
         updates: Vec<crate::water::WaterCellSyncUpdate>,
@@ -1130,21 +1139,64 @@ impl MultiplayerState {
             return;
         }
 
-        // Convert to protocol format
-        let protocol_updates: Vec<crate::net::protocol::WaterCellUpdate> = updates
-            .into_iter()
-            .map(|u| crate::net::protocol::WaterCellUpdate {
-                position: [u.position.x, u.position.y, u.position.z],
-                mass: u.mass,
-                is_source: u.is_source,
-                water_type: u.water_type,
-            })
-            .collect();
+        // Apply delta encoding - filter to only significant changes
+        let _significant = self
+            .water_sync_optimizer
+            .filter_significant_changes(updates);
+
+        // Check rate limiting - only broadcast at appropriate intervals
+        if !self.water_sync_optimizer.should_broadcast_now() {
+            // Accumulate changes for next broadcast window
+            return;
+        }
+
+        // Collect player positions for AoI filtering
+        let player_positions = self.get_all_player_positions();
+
+        // Get filtered updates (AoI + rate limiting)
+        let filtered_updates = if player_positions.is_empty() {
+            // No players - use all pending (shouldn't happen in practice)
+            self.water_sync_optimizer.take_all_pending_updates()
+        } else {
+            self.water_sync_optimizer
+                .take_filtered_updates(&player_positions)
+        };
+
+        if filtered_updates.is_empty() {
+            return;
+        }
 
         if let Some(ref mut server) = self.server {
-            server.broadcast_water_cells_changed(protocol_updates);
+            server.broadcast_water_cells_changed(filtered_updates);
         }
         // Note: Threaded server mode would need ServerCommand variant added
+    }
+
+    /// Collects positions of all players (host + connected) for AoI filtering.
+    fn get_all_player_positions(&self) -> Vec<[f32; 3]> {
+        let mut positions = Vec::new();
+
+        // Get positions from the server (includes both host and connected players)
+        if let Some(ref server) = self.server {
+            for player in server.players() {
+                positions.push(player.position);
+            }
+        }
+
+        positions
+    }
+
+    /// Returns water sync optimizer statistics for debugging.
+    pub fn water_sync_stats(&self) -> &crate::net::water_sync::WaterSyncStats {
+        self.water_sync_optimizer.stats()
+    }
+
+    /// Prunes distant cached water states to prevent memory growth.
+    /// Call this periodically (e.g., every 30 seconds).
+    pub fn prune_water_sync_cache(&mut self) {
+        let player_positions = self.get_all_player_positions();
+        self.water_sync_optimizer
+            .prune_distant_states(&player_positions);
     }
 
     /// Takes all pending water updates and clears the queue.
