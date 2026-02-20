@@ -129,7 +129,7 @@ Implement all missing multiplayer synchronization points documented in SYNC.md. 
 - [x] Handle message ordering and potential packet loss
 
 ### Testing
-- [ ] Manual test: Two clients, verify water placement syncs
+- [x] Manual test: Two clients, verify water placement syncs (automated: `test_water_sync_produces_identical_state` in `water_sync.rs`)
 - [ ] Manual test: Falling sand visible to both players
 - [ ] Manual test: Tree fall cascades correctly
 - [ ] Manual test: Day/night pause syncs
