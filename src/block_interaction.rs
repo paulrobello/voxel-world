@@ -697,6 +697,53 @@ impl App {
             // Priority 2: Toggle existing door
             if !self.ui.gate_needs_reclick && self.toggle_door_at(hit.block_pos) {
                 self.ui.gate_needs_reclick = true;
+                // Sync door toggle to server in multiplayer mode
+                // Read the new door state and send it to the server
+                if self.is_connected_to_server() {
+                    // Determine lower and upper positions
+                    let model_data = self.sim.world.get_model_data(hit.block_pos);
+                    let is_upper = model_data
+                        .as_ref()
+                        .map(|d| crate::sub_voxel::ModelRegistry::is_door_upper(d.model_id))
+                        .unwrap_or(false);
+                    let (lower_pos, upper_pos) = if is_upper {
+                        (
+                            hit.block_pos + nalgebra::Vector3::new(0, -1, 0),
+                            hit.block_pos,
+                        )
+                    } else {
+                        (
+                            hit.block_pos,
+                            hit.block_pos + nalgebra::Vector3::new(0, 1, 0),
+                        )
+                    };
+
+                    // Get the new block data for both halves
+                    let lower_model_data = self.sim.world.get_model_data(lower_pos);
+                    let upper_model_data = self.sim.world.get_model_data(upper_pos);
+
+                    let lower_block = crate::net::protocol::BlockData {
+                        block_type: crate::chunk::BlockType::Model,
+                        model_data: lower_model_data,
+                        paint_data: None,
+                        tint_index: None,
+                        water_type: None,
+                    };
+                    let upper_block = crate::net::protocol::BlockData {
+                        block_type: crate::chunk::BlockType::Model,
+                        model_data: upper_model_data,
+                        paint_data: None,
+                        tint_index: None,
+                        water_type: None,
+                    };
+
+                    self.sync_door_toggle(
+                        [lower_pos.x, lower_pos.y, lower_pos.z],
+                        lower_block,
+                        [upper_pos.x, upper_pos.y, upper_pos.z],
+                        upper_block,
+                    );
+                }
                 return;
             }
 

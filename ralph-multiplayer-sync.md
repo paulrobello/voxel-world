@@ -105,9 +105,9 @@ Implement all missing multiplayer synchronization points documented in SYNC.md. 
 ## P3: Verification (Low Priority)
 
 ### Door State
-- [ ] Verify door open/close updates `BlockModelData`
-- [ ] Verify `BlockData.model_data` is serialized in `PlaceBlock`
-- [ ] If working, mark complete. If not, add sync logic.
+- [x] Verify door open/close updates `BlockModelData`
+- [x] Verify `BlockData.model_data` is serialized in `PlaceBlock`
+- [x] If working, mark complete. If not, add sync logic.
 
 ## Infrastructure Tasks
 

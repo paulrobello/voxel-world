@@ -19,7 +19,7 @@ use crossbeam_channel::{Receiver, Sender};
 use renet::ServerEvent;
 
 use super::GameServer;
-use super::protocol::{BlockChanged, ChunkData, ClientMessage};
+use super::protocol::{BlockChanged, ChunkData, ClientMessage, DoorToggled};
 
 /// Commands sent from the main thread to the server thread.
 #[derive(Debug, Clone)]
@@ -30,6 +30,8 @@ pub enum ServerCommand {
     SendChunkGenerateLocal { client_id: u64, position: [i32; 3] },
     /// Broadcast a block change to all clients.
     BroadcastBlockChange(BlockChanged),
+    /// Broadcast a door toggle to all clients.
+    BroadcastDoorToggled(DoorToggled),
     /// Broadcast player states to all clients.
     BroadcastPlayerStates,
     /// Broadcast time of day to all clients.
@@ -162,6 +164,9 @@ impl ServerThread {
                     }
                     ServerCommand::BroadcastBlockChange(change) => {
                         server.broadcast_block_change(change);
+                    }
+                    ServerCommand::BroadcastDoorToggled(door) => {
+                        server.broadcast_door_toggled(door);
                     }
                     ServerCommand::BroadcastPlayerStates => {
                         server.broadcast_player_states();

@@ -319,6 +319,16 @@ impl GameServer {
         }
     }
 
+    /// Broadcasts a door toggle to all clients.
+    /// Used for server-authoritative door state sync.
+    pub fn broadcast_door_toggled(&mut self, door: crate::net::protocol::DoorToggled) {
+        let msg = ServerMessage::DoorToggled(door);
+        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+            self.server
+                .broadcast_message(1, renet::Bytes::from(encoded)); // Channel 1 = BlockUpdates
+        }
+    }
+
     /// Broadcasts water cell changes to all clients.
     /// Used for server-authoritative water simulation sync.
     pub fn broadcast_water_cells_changed(

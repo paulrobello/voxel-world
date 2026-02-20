@@ -276,6 +276,27 @@ impl GameClient {
         }
     }
 
+    /// Sends a door toggle request to the server with the new block data.
+    pub fn send_toggle_door(
+        &mut self,
+        lower_pos: [i32; 3],
+        lower_block: BlockData,
+        upper_pos: [i32; 3],
+        upper_block: BlockData,
+    ) {
+        use crate::net::protocol::ToggleDoor;
+        let msg = ClientMessage::ToggleDoor(ToggleDoor {
+            lower_pos,
+            lower_block,
+            upper_pos,
+            upper_block,
+        });
+
+        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+            self.client.send_message(1, renet::Bytes::from(encoded)); // Channel 1 = BlockUpdates
+        }
+    }
+
     /// Sends a bulk operation to the server.
     pub fn send_bulk_operation(&mut self, operation: BulkOperation) {
         let msg = ClientMessage::BulkOperation(operation);

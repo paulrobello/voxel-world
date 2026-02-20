@@ -606,6 +606,27 @@ impl MultiplayerState {
                     let _ = server_thread.send_command(ServerCommand::BroadcastBlockChange(change));
                 }
             }
+            ClientMessage::ToggleDoor(toggle) => {
+                // The client has already toggled the door locally and sent us the new state.
+                // Broadcast the new door state to all clients.
+                println!(
+                    "[Server] Received ToggleDoor at {:?} from client {}",
+                    toggle.lower_pos, client_id
+                );
+                let door_msg = crate::net::protocol::DoorToggled {
+                    lower_pos: toggle.lower_pos,
+                    lower_block: toggle.lower_block,
+                    upper_pos: toggle.upper_pos,
+                    upper_block: toggle.upper_block,
+                };
+                if let Some(ref mut server) = self.server {
+                    server.broadcast_door_toggled(door_msg);
+                    println!("[Server] Broadcasted door toggle to all clients");
+                } else if let Some(ref server_thread) = self.server_thread {
+                    let _ =
+                        server_thread.send_command(ServerCommand::BroadcastDoorToggled(door_msg));
+                }
+            }
             ClientMessage::RequestTexture(req) => {
                 println!(
                     "[Server] Received texture request for slot {} from client {}",
@@ -980,6 +1001,23 @@ impl MultiplayerState {
                 );
                 self.pending_template_removals.push(removed.clone());
             }
+            ServerMessage::DoorToggled(door) => {
+                println!(
+                    "[Client] Received DoorToggled: lower={:?}, upper={:?}",
+                    door.lower_pos, door.upper_pos
+                );
+                // Queue the door changes as block changes to be applied
+                self.pending_block_changes
+                    .push(crate::net::protocol::BlockChanged {
+                        position: door.lower_pos,
+                        block: door.lower_block.clone(),
+                    });
+                self.pending_block_changes
+                    .push(crate::net::protocol::BlockChanged {
+                        position: door.upper_pos,
+                        block: door.upper_block.clone(),
+                    });
+            }
             _ => {}
         }
     }
@@ -1018,6 +1056,21 @@ impl MultiplayerState {
         if let Some(ref mut client) = self.client {
             client.send_break_block(position);
             // Flush immediately for responsive block sync
+            client.flush_packets();
+        }
+    }
+
+    /// Sends a door toggle request to the server with the new block data.
+    pub fn send_toggle_door(
+        &mut self,
+        lower_pos: [i32; 3],
+        lower_block: crate::net::protocol::BlockData,
+        upper_pos: [i32; 3],
+        upper_block: crate::net::protocol::BlockData,
+    ) {
+        if let Some(ref mut client) = self.client {
+            client.send_toggle_door(lower_pos, lower_block, upper_pos, upper_block);
+            // Flush immediately for responsive door sync
             client.flush_packets();
         }
     }

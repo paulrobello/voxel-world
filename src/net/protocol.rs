@@ -207,6 +207,21 @@ pub struct UploadPicture {
     pub png_data: Vec<u8>,
 }
 
+/// Client requests to toggle a door at a position.
+/// Includes the new block data after the toggle for broadcasting.
+/// Server will process authoritatively and broadcast to all clients.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ToggleDoor {
+    /// World position (block coordinates) of the lower half of the door.
+    pub lower_pos: [i32; 3],
+    /// Block data for the lower half after toggle.
+    pub lower_block: BlockData,
+    /// World position (block coordinates) of the upper half of the door.
+    pub upper_pos: [i32; 3],
+    /// Block data for the upper half after toggle.
+    pub upper_block: BlockData,
+}
+
 /// All messages that can be sent from client to server.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ClientMessage {
@@ -234,6 +249,8 @@ pub enum ClientMessage {
     PlaceLavaSource(PlaceLavaSource),
     /// Upload a picture to the server for picture frames.
     UploadPicture(UploadPicture),
+    /// Toggle a door open/closed.
+    ToggleDoor(ToggleDoor),
 }
 
 // ============================================================================
@@ -583,6 +600,21 @@ pub struct TemplateRemoved {
     pub template_id: TemplateId,
 }
 
+/// Door toggled notification.
+/// Sent by the server when a door is toggled open/closed.
+/// Contains the positions and new block data for both halves of the door.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DoorToggled {
+    /// Position of the lower half of the door.
+    pub lower_pos: [i32; 3],
+    /// Block data for the lower half after toggle.
+    pub lower_block: BlockData,
+    /// Position of the upper half of the door.
+    pub upper_pos: [i32; 3],
+    /// Block data for the upper half after toggle.
+    pub upper_block: BlockData,
+}
+
 /// All messages that can be sent from server to client.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ServerMessage {
@@ -642,6 +674,8 @@ pub enum ServerMessage {
     TemplateLoaded(TemplateLoaded),
     /// Template removed notification.
     TemplateRemoved(TemplateRemoved),
+    /// Door toggled notification.
+    DoorToggled(DoorToggled),
 }
 
 #[cfg(test)]

@@ -49,6 +49,21 @@ impl App {
         }
     }
 
+    /// Syncs a door toggle to the server (if in multiplayer mode).
+    pub fn sync_door_toggle(
+        &mut self,
+        lower_pos: [i32; 3],
+        lower_block: crate::net::protocol::BlockData,
+        upper_pos: [i32; 3],
+        upper_block: crate::net::protocol::BlockData,
+    ) {
+        if self.is_connected_to_server() {
+            println!("[Client] Syncing door toggle at {:?}", lower_pos);
+            self.multiplayer
+                .send_toggle_door(lower_pos, lower_block, upper_pos, upper_block);
+        }
+    }
+
     /// Syncs a water source placement to all clients (if hosting).
     /// This is server-authoritative: the host broadcasts to all clients.
     pub fn sync_water_source(&mut self, position: [i32; 3], water_type: crate::chunk::WaterType) {
