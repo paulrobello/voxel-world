@@ -568,7 +568,44 @@ impl App {
 
         // Process any blocks that have landed
         if !landed.is_empty() {
+            // When hosting, broadcast landings to all clients
+            if self.multiplayer.is_host() {
+                for lb in &landed {
+                    self.multiplayer.broadcast_falling_block_land(
+                        0, // entity_id = 0 for legacy sync without tracking
+                        [lb.position.x, lb.position.y, lb.position.z],
+                        lb.block_type,
+                    );
+                }
+            }
             self.process_landed_blocks(landed);
+        }
+
+        // Process incoming falling block messages from server (client-side)
+        if self.multiplayer.has_pending_falling_block_spawns() {
+            for spawn in self.multiplayer.take_pending_falling_block_spawns() {
+                // Spawn falling block from network message
+                let grid_pos = Vector3::new(
+                    spawn.position[0].floor() as i32,
+                    spawn.position[1].floor() as i32,
+                    spawn.position[2].floor() as i32,
+                );
+                self.sim.falling_blocks.spawn(grid_pos, spawn.block_type);
+            }
+        }
+
+        // Process incoming landing messages from server (client-side)
+        if self.multiplayer.has_pending_falling_block_lands() {
+            let mut all_landed = Vec::new();
+            for land in self.multiplayer.take_pending_falling_block_lands() {
+                all_landed.push(crate::falling_block::LandedBlock {
+                    position: Vector3::new(land.position[0], land.position[1], land.position[2]),
+                    block_type: land.block_type,
+                });
+            }
+            if !all_landed.is_empty() {
+                self.process_landed_blocks(all_landed);
+            }
         }
 
         // Process queued block physics updates (frame-distributed to prevent FPS spikes)
@@ -577,13 +614,26 @@ impl App {
             .player
             .feet_pos(self.sim.world_extent, self.sim.texture_origin)
             .cast::<f32>();
-        self.sim.block_updates.process_updates(
+        let spawn_events = self.sim.block_updates.process_updates(
             &mut self.sim.world,
             &mut self.sim.falling_blocks,
             &mut self.sim.particles,
             &self.sim.model_registry,
             player_pos_f32,
         );
+
+        // Broadcast falling block spawns to all clients when hosting
+        if self.multiplayer.is_host() && !spawn_events.is_empty() {
+            for event in spawn_events {
+                let position = [
+                    event.position.x as f32 + 0.5,
+                    event.position.y as f32 + 0.5,
+                    event.position.z as f32 + 0.5,
+                ];
+                self.multiplayer
+                    .broadcast_falling_block_spawn(position, event.block_type);
+            }
+        }
 
         // Process water flow simulation (frame-distributed)
         if self.ui.settings.water_simulation_enabled {

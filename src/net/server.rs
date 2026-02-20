@@ -334,6 +334,32 @@ impl GameServer {
         }
     }
 
+    /// Broadcasts a falling block spawn to all clients.
+    /// Used for server-authoritative falling block physics sync.
+    pub fn broadcast_falling_block_spawned(
+        &mut self,
+        spawn: crate::net::protocol::FallingBlockSpawned,
+    ) {
+        let msg = ServerMessage::FallingBlockSpawned(spawn);
+        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+            self.server
+                .broadcast_message(1, renet::Bytes::from(encoded)); // Channel 1 = BlockUpdates
+        }
+    }
+
+    /// Broadcasts a falling block landing to all clients.
+    /// Used for server-authoritative falling block physics sync.
+    pub fn broadcast_falling_block_landed(
+        &mut self,
+        land: crate::net::protocol::FallingBlockLanded,
+    ) {
+        let msg = ServerMessage::FallingBlockLanded(land);
+        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+            self.server
+                .broadcast_message(1, renet::Bytes::from(encoded)); // Channel 1 = BlockUpdates
+        }
+    }
+
     /// Sends chunk data to a specific client.
     pub fn send_chunk(&mut self, client_id: u64, chunk: ChunkData) {
         let msg = ServerMessage::ChunkData(chunk);

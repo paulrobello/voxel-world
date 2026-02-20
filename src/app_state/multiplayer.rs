@@ -68,6 +68,10 @@ pub struct MultiplayerState {
     pub pending_water_updates: Vec<crate::net::protocol::WaterCellUpdate>,
     /// Pending lava cell updates received from server (client-side).
     pub pending_lava_updates: Vec<crate::net::protocol::LavaCellUpdate>,
+    /// Pending falling block spawns received from server (client-side).
+    pub pending_falling_block_spawns: Vec<crate::net::protocol::FallingBlockSpawned>,
+    /// Pending falling block lands received from server (client-side).
+    pub pending_falling_block_lands: Vec<crate::net::protocol::FallingBlockLanded>,
     /// Water sync bandwidth optimizer (server-side, when hosting).
     water_sync_optimizer: WaterSyncOptimizer,
 
@@ -122,6 +126,8 @@ impl MultiplayerState {
             pending_texture_uploads: Vec::new(),
             pending_water_updates: Vec::new(),
             pending_lava_updates: Vec::new(),
+            pending_falling_block_spawns: Vec::new(),
+            pending_falling_block_lands: Vec::new(),
             water_sync_optimizer: WaterSyncOptimizer::new(),
             discovery: None,
             discovery_responder: None,
@@ -838,6 +844,20 @@ impl MultiplayerState {
                 self.pending_lava_updates
                     .extend(lava.updates.iter().cloned());
             }
+            ServerMessage::FallingBlockSpawned(spawn) => {
+                println!(
+                    "[Client] Received FallingBlockSpawned: entity {} at {:?}",
+                    spawn.entity_id, spawn.position
+                );
+                self.pending_falling_block_spawns.push(spawn.clone());
+            }
+            ServerMessage::FallingBlockLanded(land) => {
+                println!(
+                    "[Client] Received FallingBlockLanded: entity {} at {:?}",
+                    land.entity_id, land.position
+                );
+                self.pending_falling_block_lands.push(land.clone());
+            }
             _ => {}
         }
     }
@@ -1254,5 +1274,78 @@ impl MultiplayerState {
     /// Returns true if there are pending lava updates to apply.
     pub fn has_pending_lava_updates(&self) -> bool {
         !self.pending_lava_updates.is_empty()
+    }
+
+    /// Takes all pending falling block spawns and clears the queue.
+    /// Call this from the game loop to spawn falling blocks in the client simulation.
+    pub fn take_pending_falling_block_spawns(
+        &mut self,
+    ) -> Vec<crate::net::protocol::FallingBlockSpawned> {
+        std::mem::take(&mut self.pending_falling_block_spawns)
+    }
+
+    /// Returns true if there are pending falling block spawns to apply.
+    pub fn has_pending_falling_block_spawns(&self) -> bool {
+        !self.pending_falling_block_spawns.is_empty()
+    }
+
+    /// Takes all pending falling block lands and clears the queue.
+    /// Call this from the game loop to handle landed blocks in the client simulation.
+    pub fn take_pending_falling_block_lands(
+        &mut self,
+    ) -> Vec<crate::net::protocol::FallingBlockLanded> {
+        std::mem::take(&mut self.pending_falling_block_lands)
+    }
+
+    /// Returns true if there are pending falling block lands to apply.
+    pub fn has_pending_falling_block_lands(&self) -> bool {
+        !self.pending_falling_block_lands.is_empty()
+    }
+
+    /// Broadcasts a falling block spawn to all clients (server-side, when hosting).
+    pub fn broadcast_falling_block_spawn(
+        &mut self,
+        position: [f32; 3],
+        block_type: crate::chunk::BlockType,
+    ) -> u32 {
+        use crate::net::falling_block_sync::FallingBlockSync;
+
+        // Create a temporary sync to get an entity ID
+        // In a full implementation, this would be a persistent sync on the server
+        let mut sync = FallingBlockSync::new();
+        let entity_id = sync.next_entity_id();
+
+        let spawn = crate::net::protocol::FallingBlockSpawned {
+            entity_id,
+            position,
+            velocity: [0.0, 0.0, 0.0],
+            block_type,
+        };
+
+        if let Some(ref mut server) = self.server {
+            server.broadcast_falling_block_spawned(spawn);
+        }
+        // Note: Threaded server mode would need ServerCommand variant added
+
+        entity_id
+    }
+
+    /// Broadcasts a falling block landing to all clients (server-side, when hosting).
+    pub fn broadcast_falling_block_land(
+        &mut self,
+        entity_id: u32,
+        position: [i32; 3],
+        block_type: crate::chunk::BlockType,
+    ) {
+        let land = crate::net::protocol::FallingBlockLanded {
+            entity_id,
+            position,
+            block_type,
+        };
+
+        if let Some(ref mut server) = self.server {
+            server.broadcast_falling_block_landed(land);
+        }
+        // Note: Threaded server mode would need ServerCommand variant added
     }
 }

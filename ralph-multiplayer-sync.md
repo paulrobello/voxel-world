@@ -39,10 +39,10 @@ Implement all missing multiplayer synchronization points documented in SYNC.md. 
 ### Falling Block Entities
 - [x] Add `ServerMessage::FallingBlockSpawned(FallingBlockSpawned)` with entity_id, position, velocity, block_type
 - [x] Add `ServerMessage::FallingBlockLanded(FallingBlockLanded)` with entity_id, position, block_type
-- [ ] Modify server to simulate all falling blocks (not just host)
-- [ ] Broadcast spawn when block loses support
-- [ ] Broadcast landing when block comes to rest
-- [ ] Client renders falling animation locally based on spawn/land messages
+- [x] Modify server to simulate all falling blocks (not just host)
+- [x] Broadcast spawn when block loses support
+- [x] Broadcast landing when block comes to rest
+- [x] Client renders falling animation locally based on spawn/land messages
 - [ ] Test: Falling sand visible to all connected players
 
 ### Block Physics Queue

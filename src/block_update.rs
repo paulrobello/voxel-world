@@ -8,6 +8,18 @@ use nalgebra::Vector3;
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashSet};
 
+use crate::chunk::BlockType;
+
+/// Information about a falling block that was spawned.
+/// Used for multiplayer synchronization.
+#[derive(Debug, Clone, Copy)]
+pub struct FallingBlockSpawnEvent {
+    /// Grid position where the block started falling.
+    pub position: Vector3<i32>,
+    /// The type of block that is falling.
+    pub block_type: BlockType,
+}
+
 use crate::constants::ORTHO_DIRS;
 use crate::utils::y_in_bounds;
 
@@ -192,6 +204,8 @@ impl BlockUpdateQueue {
     }
 
     /// Processes queued block physics updates.
+    ///
+    /// Returns a vector of falling block spawn events for multiplayer synchronization.
     pub fn process_updates(
         &mut self,
         world: &mut crate::world::World,
@@ -199,19 +213,26 @@ impl BlockUpdateQueue {
         particles: &mut crate::particles::ParticleSystem,
         model_registry: &crate::sub_voxel::ModelRegistry,
         _player_pos: Vector3<f32>,
-    ) {
+    ) -> Vec<FallingBlockSpawnEvent> {
         let batch = self.take_batch();
+        let mut spawn_events = Vec::new();
 
         for update in batch {
             match update.update_type {
                 BlockUpdateType::Gravity => {
-                    self.process_gravity_update(update.position, world, falling_blocks);
+                    let spawns =
+                        self.process_gravity_update(update.position, world, falling_blocks);
+                    spawn_events.extend(spawns);
                 }
                 BlockUpdateType::TreeSupport => {
-                    self.process_tree_support_update(update.position, world, falling_blocks);
+                    let spawns =
+                        self.process_tree_support_update(update.position, world, falling_blocks);
+                    spawn_events.extend(spawns);
                 }
                 BlockUpdateType::OrphanedLeaves => {
-                    self.process_orphaned_leaves_update(update.position, world, falling_blocks);
+                    let spawns =
+                        self.process_orphaned_leaves_update(update.position, world, falling_blocks);
+                    spawn_events.extend(spawns);
                 }
                 BlockUpdateType::ModelGroundSupport => {
                     self.process_model_ground_support_update(
@@ -223,6 +244,8 @@ impl BlockUpdateQueue {
                 }
             }
         }
+
+        spawn_events
     }
 
     fn process_gravity_update(
@@ -230,10 +253,11 @@ impl BlockUpdateQueue {
         pos: Vector3<i32>,
         world: &mut crate::world::World,
         falling_blocks: &mut crate::falling_block::FallingBlockSystem,
-    ) {
-        use crate::chunk::BlockType;
+    ) -> Vec<FallingBlockSpawnEvent> {
+        let mut spawn_events = Vec::new();
+
         if !y_in_bounds(pos.y) {
-            return;
+            return spawn_events;
         }
 
         if let Some(block_type) = world.get_block(pos) {
@@ -241,6 +265,12 @@ impl BlockUpdateQueue {
                 world.set_block(pos, BlockType::Air);
                 world.invalidate_minimap_cache(pos.x, pos.z);
                 falling_blocks.spawn(pos, block_type);
+
+                // Record spawn event for multiplayer sync
+                spawn_events.push(FallingBlockSpawnEvent {
+                    position: pos,
+                    block_type,
+                });
 
                 let above_pos = pos + Vector3::new(0, 1, 0);
 
@@ -259,6 +289,8 @@ impl BlockUpdateQueue {
                 }
             }
         }
+
+        spawn_events
     }
 
     fn process_tree_support_update(
@@ -266,10 +298,11 @@ impl BlockUpdateQueue {
         pos: Vector3<i32>,
         world: &mut crate::world::World,
         falling_blocks: &mut crate::falling_block::FallingBlockSystem,
-    ) {
-        use crate::chunk::BlockType;
+    ) -> Vec<FallingBlockSpawnEvent> {
+        let mut spawn_events = Vec::new();
+
         if !y_in_bounds(pos.y) {
-            return;
+            return spawn_events;
         }
 
         if let Some(block) = world.get_block(pos) {
@@ -280,6 +313,12 @@ impl BlockUpdateQueue {
                         world.set_block(p, BlockType::Air);
                         world.invalidate_minimap_cache(p.x, p.z);
                         falling_blocks.spawn(p, bt);
+
+                        // Record spawn event for multiplayer sync
+                        spawn_events.push(FallingBlockSpawnEvent {
+                            position: p,
+                            block_type: bt,
+                        });
 
                         let above_pos = p + Vector3::new(0, 1, 0);
 
@@ -303,6 +342,8 @@ impl BlockUpdateQueue {
                 }
             }
         }
+
+        spawn_events
     }
 
     fn process_orphaned_leaves_update(
@@ -310,10 +351,11 @@ impl BlockUpdateQueue {
         pos: Vector3<i32>,
         world: &mut crate::world::World,
         falling_blocks: &mut crate::falling_block::FallingBlockSystem,
-    ) {
-        use crate::chunk::BlockType;
+    ) -> Vec<FallingBlockSpawnEvent> {
+        let mut spawn_events = Vec::new();
+
         if !y_in_bounds(pos.y) {
-            return;
+            return spawn_events;
         }
 
         if let Some(block) = world.get_block(pos) {
@@ -327,6 +369,12 @@ impl BlockUpdateQueue {
                         world.set_block(p, BlockType::Air);
                         world.invalidate_minimap_cache(p.x, p.z);
                         falling_blocks.spawn(p, bt);
+
+                        // Record spawn event for multiplayer sync
+                        spawn_events.push(FallingBlockSpawnEvent {
+                            position: p,
+                            block_type: bt,
+                        });
 
                         let above_pos = p + Vector3::new(0, 1, 0);
 
@@ -350,6 +398,8 @@ impl BlockUpdateQueue {
                 }
             }
         }
+
+        spawn_events
     }
 
     fn process_model_ground_support_update(
