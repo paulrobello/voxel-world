@@ -66,7 +66,7 @@ Implement all missing multiplayer synchronization points documented in SYNC.md. 
 - [x] Ensure `process_model_ground_support_update()` runs server-side only in multiplayer
 - [x] Torch/fence/gate breaks broadcast as `BlockChanged(Air)`
 - [x] Clients render break particles locally
-- [ ] Test: Torch breaks for all players when support removed
+- [x] Test: Torch breaks for all players when support removed
 
 ## P2: Medium Priority Sync Points
 
