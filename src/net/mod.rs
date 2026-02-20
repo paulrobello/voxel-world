@@ -76,6 +76,7 @@ pub mod block_sync;
 pub mod channel;
 pub mod chunk_sync;
 pub mod client;
+pub mod day_cycle_sync;
 pub mod discovery;
 pub mod falling_block_sync;
 pub mod lava_sync;
