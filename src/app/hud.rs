@@ -100,6 +100,7 @@ pub fn render_hud(
             water_grid: &sim.water_grid,
             picture_library: &sim.picture_library,
             active_placement: &mut ui.active_placement,
+            active_stencil_placement: &mut ui.active_stencil_placement,
             rangefinder_active: ui.rangefinder_active,
             flood_fill_active: ui.flood_fill_active,
             measurement_markers: &mut ui.measurement_markers,
@@ -1185,5 +1186,20 @@ fn handle_multiplayer_action(
     if action.stop_discovery {
         multiplayer.stop_discovery();
         println!("[Multiplayer] Stopped LAN discovery");
+    }
+
+    // Handle stencil broadcast (when hosting)
+    if let Some((stencil_id, name, compressed_data)) = &action.broadcast_stencil_loaded {
+        if multiplayer.is_hosting() {
+            multiplayer.broadcast_stencil_loaded(
+                *stencil_id,
+                name.clone(),
+                compressed_data.clone(),
+            );
+            println!(
+                "[Multiplayer] Broadcast StencilLoaded: id={} name='{}'",
+                stencil_id, name
+            );
+        }
     }
 }

@@ -669,6 +669,61 @@ impl GameServer {
         }
     }
 
+    /// Broadcasts a stencil load to all clients.
+    /// Used for multiplayer stencil synchronization when a player loads a stencil.
+    pub fn broadcast_stencil_loaded(
+        &mut self,
+        stencil_id: u64,
+        name: String,
+        stencil_data: Vec<u8>,
+    ) {
+        use crate::net::protocol::StencilLoaded;
+        let msg = ServerMessage::StencilLoaded(StencilLoaded {
+            stencil_id,
+            name,
+            stencil_data,
+        });
+        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+            self.server
+                .broadcast_message(2, renet::Bytes::from(encoded)); // Channel 2 = GameState
+            println!("[Server] Broadcast StencilLoaded to all clients");
+        }
+    }
+
+    /// Broadcasts a stencil transform update to all clients.
+    pub fn broadcast_stencil_transform(
+        &mut self,
+        stencil_id: u64,
+        position: [i32; 3],
+        rotation: u8,
+    ) {
+        use crate::net::protocol::StencilTransformUpdate;
+        let msg = ServerMessage::StencilTransformUpdate(StencilTransformUpdate {
+            stencil_id,
+            position,
+            rotation,
+        });
+        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+            self.server
+                .broadcast_message(2, renet::Bytes::from(encoded)); // Channel 2 = GameState
+            println!(
+                "[Server] Broadcast StencilTransformUpdate: id={} pos={:?} rot={}",
+                stencil_id, position, rotation
+            );
+        }
+    }
+
+    /// Broadcasts a stencil removal to all clients.
+    pub fn broadcast_stencil_removed(&mut self, stencil_id: u64) {
+        use crate::net::protocol::StencilRemoved;
+        let msg = ServerMessage::StencilRemoved(StencilRemoved { stencil_id });
+        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+            self.server
+                .broadcast_message(2, renet::Bytes::from(encoded)); // Channel 2 = GameState
+            println!("[Server] Broadcast StencilRemoved: id={}", stencil_id);
+        }
+    }
+
     /// Receives messages from clients.
     /// Returns an iterator of (client_id, channel_id, message_data).
     pub fn receive_messages(&mut self) -> impl Iterator<Item = (u64, u8, Vec<u8>)> + '_ {

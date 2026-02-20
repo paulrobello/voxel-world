@@ -2,14 +2,25 @@
 
 use super::FluidStats;
 use crate::console::ConsoleState;
+use crate::stencils::StencilPlacementMode;
 use crate::templates::TemplatePlacement;
 use egui_winit_vulkano::egui;
 use nalgebra::Vector3;
+
+/// Result of console actions that need to be handled by the caller.
+#[derive(Default)]
+pub struct ConsoleAction {
+    /// Stencil that was loaded and needs to be broadcast to multiplayer.
+    pub stencil_loaded: Option<crate::stencils::StencilFile>,
+}
 
 pub struct ConsoleUI;
 
 impl ConsoleUI {
     /// Draw the command console UI.
+    ///
+    /// Returns a ConsoleAction with any actions that need to be handled by the caller,
+    /// such as broadcasting stencil loads to multiplayer.
     #[allow(clippy::too_many_arguments)]
     pub fn draw_console(
         ctx: &egui::Context,
@@ -23,10 +34,12 @@ impl ConsoleUI {
         water_grid: &crate::water::WaterGrid,
         picture_library: &crate::pictures::PictureLibrary,
         active_placement: &mut Option<TemplatePlacement>,
+        active_stencil_placement: &mut Option<StencilPlacementMode>,
         terrain_generator: &crate::terrain_gen::TerrainGenerator,
         cave_generator: &crate::cave_gen::CaveGenerator,
         measurement_markers: &mut Vec<Vector3<i32>>,
-    ) {
+    ) -> ConsoleAction {
+        let mut action = ConsoleAction::default();
         if !console.active {
             // Still update pending searches even when console is closed
             if let Some(mut search) = console.pending_locate_search.take() {
@@ -80,7 +93,7 @@ impl ConsoleUI {
                     console.pending_locate_search = Some(search);
                 }
             }
-            return;
+            return action;
         }
 
         // Update pending locate search if active
@@ -287,6 +300,19 @@ impl ConsoleUI {
                                     Some(TemplatePlacement::new(template, placement_pos));
                             }
 
+                            // Handle pending stencil load
+                            if let Some(stencil) = console.pending_stencil_load.take() {
+                                let placement_pos = Vector3::new(
+                                    player_world_pos.x.floor() as i32,
+                                    player_world_pos.y.floor() as i32,
+                                    player_world_pos.z.floor() as i32,
+                                );
+                                *active_stencil_placement =
+                                    Some(StencilPlacementMode::new(stencil.clone(), placement_pos));
+                                // Store for multiplayer broadcast
+                                action.stencil_loaded = Some(stencil);
+                            }
+
                             // Handle pending fluid debug output
                             if console.pending_fluid_debug {
                                 console.output_fluid_debug(
@@ -374,5 +400,6 @@ impl ConsoleUI {
                     });
                 }
             });
+        action
     }
 }

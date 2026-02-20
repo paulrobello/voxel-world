@@ -84,6 +84,12 @@ pub struct MultiplayerState {
     pending_spawn_position: Option<crate::net::protocol::SpawnPositionChanged>,
     /// Pending frame picture set updates from server (client-side).
     pending_frame_picture_sets: Vec<crate::net::protocol::FramePictureSet>,
+    /// Pending stencil load events received from server (client-side).
+    pending_stencil_loads: Vec<crate::net::protocol::StencilLoaded>,
+    /// Pending stencil transform updates received from server (client-side).
+    pending_stencil_transforms: Vec<crate::net::protocol::StencilTransformUpdate>,
+    /// Pending stencil removals received from server (client-side).
+    pending_stencil_removals: Vec<crate::net::protocol::StencilRemoved>,
     /// Water sync bandwidth optimizer (server-side, when hosting).
     water_sync_optimizer: WaterSyncOptimizer,
 
@@ -146,6 +152,9 @@ impl MultiplayerState {
             pending_time_update: None,
             pending_spawn_position: None,
             pending_frame_picture_sets: Vec::new(),
+            pending_stencil_loads: Vec::new(),
+            pending_stencil_transforms: Vec::new(),
+            pending_stencil_removals: Vec::new(),
             water_sync_optimizer: WaterSyncOptimizer::new(),
             discovery: None,
             discovery_responder: None,
@@ -926,6 +935,29 @@ impl MultiplayerState {
                 );
                 // Picture metadata is received; actual PNG data would be requested separately if needed
             }
+            ServerMessage::StencilLoaded(stencil) => {
+                println!(
+                    "[Client] Received StencilLoaded: id={} name='{}' ({} bytes)",
+                    stencil.stencil_id,
+                    stencil.name,
+                    stencil.stencil_data.len()
+                );
+                self.pending_stencil_loads.push(stencil.clone());
+            }
+            ServerMessage::StencilTransformUpdate(transform) => {
+                println!(
+                    "[Client] Received StencilTransformUpdate: id={} pos={:?} rot={}",
+                    transform.stencil_id, transform.position, transform.rotation
+                );
+                self.pending_stencil_transforms.push(transform.clone());
+            }
+            ServerMessage::StencilRemoved(removed) => {
+                println!(
+                    "[Client] Received StencilRemoved: id={}",
+                    removed.stencil_id
+                );
+                self.pending_stencil_removals.push(removed.clone());
+            }
             _ => {}
         }
     }
@@ -1617,5 +1649,78 @@ impl MultiplayerState {
     /// Returns true if there are pending frame picture set updates to apply.
     pub fn has_pending_frame_picture_sets(&self) -> bool {
         !self.pending_frame_picture_sets.is_empty()
+    }
+
+    // ========================================================================
+    // Stencil Sync Methods
+    // ========================================================================
+
+    /// Broadcasts a stencil load to all clients (server-side, when hosting).
+    ///
+    /// # Arguments
+    /// * `stencil_id` - Unique ID for the stencil
+    /// * `name` - Stencil name
+    /// * `stencil_data` - Compressed StencilFile bytes
+    pub fn broadcast_stencil_loaded(
+        &mut self,
+        stencil_id: u64,
+        name: String,
+        stencil_data: Vec<u8>,
+    ) {
+        if let Some(ref mut server) = self.server {
+            server.broadcast_stencil_loaded(stencil_id, name, stencil_data);
+        }
+    }
+
+    /// Broadcasts a stencil transform update to all clients (server-side, when hosting).
+    pub fn broadcast_stencil_transform(
+        &mut self,
+        stencil_id: u64,
+        position: [i32; 3],
+        rotation: u8,
+    ) {
+        if let Some(ref mut server) = self.server {
+            server.broadcast_stencil_transform(stencil_id, position, rotation);
+        }
+    }
+
+    /// Broadcasts a stencil removal to all clients (server-side, when hosting).
+    pub fn broadcast_stencil_removed(&mut self, stencil_id: u64) {
+        if let Some(ref mut server) = self.server {
+            server.broadcast_stencil_removed(stencil_id);
+        }
+    }
+
+    /// Takes all pending stencil loads and clears the queue.
+    /// Call this from the game loop to apply stencil loads to the local stencil manager.
+    pub fn take_pending_stencil_loads(&mut self) -> Vec<crate::net::protocol::StencilLoaded> {
+        std::mem::take(&mut self.pending_stencil_loads)
+    }
+
+    /// Returns true if there are pending stencil loads to apply.
+    pub fn has_pending_stencil_loads(&self) -> bool {
+        !self.pending_stencil_loads.is_empty()
+    }
+
+    /// Takes all pending stencil transform updates and clears the queue.
+    pub fn take_pending_stencil_transforms(
+        &mut self,
+    ) -> Vec<crate::net::protocol::StencilTransformUpdate> {
+        std::mem::take(&mut self.pending_stencil_transforms)
+    }
+
+    /// Returns true if there are pending stencil transform updates to apply.
+    pub fn has_pending_stencil_transforms(&self) -> bool {
+        !self.pending_stencil_transforms.is_empty()
+    }
+
+    /// Takes all pending stencil removals and clears the queue.
+    pub fn take_pending_stencil_removals(&mut self) -> Vec<crate::net::protocol::StencilRemoved> {
+        std::mem::take(&mut self.pending_stencil_removals)
+    }
+
+    /// Returns true if there are pending stencil removals to apply.
+    pub fn has_pending_stencil_removals(&self) -> bool {
+        !self.pending_stencil_removals.is_empty()
     }
 }

@@ -90,7 +90,7 @@ Implement all missing multiplayer synchronization points documented in SYNC.md. 
 - [x] Add `ServerMessage::StencilLoaded(StencilLoaded)` with stencil_id, compressed data
 - [x] Add `ServerMessage::StencilTransformUpdate(StencilTransformUpdate)` with stencil_id, position, rotation
 - [x] Add `ServerMessage::StencilRemoved(StencilRemoved)` with stencil_id
-- [ ] Server broadcasts stencil loads from console commands
+- [x] Server broadcasts stencil loads from console commands
 - [ ] Sync stencil transforms when moved/rotated
 - [ ] Sync stencil removal
 - [ ] Test: Stencil visible to all players, transforms sync

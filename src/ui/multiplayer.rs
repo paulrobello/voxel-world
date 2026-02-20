@@ -106,6 +106,9 @@ pub struct MultiplayerAction {
     pub start_discovery: bool,
     /// Request to stop LAN discovery.
     pub stop_discovery: bool,
+    /// Request to broadcast a stencil load to all clients (when hosting).
+    /// Contains (stencil_id, name, compressed_data).
+    pub broadcast_stencil_loaded: Option<(u64, String, Vec<u8>)>,
 }
 
 impl MultiplayerAction {

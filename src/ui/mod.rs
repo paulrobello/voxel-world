@@ -156,6 +156,7 @@ pub struct HudInputs<'a> {
     pub water_grid: &'a crate::water::WaterGrid,
     pub picture_library: &'a crate::pictures::PictureLibrary,
     pub active_placement: &'a mut Option<crate::templates::TemplatePlacement>,
+    pub active_stencil_placement: &'a mut Option<crate::stencils::StencilPlacementMode>,
     pub rangefinder_active: bool,
     pub flood_fill_active: bool,
     pub measurement_markers: &'a mut Vec<Vector3<i32>>,
@@ -256,6 +257,7 @@ impl HUDRenderer {
             water_grid,
             picture_library,
             active_placement,
+            active_stencil_placement,
             rangefinder_active,
             flood_fill_active,
             measurement_markers,
@@ -545,7 +547,7 @@ impl HUDRenderer {
             // Set raycast hit for commands that use crosshair targeting (e.g., floodfill)
             console.raycast_hit = current_hit.as_ref().map(|hit| hit.block_pos);
 
-            ConsoleUI::draw_console(
+            let console_action = ConsoleUI::draw_console(
                 &ctx,
                 console,
                 world,
@@ -557,10 +559,32 @@ impl HUDRenderer {
                 water_grid,
                 picture_library,
                 active_placement,
+                active_stencil_placement,
                 terrain_generator,
                 cave_generator,
                 measurement_markers,
             );
+
+            // Handle stencil load for multiplayer broadcast
+            if let Some(stencil) = console_action.stencil_loaded {
+                // Generate a unique stencil ID (use timestamp + random)
+                let stencil_id = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis() as u64)
+                    .unwrap_or(0);
+                let name = stencil.name.clone();
+
+                // Serialize the stencil for network transmission
+                match stencil.to_bytes() {
+                    Ok(compressed_data) => {
+                        multiplayer_action.broadcast_stencil_loaded =
+                            Some((stencil_id, name, compressed_data));
+                    }
+                    Err(e) => {
+                        eprintln!("[Console] Failed to serialize stencil for broadcast: {}", e);
+                    }
+                }
+            }
 
             // Template placement overlay
             if let Some(placement) = active_placement {
