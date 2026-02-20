@@ -215,6 +215,12 @@ impl LavaGrid {
         self.cells.get(&pos).map(|c| c.is_source).unwrap_or(false)
     }
 
+    /// Gets the lava cell at a position, if it exists.
+    #[inline]
+    pub fn get_cell(&self, pos: Vector3<i32>) -> Option<&LavaCell> {
+        self.cells.get(&pos)
+    }
+
     pub fn set_lava(&mut self, pos: Vector3<i32>, mass: f32, is_source: bool) {
         if mass <= MIN_MASS && !is_source {
             self.cells.remove(&pos);

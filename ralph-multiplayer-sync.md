@@ -34,7 +34,7 @@ Implement all missing multiplayer synchronization points documented in SYNC.md. 
 - [x] Add `ClientMessage::PlaceLavaSource(PlaceLavaSource)` for lava bucket placement
 - [x] Modify `LavaGrid` similar to water grid for server-authoritative sync
 - [x] Ensure lava/water cobblestone interaction is synced
-- [ ] Test: Both clients see same lava levels and cobblestone formation
+- [x] Test: Both clients see same lava levels and cobblestone formation
 
 ### Falling Block Entities
 - [x] Add `ServerMessage::FallingBlockSpawned(FallingBlockSpawned)` with entity_id, position, velocity, block_type
