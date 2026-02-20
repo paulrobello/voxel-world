@@ -943,6 +943,12 @@ impl MultiplayerState {
         self.mode == GameMode::Host
     }
 
+    /// Returns true if we are a pure client (connected to remote server).
+    /// Pure clients should NOT process physics locally - the server is authoritative.
+    pub fn is_client(&self) -> bool {
+        self.mode == GameMode::Client
+    }
+
     /// Returns the local player ID (if connected).
     pub fn local_player_id(&self) -> Option<u64> {
         self.client.as_ref().and_then(|c| c.player_id())

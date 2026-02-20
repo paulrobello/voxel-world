@@ -551,34 +551,38 @@ impl App {
         });
 
         // Update falling blocks with world collision
-        // Note: X and Z can be any value in an infinite world, only Y has bounds
-        let landed = self
-            .sim
-            .falling_blocks
-            .update(delta_time as f32, |x, y, z| {
-                // Y bounds check only (X and Z are infinite)
-                if y < 0 || y >= TEXTURE_SIZE_Y as i32 {
-                    return false;
-                }
-                // Check if block is solid - world.get_block handles infinite X/Z
-                world
-                    .get_block(Vector3::new(x, y, z))
-                    .is_some_and(|b| b.is_solid())
-            });
+        // Server-authoritative: Only process physics on server (host) or in single-player
+        // Pure clients only spawn/render falling blocks based on network messages
+        if !self.multiplayer.is_client() {
+            // Note: X and Z can be any value in an infinite world, only Y has bounds
+            let landed = self
+                .sim
+                .falling_blocks
+                .update(delta_time as f32, |x, y, z| {
+                    // Y bounds check only (X and Z are infinite)
+                    if y < 0 || y >= TEXTURE_SIZE_Y as i32 {
+                        return false;
+                    }
+                    // Check if block is solid - world.get_block handles infinite X/Z
+                    world
+                        .get_block(Vector3::new(x, y, z))
+                        .is_some_and(|b| b.is_solid())
+                });
 
-        // Process any blocks that have landed
-        if !landed.is_empty() {
-            // When hosting, broadcast landings to all clients
-            if self.multiplayer.is_host() {
-                for lb in &landed {
-                    self.multiplayer.broadcast_falling_block_land(
-                        0, // entity_id = 0 for legacy sync without tracking
-                        [lb.position.x, lb.position.y, lb.position.z],
-                        lb.block_type,
-                    );
+            // Process any blocks that have landed
+            if !landed.is_empty() {
+                // When hosting, broadcast landings to all clients
+                if self.multiplayer.is_host() {
+                    for lb in &landed {
+                        self.multiplayer.broadcast_falling_block_land(
+                            0, // entity_id = 0 for legacy sync without tracking
+                            [lb.position.x, lb.position.y, lb.position.z],
+                            lb.block_type,
+                        );
+                    }
                 }
+                self.process_landed_blocks(landed);
             }
-            self.process_landed_blocks(landed);
         }
 
         // Process incoming falling block messages from server (client-side)
@@ -609,34 +613,40 @@ impl App {
         }
 
         // Process queued block physics updates (frame-distributed to prevent FPS spikes)
-        let player_pos_f32 = self
-            .sim
-            .player
-            .feet_pos(self.sim.world_extent, self.sim.texture_origin)
-            .cast::<f32>();
-        let spawn_events = self.sim.block_updates.process_updates(
-            &mut self.sim.world,
-            &mut self.sim.falling_blocks,
-            &mut self.sim.particles,
-            &self.sim.model_registry,
-            player_pos_f32,
-        );
+        // Server-authoritative: Only process physics on server (host) or in single-player
+        // Pure clients receive physics results from server via network messages
+        if !self.multiplayer.is_client() {
+            let player_pos_f32 = self
+                .sim
+                .player
+                .feet_pos(self.sim.world_extent, self.sim.texture_origin)
+                .cast::<f32>();
+            let spawn_events = self.sim.block_updates.process_updates(
+                &mut self.sim.world,
+                &mut self.sim.falling_blocks,
+                &mut self.sim.particles,
+                &self.sim.model_registry,
+                player_pos_f32,
+            );
 
-        // Broadcast falling block spawns to all clients when hosting
-        if self.multiplayer.is_host() && !spawn_events.is_empty() {
-            for event in spawn_events {
-                let position = [
-                    event.position.x as f32 + 0.5,
-                    event.position.y as f32 + 0.5,
-                    event.position.z as f32 + 0.5,
-                ];
-                self.multiplayer
-                    .broadcast_falling_block_spawn(position, event.block_type);
+            // Broadcast falling block spawns to all clients when hosting
+            if self.multiplayer.is_host() && !spawn_events.is_empty() {
+                for event in spawn_events {
+                    let position = [
+                        event.position.x as f32 + 0.5,
+                        event.position.y as f32 + 0.5,
+                        event.position.z as f32 + 0.5,
+                    ];
+                    self.multiplayer
+                        .broadcast_falling_block_spawn(position, event.block_type);
+                }
             }
         }
 
         // Process water flow simulation (frame-distributed)
-        if self.ui.settings.water_simulation_enabled {
+        // Server-authoritative: Only process simulation on server (host) or in single-player
+        // Pure clients receive water/lava state from server via network messages
+        if self.ui.settings.water_simulation_enabled && !self.multiplayer.is_client() {
             let player_pos_f32 = self
                 .sim
                 .player
