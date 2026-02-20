@@ -513,6 +513,16 @@ pub struct PictureAdded {
     pub name: String,
 }
 
+/// Notification that a picture frame was assigned a picture.
+/// Sent by the server when a player sets a picture in a frame.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FramePictureSet {
+    /// World position of the picture frame block.
+    pub position: [i32; 3],
+    /// Assigned picture ID (None if cleared).
+    pub picture_id: Option<u16>,
+}
+
 /// All messages that can be sent from server to client.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ServerMessage {
@@ -550,6 +560,8 @@ pub enum ServerMessage {
     ModelAdded(ModelAdded),
     /// Notification of new picture added for picture frames.
     PictureAdded(PictureAdded),
+    /// Notification that a picture frame was assigned a picture.
+    FramePictureSet(FramePictureSet),
     /// Batch water cell updates (throttled to 2-5 Hz).
     WaterCellsChanged(WaterCellsChanged),
     /// Batch lava cell updates (throttled to 2-5 Hz).
@@ -878,6 +890,59 @@ mod tests {
                 assert_eq!(picture.name, "landscape.png");
             }
             _ => panic!("Expected PictureAdded variant"),
+        }
+    }
+
+    #[test]
+    fn test_frame_picture_set_serialization() {
+        // Test FramePictureSet struct serialization
+        let frame_msg = FramePictureSet {
+            position: [10, 20, 30],
+            picture_id: Some(42),
+        };
+        let encoded =
+            bincode::serde::encode_to_vec(&frame_msg, bincode::config::standard()).unwrap();
+        let decoded: FramePictureSet =
+            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
+                .unwrap()
+                .0;
+        assert_eq!(decoded.position, [10, 20, 30]);
+        assert_eq!(decoded.picture_id, Some(42));
+
+        // Test with None (cleared picture)
+        let cleared_msg = FramePictureSet {
+            position: [5, 6, 7],
+            picture_id: None,
+        };
+        let encoded =
+            bincode::serde::encode_to_vec(&cleared_msg, bincode::config::standard()).unwrap();
+        let decoded: FramePictureSet =
+            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
+                .unwrap()
+                .0;
+        assert_eq!(decoded.position, [5, 6, 7]);
+        assert_eq!(decoded.picture_id, None);
+    }
+
+    #[test]
+    fn test_server_message_frame_picture_set() {
+        // Test ServerMessage::FramePictureSet serialization
+        let msg = ServerMessage::FramePictureSet(FramePictureSet {
+            position: [100, 64, -50],
+            picture_id: Some(5),
+        });
+        let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
+        let decoded: ServerMessage =
+            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
+                .unwrap()
+                .0;
+
+        match decoded {
+            ServerMessage::FramePictureSet(frame) => {
+                assert_eq!(frame.position, [100, 64, -50]);
+                assert_eq!(frame.picture_id, Some(5));
+            }
+            _ => panic!("Expected FramePictureSet variant"),
         }
     }
 }
