@@ -85,6 +85,7 @@ pub mod protocol;
 pub mod server;
 pub mod server_thread;
 pub mod texture_slots;
+pub mod tree_fall_sync;
 pub mod water_sync;
 
 // Re-export main types for convenience
@@ -127,6 +128,8 @@ pub use texture_slots::{
     CustomTextureCache, DEFAULT_MAX_TEXTURE_SLOTS, TEXTURE_SIZE, TexturePoolMetadata,
     TextureSlotManager,
 };
+#[allow(unused_imports)]
+pub use tree_fall_sync::{ClientTreeFallHandler, TreeFallSync, TreeFallSyncStats};
 #[allow(unused_imports)]
 pub use water_sync::{WaterSyncOptimizer, WaterSyncStats};
 
