@@ -78,6 +78,8 @@ pub struct MultiplayerState {
     pub pending_day_cycle_pause: Option<crate::net::protocol::DayCyclePauseChanged>,
     /// Pending time of day update from server (client-side).
     pub pending_time_update: Option<f32>,
+    /// Pending spawn position update from server (client-side).
+    pending_spawn_position: Option<crate::net::protocol::SpawnPositionChanged>,
     /// Water sync bandwidth optimizer (server-side, when hosting).
     water_sync_optimizer: WaterSyncOptimizer,
 
@@ -137,6 +139,7 @@ impl MultiplayerState {
             pending_tree_falls: Vec::new(),
             pending_day_cycle_pause: None,
             pending_time_update: None,
+            pending_spawn_position: None,
             water_sync_optimizer: WaterSyncOptimizer::new(),
             discovery: None,
             discovery_responder: None,
@@ -886,6 +889,13 @@ impl MultiplayerState {
                 println!("[Client] Received TimeUpdate: {:.3}", time.time_of_day);
                 self.pending_time_update = Some(time.time_of_day);
             }
+            ServerMessage::SpawnPositionChanged(spawn) => {
+                println!(
+                    "[Client] Received SpawnPositionChanged: ({:.1}, {:.1}, {:.1})",
+                    spawn.position[0], spawn.position[1], spawn.position[2]
+                );
+                self.pending_spawn_position = Some(spawn.clone());
+            }
             _ => {}
         }
     }
@@ -1487,5 +1497,28 @@ impl MultiplayerState {
     /// Returns true if there's a pending time update.
     pub fn has_pending_time_update(&self) -> bool {
         self.pending_time_update.is_some()
+    }
+
+    /// Broadcasts spawn position change to all clients (server-side, when hosting).
+    ///
+    /// # Arguments
+    /// * `position` - New spawn position in world coordinates
+    pub fn broadcast_spawn_position(&mut self, position: [f32; 3]) {
+        if let Some(ref mut server) = self.server {
+            server.broadcast_spawn_position(position);
+        }
+    }
+
+    /// Takes pending spawn position update (client-side).
+    /// Returns None if no pending update.
+    pub fn take_pending_spawn_position(
+        &mut self,
+    ) -> Option<crate::net::protocol::SpawnPositionChanged> {
+        self.pending_spawn_position.take()
+    }
+
+    /// Returns true if there's a pending spawn position update.
+    pub fn has_pending_spawn_position(&self) -> bool {
+        self.pending_spawn_position.is_some()
     }
 }

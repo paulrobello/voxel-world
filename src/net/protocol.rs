@@ -414,6 +414,14 @@ pub struct DayCyclePauseChanged {
     pub time_of_day: f32,
 }
 
+/// Spawn position synchronization.
+/// Sent by the server when the spawn point changes (e.g., via console command).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SpawnPositionChanged {
+    /// New spawn position in world coordinates.
+    pub position: [f32; 3],
+}
+
 /// Connection accepted response from server.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConnectionAccepted {
@@ -508,6 +516,8 @@ pub enum ServerMessage {
     TimeUpdate(TimeUpdate),
     /// Day cycle pause state changed.
     DayCyclePauseChanged(DayCyclePauseChanged),
+    /// Spawn position changed.
+    SpawnPositionChanged(SpawnPositionChanged),
     /// Sync custom models from server.
     ModelRegistrySync(ModelRegistrySync),
     /// Texture data response.
@@ -758,6 +768,53 @@ mod tests {
                 assert!((pause.time_of_day - 0.75).abs() < f32::EPSILON);
             }
             _ => panic!("Expected DayCyclePauseChanged variant"),
+        }
+    }
+
+    #[test]
+    fn test_spawn_position_changed_serialization() {
+        // Test SpawnPositionChanged message serialization
+        let spawn_msg = SpawnPositionChanged {
+            position: [100.0, 64.0, 200.0],
+        };
+        let encoded =
+            bincode::serde::encode_to_vec(&spawn_msg, bincode::config::standard()).unwrap();
+        let decoded: SpawnPositionChanged =
+            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
+                .unwrap()
+                .0;
+        assert_eq!(spawn_msg.position, decoded.position);
+
+        // Test with different values
+        let spawn_msg2 = SpawnPositionChanged {
+            position: [-50.5, 128.0, -75.25],
+        };
+        let encoded2 =
+            bincode::serde::encode_to_vec(&spawn_msg2, bincode::config::standard()).unwrap();
+        let decoded2: SpawnPositionChanged =
+            bincode::serde::decode_from_slice(&encoded2, bincode::config::standard())
+                .unwrap()
+                .0;
+        assert_eq!(spawn_msg2.position, decoded2.position);
+    }
+
+    #[test]
+    fn test_server_message_spawn_position_changed() {
+        // Test ServerMessage::SpawnPositionChanged serialization
+        let msg = ServerMessage::SpawnPositionChanged(SpawnPositionChanged {
+            position: [150.0, 70.0, 250.0],
+        });
+        let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
+        let decoded: ServerMessage =
+            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
+                .unwrap()
+                .0;
+
+        match decoded {
+            ServerMessage::SpawnPositionChanged(spawn) => {
+                assert_eq!(spawn.position, [150.0, 70.0, 250.0]);
+            }
+            _ => panic!("Expected SpawnPositionChanged variant"),
         }
     }
 }

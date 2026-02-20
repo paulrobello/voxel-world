@@ -481,6 +481,21 @@ impl GameServer {
         }
     }
 
+    /// Broadcasts spawn position change to all clients.
+    /// Used when the spawn point is changed (e.g., via console command).
+    pub fn broadcast_spawn_position(&mut self, position: [f32; 3]) {
+        use crate::net::protocol::SpawnPositionChanged;
+        let msg = ServerMessage::SpawnPositionChanged(SpawnPositionChanged { position });
+        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+            self.server
+                .broadcast_message(2, renet::Bytes::from(encoded));
+            println!(
+                "[Server] Broadcast SpawnPositionChanged: ({:.1}, {:.1}, {:.1})",
+                position[0], position[1], position[2]
+            );
+        }
+    }
+
     /// Broadcasts a new custom model to all clients.
     pub fn broadcast_model_added(
         &mut self,

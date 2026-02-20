@@ -71,7 +71,7 @@ Implement all missing multiplayer synchronization points documented in SYNC.md. 
 ## P2: Medium Priority Sync Points
 
 ### Spawn Position Updates
-- [ ] Add `ServerMessage::SpawnPositionChanged(SpawnPositionChanged)` with position
+- [x] Add `ServerMessage::SpawnPositionChanged(SpawnPositionChanged)` with position
 - [ ] Hook into spawn position changes (e.g., via console command)
 - [ ] Broadcast to all clients when spawn changes
 - [ ] Client updates local spawn point from server message
