@@ -503,6 +503,16 @@ pub struct ModelAdded {
     pub model_data: Vec<u8>,
 }
 
+/// Notification that a new picture was added for picture frames.
+/// Sent by the server after a client uploads a picture via UploadPicture.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PictureAdded {
+    /// Assigned picture ID.
+    pub picture_id: u16,
+    /// Picture name.
+    pub name: String,
+}
+
 /// All messages that can be sent from server to client.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ServerMessage {
@@ -538,6 +548,8 @@ pub enum ServerMessage {
     TextureAdded(TextureAdded),
     /// Notification of new custom model added.
     ModelAdded(ModelAdded),
+    /// Notification of new picture added for picture frames.
+    PictureAdded(PictureAdded),
     /// Batch water cell updates (throttled to 2-5 Hz).
     WaterCellsChanged(WaterCellsChanged),
     /// Batch lava cell updates (throttled to 2-5 Hz).
@@ -827,6 +839,45 @@ mod tests {
                 assert_eq!(spawn.position, [150.0, 70.0, 250.0]);
             }
             _ => panic!("Expected SpawnPositionChanged variant"),
+        }
+    }
+
+    #[test]
+    fn test_picture_added_serialization() {
+        // Test PictureAdded message serialization
+        let picture_msg = PictureAdded {
+            picture_id: 42,
+            name: "sunset.png".to_string(),
+        };
+        let encoded =
+            bincode::serde::encode_to_vec(&picture_msg, bincode::config::standard()).unwrap();
+        let decoded: PictureAdded =
+            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
+                .unwrap()
+                .0;
+        assert_eq!(picture_msg.picture_id, decoded.picture_id);
+        assert_eq!(picture_msg.name, decoded.name);
+    }
+
+    #[test]
+    fn test_server_message_picture_added() {
+        // Test ServerMessage::PictureAdded serialization
+        let msg = ServerMessage::PictureAdded(PictureAdded {
+            picture_id: 100,
+            name: "landscape.png".to_string(),
+        });
+        let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
+        let decoded: ServerMessage =
+            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
+                .unwrap()
+                .0;
+
+        match decoded {
+            ServerMessage::PictureAdded(picture) => {
+                assert_eq!(picture.picture_id, 100);
+                assert_eq!(picture.name, "landscape.png");
+            }
+            _ => panic!("Expected PictureAdded variant"),
         }
     }
 }
