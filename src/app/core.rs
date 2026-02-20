@@ -224,6 +224,16 @@ impl App {
                             player_pos,
                         );
                     }
+
+                    // If the removed block was a Model (torch/fence/gate), spawn break particles
+                    // This ensures clients see particle effects for ground support breaks
+                    if prev == BlockType::Model {
+                        // Use the same brown color as process_model_ground_support_update
+                        let particle_color = nalgebra::Vector3::new(0.5, 0.35, 0.2);
+                        self.sim
+                            .particles
+                            .spawn_block_break(pos.cast::<f32>(), particle_color);
+                    }
                 }
 
                 // Always queue tree support checks in radius (tree might have lost support)
