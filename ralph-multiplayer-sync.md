@@ -37,8 +37,8 @@ Implement all missing multiplayer synchronization points documented in SYNC.md. 
 - [ ] Test: Both clients see same lava levels and cobblestone formation
 
 ### Falling Block Entities
-- [ ] Add `ServerMessage::FallingBlockSpawned(FallingBlockSpawned)` with entity_id, position, velocity, block_type
-- [ ] Add `ServerMessage::FallingBlockLanded(FallingBlockLanded)` with entity_id, position, block_type
+- [x] Add `ServerMessage::FallingBlockSpawned(FallingBlockSpawned)` with entity_id, position, velocity, block_type
+- [x] Add `ServerMessage::FallingBlockLanded(FallingBlockLanded)` with entity_id, position, block_type
 - [ ] Modify server to simulate all falling blocks (not just host)
 - [ ] Broadcast spawn when block loses support
 - [ ] Broadcast landing when block comes to rest

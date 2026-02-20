@@ -275,6 +275,35 @@ pub struct LavaCellsChanged {
     pub updates: Vec<LavaCellUpdate>,
 }
 
+/// Entity ID type for falling blocks.
+pub type FallingBlockId = u32;
+
+/// Notification that a falling block has spawned.
+/// Sent by the server when a block loses support and starts falling.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FallingBlockSpawned {
+    /// Unique entity ID for this falling block.
+    pub entity_id: FallingBlockId,
+    /// Spawn position (world coordinates, center of block).
+    pub position: [f32; 3],
+    /// Initial velocity (typically zero, gravity is applied server-side).
+    pub velocity: [f32; 3],
+    /// The type of block that is falling.
+    pub block_type: BlockType,
+}
+
+/// Notification that a falling block has landed.
+/// Sent by the server when a falling block comes to rest.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FallingBlockLanded {
+    /// Entity ID of the falling block that landed.
+    pub entity_id: FallingBlockId,
+    /// Grid position where the block landed.
+    pub position: [i32; 3],
+    /// The type of block that landed.
+    pub block_type: BlockType,
+}
+
 /// Authoritative player state from server.
 /// Used for reconciliation when prediction differs.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -459,6 +488,10 @@ pub enum ServerMessage {
     WaterCellsChanged(WaterCellsChanged),
     /// Batch lava cell updates (throttled to 2-5 Hz).
     LavaCellsChanged(LavaCellsChanged),
+    /// Falling block spawned notification.
+    FallingBlockSpawned(FallingBlockSpawned),
+    /// Falling block landed notification.
+    FallingBlockLanded(FallingBlockLanded),
 }
 
 #[cfg(test)]
