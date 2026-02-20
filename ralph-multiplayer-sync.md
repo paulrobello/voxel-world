@@ -130,7 +130,7 @@ Implement all missing multiplayer synchronization points documented in SYNC.md. 
 
 ### Testing
 - [x] Manual test: Two clients, verify water placement syncs (automated: `test_water_sync_produces_identical_state` in `water_sync.rs`)
-- [ ] Manual test: Falling sand visible to both players
+- [x] Manual test: Falling sand visible to both players (automated: `test_falling_sand_visible_to_all_players` in `falling_block_sync.rs`)
 - [ ] Manual test: Tree fall cascades correctly
 - [ ] Manual test: Day/night pause syncs
 - [ ] Manual test: No state divergence after 5+ minutes gameplay
