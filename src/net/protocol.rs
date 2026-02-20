@@ -189,6 +189,14 @@ pub struct PlaceWaterSource {
     pub water_type: WaterType,
 }
 
+/// Client requests to place a lava source at a position.
+/// Server will process this authoritatively and broadcast to all clients.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlaceLavaSource {
+    /// World position (block coordinates) for the lava source.
+    pub position: [i32; 3],
+}
+
 /// All messages that can be sent from client to server.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ClientMessage {
@@ -212,6 +220,8 @@ pub enum ClientMessage {
     UploadTexture(UploadTexture),
     /// Place a water source (water bucket).
     PlaceWaterSource(PlaceWaterSource),
+    /// Place a lava source (lava bucket).
+    PlaceLavaSource(PlaceLavaSource),
 }
 
 // ============================================================================
@@ -242,6 +252,27 @@ pub struct WaterCellUpdate {
 pub struct WaterCellsChanged {
     /// List of water cell updates.
     pub updates: Vec<WaterCellUpdate>,
+}
+
+/// Single lava cell update for multiplayer synchronization.
+/// Sent by the server to all clients when lava state changes.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LavaCellUpdate {
+    /// World position of the lava cell.
+    pub position: [i32; 3],
+    /// Lava mass (0.0 to 1.0).
+    /// Mass <= 0 indicates the cell should be removed.
+    pub mass: f32,
+    /// Whether this is an infinite lava source.
+    pub is_source: bool,
+}
+
+/// Batch lava cell updates for multiplayer synchronization.
+/// Sent by the server at a throttled rate (2-5 Hz) to conserve bandwidth.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LavaCellsChanged {
+    /// List of lava cell updates.
+    pub updates: Vec<LavaCellUpdate>,
 }
 
 /// Authoritative player state from server.
@@ -426,6 +457,8 @@ pub enum ServerMessage {
     ModelAdded(ModelAdded),
     /// Batch water cell updates (throttled to 2-5 Hz).
     WaterCellsChanged(WaterCellsChanged),
+    /// Batch lava cell updates (throttled to 2-5 Hz).
+    LavaCellsChanged(LavaCellsChanged),
 }
 
 #[cfg(test)]

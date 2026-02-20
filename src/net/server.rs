@@ -320,6 +320,20 @@ impl GameServer {
         }
     }
 
+    /// Broadcasts lava cell changes to all clients.
+    /// Used for server-authoritative lava simulation sync.
+    pub fn broadcast_lava_cells_changed(
+        &mut self,
+        updates: Vec<crate::net::protocol::LavaCellUpdate>,
+    ) {
+        let msg =
+            ServerMessage::LavaCellsChanged(crate::net::protocol::LavaCellsChanged { updates });
+        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+            self.server
+                .broadcast_message(1, renet::Bytes::from(encoded)); // Channel 1 = BlockUpdates
+        }
+    }
+
     /// Sends chunk data to a specific client.
     pub fn send_chunk(&mut self, client_id: u64, chunk: ChunkData) {
         let msg = ServerMessage::ChunkData(chunk);

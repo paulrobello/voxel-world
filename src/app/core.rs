@@ -89,6 +89,34 @@ impl App {
         }
     }
 
+    /// Applies pending lava updates from the server to the local simulation.
+    /// Call this from the game loop to apply remote lava changes.
+    pub fn apply_remote_lava_updates(&mut self) {
+        if !self.multiplayer.has_pending_lava_updates() {
+            return;
+        }
+
+        let updates = self.multiplayer.take_pending_lava_updates();
+        for update in updates {
+            let pos =
+                nalgebra::Vector3::new(update.position[0], update.position[1], update.position[2]);
+
+            if update.mass <= 0.0 {
+                // Remove lava
+                self.sim.lava_grid.set_lava(pos, 0.0, false);
+                self.sim.world.set_block(pos, BlockType::Air);
+            } else if update.is_source {
+                // Add/update lava source
+                self.sim.lava_grid.place_source(pos);
+                self.sim.world.set_block(pos, BlockType::Lava);
+            } else {
+                // Add/update non-source lava
+                self.sim.lava_grid.set_lava(pos, update.mass, false);
+                self.sim.world.set_block(pos, BlockType::Lava);
+            }
+        }
+    }
+
     /// Applies pending block changes from the server to the world.
     /// Call this from the game loop to apply remote block changes.
     pub fn apply_remote_block_changes(&mut self) {

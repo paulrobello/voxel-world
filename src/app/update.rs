@@ -420,6 +420,9 @@ impl App {
             // Apply any remote water updates received from server
             self.apply_remote_water_updates();
 
+            // Apply any remote lava updates received from server
+            self.apply_remote_lava_updates();
+
             // Request chunks from server when in client mode (or as host's local client)
             // Both pure clients AND hosts need to request chunks (host has a local client)
             if self.multiplayer.mode == crate::config::GameMode::Client
@@ -601,11 +604,16 @@ impl App {
             }
 
             // Process lava flow simulation (uses same enabled flag as water)
-            self.sim.lava_grid.process_simulation(
+            let lava_updates = self.sim.lava_grid.process_simulation(
                 &mut self.sim.world,
                 &mut self.sim.water_grid,
                 player_pos_f32,
             );
+
+            // Broadcast lava updates to all clients when hosting
+            if self.multiplayer.is_host() && !lava_updates.is_empty() {
+                self.multiplayer.broadcast_lava_cell_updates(lava_updates);
+            }
         }
 
         self.handle_focused_controls(delta_time);

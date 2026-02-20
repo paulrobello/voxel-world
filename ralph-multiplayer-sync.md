@@ -29,11 +29,11 @@ Implement all missing multiplayer synchronization points documented in SYNC.md. 
 - [ ] Test: Both clients see same water levels after source placement
 
 ### Lava Simulation
-- [ ] Add `LavaCellUpdate` struct to protocol.rs (same fields as water)
-- [ ] Add `ServerMessage::LavaCellsChanged(LavaCellsChanged)` for batch lava updates
-- [ ] Add `ClientMessage::PlaceLavaSource(PlaceLavaSource)` for lava bucket placement
-- [ ] Modify `LavaGrid` similar to water grid for server-authoritative sync
-- [ ] Ensure lava/water cobblestone interaction is synced
+- [x] Add `LavaCellUpdate` struct to protocol.rs (same fields as water)
+- [x] Add `ServerMessage::LavaCellsChanged(LavaCellsChanged)` for batch lava updates
+- [x] Add `ClientMessage::PlaceLavaSource(PlaceLavaSource)` for lava bucket placement
+- [x] Modify `LavaGrid` similar to water grid for server-authoritative sync
+- [x] Ensure lava/water cobblestone interaction is synced
 - [ ] Test: Both clients see same lava levels and cobblestone formation
 
 ### Falling Block Entities

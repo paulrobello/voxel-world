@@ -122,6 +122,19 @@ impl FlowResult {
     }
 }
 
+/// Lava cell update for multiplayer synchronization.
+/// Contains all data needed to sync a single lava cell state.
+#[derive(Debug, Clone, Copy)]
+pub struct LavaCellSyncUpdate {
+    /// World position of the lava cell.
+    pub position: Vector3<i32>,
+    /// Lava mass (0.0 to 1.0).
+    /// Mass <= 0 indicates the cell was removed.
+    pub mass: f32,
+    /// Whether this is an infinite lava source.
+    pub is_source: bool,
+}
+
 /// Sparse storage for lava cells using HashMap.
 pub struct LavaGrid {
     cells: HashMap<Vector3<i32>, LavaCell>,
@@ -134,6 +147,8 @@ pub struct LavaGrid {
     pub tick_interval_ms: u64,
     /// Last time a simulation tick was run.
     last_tick: Instant,
+    /// Buffer for collecting sync updates (reused to avoid allocations)
+    sync_updates_buffer: Vec<LavaCellSyncUpdate>,
 }
 
 impl Default for LavaGrid {
@@ -153,6 +168,7 @@ impl LavaGrid {
             simulation_radius: DEFAULT_SIMULATION_RADIUS,
             tick_interval_ms: DEFAULT_TICK_INTERVAL_MS,
             last_tick: Instant::now(),
+            sync_updates_buffer: Vec::with_capacity(64),
         }
     }
 
@@ -389,7 +405,7 @@ impl LavaGrid {
     }
 
     /// Performs one tick of lava simulation.
-    /// Returns (changed_positions, water_lava_contacts) for block updates.
+    /// Returns (changed_positions, water_lava_contacts, sync_updates) for block updates and multiplayer sync.
     ///
     /// # Arguments
     /// * `has_world_lava` - Returns true if world has a Lava block at position (even without grid cell)
@@ -400,7 +416,11 @@ impl LavaGrid {
         has_water: Wtr,
         has_world_lava: Lva,
         player_pos: Vector3<f32>,
-    ) -> (Vec<Vector3<i32>>, Vec<Vector3<i32>>)
+    ) -> (
+        Vec<Vector3<i32>>,
+        Vec<Vector3<i32>>,
+        Vec<LavaCellSyncUpdate>,
+    )
     where
         F: Fn(Vector3<i32>) -> bool,
         B: Fn(Vector3<i32>) -> bool,
@@ -548,7 +568,31 @@ impl LavaGrid {
         water_contacts.sort_by(|a, b| (a.x, a.y, a.z).cmp(&(b.x, b.y, b.z)));
         water_contacts.dedup();
 
-        (changed_positions, water_contacts)
+        // Collect sync updates for multiplayer before moving the buffer
+        // This iterates over changed positions and creates sync updates with current cell state
+        self.sync_updates_buffer.clear();
+        for &pos in &changed_positions {
+            if let Some(cell) = self.cells.get(&pos) {
+                self.sync_updates_buffer.push(LavaCellSyncUpdate {
+                    position: pos,
+                    mass: cell.mass,
+                    is_source: cell.is_source,
+                });
+            } else {
+                // Cell was removed - send update with mass 0 to indicate removal
+                self.sync_updates_buffer.push(LavaCellSyncUpdate {
+                    position: pos,
+                    mass: 0.0,
+                    is_source: false,
+                });
+            }
+        }
+
+        let sync_out = std::mem::take(&mut self.sync_updates_buffer);
+        let sync_cap = sync_out.capacity().max(32);
+        self.sync_updates_buffer = Vec::with_capacity(sync_cap);
+
+        (changed_positions, water_contacts, sync_out)
     }
 
     pub fn cell_count(&self) -> usize {
@@ -596,16 +640,20 @@ impl LavaGrid {
         self.active.clear();
         self.pending_changes.clear();
         self.dirty_positions.clear();
+        self.sync_updates_buffer.clear();
     }
 
     /// Processes lava flow simulation.
     /// Uses tick_interval_ms to throttle simulation speed.
+    ///
+    /// Returns a list of lava cell updates for multiplayer synchronization.
+    /// When running as server, these should be broadcast to all connected clients.
     pub fn process_simulation(
         &mut self,
         world: &mut crate::world::World,
         water_grid: &mut crate::water::WaterGrid,
         player_pos: Vector3<f32>,
-    ) {
+    ) -> Vec<LavaCellSyncUpdate> {
         use crate::constants::TEXTURE_SIZE_Y;
 
         let texture_height = TEXTURE_SIZE_Y as i32;
@@ -626,7 +674,7 @@ impl LavaGrid {
 
         // Throttle simulation ticks based on tick_interval_ms
         if !self.should_tick() {
-            return;
+            return Vec::new();
         }
         self.mark_tick();
 
@@ -665,7 +713,7 @@ impl LavaGrid {
             matches!(world.get_block(pos), Some(BlockType::Lava))
         };
 
-        let (changed_positions, water_contacts) = self.tick(
+        let (changed_positions, water_contacts, sync_updates) = self.tick(
             is_solid,
             is_out_of_bounds,
             has_water,
@@ -712,6 +760,8 @@ impl LavaGrid {
                 _ => {}
             }
         }
+
+        sync_updates
     }
 
     /// Activates adjacent terrain lava for simulation.
@@ -814,7 +864,7 @@ mod tests {
 
         grid.set_lava(pos, 1.0, false);
 
-        let (changed, _water_contacts) = grid.tick(
+        let (changed, _water_contacts, _sync_updates) = grid.tick(
             floor_solid,
             never_out_of_bounds,
             no_water,

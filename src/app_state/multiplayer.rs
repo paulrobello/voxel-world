@@ -66,6 +66,8 @@ pub struct MultiplayerState {
     pub pending_texture_uploads: Vec<(u64, crate::net::protocol::UploadTexture)>,
     /// Pending water cell updates received from server (client-side).
     pub pending_water_updates: Vec<crate::net::protocol::WaterCellUpdate>,
+    /// Pending lava cell updates received from server (client-side).
+    pub pending_lava_updates: Vec<crate::net::protocol::LavaCellUpdate>,
     /// Water sync bandwidth optimizer (server-side, when hosting).
     water_sync_optimizer: WaterSyncOptimizer,
 
@@ -119,6 +121,7 @@ impl MultiplayerState {
             pending_model_uploads: Vec::new(),
             pending_texture_uploads: Vec::new(),
             pending_water_updates: Vec::new(),
+            pending_lava_updates: Vec::new(),
             water_sync_optimizer: WaterSyncOptimizer::new(),
             discovery: None,
             discovery_responder: None,
@@ -827,6 +830,14 @@ impl MultiplayerState {
                 self.pending_water_updates
                     .extend(water.updates.iter().cloned());
             }
+            ServerMessage::LavaCellsChanged(lava) => {
+                println!(
+                    "[Client] Received LavaCellsChanged with {} updates",
+                    lava.updates.len()
+                );
+                self.pending_lava_updates
+                    .extend(lava.updates.iter().cloned());
+            }
             _ => {}
         }
     }
@@ -1186,6 +1197,30 @@ impl MultiplayerState {
         positions
     }
 
+    /// Broadcasts lava cell updates to all connected clients.
+    ///
+    /// Call this after each lava simulation tick when hosting.
+    /// Uses a simpler approach than water since lava updates are less frequent.
+    pub fn broadcast_lava_cell_updates(&mut self, updates: Vec<crate::lava::LavaCellSyncUpdate>) {
+        if updates.is_empty() {
+            return;
+        }
+
+        // Convert internal sync updates to protocol messages
+        let protocol_updates: Vec<crate::net::protocol::LavaCellUpdate> = updates
+            .into_iter()
+            .map(|u| crate::net::protocol::LavaCellUpdate {
+                position: [u.position.x, u.position.y, u.position.z],
+                mass: u.mass,
+                is_source: u.is_source,
+            })
+            .collect();
+
+        if let Some(ref mut server) = self.server {
+            server.broadcast_lava_cells_changed(protocol_updates);
+        }
+    }
+
     /// Returns water sync optimizer statistics for debugging.
     pub fn water_sync_stats(&self) -> &crate::net::water_sync::WaterSyncStats {
         self.water_sync_optimizer.stats()
@@ -1208,5 +1243,16 @@ impl MultiplayerState {
     /// Returns true if there are pending water updates to apply.
     pub fn has_pending_water_updates(&self) -> bool {
         !self.pending_water_updates.is_empty()
+    }
+
+    /// Takes all pending lava updates and clears the queue.
+    /// Call this from the game loop to apply lava changes to the local simulation.
+    pub fn take_pending_lava_updates(&mut self) -> Vec<crate::net::protocol::LavaCellUpdate> {
+        std::mem::take(&mut self.pending_lava_updates)
+    }
+
+    /// Returns true if there are pending lava updates to apply.
+    pub fn has_pending_lava_updates(&self) -> bool {
+        !self.pending_lava_updates.is_empty()
     }
 }
