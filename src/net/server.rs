@@ -15,6 +15,7 @@ use renet_netcode::NetcodeServerTransport;
 
 use crate::net::auth::ServerAuth;
 use crate::net::channel::create_connection_config;
+use crate::net::picture_store::PictureManager;
 use crate::net::protocol::{
     BlockChanged, BlocksChanged, ChunkData, ChunkGenerateLocal, ClientMessage, ConnectionAccepted,
     PlayerId, PlayerJoined, PlayerLeft, PlayerState, ServerMessage, TimeUpdate, TreeFell,
@@ -48,6 +49,8 @@ pub struct GameServer {
     world_gen: u8,
     /// Custom texture slot manager.
     texture_manager: Option<TextureSlotManager>,
+    /// Picture storage manager.
+    picture_manager: Option<PictureManager>,
     /// World directory path (for loading models.dat).
     world_dir: Option<std::path::PathBuf>,
 }
@@ -95,6 +98,7 @@ impl GameServer {
             world_seed,
             world_gen,
             texture_manager: None,
+            picture_manager: None,
             world_dir: None,
         })
     }
@@ -117,11 +121,20 @@ impl GameServer {
     /// Sets the world directory for loading models and textures.
     pub fn set_world_dir(&mut self, path: std::path::PathBuf, max_textures: u8) {
         self.world_dir = Some(path.clone());
+
+        // Initialize texture manager
         let mut manager = TextureSlotManager::new(path.join("custom_textures"), max_textures);
         if let Err(e) = manager.init() {
             eprintln!("[Server] Failed to initialize texture manager: {}", e);
         }
         self.texture_manager = Some(manager);
+
+        // Initialize picture manager
+        let mut picture_manager = PictureManager::new(path.join("pictures"), 1024);
+        if let Err(e) = picture_manager.init() {
+            eprintln!("[Server] Failed to initialize picture manager: {}", e);
+        }
+        self.picture_manager = Some(picture_manager);
     }
 
     /// Sets the host's client ID (the loopback connection from host to itself).
@@ -602,6 +615,58 @@ impl GameServer {
         };
 
         manager.add_texture(name, png_data)
+    }
+
+    /// Adds a new picture to the picture store.
+    /// Returns the assigned picture ID, or error if storage is full or validation fails.
+    pub fn add_picture(&mut self, name: &str, png_data: &[u8]) -> Result<u16, String> {
+        let manager = match &mut self.picture_manager {
+            Some(m) => m,
+            None => return Err("Picture manager not initialized".to_string()),
+        };
+
+        manager.add_picture(name, png_data)
+    }
+
+    /// Gets picture data by ID.
+    pub fn get_picture(&self, picture_id: u16) -> Option<Vec<u8>> {
+        self.picture_manager.as_ref()?.get_picture(picture_id)
+    }
+
+    /// Gets picture name by ID.
+    pub fn get_picture_name(&self, picture_id: u16) -> Option<String> {
+        self.picture_manager
+            .as_ref()?
+            .get_picture_name(picture_id)
+            .map(|s| s.to_string())
+    }
+
+    /// Broadcasts a new picture to all clients.
+    pub fn broadcast_picture_added(&mut self, picture_id: u16, name: String) {
+        use crate::net::protocol::PictureAdded;
+        let msg = ServerMessage::PictureAdded(PictureAdded { picture_id, name });
+        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+            self.server
+                .broadcast_message(2, renet::Bytes::from(encoded)); // Channel 2 = GameState
+            println!("[Server] Broadcast PictureAdded to all clients");
+        }
+    }
+
+    /// Broadcasts a picture frame assignment to all clients.
+    pub fn broadcast_frame_picture_set(&mut self, position: [i32; 3], picture_id: Option<u16>) {
+        use crate::net::protocol::FramePictureSet;
+        let msg = ServerMessage::FramePictureSet(FramePictureSet {
+            position,
+            picture_id,
+        });
+        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+            self.server
+                .broadcast_message(1, renet::Bytes::from(encoded)); // Channel 1 = BlockUpdates
+            println!(
+                "[Server] Broadcast FramePictureSet at {:?}: {:?}",
+                position, picture_id
+            );
+        }
     }
 
     /// Receives messages from clients.

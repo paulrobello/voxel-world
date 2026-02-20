@@ -64,6 +64,8 @@ pub struct MultiplayerState {
     pub pending_model_uploads: Vec<(u64, crate::net::protocol::UploadModel)>,
     /// Pending texture uploads from clients (server-side, when hosting).
     pub pending_texture_uploads: Vec<(u64, crate::net::protocol::UploadTexture)>,
+    /// Pending picture uploads from clients (server-side, when hosting).
+    pub pending_picture_uploads: Vec<(u64, crate::net::protocol::UploadPicture)>,
     /// Pending water cell updates received from server (client-side).
     pub pending_water_updates: Vec<crate::net::protocol::WaterCellUpdate>,
     /// Pending lava cell updates received from server (client-side).
@@ -132,6 +134,7 @@ impl MultiplayerState {
             pending_models: Vec::new(),
             pending_model_uploads: Vec::new(),
             pending_texture_uploads: Vec::new(),
+            pending_picture_uploads: Vec::new(),
             pending_water_updates: Vec::new(),
             pending_lava_updates: Vec::new(),
             pending_falling_block_spawns: Vec::new(),
@@ -614,6 +617,16 @@ impl MultiplayerState {
                 );
                 // Queue for processing by game loop (needs access to texture manager)
                 self.pending_texture_uploads.push((client_id, upload));
+            }
+            ClientMessage::UploadPicture(upload) => {
+                println!(
+                    "[Server] Received picture upload '{}' ({} bytes) from client {}",
+                    upload.name,
+                    upload.png_data.len(),
+                    client_id
+                );
+                // Queue for processing by game loop (needs access to picture manager)
+                self.pending_picture_uploads.push((client_id, upload));
             }
             _ => {
                 // Other message types not yet implemented
@@ -1520,5 +1533,59 @@ impl MultiplayerState {
     /// Returns true if there's a pending spawn position update.
     pub fn has_pending_spawn_position(&self) -> bool {
         self.pending_spawn_position.is_some()
+    }
+
+    // ========================================================================
+    // Picture Sync Methods
+    // ========================================================================
+
+    /// Takes all pending picture uploads from clients and clears the queue.
+    /// Call this from the game loop when hosting to process picture uploads.
+    pub fn take_pending_picture_uploads(
+        &mut self,
+    ) -> Vec<(u64, crate::net::protocol::UploadPicture)> {
+        std::mem::take(&mut self.pending_picture_uploads)
+    }
+
+    /// Returns true if there are pending picture uploads to process.
+    pub fn has_pending_picture_uploads(&self) -> bool {
+        !self.pending_picture_uploads.is_empty()
+    }
+
+    /// Adds a picture to the server's picture store and broadcasts to all clients.
+    /// Call this from the game loop when hosting after taking pending uploads.
+    /// Returns the assigned picture ID, or None on failure.
+    pub fn add_picture_and_broadcast(&mut self, name: &str, png_data: &[u8]) -> Option<u16> {
+        // Add picture to server's picture manager
+        let picture_id = if let Some(ref mut server) = self.server {
+            match server.add_picture(name, png_data) {
+                Ok(id) => id,
+                Err(e) => {
+                    eprintln!("[Server] Failed to add picture '{}': {}", name, e);
+                    return None;
+                }
+            }
+        } else {
+            eprintln!("[Server] Cannot add picture: server not running");
+            return None;
+        };
+
+        // Broadcast to all clients
+        if let Some(ref mut server) = self.server {
+            server.broadcast_picture_added(picture_id, name.to_string());
+        }
+
+        Some(picture_id)
+    }
+
+    /// Broadcasts a picture frame assignment to all clients (server-side, when hosting).
+    ///
+    /// # Arguments
+    /// * `position` - World position of the picture frame block
+    /// * `picture_id` - ID of the picture to display, or None to clear the frame
+    pub fn broadcast_frame_picture_set(&mut self, position: [i32; 3], picture_id: Option<u16>) {
+        if let Some(ref mut server) = self.server {
+            server.broadcast_frame_picture_set(position, picture_id);
+        }
     }
 }

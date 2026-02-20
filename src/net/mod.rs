@@ -79,6 +79,7 @@ pub mod client;
 pub mod discovery;
 pub mod falling_block_sync;
 pub mod lava_sync;
+pub mod picture_store;
 pub mod player_sync;
 pub mod protocol;
 pub mod server;
@@ -104,6 +105,10 @@ pub use discovery::{DiscoveredServer, DiscoveryResponder, LanDiscovery, ServerAn
 pub use falling_block_sync::{ClientFallingBlockSystem, FallingBlockSync, FallingBlockSyncStats};
 #[allow(unused_imports)]
 pub use lava_sync::{LavaSyncOptimizer, LavaSyncStats};
+#[allow(unused_imports)]
+pub use picture_store::{
+    DEFAULT_MAX_PICTURE_SIZE, MAX_PICTURE_ID, PictureCache, PictureManager, PictureStoreMetadata,
+};
 #[allow(unused_imports)]
 pub use player_sync::{PredictionState, RemotePlayer};
 #[allow(unused_imports)]
