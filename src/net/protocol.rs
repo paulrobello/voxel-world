@@ -945,4 +945,162 @@ mod tests {
             _ => panic!("Expected FramePictureSet variant"),
         }
     }
+
+    #[test]
+    fn test_upload_picture_serialization() {
+        // Test UploadPicture client message serialization
+        let upload = UploadPicture {
+            name: "sunset.png".to_string(),
+            png_data: vec![
+                0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, // PNG magic bytes
+                0x00, 0x00, 0x00, 0x0D, // IHDR length
+                0x49, 0x48, 0x44, 0x52, // IHDR
+                0x00, 0x00, 0x00, 0x40, // width: 64
+                0x00, 0x00, 0x00, 0x40, // height: 64
+                0x08, 0x02, // bit depth: 8, color type: RGB
+                0x00, 0x00, 0x00, // compression, filter, interlace
+                0x00, 0x00, 0x00, 0x00, // CRC (placeholder)
+            ],
+        };
+        let msg = ClientMessage::UploadPicture(upload.clone());
+        let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
+        let decoded: ClientMessage =
+            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
+                .unwrap()
+                .0;
+
+        match decoded {
+            ClientMessage::UploadPicture(decoded_upload) => {
+                assert_eq!(decoded_upload.name, "sunset.png");
+                assert_eq!(decoded_upload.png_data.len(), upload.png_data.len());
+                // Verify PNG magic bytes preserved
+                assert_eq!(decoded_upload.png_data[..8], upload.png_data[..8]);
+            }
+            _ => panic!("Expected UploadPicture variant"),
+        }
+    }
+
+    #[test]
+    fn test_picture_frame_sync_full_flow() {
+        // Test the complete picture frame sync flow:
+        // 1. Client uploads a picture
+        // 2. Server broadcasts PictureAdded
+        // 3. Server broadcasts FramePictureSet
+        // 4. All messages serialize/deserialize correctly
+
+        // Step 1: Client uploads picture
+        let upload = UploadPicture {
+            name: "test_picture.png".to_string(),
+            png_data: vec![
+                0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, // PNG magic
+                0x00, 0x01, 0x02, 0x03, // Placeholder data
+            ],
+        };
+        let client_msg = ClientMessage::UploadPicture(upload);
+        let encoded_client =
+            bincode::serde::encode_to_vec(&client_msg, bincode::config::standard())
+                .expect("Client message should encode");
+        let decoded_client: ClientMessage =
+            bincode::serde::decode_from_slice(&encoded_client, bincode::config::standard())
+                .expect("Client message should decode")
+                .0;
+
+        // Verify client message
+        match &decoded_client {
+            ClientMessage::UploadPicture(u) => {
+                assert_eq!(u.name, "test_picture.png");
+            }
+            _ => panic!("Expected UploadPicture"),
+        }
+
+        // Step 2: Server broadcasts PictureAdded
+        let picture_added = PictureAdded {
+            picture_id: 42,
+            name: "test_picture.png".to_string(),
+        };
+        let server_msg1 = ServerMessage::PictureAdded(picture_added);
+        let encoded_server1 =
+            bincode::serde::encode_to_vec(&server_msg1, bincode::config::standard())
+                .expect("PictureAdded should encode");
+        let decoded_server1: ServerMessage =
+            bincode::serde::decode_from_slice(&encoded_server1, bincode::config::standard())
+                .expect("PictureAdded should decode")
+                .0;
+
+        // Verify PictureAdded
+        match decoded_server1 {
+            ServerMessage::PictureAdded(p) => {
+                assert_eq!(p.picture_id, 42);
+                assert_eq!(p.name, "test_picture.png");
+            }
+            _ => panic!("Expected PictureAdded"),
+        }
+
+        // Step 3: Server broadcasts FramePictureSet
+        let frame_set = FramePictureSet {
+            position: [100, 64, 200],
+            picture_id: Some(42),
+        };
+        let server_msg2 = ServerMessage::FramePictureSet(frame_set);
+        let encoded_server2 =
+            bincode::serde::encode_to_vec(&server_msg2, bincode::config::standard())
+                .expect("FramePictureSet should encode");
+        let decoded_server2: ServerMessage =
+            bincode::serde::decode_from_slice(&encoded_server2, bincode::config::standard())
+                .expect("FramePictureSet should decode")
+                .0;
+
+        // Verify FramePictureSet
+        match decoded_server2 {
+            ServerMessage::FramePictureSet(f) => {
+                assert_eq!(f.position, [100, 64, 200]);
+                assert_eq!(f.picture_id, Some(42));
+            }
+            _ => panic!("Expected FramePictureSet"),
+        }
+
+        // Test clearing a frame (picture_id = None)
+        let clear_frame = FramePictureSet {
+            position: [100, 64, 200],
+            picture_id: None,
+        };
+        let server_msg3 = ServerMessage::FramePictureSet(clear_frame);
+        let encoded_server3 =
+            bincode::serde::encode_to_vec(&server_msg3, bincode::config::standard())
+                .expect("Clear frame should encode");
+        let decoded_server3: ServerMessage =
+            bincode::serde::decode_from_slice(&encoded_server3, bincode::config::standard())
+                .expect("Clear frame should decode")
+                .0;
+
+        match decoded_server3 {
+            ServerMessage::FramePictureSet(f) => {
+                assert_eq!(f.position, [100, 64, 200]);
+                assert_eq!(f.picture_id, None);
+            }
+            _ => panic!("Expected FramePictureSet"),
+        }
+    }
+
+    #[test]
+    fn test_frame_picture_set_with_large_picture_id() {
+        // Test FramePictureSet with maximum picture ID
+        let frame = FramePictureSet {
+            position: [0, 0, 0],
+            picture_id: Some(u16::MAX),
+        };
+        let msg = ServerMessage::FramePictureSet(frame);
+        let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
+        let decoded: ServerMessage =
+            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
+                .unwrap()
+                .0;
+
+        match decoded {
+            ServerMessage::FramePictureSet(f) => {
+                assert_eq!(f.picture_id, Some(u16::MAX));
+            }
+            _ => panic!("Expected FramePictureSet"),
+        }
+    }
 }

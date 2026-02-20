@@ -84,7 +84,7 @@ Implement all missing multiplayer synchronization points documented in SYNC.md. 
 - [x] Server stores uploaded pictures and assigns IDs
 - [x] Broadcast picture uploads to all clients
 - [x] Sync frame selections when player sets a picture
-- [ ] Test: Uploaded picture visible in frame for all players
+- [x] Test: Uploaded picture visible in frame for all players
 
 ### Stencils
 - [ ] Add `ServerMessage::StencilLoaded(StencilLoaded)` with stencil_id, compressed data
