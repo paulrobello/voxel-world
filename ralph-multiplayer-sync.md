@@ -93,7 +93,7 @@ Implement all missing multiplayer synchronization points documented in SYNC.md. 
 - [x] Server broadcasts stencil loads from console commands
 - [x] Sync stencil transforms when moved/rotated
 - [x] Sync stencil removal
-- [ ] Test: Stencil visible to all players, transforms sync
+- [x] Test: Stencil visible to all players, transforms sync
 
 ### Templates
 - [ ] Add `ServerMessage::TemplateLoaded(TemplateLoaded)` with template_id, compressed data
