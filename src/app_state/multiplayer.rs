@@ -58,6 +58,10 @@ pub struct MultiplayerState {
     pub texture_cache: CustomTextureCache,
     /// Flag indicating GPU textures need initialization.
     pending_gpu_texture_init: Option<u8>,
+    /// Pending custom models received from server (to be registered).
+    pub pending_models: Vec<crate::net::protocol::ModelAdded>,
+    /// Pending model uploads from clients (server-side, when hosting).
+    pub pending_model_uploads: Vec<(u64, crate::net::protocol::UploadModel)>,
 
     // LAN Discovery
     /// Client-side LAN discovery (for finding servers).
@@ -105,6 +109,8 @@ impl MultiplayerState {
             pending_server_seed: None,
             texture_cache: CustomTextureCache::new(0), // Will be set on connect
             pending_gpu_texture_init: None,
+            pending_models: Vec::new(),
+            pending_model_uploads: Vec::new(),
             discovery: None,
             discovery_responder: None,
             server_name: String::new(),
@@ -563,6 +569,14 @@ impl MultiplayerState {
                     });
                 }
             }
+            ClientMessage::UploadModel(upload) => {
+                println!(
+                    "[Server] Received model upload '{}' from client {}",
+                    upload.name, client_id
+                );
+                // Queue for processing by game loop (needs access to model registry)
+                self.pending_model_uploads.push((client_id, upload));
+            }
             _ => {
                 // Other message types not yet implemented
             }
@@ -781,6 +795,13 @@ impl MultiplayerState {
             ServerMessage::TextureAdded(tex) => {
                 println!("[Client] Texture added: slot {} = '{}'", tex.slot, tex.name);
             }
+            ServerMessage::ModelAdded(model) => {
+                println!(
+                    "[Client] Model added: ID {} = '{}' by '{}'",
+                    model.model_id, model.name, model.author
+                );
+                self.pending_models.push(model.clone());
+            }
             _ => {}
         }
     }
@@ -823,6 +844,13 @@ impl MultiplayerState {
         }
     }
 
+    /// Uploads a custom model to the server.
+    pub fn send_upload_model(&mut self, name: String, author: String, model_data: Vec<u8>) {
+        if let Some(ref mut client) = self.client {
+            client.send_upload_model(name, author, model_data);
+        }
+    }
+
     /// Takes pending block changes and clears the queue.
     /// Call this from the game loop to apply changes to the world.
     pub fn take_pending_block_changes(&mut self) -> Vec<crate::net::protocol::BlockChanged> {
@@ -845,6 +873,11 @@ impl MultiplayerState {
     /// Returns true if hosting a server.
     pub fn is_hosting(&self) -> bool {
         self.server.is_some()
+    }
+
+    /// Returns true if we are the host (server + local client).
+    pub fn is_host(&self) -> bool {
+        self.mode == GameMode::Host
     }
 
     /// Returns the local player ID (if connected).
@@ -918,6 +951,28 @@ impl MultiplayerState {
     /// Returns true if there are pending chunk requests from clients.
     pub fn has_pending_chunk_requests(&self) -> bool {
         !self.pending_chunk_requests.is_empty()
+    }
+
+    /// Takes all pending models received from server and clears the queue.
+    /// Call this from the game loop to register models in the registry.
+    pub fn take_pending_models(&mut self) -> Vec<crate::net::protocol::ModelAdded> {
+        std::mem::take(&mut self.pending_models)
+    }
+
+    /// Returns true if there are pending models to register.
+    pub fn has_pending_models(&self) -> bool {
+        !self.pending_models.is_empty()
+    }
+
+    /// Takes all pending model uploads from clients and clears the queue.
+    /// Call this from the game loop when hosting to process model uploads.
+    pub fn take_pending_model_uploads(&mut self) -> Vec<(u64, crate::net::protocol::UploadModel)> {
+        std::mem::take(&mut self.pending_model_uploads)
+    }
+
+    /// Returns true if there are pending model uploads to process.
+    pub fn has_pending_model_uploads(&self) -> bool {
+        !self.pending_model_uploads.is_empty()
     }
 
     /// Returns the pending server world seed if one was received.

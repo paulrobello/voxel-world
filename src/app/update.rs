@@ -450,7 +450,12 @@ impl App {
             // Fulfill chunk requests from clients when hosting
             if self.multiplayer.is_hosting() {
                 self.fulfill_chunk_requests();
+                // Process model uploads from clients
+                self.process_model_uploads();
             }
+
+            // Register models received from server (all connected clients)
+            self.register_pending_models();
         }
 
         if self.input.close_requested() {

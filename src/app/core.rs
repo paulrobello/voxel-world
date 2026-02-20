@@ -448,6 +448,137 @@ impl App {
         }
     }
 
+    /// Processes pending model uploads from clients (server-side, when hosting).
+    /// Registers models in the server's registry, saves them, and broadcasts to all clients.
+    pub fn process_model_uploads(&mut self) {
+        if !self.multiplayer.has_pending_model_uploads() {
+            return;
+        }
+
+        let uploads = self.multiplayer.take_pending_model_uploads();
+        println!("[Server] Processing {} model upload(s)", uploads.len());
+
+        for (_client_id, upload) in uploads {
+            use crate::storage::model_format::VxmFile;
+            use lz4_flex::decompress_size_prepended;
+
+            // Decompress the model data
+            let decompressed = match decompress_size_prepended(&upload.model_data) {
+                Ok(d) => d,
+                Err(e) => {
+                    eprintln!(
+                        "[Server] Failed to decompress model '{}': {:?}",
+                        upload.name, e
+                    );
+                    continue;
+                }
+            };
+
+            // Deserialize the VxmFile
+            let vxm: VxmFile =
+                match bincode::serde::decode_from_slice(&decompressed, bincode::config::legacy()) {
+                    Ok((vxm, _)) => vxm,
+                    Err(e) => {
+                        eprintln!(
+                            "[Server] Failed to deserialize model '{}': {:?}",
+                            upload.name, e
+                        );
+                        continue;
+                    }
+                };
+
+            // Convert to SubVoxelModel and register
+            let model = vxm.to_model();
+            let model_id = self.sim.model_registry.register(model.clone());
+
+            println!(
+                "[Server] Registered model '{}' as ID {} from client",
+                upload.name, model_id
+            );
+
+            // Save to disk
+            let library_path = crate::user_prefs::user_models_dir();
+            if let Err(e) = crate::storage::model_format::LibraryManager::new(&library_path)
+                .save_model(&model, &upload.author)
+            {
+                eprintln!("[Server] Failed to save model '{}': {}", upload.name, e);
+            }
+
+            // Broadcast to all clients
+            if let Some(ref mut server) = self.multiplayer.server {
+                server.broadcast_model_added(
+                    model_id,
+                    upload.name.clone(),
+                    upload.author.clone(),
+                    upload.model_data.clone(),
+                );
+            }
+        }
+    }
+
+    /// Registers pending models received from server (client-side).
+    /// Call this from the game loop after multiplayer.update() to register
+    /// models that were broadcast by the server.
+    pub fn register_pending_models(&mut self) {
+        if !self.multiplayer.has_pending_models() {
+            return;
+        }
+
+        let models = self.multiplayer.take_pending_models();
+        println!("[Client] Registering {} model(s)", models.len());
+
+        for model_added in models {
+            use crate::storage::model_format::VxmFile;
+            use lz4_flex::decompress_size_prepended;
+
+            // Decompress the model data
+            let decompressed = match decompress_size_prepended(&model_added.model_data) {
+                Ok(d) => d,
+                Err(e) => {
+                    eprintln!(
+                        "[Client] Failed to decompress model '{}': {:?}",
+                        model_added.name, e
+                    );
+                    continue;
+                }
+            };
+
+            // Deserialize the VxmFile
+            let vxm: VxmFile =
+                match bincode::serde::decode_from_slice(&decompressed, bincode::config::legacy()) {
+                    Ok((vxm, _)) => vxm,
+                    Err(e) => {
+                        eprintln!(
+                            "[Client] Failed to deserialize model '{}': {:?}",
+                            model_added.name, e
+                        );
+                        continue;
+                    }
+                };
+
+            // Convert to SubVoxelModel
+            let mut model = vxm.to_model();
+            model.id = model_added.model_id;
+
+            // Register in local registry
+            let registered_id = self.sim.model_registry.register(model.clone());
+
+            println!(
+                "[Client] Registered model '{}' as ID {} (server ID {})",
+                model_added.name, registered_id, model_added.model_id
+            );
+
+            // Generate sprite for the model
+            let sprites_dir = std::path::Path::new("textures/rendered");
+            if std::fs::create_dir_all(sprites_dir).is_ok() {
+                let sprite_path = sprites_dir.join(format!("model_{}.png", registered_id));
+                if crate::editor::rasterizer::generate_model_sprite(&model, &sprite_path).is_ok() {
+                    println!("[Client] Generated sprite for model {}", registered_id);
+                }
+            }
+        }
+    }
+
     /// Initializes the multiplayer texture array when connecting to a server.
     /// This creates the GPU texture array with the specified number of slots.
     pub fn init_multiplayer_textures(&mut self, max_slots: u32) {

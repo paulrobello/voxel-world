@@ -313,6 +313,23 @@ impl GameClient {
         }
     }
 
+    /// Uploads a custom model to the server.
+    /// The server will register the model, save it, and broadcast to all clients.
+    pub fn send_upload_model(&mut self, name: String, author: String, model_data: Vec<u8>) {
+        use crate::net::protocol::UploadModel;
+        let msg = ClientMessage::UploadModel(UploadModel {
+            name,
+            author,
+            model_data,
+        });
+
+        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+            let len = encoded.len();
+            self.client.send_message(2, renet::Bytes::from(encoded)); // Channel 2 = GameState
+            println!("[Client] Sent model upload: {} bytes", len);
+        }
+    }
+
     /// Returns connection state.
     pub fn connection_state(&self) -> ConnectionState {
         self.connection.state()

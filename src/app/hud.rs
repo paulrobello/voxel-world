@@ -523,6 +523,35 @@ pub fn render_hud(
                     }
                 }
             }
+
+            // Upload model to server if connected as a client (not host)
+            if multiplayer.is_connected() && !multiplayer.is_host() {
+                use crate::storage::model_format::VxmFile;
+                use lz4_flex::compress_prepend_size;
+
+                // Create VxmFile from the model
+                let vxm = VxmFile::from_model(&ui.editor.scratch_pad, "Player".to_string());
+
+                // Serialize with bincode
+                if let Ok(serialized) =
+                    bincode::serde::encode_to_vec(&vxm, bincode::config::legacy())
+                {
+                    // Compress with LZ4
+                    let compressed = compress_prepend_size(&serialized);
+                    let compressed_len = compressed.len();
+
+                    // Send to server
+                    multiplayer.send_upload_model(
+                        ui.editor.scratch_pad.name.clone(),
+                        "Player".to_string(),
+                        compressed,
+                    );
+                    println!(
+                        "[Editor] Uploading model '{}' to server ({} bytes)",
+                        ui.editor.scratch_pad.name, compressed_len
+                    );
+                }
+            }
         }
         EditorAction::ModelDeleted => {
             // Reload custom models from library to update the palette

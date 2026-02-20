@@ -157,6 +157,18 @@ pub struct ConsoleCommand {
     pub command: String,
 }
 
+/// Client uploads a new custom model to the server.
+/// Server will assign an ID and broadcast to all clients.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UploadModel {
+    /// Model name.
+    pub name: String,
+    /// Author name.
+    pub author: String,
+    /// LZ4 compressed VxmFile data.
+    pub model_data: Vec<u8>,
+}
+
 /// All messages that can be sent from client to server.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ClientMessage {
@@ -174,6 +186,8 @@ pub enum ClientMessage {
     ConsoleCommand(ConsoleCommand),
     /// Request texture data.
     RequestTexture(RequestTexture),
+    /// Upload a custom model to the server.
+    UploadModel(UploadModel),
 }
 
 // ============================================================================
@@ -319,6 +333,19 @@ pub struct RequestTexture {
     pub slot: u8,
 }
 
+/// Server broadcasts a new custom model to all clients.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModelAdded {
+    /// Assigned model ID (>= FIRST_CUSTOM_MODEL_ID).
+    pub model_id: u8,
+    /// Model name.
+    pub name: String,
+    /// Author name.
+    pub author: String,
+    /// LZ4 compressed VxmFile data.
+    pub model_data: Vec<u8>,
+}
+
 /// All messages that can be sent from server to client.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ServerMessage {
@@ -348,6 +375,8 @@ pub enum ServerMessage {
     TextureData(TextureData),
     /// Notification of new texture added.
     TextureAdded(TextureAdded),
+    /// Notification of new custom model added.
+    ModelAdded(ModelAdded),
 }
 
 #[cfg(test)]

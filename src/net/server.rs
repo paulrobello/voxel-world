@@ -399,6 +399,27 @@ impl GameServer {
         }
     }
 
+    /// Broadcasts a new custom model to all clients.
+    pub fn broadcast_model_added(
+        &mut self,
+        model_id: u8,
+        name: String,
+        author: String,
+        model_data: Vec<u8>,
+    ) {
+        let msg = ServerMessage::ModelAdded(crate::net::protocol::ModelAdded {
+            model_id,
+            name,
+            author,
+            model_data,
+        });
+        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+            self.server
+                .broadcast_message(2, renet::Bytes::from(encoded)); // Channel 2 = GameState
+            println!("[Server] Broadcast ModelAdded to all clients");
+        }
+    }
+
     /// Sends model registry and door pairs to a client.
     pub fn send_model_registry(&mut self, client_id: u64) {
         let world_dir = match &self.world_dir {
