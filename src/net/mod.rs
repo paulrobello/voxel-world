@@ -78,6 +78,7 @@ pub mod chunk_sync;
 pub mod client;
 pub mod day_cycle_sync;
 pub mod discovery;
+pub mod extended_gameplay_sync;
 pub mod falling_block_sync;
 pub mod lava_sync;
 pub mod picture_store;

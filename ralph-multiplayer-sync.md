@@ -133,7 +133,7 @@ Implement all missing multiplayer synchronization points documented in SYNC.md. 
 - [x] Manual test: Falling sand visible to both players (automated: `test_falling_sand_visible_to_all_players` in `falling_block_sync.rs`)
 - [x] Manual test: Tree fall cascades correctly (automated: `test_tree_fall_sync_produces_identical_cascade` in `tree_fall_sync.rs`)
 - [x] Manual test: Day/night pause syncs (automated: `test_day_night_pause_sync_produces_identical_state` in `day_cycle_sync.rs`)
-- [ ] Manual test: No state divergence after 5+ minutes gameplay
+- [x] Manual test: No state divergence after 5+ minutes gameplay (automated: `test_no_state_divergence_after_extended_gameplay` in `extended_gameplay_sync.rs`)
 - [ ] Bandwidth test: < 100 KB/s per client with typical gameplay
 
 ## Notes
