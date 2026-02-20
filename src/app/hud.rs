@@ -1048,6 +1048,8 @@ pub fn render_hud(
         }
         StencilBrowserAction::RemoveActiveStencil(id) => {
             ui.stencil_manager.remove_stencil(id);
+            // Broadcast removal to all clients if hosting
+            multiplayer.broadcast_stencil_removed(id);
             println!("Removed active stencil {}", id);
         }
         StencilBrowserAction::RegenerateThumbnail(name) => {
@@ -1067,8 +1069,19 @@ pub fn render_hud(
             }
         }
         StencilBrowserAction::ClearAllActive => {
-            let count = ui.stencil_manager.active_stencils.len();
+            // Collect stencil IDs before clearing to broadcast removals
+            let stencil_ids: Vec<u64> = ui
+                .stencil_manager
+                .active_stencils
+                .iter()
+                .map(|s| s.id)
+                .collect();
+            let count = stencil_ids.len();
             ui.stencil_manager.clear();
+            // Broadcast removal of all stencils if hosting
+            for id in stencil_ids {
+                multiplayer.broadcast_stencil_removed(id);
+            }
             println!("Cleared {} active stencils", count);
         }
         StencilBrowserAction::SetGlobalOpacity(opacity) => {

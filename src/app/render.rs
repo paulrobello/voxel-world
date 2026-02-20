@@ -386,6 +386,110 @@ impl App {
             self.prefs.save();
         }
 
+        // Process pending stencil loads from multiplayer (received StencilLoaded messages)
+        for stencil_loaded in self.multiplayer.take_pending_stencil_loads() {
+            // Deserialize the stencil data
+            match crate::stencils::StencilFile::from_bytes(&stencil_loaded.stencil_data) {
+                Ok(stencil) => {
+                    // Create a PlacedStencil with the server's stencil_id
+                    let mut placed = crate::stencils::PlacedStencil::new(
+                        stencil_loaded.stencil_id,
+                        stencil,
+                        nalgebra::Vector3::new(0, 0, 0), // Initial position - will be updated via StencilTransformUpdate
+                    );
+                    // Apply default color/opacity
+                    placed.color = self.ui.stencil_manager.default_color;
+                    placed.opacity = self.ui.stencil_manager.global_opacity;
+                    // Add to manager (this preserves the server's ID)
+                    self.ui.stencil_manager.add_placed_stencil(placed);
+                    println!(
+                        "[Multiplayer] Applied StencilLoaded: id={} name='{}'",
+                        stencil_loaded.stencil_id, stencil_loaded.name
+                    );
+                }
+                Err(e) => {
+                    eprintln!(
+                        "[Multiplayer] Failed to deserialize stencil '{}': {}",
+                        stencil_loaded.name, e
+                    );
+                }
+            }
+        }
+
+        // Process pending stencil transform updates from multiplayer
+        for transform in self.multiplayer.take_pending_stencil_transforms() {
+            // Find the stencil by ID and update its position and rotation
+            // Note: Stencil IDs from server may not match local IDs, so we match by index
+            // For now, we use the stencil_id directly as stored in the PlacedStencil.id field
+            if let Some(stencil) = self
+                .ui
+                .stencil_manager
+                .get_stencil_mut(transform.stencil_id)
+            {
+                stencil.set_origin(nalgebra::Vector3::new(
+                    transform.position[0],
+                    transform.position[1],
+                    transform.position[2],
+                ));
+                stencil.set_rotation(transform.rotation);
+                println!(
+                    "[Multiplayer] Applied StencilTransformUpdate: id={} pos={:?} rot={}",
+                    transform.stencil_id, transform.position, transform.rotation
+                );
+            } else {
+                // Stencil not found locally - might need to request it from server
+                eprintln!(
+                    "[Multiplayer] Stencil {} not found for transform update",
+                    transform.stencil_id
+                );
+            }
+        }
+
+        // Process pending stencil removals from multiplayer
+        for removed in self.multiplayer.take_pending_stencil_removals() {
+            if self
+                .ui
+                .stencil_manager
+                .remove_stencil(removed.stencil_id)
+                .is_some()
+            {
+                println!(
+                    "[Multiplayer] Applied StencilRemoved: id={}",
+                    removed.stencil_id
+                );
+            } else {
+                eprintln!(
+                    "[Multiplayer] Stencil {} not found for removal",
+                    removed.stencil_id
+                );
+            }
+        }
+
+        // Handle pending stencil clear from console
+        if self.ui.console.pending_stencil_clear {
+            // Collect stencil IDs before clearing to broadcast removals
+            let stencil_ids: Vec<u64> = self
+                .ui
+                .stencil_manager
+                .active_stencils
+                .iter()
+                .map(|s| s.id)
+                .collect();
+            self.ui.stencil_manager.clear();
+            self.ui.console.pending_stencil_clear = false;
+            // Broadcast removal of all stencils if hosting
+            for id in stencil_ids {
+                self.multiplayer.broadcast_stencil_removed(id);
+            }
+        }
+
+        // Handle pending stencil removal from console
+        if let Some(id) = self.ui.console.pending_stencil_remove.take() {
+            self.ui.stencil_manager.remove_stencil(id);
+            // Broadcast removal to all clients if hosting
+            self.multiplayer.broadcast_stencil_removed(id);
+        }
+
         let render_extent = rcx.render_image.extent();
         let resample_extent = rcx.resample_image.extent();
         self.sim.player.camera.extent = [render_extent[0] as f64, render_extent[1] as f64];

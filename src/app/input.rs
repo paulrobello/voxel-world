@@ -693,10 +693,26 @@ impl App {
                 );
                 self.ui.stencil_manager.active_stencils.push(placed);
 
-                // Update next_id
-                if let Some(last) = self.ui.stencil_manager.active_stencils.last() {
+                // Update next_id and get the placed stencil info for multiplayer sync
+                let placed_id = if let Some(last) = self.ui.stencil_manager.active_stencils.last() {
                     self.ui.stencil_manager.next_id = last.id + 1;
-                }
+                    last.id
+                } else {
+                    0
+                };
+                let placed_rotation = self
+                    .ui
+                    .stencil_manager
+                    .get_stencil(placed_id)
+                    .map(|s| s.rotation)
+                    .unwrap_or(0);
+
+                // Broadcast stencil placement to all clients if hosting
+                self.multiplayer.broadcast_stencil_transform(
+                    placed_id,
+                    [pos.x, pos.y, pos.z],
+                    placed_rotation,
+                );
 
                 println!(
                     "Placed stencil '{}' ({} positions) at ({}, {}, {})",
