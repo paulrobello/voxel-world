@@ -724,6 +724,38 @@ impl GameServer {
         }
     }
 
+    /// Broadcasts a template load to all clients.
+    /// Used for multiplayer template synchronization when a player loads a template.
+    pub fn broadcast_template_loaded(
+        &mut self,
+        template_id: u64,
+        name: String,
+        template_data: Vec<u8>,
+    ) {
+        use crate::net::protocol::TemplateLoaded;
+        let msg = ServerMessage::TemplateLoaded(TemplateLoaded {
+            template_id,
+            name,
+            template_data,
+        });
+        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+            self.server
+                .broadcast_message(2, renet::Bytes::from(encoded)); // Channel 2 = GameState
+            println!("[Server] Broadcast TemplateLoaded to all clients");
+        }
+    }
+
+    /// Broadcasts a template removal to all clients.
+    pub fn broadcast_template_removed(&mut self, template_id: u64) {
+        use crate::net::protocol::TemplateRemoved;
+        let msg = ServerMessage::TemplateRemoved(TemplateRemoved { template_id });
+        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+            self.server
+                .broadcast_message(2, renet::Bytes::from(encoded)); // Channel 2 = GameState
+            println!("[Server] Broadcast TemplateRemoved: id={}", template_id);
+        }
+    }
+
     /// Receives messages from clients.
     /// Returns an iterator of (client_id, channel_id, message_data).
     pub fn receive_messages(&mut self) -> impl Iterator<Item = (u64, u8, Vec<u8>)> + '_ {

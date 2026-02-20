@@ -96,11 +96,11 @@ Implement all missing multiplayer synchronization points documented in SYNC.md. 
 - [x] Test: Stencil visible to all players, transforms sync
 
 ### Templates
-- [ ] Add `ServerMessage::TemplateLoaded(TemplateLoaded)` with template_id, compressed data
-- [ ] Add `ServerMessage::TemplateRemoved(TemplateRemoved)` with template_id
-- [ ] Server broadcasts template loads
-- [ ] Sync template removal
-- [ ] Test: Template visible to all players
+- [x] Add `ServerMessage::TemplateLoaded(TemplateLoaded)` with template_id, compressed data
+- [x] Add `ServerMessage::TemplateRemoved(TemplateRemoved)` with template_id
+- [x] Server broadcasts template loads
+- [x] Sync template removal
+- [x] Test: Template visible to all players
 
 ## P3: Verification (Low Priority)
 

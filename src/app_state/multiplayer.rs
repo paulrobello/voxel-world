@@ -90,6 +90,10 @@ pub struct MultiplayerState {
     pending_stencil_transforms: Vec<crate::net::protocol::StencilTransformUpdate>,
     /// Pending stencil removals received from server (client-side).
     pending_stencil_removals: Vec<crate::net::protocol::StencilRemoved>,
+    /// Pending template load events received from server (client-side).
+    pending_template_loads: Vec<crate::net::protocol::TemplateLoaded>,
+    /// Pending template removals received from server (client-side).
+    pending_template_removals: Vec<crate::net::protocol::TemplateRemoved>,
     /// Water sync bandwidth optimizer (server-side, when hosting).
     water_sync_optimizer: WaterSyncOptimizer,
 
@@ -155,6 +159,8 @@ impl MultiplayerState {
             pending_stencil_loads: Vec::new(),
             pending_stencil_transforms: Vec::new(),
             pending_stencil_removals: Vec::new(),
+            pending_template_loads: Vec::new(),
+            pending_template_removals: Vec::new(),
             water_sync_optimizer: WaterSyncOptimizer::new(),
             discovery: None,
             discovery_responder: None,
@@ -958,6 +964,22 @@ impl MultiplayerState {
                 );
                 self.pending_stencil_removals.push(removed.clone());
             }
+            ServerMessage::TemplateLoaded(template) => {
+                println!(
+                    "[Client] Received TemplateLoaded: id={} name='{}' ({} bytes)",
+                    template.template_id,
+                    template.name,
+                    template.template_data.len()
+                );
+                self.pending_template_loads.push(template.clone());
+            }
+            ServerMessage::TemplateRemoved(removed) => {
+                println!(
+                    "[Client] Received TemplateRemoved: id={}",
+                    removed.template_id
+                );
+                self.pending_template_removals.push(removed.clone());
+            }
             _ => {}
         }
     }
@@ -1691,6 +1713,34 @@ impl MultiplayerState {
         }
     }
 
+    // ========================================================================
+    // Template Sync Methods
+    // ========================================================================
+
+    /// Broadcasts a template load to all clients (server-side, when hosting).
+    ///
+    /// # Arguments
+    /// * `template_id` - Unique ID for the template
+    /// * `name` - Template name
+    /// * `template_data` - Compressed VxtFile bytes
+    pub fn broadcast_template_loaded(
+        &mut self,
+        template_id: u64,
+        name: String,
+        template_data: Vec<u8>,
+    ) {
+        if let Some(ref mut server) = self.server {
+            server.broadcast_template_loaded(template_id, name, template_data);
+        }
+    }
+
+    /// Broadcasts a template removal to all clients (server-side, when hosting).
+    pub fn broadcast_template_removed(&mut self, template_id: u64) {
+        if let Some(ref mut server) = self.server {
+            server.broadcast_template_removed(template_id);
+        }
+    }
+
     /// Takes all pending stencil loads and clears the queue.
     /// Call this from the game loop to apply stencil loads to the local stencil manager.
     pub fn take_pending_stencil_loads(&mut self) -> Vec<crate::net::protocol::StencilLoaded> {
@@ -1722,5 +1772,25 @@ impl MultiplayerState {
     /// Returns true if there are pending stencil removals to apply.
     pub fn has_pending_stencil_removals(&self) -> bool {
         !self.pending_stencil_removals.is_empty()
+    }
+
+    /// Takes all pending template loads and clears the queue.
+    pub fn take_pending_template_loads(&mut self) -> Vec<crate::net::protocol::TemplateLoaded> {
+        std::mem::take(&mut self.pending_template_loads)
+    }
+
+    /// Returns true if there are pending template loads to apply.
+    pub fn has_pending_template_loads(&self) -> bool {
+        !self.pending_template_loads.is_empty()
+    }
+
+    /// Takes all pending template removals and clears the queue.
+    pub fn take_pending_template_removals(&mut self) -> Vec<crate::net::protocol::TemplateRemoved> {
+        std::mem::take(&mut self.pending_template_removals)
+    }
+
+    /// Returns true if there are pending template removals to apply.
+    pub fn has_pending_template_removals(&self) -> bool {
+        !self.pending_template_removals.is_empty()
     }
 }

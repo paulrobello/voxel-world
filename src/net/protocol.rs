@@ -559,6 +559,30 @@ pub struct StencilRemoved {
     pub stencil_id: StencilId,
 }
 
+/// Template ID type.
+pub type TemplateId = u64;
+
+/// Notification that a template was loaded into the world.
+/// Sent by the server when a template is loaded via console command.
+/// The template data is zstd-compressed VxtFile bytes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TemplateLoaded {
+    /// Unique template ID assigned by the server.
+    pub template_id: TemplateId,
+    /// Template name.
+    pub name: String,
+    /// LZ4 compressed VxtFile data (same format as .vxt files).
+    pub template_data: Vec<u8>,
+}
+
+/// Notification that a template was removed from the world.
+/// Sent by the server when a template is cleared.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TemplateRemoved {
+    /// Template ID that was removed.
+    pub template_id: TemplateId,
+}
+
 /// All messages that can be sent from server to client.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ServerMessage {
@@ -614,6 +638,10 @@ pub enum ServerMessage {
     StencilTransformUpdate(StencilTransformUpdate),
     /// Stencil removed notification.
     StencilRemoved(StencilRemoved),
+    /// Template loaded notification.
+    TemplateLoaded(TemplateLoaded),
+    /// Template removed notification.
+    TemplateRemoved(TemplateRemoved),
 }
 
 #[cfg(test)]
@@ -1384,6 +1412,156 @@ mod tests {
                 }
                 _ => panic!("Expected StencilTransformUpdate"),
             }
+        }
+    }
+
+    // ========================================================================
+    // Template Sync Tests
+    // ========================================================================
+
+    #[test]
+    fn test_template_loaded_serialization() {
+        // Test TemplateLoaded struct serialization
+        let template = TemplateLoaded {
+            template_id: 42,
+            name: "test_template".to_string(),
+            template_data: vec![1, 2, 3, 4, 5],
+        };
+        let encoded =
+            bincode::serde::encode_to_vec(&template, bincode::config::standard()).unwrap();
+        let decoded: TemplateLoaded =
+            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
+                .unwrap()
+                .0;
+        assert_eq!(decoded.template_id, 42);
+        assert_eq!(decoded.name, "test_template");
+        assert_eq!(decoded.template_data, vec![1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn test_server_message_template_loaded() {
+        // Test ServerMessage::TemplateLoaded serialization
+        let msg = ServerMessage::TemplateLoaded(TemplateLoaded {
+            template_id: 123,
+            name: "castle".to_string(),
+            template_data: vec![10, 20, 30],
+        });
+        let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
+        let decoded: ServerMessage =
+            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
+                .unwrap()
+                .0;
+
+        match decoded {
+            ServerMessage::TemplateLoaded(t) => {
+                assert_eq!(t.template_id, 123);
+                assert_eq!(t.name, "castle");
+                assert_eq!(t.template_data, vec![10, 20, 30]);
+            }
+            _ => panic!("Expected TemplateLoaded variant"),
+        }
+    }
+
+    #[test]
+    fn test_template_removed_serialization() {
+        // Test TemplateRemoved struct serialization
+        let removed = TemplateRemoved { template_id: 42 };
+        let encoded = bincode::serde::encode_to_vec(&removed, bincode::config::standard()).unwrap();
+        let decoded: TemplateRemoved =
+            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
+                .unwrap()
+                .0;
+        assert_eq!(decoded.template_id, 42);
+    }
+
+    #[test]
+    fn test_server_message_template_removed() {
+        // Test ServerMessage::TemplateRemoved serialization
+        let msg = ServerMessage::TemplateRemoved(TemplateRemoved { template_id: 999 });
+        let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
+        let decoded: ServerMessage =
+            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
+                .unwrap()
+                .0;
+
+        match decoded {
+            ServerMessage::TemplateRemoved(r) => {
+                assert_eq!(r.template_id, 999);
+            }
+            _ => panic!("Expected TemplateRemoved variant"),
+        }
+    }
+
+    #[test]
+    fn test_template_sync_flow() {
+        // Simulate full template sync flow:
+        // 1. Server broadcasts TemplateLoaded
+        // 2. Server broadcasts TemplateRemoved
+
+        // Step 1: Server broadcasts TemplateLoaded
+        let loaded = TemplateLoaded {
+            template_id: 1,
+            name: "house".to_string(),
+            template_data: vec![1, 2, 3, 4, 5, 6, 7, 8],
+        };
+        let msg1 = ServerMessage::TemplateLoaded(loaded);
+        let encoded =
+            bincode::serde::encode_to_vec(&msg1, bincode::config::standard()).expect("encode");
+        let decoded: ServerMessage =
+            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
+                .expect("decode")
+                .0;
+
+        match decoded {
+            ServerMessage::TemplateLoaded(t) => {
+                assert_eq!(t.template_id, 1);
+                assert_eq!(t.name, "house");
+            }
+            _ => panic!("Expected TemplateLoaded"),
+        }
+
+        // Step 2: Server broadcasts TemplateRemoved
+        let removed = TemplateRemoved { template_id: 1 };
+        let msg2 = ServerMessage::TemplateRemoved(removed);
+        let encoded =
+            bincode::serde::encode_to_vec(&msg2, bincode::config::standard()).expect("encode");
+        let decoded: ServerMessage =
+            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
+                .expect("decode")
+                .0;
+
+        match decoded {
+            ServerMessage::TemplateRemoved(r) => {
+                assert_eq!(r.template_id, 1);
+            }
+            _ => panic!("Expected TemplateRemoved"),
+        }
+    }
+
+    #[test]
+    fn test_template_with_large_data() {
+        // Test TemplateLoaded with large data (simulating real template)
+        let large_data: Vec<u8> = (0..2000).map(|i| (i % 256) as u8).collect();
+        let template = TemplateLoaded {
+            template_id: u64::MAX,
+            name: "large_template_with_long_name".to_string(),
+            template_data: large_data.clone(),
+        };
+        let msg = ServerMessage::TemplateLoaded(template);
+        let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
+        let decoded: ServerMessage =
+            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
+                .unwrap()
+                .0;
+
+        match decoded {
+            ServerMessage::TemplateLoaded(t) => {
+                assert_eq!(t.template_id, u64::MAX);
+                assert_eq!(t.name, "large_template_with_long_name");
+                assert_eq!(t.template_data.len(), 2000);
+                assert_eq!(t.template_data, large_data);
+            }
+            _ => panic!("Expected TemplateLoaded"),
         }
     }
 }
