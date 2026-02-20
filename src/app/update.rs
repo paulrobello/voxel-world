@@ -423,6 +423,9 @@ impl App {
             // Apply any remote lava updates received from server
             self.apply_remote_lava_updates();
 
+            // Apply any remote frame picture set updates received from server
+            self.apply_remote_frame_picture_sets();
+
             // Request chunks from server when in client mode (or as host's local client)
             // Both pure clients AND hosts need to request chunks (host has a local client)
             if self.multiplayer.mode == crate::config::GameMode::Client

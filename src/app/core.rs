@@ -160,6 +160,10 @@ impl App {
                             model_data.waterlogged,
                             model_data.custom_data,
                         );
+                        // Update frame clusters if this is a frame block
+                        if crate::sub_voxel::ModelRegistry::is_frame_model(model_data.model_id) {
+                            self.sim.world.update_adjacent_frame_clusters(pos);
+                        }
                     }
                 }
                 BlockType::TintedGlass => {
@@ -251,6 +255,60 @@ impl App {
                     BlockUpdateType::OrphanedLeaves,
                     player_pos,
                 );
+            }
+        }
+    }
+
+    /// Applies pending frame picture set updates from the server to the world.
+    /// Call this from the game loop to apply remote frame picture changes.
+    pub fn apply_remote_frame_picture_sets(&mut self) {
+        if !self.multiplayer.has_pending_frame_picture_sets() {
+            return;
+        }
+
+        use crate::sub_voxel::builtins::frames;
+
+        let updates = self.multiplayer.take_pending_frame_picture_sets();
+        println!(
+            "[Client] Applying {} frame picture set update(s)",
+            updates.len()
+        );
+
+        for update in updates {
+            let pos =
+                nalgebra::Vector3::new(update.position[0], update.position[1], update.position[2]);
+
+            // Get current model data
+            if let Some(model_data) = self.sim.world.get_model_data(pos) {
+                // Only update if this is a frame model
+                if crate::sub_voxel::ModelRegistry::is_frame_model(model_data.model_id) {
+                    // Decode current metadata
+                    let facing = frames::metadata::decode_facing(model_data.custom_data);
+                    let offset_x = frames::metadata::decode_offset_x(model_data.custom_data);
+                    let offset_y = frames::metadata::decode_offset_y(model_data.custom_data);
+                    let width = frames::metadata::decode_width(model_data.custom_data);
+                    let height = frames::metadata::decode_height(model_data.custom_data);
+
+                    // Encode new metadata with updated picture_id
+                    let picture_id = update.picture_id.unwrap_or(0) as u32;
+                    let new_custom_data = frames::metadata::encode(
+                        picture_id, offset_x, offset_y, width, height, facing,
+                    );
+
+                    // Update the block with new custom_data
+                    self.sim.world.set_model_block_with_data(
+                        pos,
+                        model_data.model_id,
+                        model_data.rotation,
+                        model_data.waterlogged,
+                        new_custom_data,
+                    );
+
+                    println!(
+                        "[Client] Updated frame at {:?} with picture_id={}",
+                        pos, picture_id
+                    );
+                }
             }
         }
     }

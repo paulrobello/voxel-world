@@ -82,6 +82,8 @@ pub struct MultiplayerState {
     pub pending_time_update: Option<f32>,
     /// Pending spawn position update from server (client-side).
     pending_spawn_position: Option<crate::net::protocol::SpawnPositionChanged>,
+    /// Pending frame picture set updates from server (client-side).
+    pending_frame_picture_sets: Vec<crate::net::protocol::FramePictureSet>,
     /// Water sync bandwidth optimizer (server-side, when hosting).
     water_sync_optimizer: WaterSyncOptimizer,
 
@@ -143,6 +145,7 @@ impl MultiplayerState {
             pending_day_cycle_pause: None,
             pending_time_update: None,
             pending_spawn_position: None,
+            pending_frame_picture_sets: Vec::new(),
             water_sync_optimizer: WaterSyncOptimizer::new(),
             discovery: None,
             discovery_responder: None,
@@ -909,6 +912,20 @@ impl MultiplayerState {
                 );
                 self.pending_spawn_position = Some(spawn.clone());
             }
+            ServerMessage::FramePictureSet(frame) => {
+                println!(
+                    "[Client] Received FramePictureSet at {:?}: picture_id={:?}",
+                    frame.position, frame.picture_id
+                );
+                self.pending_frame_picture_sets.push(frame.clone());
+            }
+            ServerMessage::PictureAdded(picture) => {
+                println!(
+                    "[Client] Received PictureAdded: id={} name='{}'",
+                    picture.picture_id, picture.name
+                );
+                // Picture metadata is received; actual PNG data would be requested separately if needed
+            }
             _ => {}
         }
     }
@@ -1587,5 +1604,18 @@ impl MultiplayerState {
         if let Some(ref mut server) = self.server {
             server.broadcast_frame_picture_set(position, picture_id);
         }
+    }
+
+    /// Takes all pending frame picture set updates and clears the queue.
+    /// Call this from the game loop to apply frame picture changes to the local world.
+    pub fn take_pending_frame_picture_sets(
+        &mut self,
+    ) -> Vec<crate::net::protocol::FramePictureSet> {
+        std::mem::take(&mut self.pending_frame_picture_sets)
+    }
+
+    /// Returns true if there are pending frame picture set updates to apply.
+    pub fn has_pending_frame_picture_sets(&self) -> bool {
+        !self.pending_frame_picture_sets.is_empty()
     }
 }
