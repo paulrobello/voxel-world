@@ -17,7 +17,7 @@ use crate::net::auth::ServerAuth;
 use crate::net::channel::create_connection_config;
 use crate::net::protocol::{
     BlockChanged, BlocksChanged, ChunkData, ChunkGenerateLocal, ClientMessage, ConnectionAccepted,
-    PlayerId, PlayerJoined, PlayerLeft, PlayerState, ServerMessage, TimeUpdate,
+    PlayerId, PlayerJoined, PlayerLeft, PlayerState, ServerMessage, TimeUpdate, TreeFell,
 };
 use crate::net::texture_slots::TextureSlotManager;
 use crate::storage::model_format::{DoorPairStore, WorldModelStore};
@@ -354,6 +354,17 @@ impl GameServer {
         land: crate::net::protocol::FallingBlockLanded,
     ) {
         let msg = ServerMessage::FallingBlockLanded(land);
+        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+            self.server
+                .broadcast_message(1, renet::Bytes::from(encoded)); // Channel 1 = BlockUpdates
+        }
+    }
+
+    /// Broadcasts a tree fall event to all clients.
+    /// Used for server-authoritative multi-block tree fall sync.
+    /// This is more bandwidth-efficient than sending individual FallingBlockSpawned messages.
+    pub fn broadcast_tree_fell(&mut self, tree_fell: TreeFell) {
+        let msg = ServerMessage::TreeFell(tree_fell);
         if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
             self.server
                 .broadcast_message(1, renet::Bytes::from(encoded)); // Channel 1 = BlockUpdates

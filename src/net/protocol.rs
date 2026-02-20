@@ -304,6 +304,27 @@ pub struct FallingBlockLanded {
     pub block_type: BlockType,
 }
 
+/// A single block in a tree fall event.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TreeFellBlock {
+    /// Entity ID for this falling block.
+    pub entity_id: FallingBlockId,
+    /// Grid position where the block started falling.
+    pub position: [i32; 3],
+    /// The type of block (log or leaves).
+    pub block_type: BlockType,
+}
+
+/// Notification that a tree has fallen.
+/// Sent by the server when a connected tree loses ground support.
+/// All blocks in the tree become falling blocks simultaneously.
+/// This is more bandwidth-efficient than sending individual FallingBlockSpawned messages.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TreeFell {
+    /// List of all blocks in the tree that are now falling.
+    pub blocks: Vec<TreeFellBlock>,
+}
+
 /// Authoritative player state from server.
 /// Used for reconciliation when prediction differs.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -492,6 +513,8 @@ pub enum ServerMessage {
     FallingBlockSpawned(FallingBlockSpawned),
     /// Falling block landed notification.
     FallingBlockLanded(FallingBlockLanded),
+    /// Tree fell notification (batch of falling blocks).
+    TreeFell(TreeFell),
 }
 
 #[cfg(test)]
@@ -544,5 +567,133 @@ mod tests {
                 .unwrap()
                 .0;
         assert_eq!(msg, decoded);
+    }
+
+    #[test]
+    fn test_tree_fell_block_serialization() {
+        // Test TreeFellBlock serialization
+        let block = TreeFellBlock {
+            entity_id: 42,
+            position: [100, 64, 200],
+            block_type: BlockType::Log,
+        };
+        let encoded = bincode::serde::encode_to_vec(&block, bincode::config::standard()).unwrap();
+        let decoded: TreeFellBlock =
+            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
+                .unwrap()
+                .0;
+        assert_eq!(block.entity_id, decoded.entity_id);
+        assert_eq!(block.position, decoded.position);
+        assert_eq!(block.block_type, decoded.block_type);
+    }
+
+    #[test]
+    fn test_tree_fell_serialization() {
+        // Test TreeFell message with multiple blocks
+        let tree_fell = TreeFell {
+            blocks: vec![
+                TreeFellBlock {
+                    entity_id: 1,
+                    position: [0, 0, 0],
+                    block_type: BlockType::Log,
+                },
+                TreeFellBlock {
+                    entity_id: 2,
+                    position: [0, 1, 0],
+                    block_type: BlockType::Log,
+                },
+                TreeFellBlock {
+                    entity_id: 3,
+                    position: [1, 1, 0],
+                    block_type: BlockType::Leaves,
+                },
+            ],
+        };
+        let encoded =
+            bincode::serde::encode_to_vec(&tree_fell, bincode::config::standard()).unwrap();
+        let decoded: TreeFell =
+            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
+                .unwrap()
+                .0;
+        assert_eq!(tree_fell.blocks.len(), decoded.blocks.len());
+        for (orig, dec) in tree_fell.blocks.iter().zip(decoded.blocks.iter()) {
+            assert_eq!(orig.entity_id, dec.entity_id);
+            assert_eq!(orig.position, dec.position);
+            assert_eq!(orig.block_type, dec.block_type);
+        }
+    }
+
+    #[test]
+    fn test_server_message_tree_fell_serialization() {
+        // Test ServerMessage::TreeFell serialization
+        let tree_fell = TreeFell {
+            blocks: vec![
+                TreeFellBlock {
+                    entity_id: 100,
+                    position: [50, 70, 50],
+                    block_type: BlockType::PineLeaves,
+                },
+                TreeFellBlock {
+                    entity_id: 101,
+                    position: [50, 71, 50],
+                    block_type: BlockType::PineLog,
+                },
+            ],
+        };
+        let msg = ServerMessage::TreeFell(tree_fell);
+        let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
+        let decoded: ServerMessage =
+            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
+                .unwrap()
+                .0;
+
+        match decoded {
+            ServerMessage::TreeFell(decoded_tree) => {
+                assert_eq!(decoded_tree.blocks.len(), 2);
+                assert_eq!(decoded_tree.blocks[0].entity_id, 100);
+                assert_eq!(decoded_tree.blocks[0].block_type, BlockType::PineLeaves);
+                assert_eq!(decoded_tree.blocks[1].entity_id, 101);
+                assert_eq!(decoded_tree.blocks[1].block_type, BlockType::PineLog);
+            }
+            _ => panic!("Expected TreeFell variant"),
+        }
+    }
+
+    #[test]
+    fn test_tree_fell_empty_blocks() {
+        // Test TreeFell with no blocks (edge case)
+        let tree_fell = TreeFell { blocks: vec![] };
+        let encoded =
+            bincode::serde::encode_to_vec(&tree_fell, bincode::config::standard()).unwrap();
+        let decoded: TreeFell =
+            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
+                .unwrap()
+                .0;
+        assert!(decoded.blocks.is_empty());
+    }
+
+    #[test]
+    fn test_tree_fell_large_tree() {
+        // Test TreeFell with a large number of blocks (realistic tree)
+        let mut blocks = Vec::new();
+        for i in 0..50 {
+            blocks.push(TreeFellBlock {
+                entity_id: i,
+                position: [i as i32, i as i32, i as i32],
+                block_type: if i < 10 {
+                    BlockType::Log
+                } else {
+                    BlockType::Leaves
+                },
+            });
+        }
+        let tree_fell = TreeFell { blocks };
+        let encoded =
+            bincode::serde::encode_to_vec(&tree_fell, bincode::config::standard()).unwrap();
+        let decoded: TreeFell =
+            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
+                .unwrap()
+                .0;
+        assert_eq!(decoded.blocks.len(), 50);
     }
 }

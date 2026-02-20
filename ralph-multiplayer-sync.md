@@ -48,7 +48,7 @@ Implement all missing multiplayer synchronization points documented in SYNC.md. 
 ### Block Physics Queue
 - [x] Move `BlockUpdateQueue` processing to server-side only in multiplayer
 - [x] Broadcast gravity cascade results as `BlocksChanged` messages
-- [ ] Implement `ServerMessage::TreeFell(TreeFell)` for multi-block tree falls
+- [x] Implement `ServerMessage::TreeFell(TreeFell)` for multi-block tree falls
 - [x] Ensure orphaned leaf decay is server-authoritative
 - [x] Model ground support checks processed by server
 - [x] Test: Tree fall visible to all players, no state divergence

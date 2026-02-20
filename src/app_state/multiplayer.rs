@@ -72,6 +72,8 @@ pub struct MultiplayerState {
     pub pending_falling_block_spawns: Vec<crate::net::protocol::FallingBlockSpawned>,
     /// Pending falling block lands received from server (client-side).
     pub pending_falling_block_lands: Vec<crate::net::protocol::FallingBlockLanded>,
+    /// Pending tree fall events received from server (client-side).
+    pub pending_tree_falls: Vec<crate::net::protocol::TreeFell>,
     /// Water sync bandwidth optimizer (server-side, when hosting).
     water_sync_optimizer: WaterSyncOptimizer,
 
@@ -128,6 +130,7 @@ impl MultiplayerState {
             pending_lava_updates: Vec::new(),
             pending_falling_block_spawns: Vec::new(),
             pending_falling_block_lands: Vec::new(),
+            pending_tree_falls: Vec::new(),
             water_sync_optimizer: WaterSyncOptimizer::new(),
             discovery: None,
             discovery_responder: None,
@@ -858,6 +861,13 @@ impl MultiplayerState {
                 );
                 self.pending_falling_block_lands.push(land.clone());
             }
+            ServerMessage::TreeFell(tree_fell) => {
+                println!(
+                    "[Client] Received TreeFell with {} blocks",
+                    tree_fell.blocks.len()
+                );
+                self.pending_tree_falls.push(tree_fell.clone());
+            }
             _ => {}
         }
     }
@@ -1353,5 +1363,76 @@ impl MultiplayerState {
             server.broadcast_falling_block_landed(land);
         }
         // Note: Threaded server mode would need ServerCommand variant added
+    }
+
+    /// Broadcasts a tree fall event to all clients (server-side, when hosting).
+    /// This is more bandwidth-efficient than sending individual FallingBlockSpawned messages
+    /// when a whole tree (multiple connected logs and leaves) loses ground support.
+    ///
+    /// # Arguments
+    /// * `blocks` - List of (position, block_type) pairs for all blocks in the tree
+    ///
+    /// # Returns
+    /// A vector of entity IDs assigned to each falling block, in the same order as input.
+    pub fn broadcast_tree_fell(
+        &mut self,
+        blocks: Vec<(nalgebra::Vector3<i32>, crate::chunk::BlockType)>,
+    ) -> Vec<u32> {
+        use crate::net::falling_block_sync::FallingBlockSync;
+
+        // Create a temporary sync to generate entity IDs
+        let mut sync = FallingBlockSync::new();
+
+        // Build the TreeFell message with entity IDs
+        let tree_fell_blocks: Vec<crate::net::protocol::TreeFellBlock> = blocks
+            .into_iter()
+            .map(|(pos, block_type)| {
+                let entity_id = sync.next_entity_id();
+                crate::net::protocol::TreeFellBlock {
+                    entity_id,
+                    position: [pos.x, pos.y, pos.z],
+                    block_type,
+                }
+            })
+            .collect();
+
+        // Collect entity IDs for return
+        let entity_ids: Vec<u32> = tree_fell_blocks.iter().map(|b| b.entity_id).collect();
+
+        let tree_fell = crate::net::protocol::TreeFell {
+            blocks: tree_fell_blocks,
+        };
+
+        if let Some(ref mut server) = self.server {
+            server.broadcast_tree_fell(tree_fell);
+        }
+        // Note: Threaded server mode would need ServerCommand variant added
+
+        entity_ids
+    }
+
+    /// Takes all pending tree fall events and clears the queue.
+    /// Call this from the game loop to spawn falling blocks in the client simulation.
+    pub fn take_pending_tree_falls(&mut self) -> Vec<crate::net::protocol::TreeFell> {
+        std::mem::take(&mut self.pending_tree_falls)
+    }
+
+    /// Returns true if there are pending tree fall events to apply.
+    pub fn has_pending_tree_falls(&self) -> bool {
+        !self.pending_tree_falls.is_empty()
+    }
+
+    /// Broadcasts a batch of falling block landings to all clients (server-side, when hosting).
+    /// This is useful when multiple blocks from a tree fall land at similar times.
+    ///
+    /// # Arguments
+    /// * `lands` - List of (entity_id, position, block_type) tuples
+    pub fn broadcast_falling_block_lands_batch(
+        &mut self,
+        lands: Vec<(u32, [i32; 3], crate::chunk::BlockType)>,
+    ) {
+        for (entity_id, position, block_type) in lands {
+            self.broadcast_falling_block_land(entity_id, position, block_type);
+        }
     }
 }
