@@ -642,6 +642,39 @@ impl App {
         }
     }
 
+    /// Processes pending picture uploads from clients (server-side, when hosting).
+    /// Registers pictures in the server's picture manager, saves them, and broadcasts to all clients.
+    pub fn process_picture_uploads(&mut self) {
+        if !self.multiplayer.has_pending_picture_uploads() {
+            return;
+        }
+
+        let uploads = self.multiplayer.take_pending_picture_uploads();
+        println!("[Server] Processing {} picture upload(s)", uploads.len());
+
+        for (_client_id, upload) in uploads {
+            // Use the server's GameServer if available
+            if let Some(ref mut server) = self.multiplayer.server {
+                // Add picture to the manager (which saves to disk)
+                let picture_id = match server.add_picture(&upload.name, &upload.png_data) {
+                    Ok(id) => id,
+                    Err(e) => {
+                        eprintln!("[Server] Failed to add picture '{}': {}", upload.name, e);
+                        continue;
+                    }
+                };
+
+                println!(
+                    "[Server] Added picture '{}' with ID {} from client",
+                    upload.name, picture_id
+                );
+
+                // Broadcast to all clients
+                server.broadcast_picture_added(picture_id, upload.name.clone());
+            }
+        }
+    }
+
     /// Registers pending models received from server (client-side).
     /// Call this from the game loop after multiplayer.update() to register
     /// models that were broadcast by the server.

@@ -82,7 +82,7 @@ Implement all missing multiplayer synchronization points documented in SYNC.md. 
 - [x] Add `ServerMessage::PictureAdded(PictureAdded)` with picture_id, name
 - [x] Add `ServerMessage::FramePictureSet(FramePictureSet)` with position, picture_id
 - [x] Server stores uploaded pictures and assigns IDs
-- [ ] Broadcast picture uploads to all clients
+- [x] Broadcast picture uploads to all clients
 - [ ] Sync frame selections when player sets a picture
 - [ ] Test: Uploaded picture visible in frame for all players
 

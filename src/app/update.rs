@@ -460,6 +460,8 @@ impl App {
                 self.process_model_uploads();
                 // Process texture uploads from clients
                 self.process_texture_uploads();
+                // Process picture uploads from clients
+                self.process_picture_uploads();
             }
 
             // Register models received from server (all connected clients)
