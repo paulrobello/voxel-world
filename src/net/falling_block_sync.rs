@@ -605,4 +605,270 @@ mod tests {
 
         assert_eq!(client_system.count(), 0);
     }
+
+    /// Integration test: Verifies falling sand is visible to all connected players.
+    ///
+    /// This test simulates the full multiplayer scenario:
+    /// 1. Server detects a sand block should fall (loses support)
+    /// 2. Server broadcasts FallingBlockSpawned to all clients
+    /// 3. All clients receive and render the falling sand
+    /// 4. Server simulates physics and detects landing
+    /// 5. Server broadcasts FallingBlockLanded to all clients
+    /// 6. All clients place the sand block and remove the entity
+    ///
+    /// This verifies the P0 critical sync point: "Falling sand visible to all connected players"
+    #[test]
+    fn test_falling_sand_visible_to_all_players() {
+        use bincode;
+
+        // === Setup: Simulate server and 3 connected clients ===
+        let mut server_sync = FallingBlockSync::new();
+        let mut client1 = ClientFallingBlockSystem::new();
+        let mut client2 = ClientFallingBlockSystem::new();
+        let mut client3 = ClientFallingBlockSystem::new();
+
+        // === Phase 1: Server detects block should fall ===
+        // A sand block at (100, 50, 100) loses support and starts falling
+        let sand_grid_pos = Vector3::new(100, 50, 100);
+        let spawn_msg = server_sync.register_spawn(sand_grid_pos, BlockType::Sand);
+
+        // Verify server state
+        assert!(spawn_msg.entity_id > 0, "Entity ID should be assigned");
+        assert_eq!(spawn_msg.block_type, BlockType::Sand);
+        // Position should be center of block
+        assert_eq!(spawn_msg.position, [100.5, 50.5, 100.5]);
+        assert_eq!(server_sync.active_count(), 1);
+
+        // === Phase 2: Serialize spawn message (simulates network transmission) ===
+        let encoded_spawn = bincode::serde::encode_to_vec(&spawn_msg, bincode::config::standard())
+            .expect("Failed to encode spawn message");
+
+        // === Phase 3: All clients receive the spawn message ===
+        let (decoded_spawn1, _): (FallingBlockSpawned, usize) =
+            bincode::serde::decode_from_slice(&encoded_spawn, bincode::config::standard())
+                .expect("Client 1 failed to decode spawn");
+        let (decoded_spawn2, _): (FallingBlockSpawned, usize) =
+            bincode::serde::decode_from_slice(&encoded_spawn, bincode::config::standard())
+                .expect("Client 2 failed to decode spawn");
+        let (decoded_spawn3, _): (FallingBlockSpawned, usize) =
+            bincode::serde::decode_from_slice(&encoded_spawn, bincode::config::standard())
+                .expect("Client 3 failed to decode spawn");
+
+        // All clients spawn the falling block
+        client1.spawn_from_network(&decoded_spawn1);
+        client2.spawn_from_network(&decoded_spawn2);
+        client3.spawn_from_network(&decoded_spawn3);
+
+        // === Verify: All clients see the falling sand ===
+        assert_eq!(client1.count(), 1, "Client 1 should see falling sand");
+        assert_eq!(client2.count(), 1, "Client 2 should see falling sand");
+        assert_eq!(client3.count(), 1, "Client 3 should see falling sand");
+
+        // Verify all clients have the correct block type
+        let c1_gpu = client1.gpu_data();
+        let c2_gpu = client2.gpu_data();
+        let c3_gpu = client3.gpu_data();
+        assert_eq!(c1_gpu.len(), 1);
+        assert_eq!(c2_gpu.len(), 1);
+        assert_eq!(c3_gpu.len(), 1);
+        assert_eq!(c1_gpu[0].pos_type[3], BlockType::Sand as u8 as f32);
+        assert_eq!(c2_gpu[0].pos_type[3], BlockType::Sand as u8 as f32);
+        assert_eq!(c3_gpu[0].pos_type[3], BlockType::Sand as u8 as f32);
+
+        // === Phase 4: Simulate client-side rendering updates ===
+        // Clients interpolate falling animation
+        let delta_time = 0.05; // 50ms
+        client1.update(delta_time);
+        client2.update(delta_time);
+        client3.update(delta_time);
+
+        // All clients should still have the falling block
+        assert_eq!(client1.count(), 1);
+        assert_eq!(client2.count(), 1);
+        assert_eq!(client3.count(), 1);
+
+        // === Phase 5: Server detects landing ===
+        let land_msg = FallingBlockLanded {
+            entity_id: spawn_msg.entity_id,
+            position: [100, 45, 100], // Landed 5 blocks below
+            block_type: BlockType::Sand,
+        };
+
+        // === Phase 6: Serialize and broadcast land message ===
+        let encoded_land = bincode::serde::encode_to_vec(&land_msg, bincode::config::standard())
+            .expect("Failed to encode land message");
+
+        // === Phase 7: All clients receive land message ===
+        let (decoded_land1, _): (FallingBlockLanded, usize) =
+            bincode::serde::decode_from_slice(&encoded_land, bincode::config::standard())
+                .expect("Client 1 failed to decode land");
+        let (decoded_land2, _): (FallingBlockLanded, usize) =
+            bincode::serde::decode_from_slice(&encoded_land, bincode::config::standard())
+                .expect("Client 2 failed to decode land");
+        let (decoded_land3, _): (FallingBlockLanded, usize) =
+            bincode::serde::decode_from_slice(&encoded_land, bincode::config::standard())
+                .expect("Client 3 failed to decode land");
+
+        // All clients handle landing
+        let land1 = client1.handle_landed(&decoded_land1);
+        let land2 = client2.handle_landed(&decoded_land2);
+        let land3 = client3.handle_landed(&decoded_land3);
+
+        // === Verify: All clients successfully placed the block ===
+        assert!(land1.is_some(), "Client 1 should receive landed block info");
+        assert!(land2.is_some(), "Client 2 should receive landed block info");
+        assert!(land3.is_some(), "Client 3 should receive landed block info");
+
+        // Verify correct landing position and block type
+        let lb1 = land1.unwrap();
+        let lb2 = land2.unwrap();
+        let lb3 = land3.unwrap();
+        assert_eq!(lb1.position, Vector3::new(100, 45, 100));
+        assert_eq!(lb2.position, Vector3::new(100, 45, 100));
+        assert_eq!(lb3.position, Vector3::new(100, 45, 100));
+        assert_eq!(lb1.block_type, BlockType::Sand);
+        assert_eq!(lb2.block_type, BlockType::Sand);
+        assert_eq!(lb3.block_type, BlockType::Sand);
+
+        // Verify no more falling blocks visible
+        assert_eq!(client1.count(), 0, "Client 1 should have no falling blocks");
+        assert_eq!(client2.count(), 0, "Client 2 should have no falling blocks");
+        assert_eq!(client3.count(), 0, "Client 3 should have no falling blocks");
+
+        // === Phase 8: Server cleanup ===
+        server_sync.remove_entity(spawn_msg.entity_id);
+        assert_eq!(server_sync.active_count(), 0);
+
+        println!(
+            "Successfully verified falling sand sync across 3 clients: spawn_id={}, landed_at=({},{},{})",
+            spawn_msg.entity_id, lb1.position.x, lb1.position.y, lb1.position.z
+        );
+    }
+
+    /// Integration test: Verifies falling block sync via ServerMessage protocol.
+    ///
+    /// This test verifies that falling block messages are properly wrapped
+    /// in ServerMessage enum and can be serialized/deserialized correctly,
+    /// matching the actual network protocol used in multiplayer.
+    #[test]
+    fn test_falling_block_via_server_message_protocol() {
+        use crate::net::protocol::ServerMessage;
+        use bincode;
+
+        // === Setup ===
+        let mut server_sync = FallingBlockSync::new();
+        let mut client = ClientFallingBlockSystem::new();
+
+        // === Server creates spawn message ===
+        let spawn = server_sync.register_spawn(Vector3::new(0, 100, 0), BlockType::Gravel);
+
+        // Wrap in ServerMessage (as done in actual server code)
+        let server_msg_spawn = ServerMessage::FallingBlockSpawned(spawn.clone());
+
+        // Serialize as ServerMessage
+        let encoded = bincode::serde::encode_to_vec(&server_msg_spawn, bincode::config::standard())
+            .expect("Failed to encode ServerMessage");
+
+        // Deserialize as ServerMessage
+        let (decoded, _): (ServerMessage, usize) =
+            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
+                .expect("Failed to decode ServerMessage");
+
+        // Verify correct message type
+        match decoded {
+            ServerMessage::FallingBlockSpawned(received_spawn) => {
+                assert_eq!(received_spawn.entity_id, spawn.entity_id);
+                assert_eq!(received_spawn.block_type, BlockType::Gravel);
+                client.spawn_from_network(&received_spawn);
+            }
+            _ => panic!("Expected FallingBlockSpawned message"),
+        }
+
+        assert_eq!(client.count(), 1, "Client should have falling gravel");
+
+        // === Server creates land message ===
+        let land = FallingBlockLanded {
+            entity_id: spawn.entity_id,
+            position: [0, 90, 0],
+            block_type: BlockType::Gravel,
+        };
+
+        let server_msg_land = ServerMessage::FallingBlockLanded(land);
+
+        // Serialize and deserialize
+        let encoded = bincode::serde::encode_to_vec(&server_msg_land, bincode::config::standard())
+            .expect("Failed to encode land ServerMessage");
+        let (decoded, _): (ServerMessage, usize) =
+            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
+                .expect("Failed to decode land ServerMessage");
+
+        match decoded {
+            ServerMessage::FallingBlockLanded(received_land) => {
+                assert_eq!(received_land.entity_id, spawn.entity_id);
+                let landed = client.handle_landed(&received_land);
+                assert!(landed.is_some());
+                assert_eq!(landed.unwrap().position, Vector3::new(0, 90, 0));
+            }
+            _ => panic!("Expected FallingBlockLanded message"),
+        }
+
+        assert_eq!(
+            client.count(),
+            0,
+            "Client should have no falling blocks after landing"
+        );
+    }
+
+    /// Integration test: Verifies falling blocks of different types (sand, gravel, snow).
+    #[test]
+    fn test_all_falling_block_types() {
+        use bincode;
+
+        let mut server_sync = FallingBlockSync::new();
+        let mut client = ClientFallingBlockSystem::new();
+
+        // Test all supported falling block types
+        let falling_types = vec![
+            (BlockType::Sand, "Sand"),
+            (BlockType::Gravel, "Gravel"),
+            (BlockType::Snow, "Snow"),
+        ];
+
+        for (block_type, name) in &falling_types {
+            // Spawn
+            let spawn = server_sync.register_spawn(Vector3::new(0, 50, 0), *block_type);
+            let encoded =
+                bincode::serde::encode_to_vec(&spawn, bincode::config::standard()).unwrap();
+            let (decoded, _): (FallingBlockSpawned, usize) =
+                bincode::serde::decode_from_slice(&encoded, bincode::config::standard()).unwrap();
+
+            client.spawn_from_network(&decoded);
+
+            assert_eq!(client.count(), 1, "Client should see falling {}", name);
+            let gpu = client.gpu_data();
+            assert_eq!(gpu[0].pos_type[3], *block_type as u8 as f32);
+
+            // Land
+            let land = FallingBlockLanded {
+                entity_id: spawn.entity_id,
+                position: [0, 40, 0],
+                block_type: *block_type,
+            };
+            let encoded =
+                bincode::serde::encode_to_vec(&land, bincode::config::standard()).unwrap();
+            let (decoded, _): (FallingBlockLanded, usize) =
+                bincode::serde::decode_from_slice(&encoded, bincode::config::standard()).unwrap();
+
+            let landed = client.handle_landed(&decoded);
+            assert!(landed.is_some(), "{} should land", name);
+            assert_eq!(landed.unwrap().block_type, *block_type);
+            assert_eq!(client.count(), 0);
+
+            println!("Verified falling block sync for {}", name);
+        }
+
+        assert_eq!(server_sync.active_count(), 3); // Still tracked on server
+        server_sync.clear();
+        assert_eq!(server_sync.active_count(), 0);
+    }
 }

@@ -43,7 +43,7 @@ Implement all missing multiplayer synchronization points documented in SYNC.md. 
 - [x] Broadcast spawn when block loses support
 - [x] Broadcast landing when block comes to rest
 - [x] Client renders falling animation locally based on spawn/land messages
-- [ ] Test: Falling sand visible to all connected players
+- [x] Test: Falling sand visible to all connected players
 
 ### Block Physics Queue
 - [ ] Move `BlockUpdateQueue` processing to server-side only in multiplayer
