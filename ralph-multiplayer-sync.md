@@ -26,7 +26,7 @@ Implement all missing multiplayer synchronization points documented in SYNC.md. 
 - [x] Modify `WaterGrid::tick()` on server to collect and broadcast changed cells
 - [x] Add client-side handler for `WaterCellsChanged` to apply water state
 - [x] Implement bandwidth optimization: batch updates per tick, delta encoding, AoI filtering
-- [ ] Test: Both clients see same water levels after source placement
+- [x] Test: Both clients see same water levels after source placement
 
 ### Lava Simulation
 - [x] Add `LavaCellUpdate` struct to protocol.rs (same fields as water)

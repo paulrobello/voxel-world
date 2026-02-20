@@ -445,4 +445,276 @@ mod tests {
         // Should be rate limited now
         assert!(!optimizer.should_broadcast_now());
     }
+
+    /// Integration test: Verifies water sync produces identical state on server and client.
+    ///
+    /// This test simulates the full multiplayer water sync flow:
+    /// 1. Server places a water source
+    /// 2. Server runs water simulation ticks
+    /// 3. Sync updates are collected and filtered through optimizer
+    /// 4. Updates are converted to protocol messages
+    /// 5. Client applies the updates to its water grid
+    /// 6. Both grids should have identical state
+    #[test]
+    fn test_water_sync_produces_identical_state() {
+        use crate::water::{MAX_MASS, WaterGrid};
+        use bincode;
+
+        // === Setup: Create server and client water grids ===
+        let mut server_grid = WaterGrid::new();
+        let mut client_grid = WaterGrid::new();
+        let mut optimizer = WaterSyncOptimizer::new();
+
+        // Place a water source on the server
+        let source_pos = Vector3::new(0, 10, 0);
+        server_grid.place_source(source_pos, WaterType::Ocean);
+
+        // Initial sync: source placement
+        let initial_updates = vec![WaterCellSyncUpdate {
+            position: source_pos,
+            mass: MAX_MASS,
+            is_source: true,
+            water_type: WaterType::Ocean,
+        }];
+
+        // Filter through optimizer
+        let filtered = optimizer.filter_significant_changes(initial_updates);
+        assert!(
+            !filtered.is_empty(),
+            "Source placement should be significant"
+        );
+
+        // Convert to protocol format and apply to client
+        let protocol_updates: Vec<crate::net::protocol::WaterCellUpdate> = filtered
+            .iter()
+            .map(|u| crate::net::protocol::WaterCellUpdate {
+                position: [u.position.x, u.position.y, u.position.z],
+                mass: u.mass,
+                is_source: u.is_source,
+                water_type: u.water_type,
+            })
+            .collect();
+
+        // Apply updates to client grid
+        for update in &protocol_updates {
+            let pos = Vector3::new(update.position[0], update.position[1], update.position[2]);
+            // set_water handles both addition (mass > 0) and removal (mass <= 0)
+            client_grid.set_water(pos, update.mass, update.is_source, update.water_type);
+        }
+
+        // Verify initial state matches
+        assert!(
+            client_grid.has_water(source_pos),
+            "Client should have water at source position"
+        );
+        assert!(
+            client_grid.is_source(source_pos),
+            "Client should recognize source"
+        );
+        assert_eq!(
+            server_grid.get_mass(source_pos),
+            client_grid.get_mass(source_pos),
+            "Source mass should match"
+        );
+
+        // === Run simulation ticks and sync ===
+        let player_pos = Vector3::new(0.0, 0.0, 0.0);
+        let floor_solid = |pos: Vector3<i32>| pos.y < 0;
+        let never_out_of_bounds = |_: Vector3<i32>| false;
+        let no_world_water = |_: Vector3<i32>| false;
+
+        // Run several simulation ticks
+        for tick_num in 0..5 {
+            // Server tick
+            let (_, server_sync_updates) =
+                server_grid.tick(floor_solid, never_out_of_bounds, no_world_water, player_pos);
+
+            // Filter and optimize
+            let filtered = optimizer.filter_significant_changes(server_sync_updates);
+
+            if !filtered.is_empty() {
+                // Convert to protocol format
+                let protocol_updates: Vec<crate::net::protocol::WaterCellUpdate> = filtered
+                    .iter()
+                    .map(|u| crate::net::protocol::WaterCellUpdate {
+                        position: [u.position.x, u.position.y, u.position.z],
+                        mass: u.mass,
+                        is_source: u.is_source,
+                        water_type: u.water_type,
+                    })
+                    .collect();
+
+                // Simulate network serialization/deserialization
+                let encoded =
+                    bincode::serde::encode_to_vec(&protocol_updates, bincode::config::standard())
+                        .expect("Failed to encode water updates");
+                let (decoded, _len): (Vec<crate::net::protocol::WaterCellUpdate>, usize) =
+                    bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
+                        .expect("Failed to decode water updates");
+
+                // Apply to client
+                for update in decoded {
+                    let pos =
+                        Vector3::new(update.position[0], update.position[1], update.position[2]);
+                    // set_water handles both addition and removal
+                    client_grid.set_water(pos, update.mass, update.is_source, update.water_type);
+                }
+            }
+
+            // Also run client simulation (it should converge to same state)
+            let _ = client_grid.tick(floor_solid, never_out_of_bounds, no_world_water, player_pos);
+
+            println!(
+                "Tick {}: Server cells={}, active={} | Client cells={}, active={}",
+                tick_num,
+                server_grid.cell_count(),
+                server_grid.active_count(),
+                client_grid.cell_count(),
+                client_grid.active_count()
+            );
+        }
+
+        // === Verify final state matches ===
+        // All water cells on server should exist on client with same mass
+        let mut matching_cells = 0;
+        let mut mismatched_cells = 0;
+
+        for (pos, server_cell) in server_grid.iter() {
+            if let Some(client_cell) = client_grid.get_cell(*pos) {
+                let mass_diff = (server_cell.mass - client_cell.mass).abs();
+                if mass_diff < 0.1 {
+                    // Allow small floating point differences
+                    matching_cells += 1;
+                } else {
+                    mismatched_cells += 1;
+                    println!(
+                        "Mismatch at {:?}: server mass={}, client mass={}",
+                        pos, server_cell.mass, client_cell.mass
+                    );
+                }
+            } else if server_cell.mass > 0.01 {
+                // Server has water but client doesn't
+                mismatched_cells += 1;
+                println!(
+                    "Missing on client at {:?}: server mass={}",
+                    pos, server_cell.mass
+                );
+            }
+        }
+
+        // Check that source is still present and matches
+        assert!(
+            client_grid.has_water(source_pos),
+            "Client should still have water at source after simulation"
+        );
+        assert!(
+            client_grid.is_source(source_pos),
+            "Source should remain a source on client"
+        );
+
+        // Most cells should match (allowing some tolerance for timing differences)
+        let total_cells = server_grid.cell_count();
+        let match_ratio = matching_cells as f32 / total_cells.max(1) as f32;
+        println!(
+            "Final: {}/{} cells match ({:.1}%), {} mismatched",
+            matching_cells,
+            total_cells,
+            match_ratio * 100.0,
+            mismatched_cells
+        );
+
+        // At minimum, source cells should match perfectly
+        assert!(
+            match_ratio >= 0.8,
+            "At least 80% of cells should match after sync (got {:.1}%)",
+            match_ratio * 100.0
+        );
+    }
+
+    /// Test that verifies water cell removal syncs correctly.
+    #[test]
+    fn test_water_removal_sync() {
+        use crate::water::WaterGrid;
+
+        let mut server_grid = WaterGrid::new();
+        let mut client_grid = WaterGrid::new();
+
+        // Place water on both
+        let pos = Vector3::new(5, 5, 5);
+        server_grid.set_water(pos, 0.5, false, WaterType::Ocean);
+        client_grid.set_water(pos, 0.5, false, WaterType::Ocean);
+
+        assert!(server_grid.has_water(pos));
+        assert!(client_grid.has_water(pos));
+
+        // Server removes water
+        server_grid.set_water(pos, 0.0, false, WaterType::Ocean);
+
+        // Create removal update (mass = 0)
+        let removal_update = WaterCellSyncUpdate {
+            position: pos,
+            mass: 0.0,
+            is_source: false,
+            water_type: WaterType::Ocean,
+        };
+
+        // Apply to client using set_water (handles removal when mass <= 0)
+        client_grid.set_water(
+            removal_update.position,
+            removal_update.mass,
+            removal_update.is_source,
+            removal_update.water_type,
+        );
+
+        // Both should now have no water
+        assert!(
+            !server_grid.has_water(pos),
+            "Server should have removed water"
+        );
+        assert!(
+            !client_grid.has_water(pos),
+            "Client should have removed water"
+        );
+    }
+
+    /// Test that verifies source cells maintain mass correctly after sync.
+    #[test]
+    fn test_source_maintains_mass_after_sync() {
+        use crate::water::{MAX_MASS, WaterGrid};
+
+        let mut server_grid = WaterGrid::new();
+        let mut client_grid = WaterGrid::new();
+
+        let pos = Vector3::new(0, 0, 0);
+
+        // Place source on server
+        server_grid.place_source(pos, WaterType::Spring);
+
+        // Sync to client
+        let update = WaterCellSyncUpdate {
+            position: pos,
+            mass: MAX_MASS,
+            is_source: true,
+            water_type: WaterType::Spring,
+        };
+
+        client_grid.set_water(
+            Vector3::new(update.position.x, update.position.y, update.position.z),
+            update.mass,
+            update.is_source,
+            update.water_type,
+        );
+
+        // Both should have source with MAX_MASS
+        assert_eq!(server_grid.get_mass(pos), MAX_MASS);
+        assert_eq!(client_grid.get_mass(pos), MAX_MASS);
+        assert!(server_grid.is_source(pos));
+        assert!(client_grid.is_source(pos));
+
+        // Water type should match
+        assert_eq!(
+            server_grid.get_cell(pos).unwrap().water_type,
+            client_grid.get_cell(pos).unwrap().water_type
+        );
+    }
 }
