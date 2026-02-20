@@ -116,6 +116,8 @@ pub enum CommandResult {
     ListPositions,
     /// Set the selected picture for frame placement.
     SetPictureSelection { id: u32, name: String },
+    /// Set spawn position for respawning.
+    SetSpawnPosition { x: f64, y: f64, z: f64 },
 }
 
 impl CommandResult {
@@ -289,6 +291,8 @@ pub struct ConsoleState {
     pub pending_list_positions: bool,
     /// Pending set picture selection (id to select, 0 = clear).
     pub pending_set_picture: Option<u32>,
+    /// Pending spawn position to set (from console command).
+    pub pending_set_spawn_position: Option<[f64; 3]>,
     /// Pending block changes to sync to server in multiplayer mode.
     /// Contains (position, block_type) pairs for each modified block.
     pub pending_block_syncs: Vec<(Vector3<i32>, crate::chunk::BlockType)>,
@@ -335,6 +339,7 @@ impl ConsoleState {
             pending_delete_position: None,
             pending_list_positions: false,
             pending_set_picture: None,
+            pending_set_spawn_position: None,
             pending_block_syncs: Vec::new(),
             suggestions: Vec::new(),
             suggestion_index: 0,
@@ -533,6 +538,11 @@ impl ConsoleState {
                 name: "list_pos",
                 aliases: &["listpos", "lp", "positions"],
                 params: &[],
+            },
+            CommandSignature {
+                name: "setspawn",
+                aliases: &["spawn"],
+                params: &[ParamType::CoordX, ParamType::CoordY, ParamType::CoordZ],
             },
             CommandSignature {
                 name: "texture_add",
@@ -1171,6 +1181,13 @@ impl ConsoleState {
                 }
                 self.pending_set_picture = Some(id);
             }
+            CommandResult::SetSpawnPosition { x, y, z } => {
+                self.success(format!(
+                    "Spawn position set to ({:.1}, {:.1}, {:.1})",
+                    x, y, z
+                ));
+                self.pending_set_spawn_position = Some([x, y, z]);
+            }
         }
     }
 
@@ -1291,6 +1308,31 @@ impl ConsoleState {
             "texture_list" | "texlist" | "textures" => commands::texture_list(),
             "texture_remove" | "texremove" | "texdel" => commands::texture_remove(args),
             "texture_info" => commands::texture_info(args),
+            "setspawn" | "spawn" => {
+                if args.len() < 3 {
+                    return CommandResult::Error("Usage: setspawn <x> <y> <z>".to_string());
+                }
+                let x = match parse_coordinate(args[0], player_pos.x) {
+                    Ok(v) => v,
+                    Err(e) => return CommandResult::Error(e),
+                };
+                let y = match parse_coordinate(args[1], player_pos.y) {
+                    Ok(v) => v,
+                    Err(e) => return CommandResult::Error(e),
+                };
+                let z = match parse_coordinate(args[2], player_pos.z) {
+                    Ok(v) => v,
+                    Err(e) => return CommandResult::Error(e),
+                };
+                if let Some(error) = validate_y_bounds(y) {
+                    return CommandResult::Error(error);
+                }
+                CommandResult::SetSpawnPosition {
+                    x: x as f64 + 0.5,
+                    y: y as f64,
+                    z: z as f64 + 0.5,
+                }
+            }
             _ => CommandResult::Error(format!(
                 "Unknown command: '{}'. Type 'help' for commands.",
                 cmd

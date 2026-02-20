@@ -543,6 +543,20 @@ impl App {
             self.sim.time_of_day = time;
         }
 
+        // Apply pending spawn position update from server (client-side)
+        if let Some(spawn) = self.multiplayer.take_pending_spawn_position() {
+            let spawn_pos = Vector3::new(
+                spawn.position[0] as f64,
+                spawn.position[1] as f64,
+                spawn.position[2] as f64,
+            );
+            self.sim.player.set_spawn_pos(spawn_pos);
+            println!(
+                "[Client] Applied spawn position sync: ({:.1}, {:.1}, {:.1})",
+                spawn.position[0], spawn.position[1], spawn.position[2]
+            );
+        }
+
         // Update day/night cycle
         if !self.sim.day_cycle_paused {
             self.sim.time_of_day += delta_time as f32 / DAY_CYCLE_DURATION;

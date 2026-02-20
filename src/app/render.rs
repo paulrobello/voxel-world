@@ -266,6 +266,18 @@ impl App {
             self.sim.player.velocity = Vector3::zeros();
         }
 
+        // Handle pending spawn position from console
+        if let Some(pos) = self.ui.console.pending_set_spawn_position.take() {
+            let spawn_pos = Vector3::new(pos[0], pos[1], pos[2]);
+            self.sim.player.set_spawn_pos(spawn_pos);
+            // Broadcast to all clients in multiplayer
+            self.multiplayer.broadcast_spawn_position([
+                pos[0] as f32,
+                pos[1] as f32,
+                pos[2] as f32,
+            ]);
+        }
+
         // Handle pending biome debug toggle
         if let Some(enabled) = self.ui.console.pending_biome_debug.take() {
             self.ui.settings.show_biome_debug = enabled;

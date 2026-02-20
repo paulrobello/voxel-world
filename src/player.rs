@@ -637,6 +637,11 @@ impl Player {
         self.spawn_pos
     }
 
+    /// Sets the spawn position for respawning.
+    pub fn set_spawn_pos(&mut self, pos: Vector3<f64>) {
+        self.spawn_pos = pos;
+    }
+
     pub fn check_collision(
         &self,
         feet_pos: Vector3<f64>,

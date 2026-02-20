@@ -141,6 +141,11 @@ pub fn help() -> CommandResult {
   list_pos, listpos, lp, positions
     List all saved positions for the current world.
 
+  setspawn <x> <y> <z>, spawn
+    Set spawn position for respawning.
+    Coordinates support ~ for relative positions.
+    Example: setspawn ~ ~ ~ (set to current position)
+
   waterdebug, wd
     Show water/lava simulation debug info (includes profiling if enabled).
 
@@ -190,6 +195,7 @@ Examples:
   save_pos mining_base
   delete_pos old_base
   list_pos
+  setspawn ~ ~ ~
   stencil create wall_guide building
   stencil load wall_guide
   stencil active

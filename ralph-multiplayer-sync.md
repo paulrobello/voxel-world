@@ -72,10 +72,10 @@ Implement all missing multiplayer synchronization points documented in SYNC.md. 
 
 ### Spawn Position Updates
 - [x] Add `ServerMessage::SpawnPositionChanged(SpawnPositionChanged)` with position
-- [ ] Hook into spawn position changes (e.g., via console command)
-- [ ] Broadcast to all clients when spawn changes
-- [ ] Client updates local spawn point from server message
-- [ ] Test: Respawn position syncs after spawn command
+- [x] Hook into spawn position changes (e.g., via console command)
+- [x] Broadcast to all clients when spawn changes
+- [x] Client updates local spawn point from server message
+- [x] Test: Respawn position syncs after spawn command
 
 ### Picture Frames
 - [ ] Add `ClientMessage::UploadPicture(UploadPicture)` with name, png_data
