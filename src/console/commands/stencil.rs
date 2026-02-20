@@ -105,7 +105,7 @@ fn stencil_create(
             }
 
             let (w, h, d) = selection.dimensions().unwrap();
-            CommandResult::Success(format!(
+            CommandResult::success(format!(
                 "Saved stencil '{}' ({}×{}×{}, {} positions)",
                 name, w, h, d, position_count
             ))
@@ -133,13 +133,13 @@ fn stencil_list(library: &StencilLibrary) -> CommandResult {
     match library.list_stencils() {
         Ok(stencils) => {
             if stencils.is_empty() {
-                CommandResult::Success("No stencils found".to_string())
+                CommandResult::success("No stencils found")
             } else {
                 let mut output = format!("Stencils ({}):\n", stencils.len());
                 for name in stencils {
                     output.push_str(&format!("  - {}\n", name));
                 }
-                CommandResult::Success(output)
+                CommandResult::success(output)
             }
         }
         Err(e) => CommandResult::Error(format!("Failed to list stencils: {}", e)),
@@ -168,7 +168,7 @@ fn stencil_delete(args: &[&str], library: &StencilLibrary, confirmed: bool) -> C
 
     // Confirmed - perform deletion
     match library.delete_stencil(name) {
-        Ok(_) => CommandResult::Success(format!("Deleted stencil '{}'", name)),
+        Ok(_) => CommandResult::success(format!("Deleted stencil '{}'", name)),
         Err(e) => CommandResult::Error(format!("Failed to delete stencil: {}", e)),
     }
 }
@@ -297,7 +297,7 @@ fn stencil_from_template(
                 eprintln!("[Stencil] Warning: Failed to generate thumbnail: {}", e);
             }
 
-            CommandResult::Success(format!(
+            CommandResult::success(format!(
                 "Created stencil '{}' from template '{}' ({}×{}×{}, {} positions)",
                 final_name,
                 template.name,

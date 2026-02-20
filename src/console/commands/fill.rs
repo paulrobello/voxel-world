@@ -107,6 +107,7 @@ pub fn fill(
 
     // Execute the fill
     let mut count = 0u64;
+    let mut changed_blocks = Vec::new();
     for x in min_x..=max_x {
         for y in min_y..=max_y {
             for z in min_z..=max_z {
@@ -117,19 +118,25 @@ pub fn fill(
                     || y == max_y
                     || z == min_z
                     || z == max_z;
-                if hollow && !is_boundary {
+                let pos = Vector3::new(x, y, z);
+                let block_type = if hollow && !is_boundary {
                     // Fill interior with air
-                    world.set_block(Vector3::new(x, y, z), BlockType::Air);
+                    BlockType::Air
                 } else {
-                    world.set_block(Vector3::new(x, y, z), block);
-                }
+                    block
+                };
+                world.set_block(pos, block_type);
+                changed_blocks.push((pos, block_type));
                 count += 1;
             }
         }
     }
 
     let mode = if hollow { " (hollow)" } else { "" };
-    CommandResult::Success(format!("Filled {} blocks with {:?}{}", count, block, mode))
+    CommandResult::success_with_blocks(
+        format!("Filled {} blocks with {:?}{}", count, block, mode),
+        changed_blocks,
+    )
 }
 
 /// Calculate the number of blocks in a hollow box shell.

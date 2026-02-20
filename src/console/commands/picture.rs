@@ -40,8 +40,8 @@ fn picture_list(picture_library: &PictureLibrary) -> CommandResult {
     pictures.sort_by_key(|p| p.id);
 
     if pictures.is_empty() {
-        return CommandResult::Success(
-            "No pictures saved. Create one in the texture editor (P key)".to_string(),
+        return CommandResult::success(
+            "No pictures saved. Create one in the texture editor (P key)",
         );
     }
 
@@ -72,7 +72,7 @@ fn picture_list(picture_library: &PictureLibrary) -> CommandResult {
     output.push_str("  2×2 frames: 256×256 picture (each frame shows 128×128 quadrant)\n");
     output.push_str("  3×3 frames: 384×384 picture (each frame shows 128×128 region)\n");
 
-    CommandResult::Success(output)
+    CommandResult::success(output)
 }
 
 /// Set the selected picture for frame placement.
@@ -109,7 +109,7 @@ fn picture_debug(picture_library: &PictureLibrary) -> CommandResult {
 Note: Texture editor creates 64×64 pictures. For larger clusters,\n\
 import external images or create larger pictures with other tools.";
 
-    CommandResult::Success(output.to_string())
+    CommandResult::success(output)
 }
 
 #[cfg(test)]
@@ -120,7 +120,7 @@ mod tests {
     fn test_picture_list_empty() {
         let library = PictureLibrary::new();
         let result = picture_list(&library);
-        assert!(matches!(result, CommandResult::Success(_)));
+        assert!(matches!(result, CommandResult::Success { .. }));
     }
 
     #[test]

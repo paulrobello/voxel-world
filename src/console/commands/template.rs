@@ -103,7 +103,7 @@ fn template_save(
             }
 
             let (w, h, d) = selection.dimensions().unwrap();
-            CommandResult::Success(format!(
+            CommandResult::success(format!(
                 "Saved template '{}' ({}×{}×{}, {} blocks)",
                 name,
                 w,
@@ -135,13 +135,13 @@ fn template_list(library: &TemplateLibrary) -> CommandResult {
     match library.list_templates() {
         Ok(templates) => {
             if templates.is_empty() {
-                CommandResult::Success("No templates found".to_string())
+                CommandResult::success("No templates found")
             } else {
                 let mut output = format!("Templates ({}):\n", templates.len());
                 for name in templates {
                     output.push_str(&format!("  - {}\n", name));
                 }
-                CommandResult::Success(output)
+                CommandResult::success(output)
             }
         }
         Err(e) => CommandResult::Error(format!("Failed to list templates: {}", e)),
@@ -173,7 +173,7 @@ fn template_delete(args: &[&str], library: &TemplateLibrary, confirmed: bool) ->
 
     // Confirmed - perform deletion
     match library.delete_template(name) {
-        Ok(_) => CommandResult::Success(format!("Deleted template '{}'", name)),
+        Ok(_) => CommandResult::success(format!("Deleted template '{}'", name)),
         Err(e) => CommandResult::Error(format!("Failed to delete template: {}", e)),
     }
 }
@@ -200,7 +200,7 @@ fn template_info(args: &[&str], library: &TemplateLibrary) -> CommandResult {
             if !info.tags.is_empty() {
                 output.push_str(&format!("Tags: {}\n", info.tags.join(", ")));
             }
-            CommandResult::Success(output)
+            CommandResult::success(output)
         }
         Err(e) => CommandResult::Error(format!("Failed to get template info: {}", e)),
     }

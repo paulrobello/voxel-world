@@ -144,6 +144,27 @@ pub fn render_hud(
     // Handle multiplayer panel actions
     handle_multiplayer_action(multiplayer, &multiplayer_action, world_seed, world_gen);
 
+    // Sync console command block changes to multiplayer
+    if multiplayer.is_connected() && !ui.console.pending_block_syncs.is_empty() {
+        let block_changes = std::mem::take(&mut ui.console.pending_block_syncs);
+        let count = block_changes.len();
+        for (pos, block_type) in block_changes {
+            // Create BlockData for the block type
+            let block_data = crate::net::protocol::BlockData {
+                block_type,
+                model_data: None,
+                paint_data: None,
+                tint_index: None,
+                water_type: None,
+            };
+            multiplayer.send_place_block([pos.x, pos.y, pos.z], block_data);
+        }
+        println!(
+            "[Multiplayer] Synced {} block changes from console commands",
+            count
+        );
+    }
+
     // Handle tool palette actions
     match tool_action {
         ToolAction::ToggleTemplateBrowser => {

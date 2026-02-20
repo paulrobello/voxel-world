@@ -202,5 +202,5 @@ Examples:
   frame picture clear
   frame picture debug"#;
 
-    CommandResult::Success(help_text.to_string())
+    CommandResult::success(help_text)
 }

@@ -180,6 +180,8 @@ pub fn copy(
     let h = (max_y - min_y + 1) as i32;
     let d = (max_z - min_z + 1) as i32;
 
+    let mut changed_blocks = Vec::new();
+
     for block_data in blocks {
         let (x, y, z) = block_data.local_pos;
 
@@ -189,6 +191,7 @@ pub fn copy(
 
         // Place block
         world.set_block(dest_pos, block_data.block_type);
+        changed_blocks.push((dest_pos, block_data.block_type));
         copied_count += 1;
 
         // Place metadata
@@ -227,10 +230,13 @@ pub fn copy(
         _ => "",
     };
 
-    CommandResult::Success(format!(
-        "Copied {} blocks from ({},{},{}) to ({},{},{}) to ({},{},{}){}",
-        copied_count, min_x, min_y, min_z, max_x, max_y, max_z, dx, dy, dz, rotation_str
-    ))
+    CommandResult::success_with_blocks(
+        format!(
+            "Copied {} blocks from ({},{},{}) to ({},{},{}) to ({},{},{}){}",
+            copied_count, min_x, min_y, min_z, max_x, max_y, max_z, dx, dy, dz, rotation_str
+        ),
+        changed_blocks,
+    )
 }
 
 /// Helper struct to store block data during copy.

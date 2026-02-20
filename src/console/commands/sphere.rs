@@ -119,6 +119,7 @@ pub fn sphere(
     };
 
     let mut count = 0u64;
+    let mut changed_blocks = Vec::new();
 
     // For dome mode, start at center.y instead of center.y - radius
     let y_start = if dome { cy } else { cy - radius };
@@ -133,17 +134,21 @@ pub fn sphere(
 
                 // Check if within sphere
                 if dist_sq <= radius_sq {
+                    let pos = Vector3::new(x, y, z);
                     if hollow {
                         // For hollow sphere, only place on the shell
                         if dist_sq > inner_radius_sq {
-                            world.set_block(Vector3::new(x, y, z), block);
+                            world.set_block(pos, block);
+                            changed_blocks.push((pos, block));
                             count += 1;
                         } else {
                             // Clear interior
-                            world.set_block(Vector3::new(x, y, z), BlockType::Air);
+                            world.set_block(pos, BlockType::Air);
+                            changed_blocks.push((pos, BlockType::Air));
                         }
                     } else {
-                        world.set_block(Vector3::new(x, y, z), block);
+                        world.set_block(pos, block);
+                        changed_blocks.push((pos, block));
                         count += 1;
                     }
                 }
@@ -153,10 +158,13 @@ pub fn sphere(
 
     let hollow_str = if hollow { " hollow" } else { "" };
     let dome_str = if dome { " dome" } else { "" };
-    CommandResult::Success(format!(
-        "Created{}{} sphere of {} blocks with {:?}",
-        hollow_str, dome_str, count, block
-    ))
+    CommandResult::success_with_blocks(
+        format!(
+            "Created{}{} sphere of {} blocks with {:?}",
+            hollow_str, dome_str, count, block
+        ),
+        changed_blocks,
+    )
 }
 
 #[cfg(test)]

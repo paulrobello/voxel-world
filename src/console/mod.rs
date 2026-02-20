@@ -59,8 +59,12 @@ impl ConsoleEntry {
 /// Result of command execution.
 #[allow(clippy::result_large_err)]
 pub enum CommandResult {
-    /// Command executed successfully.
-    Success(String),
+    /// Command executed successfully with optional list of modified block positions and types.
+    /// These should be synced to the server in multiplayer mode.
+    Success {
+        message: String,
+        changed_blocks: Vec<(Vector3<i32>, crate::chunk::BlockType)>,
+    },
     /// Command failed with error message.
     Error(String),
     /// Command needs user confirmation before execution.
@@ -112,6 +116,27 @@ pub enum CommandResult {
     ListPositions,
     /// Set the selected picture for frame placement.
     SetPictureSelection { id: u32, name: String },
+}
+
+impl CommandResult {
+    /// Create a simple success result with no block changes (for non-world-modifying commands).
+    pub fn success(message: impl Into<String>) -> Self {
+        CommandResult::Success {
+            message: message.into(),
+            changed_blocks: Vec::new(),
+        }
+    }
+
+    /// Create a success result with block changes (for world-modifying commands).
+    pub fn success_with_blocks(
+        message: impl Into<String>,
+        changed_blocks: Vec<(Vector3<i32>, crate::chunk::BlockType)>,
+    ) -> Self {
+        CommandResult::Success {
+            message: message.into(),
+            changed_blocks,
+        }
+    }
 }
 
 /// Pending command awaiting confirmation.
@@ -264,6 +289,9 @@ pub struct ConsoleState {
     pub pending_list_positions: bool,
     /// Pending set picture selection (id to select, 0 = clear).
     pub pending_set_picture: Option<u32>,
+    /// Pending block changes to sync to server in multiplayer mode.
+    /// Contains (position, block_type) pairs for each modified block.
+    pub pending_block_syncs: Vec<(Vector3<i32>, crate::chunk::BlockType)>,
     /// Current autocomplete suggestions.
     pub suggestions: Vec<String>,
     /// Currently selected suggestion index.
@@ -307,6 +335,7 @@ impl ConsoleState {
             pending_delete_position: None,
             pending_list_positions: false,
             pending_set_picture: None,
+            pending_block_syncs: Vec::new(),
             suggestions: Vec::new(),
             suggestion_index: 0,
             move_cursor_to_end: false,
@@ -1011,7 +1040,16 @@ impl ConsoleState {
     /// Handle command result.
     pub fn handle_result(&mut self, result: CommandResult) {
         match result {
-            CommandResult::Success(msg) => self.success(msg),
+            CommandResult::Success {
+                message,
+                changed_blocks,
+            } => {
+                self.success(&message);
+                // Store changed blocks for multiplayer sync
+                if !changed_blocks.is_empty() {
+                    self.pending_block_syncs = changed_blocks;
+                }
+            }
             CommandResult::Error(msg) => self.error(msg),
             CommandResult::NeedsConfirmation { message, command } => {
                 self.warning(&message);
@@ -1173,7 +1211,7 @@ impl ConsoleState {
             "cancel" | "cancellocate" => {
                 if self.pending_locate_search.is_some() {
                     self.pending_locate_search = None;
-                    CommandResult::Success("Locate search cancelled.".to_string())
+                    CommandResult::success("Locate search cancelled.")
                 } else {
                     CommandResult::Error("No active locate search to cancel.".to_string())
                 }
@@ -1236,7 +1274,7 @@ impl ConsoleState {
             ),
             "clear" => {
                 self.output.clear();
-                CommandResult::Success("Console cleared.".to_string())
+                CommandResult::success("Console cleared")
             }
             "frame" => {
                 if !args.is_empty() && args[0].to_lowercase() == "picture" {

@@ -228,15 +228,17 @@ pub fn floodfill(
 
     // Execute the fill
     let mut count = 0u64;
+    let mut changed_blocks = Vec::new();
     for pos in &affected {
         world.set_block(*pos, target_block);
+        changed_blocks.push((*pos, target_block));
         count += 1;
     }
 
-    CommandResult::Success(format!(
-        "Flood filled {} blocks with {:?}",
-        count, target_block
-    ))
+    CommandResult::success_with_blocks(
+        format!("Flood filled {} blocks with {:?}", count, target_block),
+        changed_blocks,
+    )
 }
 
 /// Pre-scan the flood fill region to count affected blocks.

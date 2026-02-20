@@ -35,7 +35,7 @@ pub fn select(
             };
 
             selection.set_pos1(pos);
-            CommandResult::Success(format!(
+            CommandResult::success(format!(
                 "Position 1 set to ({}, {}, {})",
                 pos.x, pos.y, pos.z
             ))
@@ -62,7 +62,7 @@ pub fn select(
             // Show selection info if both positions are set
             if let Some((_min, _max)) = selection.bounds() {
                 let dims = selection.dimensions().unwrap();
-                CommandResult::Success(format!(
+                CommandResult::success(format!(
                     "Position 2 set to ({}, {}, {}). Selection: {}×{}×{} ({} blocks)",
                     pos.x,
                     pos.y,
@@ -73,7 +73,7 @@ pub fn select(
                     selection.volume().unwrap()
                 ))
             } else {
-                CommandResult::Success(format!(
+                CommandResult::success(format!(
                     "Position 2 set to ({}, {}, {})",
                     pos.x, pos.y, pos.z
                 ))
@@ -82,7 +82,7 @@ pub fn select(
 
         "clear" => {
             selection.clear();
-            CommandResult::Success("Selection cleared".to_string())
+            CommandResult::success("Selection cleared")
         }
 
         _ => CommandResult::Error(format!(

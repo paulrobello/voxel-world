@@ -1083,8 +1083,8 @@ impl App {
                     Some(start_pos),
                     true, // confirmed - skip threshold check for interactive mode
                 ) {
-                    crate::console::CommandResult::Success(msg) => {
-                        println!("{}", msg);
+                    crate::console::CommandResult::Success { message, .. } => {
+                        println!("{}", message);
                     }
                     crate::console::CommandResult::Error(msg) => {
                         println!("Flood fill error: {}", msg);

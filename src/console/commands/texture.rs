@@ -67,7 +67,7 @@ pub fn texture_add(args: &[&str]) -> CommandResult {
 
     // Note: Full implementation would need access to GameServer's texture_manager
     // For now, return a placeholder indicating the feature needs world context
-    CommandResult::Success(format!(
+    CommandResult::success(format!(
         "Texture '{}' from '{}' validated successfully ({} bytes). \
          Note: Full texture registration requires active multiplayer server.",
         name,
@@ -88,10 +88,9 @@ pub fn texture_list() -> CommandResult {
     // - Texture name
     // - Dimensions
     // - Hash for verification
-    CommandResult::Success(
+    CommandResult::success(
         "Custom texture list: (requires active multiplayer server to list)\n\
-         Use 'texture_add <file> <name>' to add textures."
-            .to_string(),
+         Use 'texture_add <file> <name>' to add textures.",
     )
 }
 
@@ -125,7 +124,7 @@ pub fn texture_remove(args: &[&str]) -> CommandResult {
     // 3. Broadcast removal to all connected clients
     // 4. Update any blocks using that texture (or prevent removal if in use)
 
-    CommandResult::Success(format!(
+    CommandResult::success(format!(
         "Texture slot {} removal would be processed (requires active multiplayer server)",
         slot
     ))
@@ -146,13 +145,13 @@ pub fn texture_info(args: &[&str]) -> CommandResult {
     // Check if it's a slot number
     if let Ok(slot) = identifier.parse::<u8>() {
         // Placeholder - would query texture_manager
-        CommandResult::Success(format!(
+        CommandResult::success(format!(
             "Texture info for slot {}: (requires active multiplayer server)",
             slot
         ))
     } else {
         // Look up by name
-        CommandResult::Success(format!(
+        CommandResult::success(format!(
             "Texture info for '{}': (requires active multiplayer server)",
             identifier
         ))
