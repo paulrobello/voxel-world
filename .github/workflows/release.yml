@@ -46,6 +46,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: 1.95.0
           targets: ${{ matrix.target }}
 
       - name: Install build dependencies (macOS)
@@ -148,7 +149,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: bash
         run: |
-          mkdir -p voxel-world
+          mkdir -p voxel-world release-binaries
           cp target/${{ matrix.target }}/release/${{ matrix.artifact_name }} voxel-world/voxel-world.exe
           cp -r shaders textures assets voxel-world/
           cd voxel-world
