@@ -6,7 +6,7 @@
 
 A GPU-accelerated voxel sandbox using Vulkan compute shaders for real-time ray marching. A **creative mode** experience focused on building and exploration — no health, no death, just pure creativity. Features procedural terrain, day/night cycle, sub-voxel models, multiplayer, and an extensive creative toolkit.
 
-![River flowing through forest biome](screenshots/sc-overworld-river-forest.png)
+![River flowing through forest biome](https://raw.githubusercontent.com/paulrobello/voxel-world/main/screenshots/sc-overworld-river-forest.png)
 
 ## Quick Start
 
@@ -68,14 +68,14 @@ See [Quickstart Guide](docs/QUICKSTART.md) for a full walkthrough.
 
 **River through Forest**
 
-![River flowing through forest biome](screenshots/sc-overworld-river-forest.png)
+![River flowing through forest biome](https://raw.githubusercontent.com/paulrobello/voxel-world/main/screenshots/sc-overworld-river-forest.png)
 
 </td>
 <td width="50%">
 
 **Desert at Sunset**
 
-![Desert biome at sunset](screenshots/sc-desert-sunset.png)
+![Desert biome at sunset](https://raw.githubusercontent.com/paulrobello/voxel-world/main/screenshots/sc-desert-sunset.png)
 
 </td>
 </tr>
@@ -84,14 +84,14 @@ See [Quickstart Guide](docs/QUICKSTART.md) for a full walkthrough.
 
 **Underground Caves**
 
-![Underground cave with lava glow](screenshots/sc-cave.png)
+![Underground cave with lava glow](https://raw.githubusercontent.com/paulrobello/voxel-world/main/screenshots/sc-cave.png)
 
 </td>
 <td>
 
 **Settings & Block Palette**
 
-![Settings panel with block palette](screenshots/sc-settings-blocks.png)
+![Settings panel with block palette](https://raw.githubusercontent.com/paulrobello/voxel-world/main/screenshots/sc-settings-blocks.png)
 
 </td>
 </tr>
@@ -100,14 +100,14 @@ See [Quickstart Guide](docs/QUICKSTART.md) for a full walkthrough.
 
 **Model Editor**
 
-![Sub-voxel model editor](screenshots/sc-model-editor.png)
+![Sub-voxel model editor](https://raw.githubusercontent.com/paulrobello/voxel-world/main/screenshots/sc-model-editor.png)
 
 </td>
 <td>
 
 **Texture Editor**
 
-![Texture editor](screenshots/sc-texture-editor.png)
+![Texture editor](https://raw.githubusercontent.com/paulrobello/voxel-world/main/screenshots/sc-texture-editor.png)
 
 </td>
 </tr>
@@ -116,7 +116,7 @@ See [Quickstart Guide](docs/QUICKSTART.md) for a full walkthrough.
 
 **Console Commands**
 
-![In-game console](screenshots/sc-console.png)
+![In-game console](https://raw.githubusercontent.com/paulrobello/voxel-world/main/screenshots/sc-console.png)
 
 </td>
 <td>
