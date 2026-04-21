@@ -1,0 +1,1450 @@
+//! In-game command console for world editing operations.
+//!
+//! Toggle the console with `/` key. Supports commands like:
+//! - `fill <block> <x1> <y1> <z1> <x2> <y2> <z2> [hollow]`
+//! - `help` - List available commands
+
+pub mod commands;
+
+use crate::chunk::CHUNK_SIZE;
+use crate::constants::WORLD_CHUNKS_Y;
+use crate::world::World;
+use egui_winit_vulkano::egui;
+use nalgebra::Vector3;
+
+/// Maximum number of output lines to keep in history.
+const MAX_OUTPUT_LINES: usize = 100;
+
+/// Volume threshold requiring confirmation before execution.
+const VOLUME_CONFIRM_THRESHOLD: u64 = 100_000;
+
+/// Maximum Y coordinate (world height).
+const MAX_Y: i32 = WORLD_CHUNKS_Y * CHUNK_SIZE as i32 - 1;
+
+/// Entry type for console output with color coding.
+#[derive(Clone)]
+pub enum ConsoleEntry {
+    /// Informational message (gray).
+    Info(String),
+    /// Success message (green).
+    Success(String),
+    /// Error message (red).
+    Error(String),
+    /// Warning message (yellow).
+    Warning(String),
+}
+
+impl ConsoleEntry {
+    /// Returns the text content of this entry.
+    pub fn text(&self) -> &str {
+        match self {
+            ConsoleEntry::Info(s)
+            | ConsoleEntry::Success(s)
+            | ConsoleEntry::Error(s)
+            | ConsoleEntry::Warning(s) => s,
+        }
+    }
+
+    /// Returns the color for this entry type.
+    pub fn color(&self) -> egui::Color32 {
+        match self {
+            ConsoleEntry::Info(_) => egui::Color32::from_gray(180),
+            ConsoleEntry::Success(_) => egui::Color32::from_rgb(100, 255, 100),
+            ConsoleEntry::Error(_) => egui::Color32::from_rgb(255, 100, 100),
+            ConsoleEntry::Warning(_) => egui::Color32::from_rgb(255, 200, 100),
+        }
+    }
+}
+
+/// Result of command execution.
+#[allow(clippy::result_large_err)]
+pub enum CommandResult {
+    /// Command executed successfully with optional list of modified block positions and types.
+    /// These should be synced to the server in multiplayer mode.
+    Success {
+        message: String,
+        changed_blocks: Vec<(Vector3<i32>, crate::chunk::BlockType)>,
+    },
+    /// Command failed with error message.
+    Error(String),
+    /// Command needs user confirmation before execution.
+    NeedsConfirmation { message: String, command: String },
+    /// Teleport player to coordinates.
+    Teleport { x: f64, y: f64, z: f64 },
+    /// Request water/lava debug info output (caller has access to grids).
+    FluidDebug,
+    /// Force all water cells to become active (for debugging stuck water).
+    ForceWaterActive,
+    /// Analyze water flow at player position.
+    WaterAnalyze,
+    /// Enable/disable water simulation profiling.
+    WaterProfile(bool),
+    /// Enable/disable biome debug visualization.
+    SetBiomeDebug(bool),
+    /// Load template for placement.
+    LoadTemplate(crate::templates::VxtFile),
+    /// Load stencil for placement.
+    LoadStencil(crate::stencils::StencilFile),
+    /// Set global stencil opacity.
+    SetStencilOpacity(f32),
+    /// Set stencil render mode (0 = wireframe, 1 = solid).
+    SetStencilRenderMode(i32),
+    /// Clear all active stencils.
+    ClearStencils,
+    /// Remove a specific active stencil by ID.
+    RemoveStencil(u64),
+    /// List active stencils (requires access to StencilManager).
+    ListActiveStencils,
+    /// Biome location found.
+    LocateBiome {
+        biome_name: String,
+        x: i32,
+        y: i32,
+        z: i32,
+        distance: i32,
+        direction: String,
+    },
+    /// Start an asynchronous locate search.
+    StartLocateSearch(PendingLocateSearch),
+    /// Clear all measurement markers.
+    ClearMeasurementMarkers,
+    /// Save current position with a name.
+    SavePosition { name: String },
+    /// Delete a saved position.
+    DeletePosition { name: String },
+    /// List all saved positions for current world.
+    ListPositions,
+    /// Set the selected picture for frame placement.
+    SetPictureSelection { id: u32, name: String },
+    /// Set spawn position for respawning.
+    SetSpawnPosition { x: f64, y: f64, z: f64 },
+    /// Set player display name (multiplayer only).
+    SetPlayerName { name: String },
+    /// Send chat message (multiplayer only).
+    ChatMessage { message: String },
+}
+
+impl CommandResult {
+    /// Create a simple success result with no block changes (for non-world-modifying commands).
+    pub fn success(message: impl Into<String>) -> Self {
+        CommandResult::Success {
+            message: message.into(),
+            changed_blocks: Vec::new(),
+        }
+    }
+
+    /// Create a success result with block changes (for world-modifying commands).
+    pub fn success_with_blocks(
+        message: impl Into<String>,
+        changed_blocks: Vec<(Vector3<i32>, crate::chunk::BlockType)>,
+    ) -> Self {
+        CommandResult::Success {
+            message: message.into(),
+            changed_blocks,
+        }
+    }
+}
+
+/// Pending command awaiting confirmation.
+#[derive(Clone)]
+pub struct PendingCommand {
+    /// The original command string.
+    pub command: String,
+}
+
+/// Pending teleport coordinates.
+#[derive(Clone, Copy)]
+pub struct PendingTeleport {
+    /// Target X coordinate.
+    pub x: f64,
+    /// Target Y coordinate.
+    pub y: f64,
+    /// Target Z coordinate.
+    pub z: f64,
+}
+
+/// Type of search being performed.
+#[derive(Clone, Debug)]
+pub enum LocateSearchType {
+    /// Searching for a biome.
+    Biome(crate::terrain_gen::BiomeType),
+    /// Searching for a block type.
+    Block(crate::chunk::BlockType),
+    /// Searching for a cave of minimum size.
+    Cave(usize),
+    /// Searching for a river.
+    River,
+}
+
+/// Pending locate search state for frame-distributed searching.
+#[derive(Clone)]
+pub struct PendingLocateSearch {
+    /// Type of search.
+    pub search_type: LocateSearchType,
+    /// Player position when search started.
+    pub player_pos: Vector3<i32>,
+    /// Maximum search range.
+    pub max_range: i32,
+    /// Current radius being searched.
+    pub current_radius: i32,
+    /// Step size for spiral search.
+    pub step: i32,
+    /// Current Y offset (for 3D searches).
+    pub y_offset: i32,
+    /// Current Y direction (-1 or 1).
+    pub y_dir: i32,
+    /// Best match found so far.
+    pub best_match: Option<(Vector3<i32>, usize)>, // (position, size for caves)
+    /// Minimum distance found.
+    pub min_distance: i32,
+    /// Total positions checked.
+    pub positions_checked: usize,
+    /// Positions to check per frame.
+    pub positions_per_frame: usize,
+    /// For lava/block searches: count of relevant biomes found.
+    pub relevant_biomes_found: usize,
+    /// Whether to teleport to found location.
+    pub teleport_on_find: bool,
+}
+
+/// Parameter type for command autocomplete.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ParamType {
+    /// Block type name (completable).
+    Block,
+    /// X coordinate (relative ~ supported).
+    CoordX,
+    /// Y coordinate (relative ~ supported).
+    CoordY,
+    /// Z coordinate (relative ~ supported).
+    CoordZ,
+    /// Flag (like "hollow", "on", "off").
+    Flag(&'static [&'static str]),
+    /// Free text (no completion).
+    Text,
+}
+
+/// Command signature for autocomplete.
+#[derive(Clone)]
+pub struct CommandSignature {
+    /// Command name.
+    pub name: &'static str,
+    /// Command aliases.
+    pub aliases: &'static [&'static str],
+    /// Parameter types.
+    pub params: &'static [ParamType],
+}
+
+/// Console state for the in-game command system.
+#[derive(Default)]
+pub struct ConsoleState {
+    /// Whether the console is currently visible.
+    pub active: bool,
+    /// Current input text.
+    pub input: String,
+    /// Command history (most recent last).
+    pub history: Vec<String>,
+    /// Current position in history navigation (None = not navigating).
+    history_index: Option<usize>,
+    /// Saved input when navigating history.
+    saved_input: String,
+    /// Output log entries.
+    pub output: Vec<ConsoleEntry>,
+    /// Command pending confirmation.
+    pub pending_confirm: Option<PendingCommand>,
+    /// Whether the text input should request focus.
+    pub request_focus: bool,
+    /// Pending teleport to be handled by game loop.
+    pub pending_teleport: Option<PendingTeleport>,
+    /// Current raycast hit for commands that use crosshair target.
+    /// Set by the UI/game loop before command submission.
+    pub raycast_hit: Option<Vector3<i32>>,
+    /// Pending fluid debug output request.
+    pub pending_fluid_debug: bool,
+    /// Pending force water active request.
+    pub pending_force_water_active: bool,
+    /// Pending water analyze request.
+    pub pending_water_analyze: bool,
+    /// Pending water profiling toggle (Some(true/false) if changed).
+    pub pending_water_profile: Option<bool>,
+    /// Pending biome debug toggle (Some(true/false) if changed).
+    pub pending_biome_debug: Option<bool>,
+    /// Pending template to be loaded for placement.
+    pub pending_template_load: Option<crate::templates::VxtFile>,
+    /// Pending stencil to be loaded for placement.
+    pub pending_stencil_load: Option<crate::stencils::StencilFile>,
+    /// Pending stencil opacity change.
+    pub pending_stencil_opacity: Option<f32>,
+    /// Pending stencil render mode change (0 = wireframe, 1 = solid).
+    pub pending_stencil_render_mode: Option<i32>,
+    /// Pending clear all stencils request.
+    pub pending_stencil_clear: bool,
+    /// Pending remove stencil by ID.
+    pub pending_stencil_remove: Option<u64>,
+    /// Pending list active stencils request.
+    pub pending_stencil_list: bool,
+    /// Pending locate search being processed frame by frame.
+    pub pending_locate_search: Option<PendingLocateSearch>,
+    /// Pending clear measurement markers request.
+    pub pending_clear_markers: bool,
+    /// Pending save position (name to save).
+    pub pending_save_position: Option<String>,
+    /// Pending delete position (name to delete).
+    pub pending_delete_position: Option<String>,
+    /// Pending list positions request.
+    pub pending_list_positions: bool,
+    /// Pending set picture selection (id to select, 0 = clear).
+    pub pending_set_picture: Option<u32>,
+    /// Pending spawn position to set (from console command).
+    pub pending_set_spawn_position: Option<[f64; 3]>,
+    /// Pending block changes to sync to server in multiplayer mode.
+    /// Contains (position, block_type) pairs for each modified block.
+    pub pending_block_syncs: Vec<(Vector3<i32>, crate::chunk::BlockType)>,
+    /// Pending player name change to send to server.
+    pub pending_set_player_name: Option<String>,
+    /// Pending chat message to send to server.
+    pub pending_chat_message: Option<String>,
+    /// Current autocomplete suggestions.
+    pub suggestions: Vec<String>,
+    /// Currently selected suggestion index.
+    pub suggestion_index: usize,
+    /// Whether to move cursor to end of input on next frame.
+    pub move_cursor_to_end: bool,
+}
+
+/// Maximum number of command history entries to persist.
+const MAX_HISTORY_ENTRIES: usize = 100;
+
+impl ConsoleState {
+    /// Creates a new console state.
+    pub fn new() -> Self {
+        Self {
+            active: false,
+            input: String::new(),
+            history: Vec::new(),
+            history_index: None,
+            saved_input: String::new(),
+            output: Vec::new(),
+            pending_confirm: None,
+            request_focus: false,
+            pending_teleport: None,
+            raycast_hit: None,
+            pending_fluid_debug: false,
+            pending_force_water_active: false,
+            pending_water_analyze: false,
+            pending_water_profile: None,
+            pending_biome_debug: None,
+            pending_template_load: None,
+            pending_stencil_load: None,
+            pending_stencil_opacity: None,
+            pending_stencil_render_mode: None,
+            pending_stencil_clear: false,
+            pending_stencil_remove: None,
+            pending_stencil_list: false,
+            pending_locate_search: None,
+            pending_clear_markers: false,
+            pending_save_position: None,
+            pending_delete_position: None,
+            pending_list_positions: false,
+            pending_set_picture: None,
+            pending_set_spawn_position: None,
+            pending_block_syncs: Vec::new(),
+            pending_set_player_name: None,
+            pending_chat_message: None,
+            suggestions: Vec::new(),
+            suggestion_index: 0,
+            move_cursor_to_end: false,
+        }
+    }
+
+    /// Get all available command signatures for autocomplete.
+    pub fn command_signatures() -> Vec<CommandSignature> {
+        const HOLLOW_FLAG: &[&str] = &["hollow"];
+        const BIOME_FLAGS: &[&str] = &["on", "off", "true", "false"];
+        const ROTATION_FLAGS: &[&str] = &["rotate_90", "rotate_180", "rotate_270"];
+        const LOCATE_TARGETS: &[&str] = &[
+            "grassland",
+            "mountains",
+            "desert",
+            "swamp",
+            "snow",
+            "cave",
+            "lava",
+            "water",
+            "stone",
+            "dirt",
+            "grass",
+            "sand",
+            "gravel",
+            "iron",
+        ];
+        const LOCATE_FLAGS: &[&str] = &["tp"];
+
+        vec![
+            CommandSignature {
+                name: "help",
+                aliases: &["?"],
+                params: &[],
+            },
+            CommandSignature {
+                name: "fill",
+                aliases: &[],
+                params: &[
+                    ParamType::Block,
+                    ParamType::CoordX,
+                    ParamType::CoordY,
+                    ParamType::CoordZ,
+                    ParamType::CoordX,
+                    ParamType::CoordY,
+                    ParamType::CoordZ,
+                    ParamType::Flag(HOLLOW_FLAG),
+                ],
+            },
+            CommandSignature {
+                name: "floodfill",
+                aliases: &["flood_fill", "ff"],
+                params: &[
+                    ParamType::Block,
+                    ParamType::CoordX,
+                    ParamType::CoordY,
+                    ParamType::CoordZ,
+                ],
+            },
+            CommandSignature {
+                name: "sphere",
+                aliases: &[],
+                params: &[
+                    ParamType::Block,
+                    ParamType::CoordX,
+                    ParamType::CoordY,
+                    ParamType::CoordZ,
+                    ParamType::Text, // radius
+                    ParamType::Flag(HOLLOW_FLAG),
+                ],
+            },
+            CommandSignature {
+                name: "boxme",
+                aliases: &[],
+                params: &[ParamType::Block, ParamType::Flag(HOLLOW_FLAG)],
+            },
+            CommandSignature {
+                name: "copy",
+                aliases: &[],
+                params: &[
+                    ParamType::CoordX,
+                    ParamType::CoordY,
+                    ParamType::CoordZ,
+                    ParamType::CoordX,
+                    ParamType::CoordY,
+                    ParamType::CoordZ,
+                    ParamType::CoordX,
+                    ParamType::CoordY,
+                    ParamType::CoordZ,
+                    ParamType::Flag(ROTATION_FLAGS),
+                ],
+            },
+            CommandSignature {
+                name: "tp",
+                aliases: &["teleport"],
+                params: &[ParamType::CoordX, ParamType::CoordY, ParamType::CoordZ],
+            },
+            CommandSignature {
+                name: "locate",
+                aliases: &[],
+                params: &[
+                    ParamType::Flag(LOCATE_TARGETS), // Biomes, common blocks, and "cave"
+                    ParamType::Text,                 // Range or size
+                    ParamType::Flag(LOCATE_FLAGS),   // tp flag
+                ],
+            },
+            CommandSignature {
+                name: "cancel",
+                aliases: &["cancellocate"],
+                params: &[],
+            },
+            CommandSignature {
+                name: "waterdebug",
+                aliases: &["wd"],
+                params: &[],
+            },
+            CommandSignature {
+                name: "waterforce",
+                aliases: &["wf"],
+                params: &[],
+            },
+            CommandSignature {
+                name: "wateranalyze",
+                aliases: &["wa"],
+                params: &[],
+            },
+            CommandSignature {
+                name: "waterprofile",
+                aliases: &["wp"],
+                params: &[ParamType::Text], // on/off
+            },
+            CommandSignature {
+                name: "biome_debug",
+                aliases: &["bd"],
+                params: &[ParamType::Flag(BIOME_FLAGS)],
+            },
+            CommandSignature {
+                name: "select",
+                aliases: &[],
+                params: &[
+                    ParamType::Text, // subcommand: pos1, pos2, clear
+                    ParamType::CoordX,
+                    ParamType::CoordY,
+                    ParamType::CoordZ,
+                ],
+            },
+            CommandSignature {
+                name: "template",
+                aliases: &[],
+                params: &[
+                    ParamType::Text, // subcommand: save, load, list, delete, info
+                    ParamType::Text, // name
+                    ParamType::Text, // tags (variadic)
+                ],
+            },
+            CommandSignature {
+                name: "stencil",
+                aliases: &[],
+                params: &[
+                    ParamType::Text, // subcommand: create, load, list, delete, active, clear, opacity, mode, remove
+                    ParamType::Text, // name, id, or value
+                    ParamType::Text, // tags (variadic)
+                ],
+            },
+            CommandSignature {
+                name: "clear",
+                aliases: &[],
+                params: &[],
+            },
+            CommandSignature {
+                name: "measure",
+                aliases: &[],
+                params: &[ParamType::Text], // subcommand: clear
+            },
+            CommandSignature {
+                name: "frame",
+                aliases: &[],
+                params: &[
+                    ParamType::Text, // subcommand: picture
+                    ParamType::Text, // sub-subcommand: list, set, clear
+                    ParamType::Text, // picture ID (for set command)
+                ],
+            },
+            CommandSignature {
+                name: "save_pos",
+                aliases: &["savepos", "sp"],
+                params: &[ParamType::Text], // position name
+            },
+            CommandSignature {
+                name: "delete_pos",
+                aliases: &["deletepos", "delpos", "dp"],
+                params: &[ParamType::Text], // position name
+            },
+            CommandSignature {
+                name: "list_pos",
+                aliases: &["listpos", "lp", "positions"],
+                params: &[],
+            },
+            CommandSignature {
+                name: "setspawn",
+                aliases: &["spawn"],
+                params: &[ParamType::CoordX, ParamType::CoordY, ParamType::CoordZ],
+            },
+            CommandSignature {
+                name: "texture_add",
+                aliases: &["texadd"],
+                params: &[ParamType::Text, ParamType::Text], // filepath, name
+            },
+            CommandSignature {
+                name: "texture_list",
+                aliases: &["texlist", "textures"],
+                params: &[],
+            },
+            CommandSignature {
+                name: "texture_remove",
+                aliases: &["texremove", "texdel"],
+                params: &[ParamType::Text], // slot
+            },
+            CommandSignature {
+                name: "texture_info",
+                aliases: &[],
+                params: &[ParamType::Text], // name or slot
+            },
+            CommandSignature {
+                name: "name",
+                aliases: &["nickname", "setname"],
+                params: &[ParamType::Text],
+            },
+            CommandSignature {
+                name: "chat",
+                aliases: &["say", "msg"],
+                params: &[ParamType::Text],
+            },
+        ]
+    }
+
+    /// Update autocomplete suggestions based on current input.
+    pub fn update_autocomplete(&mut self) {
+        use crate::chunk::BlockType;
+
+        self.suggestions.clear();
+        self.suggestion_index = 0;
+
+        let input = self.input.trim();
+        if input.is_empty() {
+            return;
+        }
+
+        let parts: Vec<&str> = input.split_whitespace().collect();
+        let signatures = Self::command_signatures();
+
+        // If we only have one word, complete command names
+        if parts.len() == 1 {
+            let partial = parts[0].to_lowercase();
+            for sig in &signatures {
+                if sig.name.starts_with(&partial) {
+                    self.suggestions.push(sig.name.to_string());
+                }
+                for alias in sig.aliases {
+                    if alias.starts_with(&partial) {
+                        self.suggestions.push(alias.to_string());
+                    }
+                }
+            }
+            self.suggestions.sort();
+            self.suggestions.dedup();
+            return;
+        }
+
+        // Find matching command signature
+        let cmd = parts[0].to_lowercase();
+        let param_index = parts.len() - 2; // -1 for command, -1 for 0-based index
+
+        for sig in &signatures {
+            let matches_cmd = sig.name == cmd || sig.aliases.contains(&cmd.as_str());
+            if !matches_cmd {
+                continue;
+            }
+
+            // Get the parameter type we're completing
+            if param_index >= sig.params.len() {
+                continue;
+            }
+
+            let param_type = &sig.params[param_index];
+            let partial = parts.last().unwrap_or(&"").to_lowercase();
+
+            match param_type {
+                ParamType::Block => {
+                    // Complete block names
+                    for name in BlockType::all_block_names() {
+                        if name.starts_with(&partial) {
+                            self.suggestions.push(name.to_string());
+                        }
+                    }
+                }
+                ParamType::Flag(flags) => {
+                    // Complete flag names
+                    for flag in *flags {
+                        if flag.starts_with(&partial) {
+                            self.suggestions.push(flag.to_string());
+                        }
+                    }
+                }
+                ParamType::CoordX | ParamType::CoordY | ParamType::CoordZ => {
+                    // Suggest relative coordinate syntax
+                    if partial.is_empty() || partial.starts_with('~') {
+                        self.suggestions.push("~".to_string());
+                        if partial.is_empty() {
+                            self.suggestions.push("0".to_string());
+                        }
+                    }
+                }
+                ParamType::Text => {
+                    // No completion for free text
+                }
+            }
+
+            break;
+        }
+
+        self.suggestions.sort();
+        self.suggestions.dedup();
+    }
+
+    /// Apply the currently selected suggestion.
+    pub fn apply_suggestion(&mut self) {
+        if self.suggestions.is_empty() {
+            return;
+        }
+
+        let suggestion = &self.suggestions[self.suggestion_index];
+        let parts: Vec<&str> = self.input.split_whitespace().collect();
+
+        if parts.len() == 1 {
+            // Completing command name
+            self.input = format!("{} ", suggestion);
+        } else {
+            // Completing parameter
+            let mut new_parts = parts[..parts.len() - 1].to_vec();
+            new_parts.push(suggestion);
+            self.input = new_parts.join(" ") + " ";
+        }
+
+        self.suggestions.clear();
+        self.suggestion_index = 0;
+        self.move_cursor_to_end = true;
+    }
+
+    /// Cycle to next suggestion.
+    pub fn next_suggestion(&mut self) {
+        if !self.suggestions.is_empty() {
+            self.suggestion_index = (self.suggestion_index + 1) % self.suggestions.len();
+        }
+    }
+
+    /// Cycle to previous suggestion.
+    pub fn prev_suggestion(&mut self) {
+        if !self.suggestions.is_empty() {
+            if self.suggestion_index == 0 {
+                self.suggestion_index = self.suggestions.len() - 1;
+            } else {
+                self.suggestion_index -= 1;
+            }
+        }
+    }
+
+    /// Get ghost text placeholder for current input.
+    pub fn get_ghost_text(&self) -> String {
+        // Don't trim - we need to preserve trailing spaces to know if user finished typing a word
+        let input = &self.input;
+        if input.is_empty() {
+            return String::new();
+        }
+
+        let parts: Vec<&str> = input.split_whitespace().collect();
+        if parts.is_empty() {
+            return String::new();
+        }
+
+        let signatures = Self::command_signatures();
+
+        // Find matching command signature
+        let cmd = parts[0].to_lowercase();
+        for sig in &signatures {
+            let matches_cmd = sig.name == cmd || sig.aliases.contains(&cmd.as_str());
+            if !matches_cmd {
+                continue;
+            }
+
+            // Check if user has finished typing current word (ends with space)
+            let ends_with_space = input.ends_with(' ');
+
+            // Calculate parameter index
+            // If "fill " (ends with space), we're starting parameter 0
+            // If "fill" (no space), we're still typing command, no ghost text
+            // If "fill stone" (no trailing space), we're typing parameter 0, no ghost text yet
+            // If "fill stone " (trailing space), we're starting parameter 1
+            let param_start = if ends_with_space {
+                parts.len() - 1
+            } else {
+                // Still typing current word, no ghost text
+                return String::new();
+            };
+
+            if param_start >= sig.params.len() {
+                // No more parameters to show
+                return String::new();
+            }
+
+            let mut ghost_parts = Vec::new();
+            for (i, param) in sig.params[param_start..].iter().enumerate() {
+                let label = match param {
+                    ParamType::Block => "<block>",
+                    ParamType::CoordX => "<x>",
+                    ParamType::CoordY => "<y>",
+                    ParamType::CoordZ => "<z>",
+                    ParamType::Flag(flags) => {
+                        if flags.len() == 1 {
+                            flags[0]
+                        } else if i == 0 {
+                            // If this is the next param, show first option
+                            flags[0]
+                        } else {
+                            "<flag>"
+                        }
+                    }
+                    ParamType::Text => "<value>",
+                };
+                ghost_parts.push(label);
+            }
+
+            return ghost_parts.join(" ");
+        }
+
+        String::new()
+    }
+
+    /// Creates a console state with pre-loaded command history.
+    pub fn with_history(history: Vec<String>) -> Self {
+        let mut state = Self::new();
+        // Take only the last MAX_HISTORY_ENTRIES
+        state.history = if history.len() > MAX_HISTORY_ENTRIES {
+            history[history.len() - MAX_HISTORY_ENTRIES..].to_vec()
+        } else {
+            history
+        };
+        state
+    }
+
+    /// Returns the command history for persistence.
+    /// Limits to MAX_HISTORY_ENTRIES.
+    pub fn get_history(&self) -> Vec<String> {
+        if self.history.len() > MAX_HISTORY_ENTRIES {
+            self.history[self.history.len() - MAX_HISTORY_ENTRIES..].to_vec()
+        } else {
+            self.history.clone()
+        }
+    }
+
+    /// Toggles console visibility.
+    pub fn toggle(&mut self) {
+        self.active = !self.active;
+        if self.active {
+            self.request_focus = true;
+        }
+    }
+
+    /// Closes the console.
+    pub fn close(&mut self) {
+        self.active = false;
+        self.pending_confirm = None;
+    }
+
+    /// Adds an output entry to the console.
+    pub fn add_output(&mut self, entry: ConsoleEntry) {
+        self.output.push(entry);
+        // Trim old entries if needed
+        while self.output.len() > MAX_OUTPUT_LINES {
+            self.output.remove(0);
+        }
+    }
+
+    /// Adds an info message to output.
+    pub fn info(&mut self, msg: impl Into<String>) {
+        self.add_output(ConsoleEntry::Info(msg.into()));
+    }
+
+    /// Adds a success message to output.
+    pub fn success(&mut self, msg: impl Into<String>) {
+        self.add_output(ConsoleEntry::Success(msg.into()));
+    }
+
+    /// Adds an error message to output.
+    pub fn error(&mut self, msg: impl Into<String>) {
+        self.add_output(ConsoleEntry::Error(msg.into()));
+    }
+
+    /// Adds a warning message to output.
+    pub fn warning(&mut self, msg: impl Into<String>) {
+        self.add_output(ConsoleEntry::Warning(msg.into()));
+    }
+
+    /// Outputs fluid debug information.
+    /// Called by the HUD when pending_fluid_debug is set.
+    pub fn output_fluid_debug(
+        &mut self,
+        water_cells: usize,
+        water_active: usize,
+        water_dirty: usize,
+        water_stats: &crate::water::WaterSimStats,
+        lava_cells: usize,
+        lava_active: usize,
+    ) {
+        self.info("=== Fluid Simulation Debug ===");
+        self.info(format!(
+            "Water: {} cells, {} active, {} dirty",
+            water_cells, water_active, water_dirty
+        ));
+        self.info(format!(
+            "Lava: {} cells, {} active",
+            lava_cells, lava_active
+        ));
+
+        // Show water performance stats if profiling is enabled
+        if water_stats.profiling_enabled && water_stats.last_cells_processed > 0 {
+            self.info("--- Water Performance ---");
+            self.info(format!(
+                "Last tick: {:.2}ms ({} cells, {} flowed, {} deactivated)",
+                water_stats.last_tick_duration.as_secs_f64() * 1000.0,
+                water_stats.last_cells_processed,
+                water_stats.last_cells_flowed,
+                water_stats.last_cells_deactivated
+            ));
+            self.info(format!(
+                "  Sort: {:.2}ms, Flow: {:.2}ms, Apply: {:.2}ms",
+                water_stats.last_sort_duration.as_secs_f64() * 1000.0,
+                water_stats.last_flow_duration.as_secs_f64() * 1000.0,
+                water_stats.last_apply_duration.as_secs_f64() * 1000.0
+            ));
+            self.info(format!("  {:.2} µs/cell", water_stats.us_per_cell()));
+        } else if !water_stats.profiling_enabled {
+            self.info("Water profiling disabled. Use /waterprofile on to enable.");
+        }
+
+        if water_active == 0 && water_cells > 0 {
+            self.warning("Water cells exist but none are active - water is stable/stuck");
+        }
+        if lava_active == 0 && lava_cells > 0 {
+            self.warning("Lava cells exist but none are active - lava is stable/stuck");
+        }
+        self.pending_fluid_debug = false;
+    }
+
+    /// Navigate up in command history.
+    pub fn history_up(&mut self) {
+        if self.history.is_empty() {
+            return;
+        }
+        match self.history_index {
+            None => {
+                // Start navigating from the end
+                self.saved_input = self.input.clone();
+                self.history_index = Some(self.history.len() - 1);
+                self.input = self.history[self.history.len() - 1].clone();
+            }
+            Some(idx) if idx > 0 => {
+                self.history_index = Some(idx - 1);
+                self.input = self.history[idx - 1].clone();
+            }
+            _ => {}
+        }
+    }
+
+    /// Navigate down in command history.
+    pub fn history_down(&mut self) {
+        if let Some(idx) = self.history_index {
+            if idx + 1 < self.history.len() {
+                self.history_index = Some(idx + 1);
+                self.input = self.history[idx + 1].clone();
+            } else {
+                // Back to original input
+                self.history_index = None;
+                self.input = self.saved_input.clone();
+            }
+        }
+    }
+
+    /// Submit the current input for execution.
+    #[allow(clippy::too_many_arguments)]
+    pub fn submit(
+        &mut self,
+        world: &mut World,
+        player_pos: Vector3<i32>,
+        template_selection: &mut crate::templates::TemplateSelection,
+        template_library: &crate::templates::TemplateLibrary,
+        stencil_library: &crate::stencils::StencilLibrary,
+        water_grid: &crate::water::WaterGrid,
+        picture_library: &crate::pictures::PictureLibrary,
+        terrain_generator: &crate::terrain_gen::TerrainGenerator,
+        author: &str,
+    ) {
+        let input = self.input.trim().to_string();
+        if input.is_empty() {
+            return;
+        }
+
+        // Add to history (avoid duplicates at end)
+        if self.history.last() != Some(&input) {
+            self.history.push(input.clone());
+        }
+
+        // Reset history navigation
+        self.history_index = None;
+        self.saved_input.clear();
+
+        // Clear input
+        self.input.clear();
+
+        // Execute command
+        self.execute(
+            &input,
+            world,
+            player_pos,
+            template_selection,
+            template_library,
+            stencil_library,
+            water_grid,
+            picture_library,
+            terrain_generator,
+            author,
+        );
+    }
+
+    /// Execute a command string.
+    #[allow(clippy::too_many_arguments)]
+    fn execute(
+        &mut self,
+        input: &str,
+        world: &mut World,
+        player_pos: Vector3<i32>,
+        template_selection: &mut crate::templates::TemplateSelection,
+        template_library: &crate::templates::TemplateLibrary,
+        stencil_library: &crate::stencils::StencilLibrary,
+        water_grid: &crate::water::WaterGrid,
+        picture_library: &crate::pictures::PictureLibrary,
+        terrain_generator: &crate::terrain_gen::TerrainGenerator,
+        author: &str,
+    ) {
+        // Echo the command
+        self.info(format!("> {}", input));
+
+        // Handle confirmation response
+        if let Some(pending) = self.pending_confirm.take() {
+            let response = input.to_lowercase();
+            if response == "y" || response == "yes" {
+                // Re-execute the original command with confirmation bypass
+                self.execute_confirmed(
+                    &pending.command,
+                    world,
+                    player_pos,
+                    template_selection,
+                    template_library,
+                    stencil_library,
+                    water_grid,
+                    picture_library,
+                    terrain_generator,
+                    author,
+                );
+            } else {
+                self.info("Command cancelled.");
+            }
+            return;
+        }
+
+        // Parse and execute command
+        let result = self.parse_and_execute(
+            input,
+            world,
+            player_pos,
+            template_selection,
+            template_library,
+            stencil_library,
+            water_grid,
+            picture_library,
+            terrain_generator,
+            false,
+            author,
+        );
+        self.handle_result(result);
+    }
+
+    /// Execute a confirmed command (bypass volume check).
+    #[allow(clippy::too_many_arguments)]
+    fn execute_confirmed(
+        &mut self,
+        input: &str,
+        world: &mut World,
+        player_pos: Vector3<i32>,
+        template_selection: &mut crate::templates::TemplateSelection,
+        template_library: &crate::templates::TemplateLibrary,
+        stencil_library: &crate::stencils::StencilLibrary,
+        water_grid: &crate::water::WaterGrid,
+        picture_library: &crate::pictures::PictureLibrary,
+        terrain_generator: &crate::terrain_gen::TerrainGenerator,
+        author: &str,
+    ) {
+        let result = self.parse_and_execute(
+            input,
+            world,
+            player_pos,
+            template_selection,
+            template_library,
+            stencil_library,
+            water_grid,
+            picture_library,
+            terrain_generator,
+            true,
+            author,
+        );
+        self.handle_result(result);
+    }
+
+    /// Handle command result.
+    pub fn handle_result(&mut self, result: CommandResult) {
+        match result {
+            CommandResult::Success {
+                message,
+                changed_blocks,
+            } => {
+                self.success(&message);
+                // Store changed blocks for multiplayer sync
+                if !changed_blocks.is_empty() {
+                    self.pending_block_syncs = changed_blocks;
+                }
+            }
+            CommandResult::Error(msg) => self.error(msg),
+            CommandResult::NeedsConfirmation { message, command } => {
+                self.warning(&message);
+                self.info("Type 'y' or 'yes' to confirm, anything else to cancel.");
+                self.pending_confirm = Some(PendingCommand { command });
+            }
+            CommandResult::Teleport { x, y, z } => {
+                self.success(format!("Teleporting to ({:.1}, {:.1}, {:.1})", x, y, z));
+                self.pending_teleport = Some(PendingTeleport { x, y, z });
+            }
+            CommandResult::FluidDebug => {
+                // Signal that caller should output fluid debug info
+                self.pending_fluid_debug = true;
+            }
+            CommandResult::ForceWaterActive => {
+                // Signal that caller should force all water cells active
+                self.pending_force_water_active = true;
+            }
+            CommandResult::WaterAnalyze => {
+                // Signal that caller should analyze water at player position
+                self.pending_water_analyze = true;
+            }
+            CommandResult::WaterProfile(enabled) => {
+                self.success(format!(
+                    "Water profiling: {}",
+                    if enabled { "ON" } else { "OFF" }
+                ));
+                self.pending_water_profile = Some(enabled);
+            }
+            CommandResult::SetBiomeDebug(enabled) => {
+                self.success(format!(
+                    "Biome debug visualization: {}",
+                    if enabled { "ON" } else { "OFF" }
+                ));
+                self.pending_biome_debug = Some(enabled);
+            }
+            CommandResult::LoadTemplate(template) => {
+                self.success(format!(
+                    "Loaded template '{}' ({}×{}×{}, {} blocks). Use R to rotate, Enter to place",
+                    template.name,
+                    template.width,
+                    template.height,
+                    template.depth,
+                    template.block_count()
+                ));
+                self.pending_template_load = Some(template);
+            }
+            CommandResult::LoadStencil(stencil) => {
+                self.success(format!(
+                    "Loaded stencil '{}' ({}×{}×{}, {} positions). Use R to rotate, Enter to place",
+                    stencil.name,
+                    stencil.width,
+                    stencil.height,
+                    stencil.depth,
+                    stencil.position_count()
+                ));
+                self.pending_stencil_load = Some(stencil);
+            }
+            CommandResult::SetStencilOpacity(opacity) => {
+                self.success(format!("Set stencil opacity to {:.1}", opacity));
+                self.pending_stencil_opacity = Some(opacity);
+            }
+            CommandResult::SetStencilRenderMode(mode) => {
+                let mode_name = if mode == 0 { "wireframe" } else { "solid" };
+                self.success(format!("Set stencil render mode to {}", mode_name));
+                self.pending_stencil_render_mode = Some(mode);
+            }
+            CommandResult::ClearStencils => {
+                self.pending_stencil_clear = true;
+            }
+            CommandResult::RemoveStencil(id) => {
+                self.pending_stencil_remove = Some(id);
+            }
+            CommandResult::ListActiveStencils => {
+                self.pending_stencil_list = true;
+            }
+            CommandResult::LocateBiome {
+                biome_name,
+                x,
+                y,
+                z,
+                distance,
+                direction,
+            } => {
+                self.success(format!(
+                    "{} biome found {} blocks {} at ({}, {}, {})",
+                    biome_name, distance, direction, x, y, z
+                ));
+                self.info(format!("Use 'tp {} {} {}' to teleport there", x, y, z));
+            }
+            CommandResult::StartLocateSearch(search) => {
+                let search_name = match &search.search_type {
+                    LocateSearchType::Biome(biome) => format!("{:?} biome", biome),
+                    LocateSearchType::Block(block) => format!("{:?} block", block),
+                    LocateSearchType::Cave(size) => format!("cave (min {} blocks)", size),
+                    LocateSearchType::River => "river".to_string(),
+                };
+                self.info(format!("Searching for {}...", search_name));
+                self.pending_locate_search = Some(search);
+            }
+            CommandResult::ClearMeasurementMarkers => {
+                self.success("Cleared all measurement markers.".to_string());
+                self.pending_clear_markers = true;
+            }
+            CommandResult::SavePosition { name } => {
+                self.pending_save_position = Some(name);
+            }
+            CommandResult::DeletePosition { name } => {
+                self.pending_delete_position = Some(name);
+            }
+            CommandResult::ListPositions => {
+                self.pending_list_positions = true;
+            }
+            CommandResult::SetPictureSelection { id, name } => {
+                if id == 0 {
+                    self.success("Cleared picture selection (frames will be empty)".to_string());
+                } else {
+                    self.success(format!("Selected picture '{}' for frame placement", name));
+                }
+                self.pending_set_picture = Some(id);
+            }
+            CommandResult::SetSpawnPosition { x, y, z } => {
+                self.success(format!(
+                    "Spawn position set to ({:.1}, {:.1}, {:.1})",
+                    x, y, z
+                ));
+                self.pending_set_spawn_position = Some([x, y, z]);
+            }
+            CommandResult::SetPlayerName { name } => {
+                self.success(format!("Player name set to '{}'", name));
+                self.pending_set_player_name = Some(name);
+            }
+            CommandResult::ChatMessage { message } => {
+                self.pending_chat_message = Some(message);
+            }
+        }
+    }
+
+    /// Parse and execute a command.
+    #[allow(clippy::too_many_arguments)]
+    fn parse_and_execute(
+        &mut self,
+        input: &str,
+        world: &mut World,
+        player_pos: Vector3<i32>,
+        template_selection: &mut crate::templates::TemplateSelection,
+        template_library: &crate::templates::TemplateLibrary,
+        stencil_library: &crate::stencils::StencilLibrary,
+        water_grid: &crate::water::WaterGrid,
+        picture_library: &crate::pictures::PictureLibrary,
+        terrain_generator: &crate::terrain_gen::TerrainGenerator,
+        confirmed: bool,
+        author: &str,
+    ) -> CommandResult {
+        let parts: Vec<&str> = input.split_whitespace().collect();
+        if parts.is_empty() {
+            return CommandResult::Error("Empty command".to_string());
+        }
+
+        let cmd = parts[0].to_lowercase();
+        let args = &parts[1..];
+
+        match cmd.as_str() {
+            "help" | "?" => commands::help(),
+            "fill" => commands::fill(args, world, player_pos, confirmed),
+            "floodfill" | "flood_fill" | "ff" => {
+                commands::floodfill(args, world, player_pos, self.raycast_hit, confirmed)
+            }
+            "sphere" => commands::sphere(args, world, player_pos, confirmed),
+            "boxme" => commands::boxme(args, world, player_pos, confirmed),
+            "copy" => commands::copy(args, world, player_pos, confirmed),
+            "tp" | "teleport" => commands::tp(args, player_pos),
+            "locate" => commands::locate(args, player_pos, terrain_generator, world),
+            "cancel" | "cancellocate" => {
+                if self.pending_locate_search.is_some() {
+                    self.pending_locate_search = None;
+                    CommandResult::success("Locate search cancelled.")
+                } else {
+                    CommandResult::Error("No active locate search to cancel.".to_string())
+                }
+            }
+            "waterdebug" | "wd" => CommandResult::FluidDebug,
+            "waterforce" | "wf" => CommandResult::ForceWaterActive,
+            "wateranalyze" | "wa" => CommandResult::WaterAnalyze,
+            "waterprofile" | "wp" => {
+                if let Some(arg) = args.first() {
+                    match arg.to_lowercase().as_str() {
+                        "on" | "true" | "1" => CommandResult::WaterProfile(true),
+                        "off" | "false" | "0" => CommandResult::WaterProfile(false),
+                        _ => CommandResult::Error("Usage: waterprofile [on|off]".to_string()),
+                    }
+                } else {
+                    // Default to ON when no argument provided
+                    CommandResult::WaterProfile(true)
+                }
+            }
+            "biome_debug" | "bd" => {
+                if let Some(arg) = args.first() {
+                    match arg.to_lowercase().as_str() {
+                        "on" | "true" | "1" => CommandResult::SetBiomeDebug(true),
+                        "off" | "false" | "0" => CommandResult::SetBiomeDebug(false),
+                        _ => CommandResult::Error("Usage: biome_debug [on|off]".to_string()),
+                    }
+                } else {
+                    // Toggle if no argument (requires knowing current state, which we don't. So default to ON or error?
+                    // Better to require argument or assume toggle based on UI state (can't access UI here).
+                    // Let's assume ON if typing it without args is common debug behavior, or Error.
+                    // Actually, let's just make it ON.
+                    CommandResult::SetBiomeDebug(true)
+                }
+            }
+            "select" => {
+                // Convert player_pos from i32 to f64 for the select command
+                // Note: player_pos.y is already +1 from feet position
+                let player_pos_f64 = Vector3::new(
+                    player_pos.x as f64 + 0.5,
+                    player_pos.y as f64,
+                    player_pos.z as f64 + 0.5,
+                );
+                commands::select(args, player_pos_f64, template_selection)
+            }
+            "template" => commands::template(
+                args,
+                template_selection,
+                world,
+                water_grid,
+                template_library,
+                confirmed,
+                author,
+            ),
+            "stencil" => commands::stencil(
+                args,
+                template_selection,
+                world,
+                stencil_library,
+                template_library,
+                confirmed,
+                author,
+            ),
+            "clear" => {
+                self.output.clear();
+                CommandResult::success("Console cleared")
+            }
+            "frame" => {
+                if !args.is_empty() && args[0].to_lowercase() == "picture" {
+                    commands::picture(&args[1..], picture_library)
+                } else {
+                    CommandResult::Error("Usage: /frame picture list|set|clear [args]".to_string())
+                }
+            }
+            "measure" => commands::measure(args),
+            "save_pos" | "savepos" | "sp" => commands::save_pos(args),
+            "delete_pos" | "deletepos" | "delpos" | "dp" => commands::delete_pos(args),
+            "list_pos" | "listpos" | "lp" | "positions" => commands::list_pos(),
+            "texture_add" | "texadd" => commands::texture_add(args),
+            "texture_list" | "texlist" | "textures" => commands::texture_list(),
+            "texture_remove" | "texremove" | "texdel" => commands::texture_remove(args),
+            "texture_info" => commands::texture_info(args),
+            "setspawn" | "spawn" => {
+                if args.len() < 3 {
+                    return CommandResult::Error("Usage: setspawn <x> <y> <z>".to_string());
+                }
+                let x = match parse_coordinate(args[0], player_pos.x) {
+                    Ok(v) => v,
+                    Err(e) => return CommandResult::Error(e),
+                };
+                let y = match parse_coordinate(args[1], player_pos.y) {
+                    Ok(v) => v,
+                    Err(e) => return CommandResult::Error(e),
+                };
+                let z = match parse_coordinate(args[2], player_pos.z) {
+                    Ok(v) => v,
+                    Err(e) => return CommandResult::Error(e),
+                };
+                if let Some(error) = validate_y_bounds(y) {
+                    return CommandResult::Error(error);
+                }
+                CommandResult::SetSpawnPosition {
+                    x: x as f64 + 0.5,
+                    y: y as f64,
+                    z: z as f64 + 0.5,
+                }
+            }
+            "name" | "nickname" | "setname" => {
+                if args.is_empty() {
+                    return CommandResult::Error("Usage: name <your_name>".to_string());
+                }
+                let name = args.join(" ");
+                // Validate name: 1-32 chars, alphanumeric + spaces/underscores
+                if name.is_empty() || name.len() > 32 {
+                    return CommandResult::Error("Name must be 1-32 characters".to_string());
+                }
+                if !name
+                    .chars()
+                    .all(|c| c.is_alphanumeric() || c == '_' || c == ' ')
+                {
+                    return CommandResult::Error(
+                        "Name can only contain letters, numbers, underscores, and spaces"
+                            .to_string(),
+                    );
+                }
+                CommandResult::SetPlayerName { name }
+            }
+            "chat" | "say" | "msg" => {
+                if args.is_empty() {
+                    return CommandResult::Error("Usage: chat <message>".to_string());
+                }
+                let message = args.join(" ");
+                if message.len() > 256 {
+                    return CommandResult::Error(
+                        "Message too long (max 256 characters)".to_string(),
+                    );
+                }
+                CommandResult::ChatMessage { message }
+            }
+            _ => CommandResult::Error(format!(
+                "Unknown command: '{}'. Type 'help' for commands.",
+                cmd
+            )),
+        }
+    }
+}
+
+/// Parse a coordinate value that may be relative (~).
+/// `~` means player position, `~5` means player + 5, `~-5` means player - 5.
+pub fn parse_coordinate(s: &str, player_coord: i32) -> Result<i32, String> {
+    let s = s.trim();
+    if let Some(offset_str) = s.strip_prefix('~') {
+        if offset_str.is_empty() {
+            Ok(player_coord)
+        } else {
+            offset_str
+                .parse::<i32>()
+                .map(|offset| player_coord + offset)
+                .map_err(|_| format!("Invalid relative coordinate: '{}'", s))
+        }
+    } else {
+        s.parse::<i32>()
+            .map_err(|_| format!("Invalid coordinate: '{}'", s))
+    }
+}
+
+/// Volume threshold for confirmation.
+pub fn volume_confirm_threshold() -> u64 {
+    VOLUME_CONFIRM_THRESHOLD
+}
+
+/// Validate Y coordinate is within world bounds.
+/// Returns an error message if out of bounds, None if valid.
+pub fn validate_y_bounds(y: i32) -> Option<String> {
+    if y < 0 {
+        Some(format!("Y coordinate {} is below world (min: 0)", y))
+    } else if y > MAX_Y {
+        Some(format!(
+            "Y coordinate {} is above world (max: {})",
+            y, MAX_Y
+        ))
+    } else {
+        None
+    }
+}

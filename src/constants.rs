@@ -1,0 +1,78 @@
+use crate::chunk::CHUNK_SIZE;
+
+// ---------------------------------------------------------------------------
+// Texture atlas constants
+// ---------------------------------------------------------------------------
+
+/// Number of tiles in the main block texture atlas.
+///
+/// This value must stay in sync with `ATLAS_TILE_COUNT` in
+/// `shaders/materials.glsl`.  It is the single authoritative Rust-side
+/// definition; all other Rust files derive their values from here.
+pub const ATLAS_TILE_COUNT: usize = 45;
+
+/// `ATLAS_TILE_COUNT` as `u8` – used for index iteration in input handling.
+pub const ATLAS_TILE_COUNT_U8: u8 = ATLAS_TILE_COUNT as u8;
+
+/// `ATLAS_TILE_COUNT` as `f32` – used for UV calculations in UI rendering.
+pub const ATLAS_TILE_COUNT_F32: f32 = ATLAS_TILE_COUNT as f32;
+
+/// Six orthogonal neighbor offsets (±X, ±Y, ±Z).
+pub const ORTHO_DIRS: [(i32, i32, i32); 6] = [
+    (1, 0, 0),
+    (-1, 0, 0),
+    (0, 1, 0),
+    (0, -1, 0),
+    (0, 0, 1),
+    (0, 0, -1),
+];
+
+// World height in chunks (fixed - Y dimension is bounded)
+pub const WORLD_CHUNKS_Y: i32 = 16;
+
+// Texture pool dimensions for loaded chunks (X and Z are centered on player)
+// This defines how many chunks can be loaded at once, not world bounds
+pub const LOADED_CHUNKS_X: i32 = 16; // Chunks loaded in X direction (8 each side of player)
+pub const LOADED_CHUNKS_Z: i32 = 16; // Chunks loaded in Z direction (8 each side of player)
+
+// GPU texture size in blocks (holds all currently loaded chunks)
+pub const TEXTURE_SIZE_X: usize = LOADED_CHUNKS_X as usize * CHUNK_SIZE;
+pub const TEXTURE_SIZE_Y: usize = WORLD_CHUNKS_Y as usize * CHUNK_SIZE;
+pub const TEXTURE_SIZE_Z: usize = LOADED_CHUNKS_Z as usize * CHUNK_SIZE;
+
+// Chunk streaming constants
+/// View distance in chunks (horizontal - chunks within this range are rendered)
+pub const VIEW_DISTANCE: i32 = 6;
+/// Load distance in chunks (horizontal - chunks within this range are loaded/generated)
+/// Should be >= view_distance + 1 to preload chunks before they become visible
+pub const LOAD_DISTANCE: i32 = 7;
+/// Unload distance in chunks (horizontal - chunks beyond this are unloaded)
+/// Should be > load_distance to prevent thrashing at boundaries
+pub const UNLOAD_DISTANCE: i32 = 10;
+/// Maximum chunks to unload per frame (keep low to avoid stutters during unload)
+pub const CHUNKS_PER_FRAME: usize = 8;
+
+/// Maximum completed chunks to upload per frame.
+/// Limits GPU transfer bandwidth spikes when many chunks complete simultaneously
+/// (e.g., after origin shift or when entering new area).
+/// Excess chunks are deferred to subsequent frames.
+pub const MAX_COMPLETED_UPLOADS_PER_FRAME: usize = 64;
+
+/// Cached empty chunk data for GPU clearing (avoids repeated allocations)
+pub static EMPTY_CHUNK_DATA: std::sync::LazyLock<Vec<u8>> =
+    std::sync::LazyLock::new(|| vec![0u8; CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE]);
+
+/// Cached empty model metadata for GPU clearing (2 bytes per block: model_id + rotation)
+pub static EMPTY_MODEL_METADATA: std::sync::LazyLock<Vec<u8>> =
+    std::sync::LazyLock::new(|| vec![0u8; CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE * 2]);
+
+/// Cached empty custom data for GPU clearing (4 bytes per block: u32 custom_data)
+pub static EMPTY_CUSTOM_DATA: std::sync::LazyLock<Vec<u8>> =
+    std::sync::LazyLock::new(|| vec![0u8; CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE * 4]);
+
+// Day/night cycle constants
+/// Duration of a full day cycle in seconds (real time)
+pub const DAY_CYCLE_DURATION: f32 = 120.0;
+/// Default time of day (0.0 = midnight, 0.5 = noon, formula: hours = v * 24)
+/// 14/24 ≈ 0.5833 = 14:00 (2pm)
+pub const DEFAULT_TIME_OF_DAY: f32 = 14.0 / 24.0;

@@ -1,0 +1,1282 @@
+use crate::app_state::{MultiplayerState, UiState, WorldSim};
+use crate::chunk::BlockType;
+use crate::config::WorldGenType;
+use crate::editor::EditorAction;
+use crate::editor::rasterizer::generate_model_sprite;
+use crate::gpu_resources::RenderContext;
+use crate::pictures::{PictureBrowserAction, draw_picture_browser};
+use crate::stencils::{StencilBrowserAction, draw_stencil_browser};
+use crate::templates::{TemplateBrowserAction, draw_save_template_dialog, draw_template_browser};
+use crate::ui::{FluidStats, HUDRenderer, HudInputs, MultiplayerAction, ToolAction};
+use crate::user_prefs::UserPreferences;
+use egui_winit_vulkano::egui;
+use nalgebra::Vector3;
+use std::path::Path;
+
+/// Render the HUD; returns true if render targets were recreated (matching HUDRenderer contract).
+#[allow(clippy::too_many_arguments)]
+pub fn render_hud(
+    rcx: &mut RenderContext,
+    ui: &mut UiState,
+    sim: &mut WorldSim,
+    prefs: &mut UserPreferences,
+    selected_block: BlockType,
+    minimap_image: Option<egui::ColorImage>,
+    camera_yaw: f32,
+    camera_pitch: f32,
+    camera_position: Vector3<f64>,
+    camera_fov: f64,
+    screen_extent: [f64; 2],
+    player_world_pos: Vector3<f64>,
+    multiplayer: &mut MultiplayerState,
+    world_seed: u32,
+    world_gen: WorldGenType,
+) -> bool {
+    // Gather fluid stats for debug display
+    let fluid_stats = FluidStats {
+        water_cells: sim.water_grid.cell_count(),
+        water_active: sim.water_grid.active_count(),
+        water_dirty: sim.water_grid.dirty_count(),
+        lava_cells: sim.lava_grid.cell_count(),
+        lava_active: sim.lava_grid.active_count(),
+    };
+
+    // Check if there's a valid selection for pattern fill
+    let has_selection =
+        ui.template_selection.pos1.is_some() && ui.template_selection.pos2.is_some();
+
+    // Get discovered servers for multiplayer panel
+    ui.multiplayer_panel.join.discovered_servers = multiplayer.get_discovered_servers();
+
+    let (scale_changed, editor_action, tool_action, multiplayer_action) = HUDRenderer.render(
+        &mut rcx.gui,
+        HudInputs {
+            fps: ui.frame.fps,
+            chunk_stats: &sim.chunk_stats,
+            fluid_stats,
+            player: &mut sim.player,
+            world: &mut sim.world,
+            terrain_generator: &sim.terrain_generator,
+            cave_generator: sim.terrain_generator.cave_generator(),
+            settings: &mut ui.settings,
+            render_mode: &mut sim.render_mode,
+            current_hit: &ui.placement.current_hit,
+            selected_block,
+            hotbar_index: &mut ui.hotbar.hotbar_index,
+            hotbar_blocks: &mut ui.hotbar.hotbar_blocks,
+            hotbar_model_ids: &mut ui.hotbar.hotbar_model_ids,
+            hotbar_tint_indices: &mut ui.hotbar.hotbar_tint_indices,
+            hotbar_paint_textures: &mut ui.hotbar.hotbar_paint_textures,
+            minimap_image,
+            atlas_texture_id: rcx.atlas_texture_id,
+            sprite_icons: Some(&rcx.sprite_icons),
+            camera_yaw,
+            camera_pitch,
+            camera_position,
+            camera_fov,
+            screen_extent,
+            player_world_pos,
+            time_of_day: &mut sim.time_of_day,
+            day_cycle_paused: &mut sim.day_cycle_paused,
+            atmosphere: &mut sim.atmosphere,
+            view_distance: &mut sim.view_distance,
+            load_distance: &mut sim.load_distance,
+            unload_distance: &mut sim.unload_distance,
+            block_updates: &mut sim.block_updates,
+            show_minimap: &mut ui.minimap_ui.show_minimap,
+            minimap: &mut ui.minimap_ui.minimap,
+            minimap_cached_image: &mut ui.minimap_ui.minimap_cached_image,
+            palette_open: &mut ui.palette_ui.palette_open,
+            palette_tab: &mut ui.palette_ui.palette_tab,
+            palette_search: &mut ui.palette_ui.palette_search,
+            dragging_item: &mut ui.palette_ui.dragging_item,
+            model_registry: &sim.model_registry,
+            editor: &mut ui.editor,
+            console: &mut ui.console,
+            template_selection: &mut ui.template_selection,
+            template_library: &ui.template_library,
+            stencil_library: &ui.stencil_library,
+            stencil_manager: &mut ui.stencil_manager,
+            water_grid: &sim.water_grid,
+            picture_library: &sim.picture_library,
+            active_placement: &mut ui.active_placement,
+            active_stencil_placement: &mut ui.active_stencil_placement,
+            rangefinder_active: ui.placement.rangefinder_active,
+            flood_fill_active: ui.placement.flood_fill_active,
+            measurement_markers: &mut ui.placement.measurement_markers,
+            tools_palette: &mut ui.tools_palette,
+            stencil_browser_open: ui.stencil_ui.browser_open,
+            sphere_tool: &mut ui.sphere_tool,
+            cube_tool: &mut ui.cube_tool,
+            bridge_tool: &mut ui.bridge_tool,
+            cylinder_tool: &mut ui.cylinder_tool,
+            wall_tool: &mut ui.wall_tool,
+            floor_tool: &mut ui.floor_tool,
+            replace_tool: &mut ui.replace_tool,
+            circle_tool: &mut ui.circle_tool,
+            mirror_tool: &mut ui.mirror_tool,
+            stairs_tool: &mut ui.stairs_tool,
+            arch_tool: &mut ui.arch_tool,
+            cone_tool: &mut ui.cone_tool,
+            clone_tool: &mut ui.clone_tool,
+            torus_tool: &mut ui.torus_tool,
+            helix_tool: &mut ui.helix_tool,
+            polygon_tool: &mut ui.polygon_tool,
+            bezier_tool: &mut ui.bezier_tool,
+            pattern_fill: &mut ui.pattern_fill,
+            scatter_tool: &mut ui.scatter_tool,
+            hollow_tool: &mut ui.hollow_tool,
+            terrain_brush: &mut ui.terrain_brush,
+            has_selection,
+            // Multiplayer fields
+            multiplayer_panel: &mut ui.multiplayer_panel,
+            game_mode: multiplayer.mode,
+            is_connected: multiplayer.is_connected(),
+            player_count: multiplayer.get_player_count(),
+            max_players: multiplayer.get_max_players(),
+            server_address: multiplayer.get_server_address(),
+            ping_ms: multiplayer.get_ping_ms(),
+            player_names: multiplayer.get_player_names(),
+            remote_players: &multiplayer.get_minimap_markers(),
+            remote_player_labels: &multiplayer.get_remote_player_labels(),
+            chat_history: multiplayer.get_chat_history(),
+            chat_display_timer: multiplayer.get_chat_display_timer(),
+            author: &prefs.author,
+        },
+    );
+
+    // Handle multiplayer panel actions
+    handle_multiplayer_action(multiplayer, &multiplayer_action, world_seed, world_gen);
+
+    // Sync console command block changes to multiplayer
+    if multiplayer.is_connected() && !ui.console.pending_block_syncs.is_empty() {
+        let block_changes = std::mem::take(&mut ui.console.pending_block_syncs);
+        let count = block_changes.len();
+        for (pos, block_type) in block_changes {
+            // Create BlockData for the block type
+            let block_data = crate::net::protocol::BlockData {
+                block_type,
+                model_data: None,
+                paint_data: None,
+                tint_index: None,
+                water_type: None,
+            };
+            multiplayer.send_place_block([pos.x, pos.y, pos.z], block_data);
+        }
+        log::debug!(
+            "[Multiplayer] Synced {} block changes from console commands",
+            count
+        );
+    }
+
+    // Handle player name change from console
+    if let Some(name) = ui.console.pending_set_player_name.take() {
+        multiplayer.set_local_player_name(name.clone());
+        // Send to server if connected
+        if let Some(ref mut client) = multiplayer.client {
+            client.send_set_player_name(name);
+        }
+    }
+
+    // Handle chat message from console
+    if let Some(message) = ui.console.pending_chat_message.take() {
+        // Send to server if connected
+        if let Some(ref mut client) = multiplayer.client {
+            client.send_chat(message);
+        }
+    }
+
+    // Note: Pending chat messages and player name changes are processed in update.rs
+    // to avoid duplicate processing (take_pending_* methods drain the queue)
+
+    // Handle tool palette actions
+    match tool_action {
+        ToolAction::ToggleTemplateBrowser => {
+            ui.template_ui.browser_open = !ui.template_ui.browser_open;
+            if ui.template_ui.browser_open {
+                ui.template_ui.refresh_templates(&ui.template_library);
+            }
+            // Close tools palette when opening template browser
+            ui.tools_palette.open = false;
+        }
+        ToolAction::ToggleRangefinder => {
+            ui.placement.rangefinder_active = !ui.placement.rangefinder_active;
+            log::debug!(
+                "Rangefinder: {}",
+                if ui.placement.rangefinder_active {
+                    "ON"
+                } else {
+                    "OFF"
+                }
+            );
+            // Close tools palette and grab cursor when activating rangefinder
+            if ui.placement.rangefinder_active {
+                ui.tools_palette.open = false;
+                ui.request_cursor_grab = true;
+            }
+        }
+        ToolAction::ToggleStencilBrowser => {
+            ui.stencil_ui.browser_open = !ui.stencil_ui.browser_open;
+            if ui.stencil_ui.browser_open {
+                ui.stencil_ui.refresh_stencils(&ui.stencil_library);
+            }
+            // Close tools palette when opening stencil browser
+            ui.tools_palette.open = false;
+        }
+        ToolAction::ToggleFloodFill => {
+            ui.placement.flood_fill_active = !ui.placement.flood_fill_active;
+            log::debug!(
+                "Flood Fill Mode: {}",
+                if ui.placement.flood_fill_active {
+                    "ON"
+                } else {
+                    "OFF"
+                }
+            );
+            // Close tools palette and grab cursor when activating fill mode
+            if ui.placement.flood_fill_active {
+                ui.tools_palette.open = false;
+                ui.request_cursor_grab = true;
+            }
+        }
+        ToolAction::ToggleSphereTool => {
+            ui.sphere_tool.active = !ui.sphere_tool.active;
+            log::debug!(
+                "Sphere Tool: {}",
+                if ui.sphere_tool.active { "ON" } else { "OFF" }
+            );
+            // Close tools palette but DON'T grab cursor - let user adjust settings first
+            // User clicks in 3D view to start placement (which will grab cursor)
+            if ui.sphere_tool.active {
+                ui.tools_palette.open = false;
+                // Don't request cursor grab - sphere tool UI needs mouse interaction
+            }
+        }
+        ToolAction::ToggleCubeTool => {
+            ui.cube_tool.active = !ui.cube_tool.active;
+            log::debug!(
+                "Cube Tool: {}",
+                if ui.cube_tool.active { "ON" } else { "OFF" }
+            );
+            // Close tools palette but DON'T grab cursor - let user adjust settings first
+            // User clicks in 3D view to start placement (which will grab cursor)
+            if ui.cube_tool.active {
+                ui.tools_palette.open = false;
+                // Don't request cursor grab - cube tool UI needs mouse interaction
+            }
+        }
+        ToolAction::ToggleBridgeTool => {
+            ui.bridge_tool.active = !ui.bridge_tool.active;
+            log::debug!(
+                "Bridge Tool: {}",
+                if ui.bridge_tool.active { "ON" } else { "OFF" }
+            );
+            // Close tools palette and grab cursor when activating bridge mode
+            if ui.bridge_tool.active {
+                ui.tools_palette.open = false;
+                ui.request_cursor_grab = true;
+            }
+        }
+        ToolAction::ToggleCylinderTool => {
+            ui.cylinder_tool.active = !ui.cylinder_tool.active;
+            log::debug!(
+                "Cylinder Tool: {}",
+                if ui.cylinder_tool.active { "ON" } else { "OFF" }
+            );
+            // Close tools palette but DON'T grab cursor - let user adjust settings first
+            if ui.cylinder_tool.active {
+                ui.tools_palette.open = false;
+                // Don't request cursor grab - cylinder tool UI needs mouse interaction
+            }
+        }
+        ToolAction::ToggleWallTool => {
+            ui.wall_tool.active = !ui.wall_tool.active;
+            log::debug!(
+                "Wall Tool: {}",
+                if ui.wall_tool.active { "ON" } else { "OFF" }
+            );
+            // Close tools palette but DON'T grab cursor - let user adjust settings first
+            if ui.wall_tool.active {
+                ui.tools_palette.open = false;
+                // Don't request cursor grab - wall tool UI needs mouse interaction
+            }
+        }
+        ToolAction::ToggleFloorTool => {
+            ui.floor_tool.active = !ui.floor_tool.active;
+            log::debug!(
+                "Floor Tool: {}",
+                if ui.floor_tool.active { "ON" } else { "OFF" }
+            );
+            // Close tools palette but DON'T grab cursor - let user adjust settings first
+            if ui.floor_tool.active {
+                ui.tools_palette.open = false;
+                // Don't request cursor grab - floor tool UI needs mouse interaction
+            }
+        }
+        ToolAction::ToggleReplaceTool => {
+            ui.replace_tool.active = !ui.replace_tool.active;
+            log::debug!(
+                "Replace Tool: {}",
+                if ui.replace_tool.active { "ON" } else { "OFF" }
+            );
+            // Close tools palette but DON'T grab cursor - let user adjust settings first
+            if ui.replace_tool.active {
+                ui.tools_palette.open = false;
+                // Don't request cursor grab - replace tool UI needs mouse interaction
+            }
+        }
+        ToolAction::ToggleCircleTool => {
+            ui.circle_tool.active = !ui.circle_tool.active;
+            log::debug!(
+                "Circle Tool: {}",
+                if ui.circle_tool.active { "ON" } else { "OFF" }
+            );
+            // Close tools palette but DON'T grab cursor - let user adjust settings first
+            if ui.circle_tool.active {
+                ui.tools_palette.open = false;
+                // Don't request cursor grab - circle tool UI needs mouse interaction
+            }
+        }
+        ToolAction::ToggleMirrorTool => {
+            ui.mirror_tool.active = !ui.mirror_tool.active;
+            log::debug!(
+                "Mirror Tool: {}",
+                if ui.mirror_tool.active { "ON" } else { "OFF" }
+            );
+            // Close tools palette but DON'T grab cursor - let user adjust settings first
+            if ui.mirror_tool.active {
+                ui.tools_palette.open = false;
+                // Don't request cursor grab - mirror tool UI needs mouse interaction
+            }
+        }
+        ToolAction::ToggleStairsTool => {
+            ui.stairs_tool.active = !ui.stairs_tool.active;
+            log::debug!(
+                "Stairs Tool: {}",
+                if ui.stairs_tool.active { "ON" } else { "OFF" }
+            );
+            // Close tools palette but DON'T grab cursor - let user adjust settings first
+            if ui.stairs_tool.active {
+                ui.tools_palette.open = false;
+                // Don't request cursor grab - stairs tool UI needs mouse interaction
+            }
+        }
+        ToolAction::ToggleArchTool => {
+            ui.arch_tool.active = !ui.arch_tool.active;
+            log::debug!(
+                "Arch Tool: {}",
+                if ui.arch_tool.active { "ON" } else { "OFF" }
+            );
+            // Close tools palette but DON'T grab cursor - let user adjust settings first
+            if ui.arch_tool.active {
+                ui.tools_palette.open = false;
+                // Don't request cursor grab - arch tool UI needs mouse interaction
+            }
+        }
+        ToolAction::ToggleConeTool => {
+            ui.cone_tool.active = !ui.cone_tool.active;
+            log::debug!(
+                "Cone/Pyramid Tool: {}",
+                if ui.cone_tool.active { "ON" } else { "OFF" }
+            );
+            // Close tools palette but DON'T grab cursor - let user adjust settings first
+            if ui.cone_tool.active {
+                ui.tools_palette.open = false;
+                // Don't request cursor grab - cone tool UI needs mouse interaction
+            }
+        }
+        ToolAction::ToggleCloneTool => {
+            ui.clone_tool.active = !ui.clone_tool.active;
+            log::debug!(
+                "Clone/Array Tool: {}",
+                if ui.clone_tool.active { "ON" } else { "OFF" }
+            );
+            // Close tools palette but DON'T grab cursor - let user adjust settings first
+            if ui.clone_tool.active {
+                ui.tools_palette.open = false;
+                // Don't request cursor grab - clone tool UI needs mouse interaction
+            }
+        }
+        ToolAction::ToggleTorusTool => {
+            ui.torus_tool.active = !ui.torus_tool.active;
+            log::debug!(
+                "Torus/Ring Tool: {}",
+                if ui.torus_tool.active { "ON" } else { "OFF" }
+            );
+            // Close tools palette but DON'T grab cursor - let user adjust settings first
+            if ui.torus_tool.active {
+                ui.tools_palette.open = false;
+                // Don't request cursor grab - torus tool UI needs mouse interaction
+            }
+        }
+        ToolAction::ToggleHelixTool => {
+            ui.helix_tool.active = !ui.helix_tool.active;
+            log::debug!(
+                "Helix/Spiral Tool: {}",
+                if ui.helix_tool.active { "ON" } else { "OFF" }
+            );
+            // Close tools palette but DON'T grab cursor - let user adjust settings first
+            if ui.helix_tool.active {
+                ui.tools_palette.open = false;
+                // Don't request cursor grab - helix tool UI needs mouse interaction
+            }
+        }
+        ToolAction::TogglePolygonTool => {
+            ui.polygon_tool.active = !ui.polygon_tool.active;
+            log::debug!(
+                "Polygon Tool: {}",
+                if ui.polygon_tool.active { "ON" } else { "OFF" }
+            );
+            // Close tools palette but DON'T grab cursor - let user adjust settings first
+            if ui.polygon_tool.active {
+                ui.tools_palette.open = false;
+                // Don't request cursor grab - polygon tool UI needs mouse interaction
+            }
+        }
+        ToolAction::ToggleBezierTool => {
+            ui.bezier_tool.active = !ui.bezier_tool.active;
+            log::debug!(
+                "Bezier Tool: {}",
+                if ui.bezier_tool.active { "ON" } else { "OFF" }
+            );
+            // Close tools palette but DON'T grab cursor - let user place control points
+            if ui.bezier_tool.active {
+                ui.tools_palette.open = false;
+                // Don't request cursor grab - bezier tool UI needs mouse interaction
+            }
+        }
+        ToolAction::TogglePatternFillTool => {
+            ui.pattern_fill.active = !ui.pattern_fill.active;
+            log::debug!(
+                "Pattern Fill Tool: {}",
+                if ui.pattern_fill.active { "ON" } else { "OFF" }
+            );
+            // Close tools palette but DON'T grab cursor - tool uses selection
+            if ui.pattern_fill.active {
+                ui.tools_palette.open = false;
+                // Don't request cursor grab - pattern fill UI needs mouse interaction
+            }
+        }
+        ToolAction::ToggleScatterTool => {
+            ui.scatter_tool.active = !ui.scatter_tool.active;
+            log::debug!(
+                "Scatter Brush Tool: {}",
+                if ui.scatter_tool.active { "ON" } else { "OFF" }
+            );
+            // Close tools palette and grab cursor when activating scatter mode
+            if ui.scatter_tool.active {
+                ui.tools_palette.open = false;
+                ui.request_cursor_grab = true;
+            }
+        }
+        ToolAction::ToggleHollowTool => {
+            ui.hollow_tool.active = !ui.hollow_tool.active;
+            log::debug!(
+                "Hollow Tool: {}",
+                if ui.hollow_tool.active { "ON" } else { "OFF" }
+            );
+            // Close tools palette but DON'T grab cursor - tool uses selection
+            if ui.hollow_tool.active {
+                ui.tools_palette.open = false;
+                // Don't request cursor grab - hollow tool UI needs mouse interaction
+            }
+        }
+        ToolAction::ToggleTerrainBrush => {
+            ui.terrain_brush.toggle();
+            log::debug!(
+                "Terrain Brush: {}",
+                if ui.terrain_brush.active { "ON" } else { "OFF" }
+            );
+            // Close tools palette and grab cursor when activating
+            if ui.terrain_brush.active {
+                ui.tools_palette.open = false;
+                ui.request_cursor_grab = true;
+            }
+        }
+        ToolAction::None => {}
+    }
+
+    // Handle editor action
+    match editor_action {
+        EditorAction::PlaceInWorld => {
+            if let Some(pos) = ui.editor.saved_target_pos {
+                // Register the model in the world's registry
+                match sim.model_registry.register(ui.editor.scratch_pad.clone()) {
+                    None => {
+                        log::warn!(
+                            "[Editor] Cannot place '{}': model registry is full",
+                            ui.editor.scratch_pad.name
+                        );
+                    }
+                    Some(model_id) => {
+                        // Calculate rotation to face player based on camera yaw
+                        let rot = (camera_yaw / std::f32::consts::FRAC_PI_2).round() as i32;
+                        let rotation = rot.rem_euclid(4) as u8;
+
+                        // Place the model block in the world
+                        sim.world.set_model_block(pos, model_id, rotation, false);
+                        sim.world.invalidate_minimap_cache(pos.x, pos.z);
+
+                        log::debug!(
+                            "[Editor] Placed model '{}' (ID {}) at {:?} with rotation {}",
+                            ui.editor.scratch_pad.name,
+                            model_id,
+                            pos,
+                            rotation
+                        );
+
+                        // Close the editor
+                        ui.editor.active = false;
+                    }
+                }
+            }
+        }
+        EditorAction::ModelSaved => {
+            // Register or update the model in the registry so it's available in palette
+            let model_id = match sim
+                .model_registry
+                .update_or_register(ui.editor.scratch_pad.clone())
+            {
+                Some(id) => id,
+                None => {
+                    log::warn!(
+                        "[Editor] Cannot register model '{}': registry full",
+                        ui.editor.scratch_pad.name
+                    );
+                    // Skip sprite generation / upload since we have no valid ID
+                    return false;
+                }
+            };
+            log::debug!(
+                "[Editor] Registered model '{}' as ID {} in palette",
+                ui.editor.scratch_pad.name,
+                model_id
+            );
+
+            // Generate sprite with the model ID and reload it in the HUD
+            let sprites_dir = Path::new("textures/rendered");
+            if let Err(e) = std::fs::create_dir_all(sprites_dir) {
+                log::warn!("[Editor] Failed to create sprites directory: {}", e);
+            } else {
+                let sprite_path = sprites_dir.join(format!("model_{}.png", model_id));
+                if let Err(e) = generate_model_sprite(&ui.editor.scratch_pad, &sprite_path) {
+                    log::warn!("[Editor] Failed to generate sprite: {}", e);
+                } else {
+                    log::debug!("[Editor] Generated sprite: {}", sprite_path.display());
+                    // Reload the sprite in the HUD
+                    let ctx = rcx.gui.context();
+                    if rcx
+                        .sprite_icons
+                        .reload_model_sprite(&ctx, model_id, &sprite_path)
+                    {
+                        log::debug!("[Editor] Reloaded HUD sprite for model {}", model_id);
+                    } else {
+                        log::warn!(
+                            "[Editor] Failed to reload HUD sprite for model {}",
+                            model_id
+                        );
+                    }
+                }
+            }
+
+            // Upload model to server if connected as a client (not host)
+            if multiplayer.is_connected() && !multiplayer.is_host() {
+                use crate::storage::model_format::VxmFile;
+                use lz4_flex::compress_prepend_size;
+
+                // Create VxmFile from the model
+                let vxm = VxmFile::from_model(&ui.editor.scratch_pad, "Player".to_string());
+
+                // Serialize with bincode
+                if let Ok(serialized) =
+                    bincode::serde::encode_to_vec(&vxm, bincode::config::legacy())
+                {
+                    // Compress with LZ4
+                    let compressed = compress_prepend_size(&serialized);
+                    let compressed_len = compressed.len();
+
+                    // Send to server
+                    multiplayer.send_upload_model(
+                        ui.editor.scratch_pad.name.clone(),
+                        "Player".to_string(),
+                        compressed,
+                    );
+                    log::debug!(
+                        "[Editor] Uploading model '{}' to server ({} bytes)",
+                        ui.editor.scratch_pad.name,
+                        compressed_len
+                    );
+                }
+            }
+        }
+        EditorAction::ModelDeleted => {
+            // Reload custom models from library to update the palette
+            let library_path = crate::user_prefs::user_models_dir();
+            let old_count = sim.model_registry.custom_model_count();
+
+            // Clear existing custom models and reload from library
+            // We need to rebuild the registry with built-ins + library models
+            sim.model_registry = crate::sub_voxel::ModelRegistry::new();
+            match sim.model_registry.load_library_models(&library_path) {
+                Ok(count) => {
+                    log::debug!(
+                        "[Editor] Reloaded model registry: {} custom models ({} -> {})",
+                        count,
+                        old_count,
+                        count
+                    );
+                }
+                Err(e) => {
+                    log::warn!("[Editor] Failed to reload library models: {}", e);
+                }
+            }
+
+            // GPU resources will be updated automatically next frame since registry is dirty
+        }
+        EditorAction::DoorPairCreated {
+            name,
+            lower_closed,
+            upper_closed,
+            lower_open,
+            upper_open,
+        } => {
+            // Create and register the custom door pair
+            let door_pair = crate::sub_voxel::SimpleDoorPair {
+                id: 0, // Will be auto-assigned by registry
+                name: name.clone(),
+                lower_closed,
+                upper_closed,
+                lower_open,
+                upper_open,
+            };
+
+            match sim.model_registry.register_door_pair(door_pair) {
+                Some(pair_id) => {
+                    log::debug!(
+                        "[Editor] Registered door pair '{}' as ID {} (models: lower={}/{}, upper={}/{})",
+                        name,
+                        pair_id,
+                        lower_closed,
+                        lower_open,
+                        upper_closed,
+                        upper_open
+                    );
+                }
+                None => {
+                    log::warn!(
+                        "[Editor] Failed to register door pair '{}' - max pairs reached or duplicate name",
+                        name
+                    );
+                }
+            }
+        }
+        EditorAction::ModelLoaded | EditorAction::None => {}
+    }
+
+    // Render template browser UI
+    let ctx = rcx.gui.context();
+    let browser_action = draw_template_browser(
+        &ctx,
+        &mut ui.template_ui,
+        &ui.template_selection,
+        &ui.template_library,
+    );
+
+    // Handle template browser actions
+    match browser_action {
+        TemplateBrowserAction::OpenSaveDialog => {
+            ui.template_ui.open_save_dialog("my_template");
+        }
+        TemplateBrowserAction::ClearSelection => {
+            ui.template_selection.clear();
+        }
+        TemplateBrowserAction::LoadTemplate(name) => {
+            match ui.template_library.load_template(&name) {
+                Ok(template) => {
+                    log::debug!(
+                        "Loaded template '{}' ({}×{}×{}, {} blocks)",
+                        template.name,
+                        template.width,
+                        template.height,
+                        template.depth,
+                        template.block_count()
+                    );
+
+                    // Create placement at player position
+                    let placement_pos = Vector3::new(
+                        player_world_pos.x.floor() as i32,
+                        (player_world_pos.y - 1.0).floor() as i32,
+                        player_world_pos.z.floor() as i32,
+                    );
+
+                    let placement =
+                        crate::templates::TemplatePlacement::new(template, placement_pos);
+                    ui.active_placement = Some(placement);
+
+                    // Close template browser after loading
+                    ui.template_ui.browser_open = false;
+
+                    // Request cursor grab to begin placement
+                    ui.request_cursor_grab = true;
+
+                    log::debug!(
+                        "Template placement ready. Use R to rotate, Right Click to confirm placement."
+                    );
+                }
+                Err(e) => {
+                    log::warn!("Failed to load template '{}': {}", name, e);
+                }
+            }
+        }
+        TemplateBrowserAction::DeleteTemplate(name) => {
+            match ui.template_library.delete_template(&name) {
+                Ok(_) => {
+                    log::debug!("Deleted template '{}'", name);
+                    ui.template_ui.error_message = Some(format!("✓ Deleted template '{}'", name));
+                    ui.template_ui.refresh_templates(&ui.template_library);
+                }
+                Err(e) => {
+                    log::warn!("Failed to delete template '{}': {}", name, e);
+                    ui.template_ui.error_message =
+                        Some(format!("Failed to delete template: {}", e));
+                }
+            }
+        }
+        TemplateBrowserAction::SaveTemplate { name, tags } => {
+            if let Some((min, max)) = ui.template_selection.bounds() {
+                match ui.template_selection.validate_size() {
+                    Ok(_) => {
+                        let author = "Player".to_string(); // TODO: Get from user prefs
+                        match crate::templates::VxtFile::from_world_region(
+                            &sim.world,
+                            &sim.water_grid,
+                            name.clone(),
+                            author,
+                            min,
+                            max,
+                        ) {
+                            Ok(mut template) => {
+                                template.tags = tags;
+                                match ui.template_library.save_template(&template) {
+                                    Ok(_) => {
+                                        // Generate thumbnail
+                                        let thumbnail_path =
+                                            ui.template_library.get_thumbnail_path(&name);
+                                        if let Err(e) =
+                                            crate::templates::rasterizer::generate_template_thumbnail(
+                                                &template,
+                                                &thumbnail_path,
+                                            )
+                                        {
+                                            log::warn!(
+                                                "[Template] Warning: Failed to generate thumbnail: {}",
+                                                e
+                                            );
+                                        }
+
+                                        log::debug!("Saved template '{}'", name);
+                                        ui.template_ui.error_message = Some(format!(
+                                            "✓ Successfully saved template '{}' ({} blocks)",
+                                            name,
+                                            template.block_count()
+                                        ));
+                                        ui.template_ui.clear_thumbnail_cache(&name);
+                                        ui.template_ui.refresh_templates(&ui.template_library);
+                                    }
+                                    Err(e) => {
+                                        log::warn!("Failed to save template: {}", e);
+                                        ui.template_ui.error_message =
+                                            Some(format!("Failed to save template: {}", e));
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                log::warn!("Failed to create template: {}", e);
+                                ui.template_ui.error_message =
+                                    Some(format!("Failed to create template: {}", e));
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        log::warn!("Invalid selection: {}", e);
+                        ui.template_ui.error_message = Some(format!("Invalid selection: {}", e));
+                    }
+                }
+            }
+        }
+        TemplateBrowserAction::RegenerateThumbnail(name) => {
+            match ui.template_library.regenerate_thumbnail(&name) {
+                Ok(_) => {
+                    log::debug!("Regenerated thumbnail for template '{}'", name);
+                    ui.template_ui.error_message =
+                        Some(format!("✓ Regenerated thumbnail for '{}'", name));
+                    ui.template_ui.clear_thumbnail_cache(&name);
+                    // Refresh template list to pick up new thumbnail path
+                    ui.template_ui.refresh_templates(&ui.template_library);
+                }
+                Err(e) => {
+                    log::warn!("Failed to regenerate thumbnail for '{}': {}", name, e);
+                    ui.template_ui.error_message =
+                        Some(format!("Failed to regenerate thumbnail: {}", e));
+                }
+            }
+        }
+        TemplateBrowserAction::ToStencil(name) => {
+            // Load template and convert to stencil
+            match ui.template_library.load_template(&name) {
+                Ok(template) => {
+                    let stencil = crate::stencils::StencilFile::from_template(&template, None);
+                    let stencil_name = stencil.name.clone();
+                    let position_count = stencil.position_count();
+
+                    // Generate thumbnail
+                    let thumbnail_path = ui.stencil_library.get_thumbnail_path(&stencil_name);
+                    if let Err(e) = crate::stencils::rasterizer::generate_stencil_thumbnail(
+                        &stencil,
+                        &thumbnail_path,
+                    ) {
+                        log::warn!("[Stencil] Warning: Failed to generate thumbnail: {}", e);
+                    }
+
+                    // Save stencil
+                    match ui.stencil_library.save_stencil(&stencil) {
+                        Ok(_) => {
+                            log::debug!(
+                                "Created stencil '{}' from template '{}' ({} positions)",
+                                stencil_name,
+                                name,
+                                position_count
+                            );
+                            ui.template_ui.error_message = Some(format!(
+                                "✓ Created stencil '{}' ({} positions)",
+                                stencil_name, position_count
+                            ));
+                        }
+                        Err(e) => {
+                            log::warn!("Failed to save stencil '{}': {}", stencil_name, e);
+                            ui.template_ui.error_message =
+                                Some(format!("Failed to save stencil: {}", e));
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::warn!("Failed to load template '{}': {}", name, e);
+                    ui.template_ui.error_message = Some(format!("Failed to load template: {}", e));
+                }
+            }
+        }
+        TemplateBrowserAction::None => {}
+    }
+
+    // Render save template dialog
+    if let Some((name, tags)) = draw_save_template_dialog(&ctx, &mut ui.template_ui) {
+        // User confirmed save in the dialog - trigger the actual save
+        if let Some((min, max)) = ui.template_selection.bounds() {
+            match ui.template_selection.validate_size() {
+                Ok(_) => {
+                    let author = "Player".to_string(); // TODO: Get from user prefs
+                    match crate::templates::VxtFile::from_world_region(
+                        &sim.world,
+                        &sim.water_grid,
+                        name.clone(),
+                        author,
+                        min,
+                        max,
+                    ) {
+                        Ok(mut template) => {
+                            template.tags = tags;
+                            match ui.template_library.save_template(&template) {
+                                Ok(_) => {
+                                    // Generate thumbnail
+                                    let thumbnail_path =
+                                        ui.template_library.get_thumbnail_path(&name);
+                                    if let Err(e) =
+                                        crate::templates::rasterizer::generate_template_thumbnail(
+                                            &template,
+                                            &thumbnail_path,
+                                        )
+                                    {
+                                        log::warn!(
+                                            "[Template] Warning: Failed to generate thumbnail: {}",
+                                            e
+                                        );
+                                    }
+
+                                    log::debug!("Saved template '{}'", name);
+                                    ui.template_ui.error_message = Some(format!(
+                                        "✓ Successfully saved template '{}' ({} blocks)",
+                                        name,
+                                        template.block_count()
+                                    ));
+                                    ui.template_ui.clear_thumbnail_cache(&name);
+                                    ui.template_ui.refresh_templates(&ui.template_library);
+                                }
+                                Err(e) => {
+                                    log::warn!("Failed to save template: {}", e);
+                                    ui.template_ui.error_message =
+                                        Some(format!("Failed to save template: {}", e));
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            log::warn!("Failed to create template: {}", e);
+                            ui.template_ui.error_message =
+                                Some(format!("Failed to create template: {}", e));
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::warn!("Invalid selection: {}", e);
+                }
+            }
+        }
+    }
+
+    // Render picture browser UI
+    let picture_action = draw_picture_browser(
+        &ctx,
+        &mut ui.picture_ui,
+        ui.picture_state.selected_picture_id,
+        &sim.picture_library,
+    );
+
+    // Handle picture browser actions
+    match picture_action {
+        Some(PictureBrowserAction::SelectPicture(id)) => {
+            ui.picture_state.selected_picture_id = Some(id);
+            ui.picture_state.pending_picture_upload = Some(id);
+            // Save to user preferences for persistence
+            prefs.selected_picture_id = ui.picture_state.selected_picture_id;
+            prefs.save();
+            if let Some(picture) = sim.picture_library.get(id) {
+                log::debug!(
+                    "Selected picture '{}' ({}×{}) for frame placement",
+                    picture.name,
+                    picture.width,
+                    picture.height
+                );
+            }
+        }
+        Some(PictureBrowserAction::ClearSelection) => {
+            ui.picture_state.selected_picture_id = None;
+            ui.picture_state.pending_picture_upload = None;
+            // Save to user preferences for persistence
+            prefs.selected_picture_id = ui.picture_state.selected_picture_id;
+            prefs.save();
+            log::debug!("Cleared picture selection (frames will be empty)");
+        }
+        Some(PictureBrowserAction::DeletePicture(id)) => {
+            if let Some(picture) = sim.picture_library.remove(id) {
+                ui.picture_ui.clear_thumbnail_cache(id);
+                ui.picture_ui.refresh_pictures(&sim.picture_library);
+                if ui.picture_state.selected_picture_id == Some(id) {
+                    ui.picture_state.selected_picture_id = None;
+                    ui.picture_state.pending_picture_upload = None;
+                    prefs.selected_picture_id = ui.picture_state.selected_picture_id;
+                    prefs.save();
+                }
+                let _ = sim.picture_library.save();
+                log::debug!("[HUD] Deleted picture '{}' (ID {})", picture.name, id);
+            }
+        }
+        None => {}
+    }
+
+    // Render stencil browser UI
+    let stencil_action = draw_stencil_browser(
+        &ctx,
+        &mut ui.stencil_ui,
+        &ui.template_selection,
+        &ui.stencil_library,
+        &ui.stencil_manager,
+    );
+
+    // Handle stencil browser actions
+    match stencil_action {
+        StencilBrowserAction::OpenSaveDialog => {
+            ui.stencil_ui.open_save_dialog("my_stencil");
+        }
+        StencilBrowserAction::ClearSelection => {
+            ui.template_selection.clear();
+        }
+        StencilBrowserAction::SaveStencil { name, tags } => {
+            if let Some((min, max)) = ui.template_selection.bounds() {
+                match ui.template_selection.validate_size() {
+                    Ok(_) => {
+                        let author = "Player".to_string();
+                        match crate::stencils::StencilFile::from_world_region(
+                            &sim.world,
+                            name.clone(),
+                            author,
+                            min,
+                            max,
+                        ) {
+                            Ok(mut stencil) => {
+                                stencil.tags = tags;
+                                match ui.stencil_library.save_stencil(&stencil) {
+                                    Ok(_) => {
+                                        // Generate thumbnail
+                                        let thumbnail_path =
+                                            ui.stencil_library.get_thumbnail_path(&name);
+                                        if let Err(e) =
+                                            crate::stencils::rasterizer::generate_stencil_thumbnail(
+                                                &stencil,
+                                                &thumbnail_path,
+                                            )
+                                        {
+                                            log::warn!(
+                                                "[Stencil] Warning: Failed to generate thumbnail: {}",
+                                                e
+                                            );
+                                        }
+
+                                        log::debug!("Saved stencil '{}'", name);
+                                        ui.stencil_ui.error_message = Some(format!(
+                                            "✓ Successfully saved stencil '{}' ({} positions)",
+                                            name,
+                                            stencil.positions.len()
+                                        ));
+                                        ui.stencil_ui.clear_thumbnail_cache(&name);
+                                        ui.stencil_ui.refresh_stencils(&ui.stencil_library);
+                                    }
+                                    Err(e) => {
+                                        log::warn!("Failed to save stencil: {}", e);
+                                        ui.stencil_ui.error_message =
+                                            Some(format!("Failed to save stencil: {}", e));
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                log::warn!("Failed to create stencil: {}", e);
+                                ui.stencil_ui.error_message =
+                                    Some(format!("Failed to create stencil: {}", e));
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        log::warn!("Invalid selection: {}", e);
+                        ui.stencil_ui.error_message = Some(format!("Invalid selection: {}", e));
+                    }
+                }
+            }
+        }
+        StencilBrowserAction::LoadStencil(name) => {
+            match ui.stencil_library.load_stencil(&name) {
+                Ok(stencil) => {
+                    log::debug!(
+                        "Loaded stencil '{}' ({}×{}×{}, {} positions)",
+                        stencil.name,
+                        stencil.width,
+                        stencil.height,
+                        stencil.depth,
+                        stencil.positions.len()
+                    );
+
+                    // Start at player position (Y=0 sits ON the ground)
+                    let placement_pos = nalgebra::Vector3::new(
+                        player_world_pos.x.floor() as i32,
+                        player_world_pos.y.floor() as i32,
+                        player_world_pos.z.floor() as i32,
+                    );
+
+                    // Enter stencil placement mode
+                    let placement =
+                        crate::stencils::StencilPlacementMode::new(stencil, placement_pos);
+                    ui.active_stencil_placement = Some(placement);
+
+                    // Close stencil browser after loading
+                    ui.stencil_ui.browser_open = false;
+
+                    // Request cursor grab to begin placement
+                    ui.request_cursor_grab = true;
+
+                    log::debug!(
+                        "Stencil placement ready. Use R to rotate, Right Click to place, Escape to cancel."
+                    );
+                }
+                Err(e) => {
+                    log::warn!("Failed to load stencil '{}': {}", name, e);
+                }
+            }
+        }
+        StencilBrowserAction::DeleteStencil(name) => {
+            match ui.stencil_library.delete_stencil(&name) {
+                Ok(_) => {
+                    log::debug!("Deleted stencil '{}'", name);
+                    ui.stencil_ui.error_message = Some(format!("✓ Deleted stencil '{}'", name));
+                    ui.stencil_ui.refresh_stencils(&ui.stencil_library);
+                }
+                Err(e) => {
+                    log::warn!("Failed to delete stencil '{}': {}", name, e);
+                    ui.stencil_ui.error_message = Some(format!("Failed to delete stencil: {}", e));
+                }
+            }
+        }
+        StencilBrowserAction::RemoveActiveStencil(id) => {
+            ui.stencil_manager.remove_stencil(id);
+            // Broadcast removal to all clients if hosting
+            multiplayer.broadcast_stencil_removed(id);
+            log::debug!("Removed active stencil {}", id);
+        }
+        StencilBrowserAction::RegenerateThumbnail(name) => {
+            match ui.stencil_library.regenerate_thumbnail(&name) {
+                Ok(_) => {
+                    log::debug!("Regenerated thumbnail for stencil '{}'", name);
+                    ui.stencil_ui.error_message =
+                        Some(format!("✓ Regenerated thumbnail for '{}'", name));
+                    ui.stencil_ui.clear_thumbnail_cache(&name);
+                    ui.stencil_ui.refresh_stencils(&ui.stencil_library);
+                }
+                Err(e) => {
+                    log::warn!("Failed to regenerate thumbnail for '{}': {}", name, e);
+                    ui.stencil_ui.error_message =
+                        Some(format!("Failed to regenerate thumbnail: {}", e));
+                }
+            }
+        }
+        StencilBrowserAction::ClearAllActive => {
+            // Collect stencil IDs before clearing to broadcast removals
+            let stencil_ids: Vec<u64> = ui
+                .stencil_manager
+                .active_stencils
+                .iter()
+                .map(|s| s.id)
+                .collect();
+            let count = stencil_ids.len();
+            ui.stencil_manager.clear();
+            // Broadcast removal of all stencils if hosting
+            for id in stencil_ids {
+                multiplayer.broadcast_stencil_removed(id);
+            }
+            log::debug!("Cleared {} active stencils", count);
+        }
+        StencilBrowserAction::SetGlobalOpacity(opacity) => {
+            ui.stencil_manager.set_global_opacity(opacity);
+        }
+        StencilBrowserAction::ToggleRenderMode => {
+            ui.stencil_manager.toggle_render_mode();
+        }
+        StencilBrowserAction::None => {}
+    }
+
+    // Render texture generator UI
+    crate::ui::texture_generator::TextureGeneratorUI::draw(
+        &ctx,
+        &mut ui.texture_generator,
+        &mut ui.texture_library,
+        &mut sim.picture_library,
+    );
+
+    // Render paint panel UI
+    crate::ui::paint_panel::PaintPanelUI::draw_window(
+        &ctx,
+        &mut ui.paint_panel,
+        &ui.texture_library,
+        &mut ui.hotbar.hotbar_paint_textures,
+        &mut ui.hotbar.hotbar_tint_indices,
+        &mut ui.hotbar.hotbar_index,
+    );
+
+    scale_changed
+}
+
+/// Handle multiplayer panel actions.
+fn handle_multiplayer_action(
+    multiplayer: &mut MultiplayerState,
+    action: &MultiplayerAction,
+    world_seed: u32,
+    world_gen: WorldGenType,
+) {
+    // Debug: log if we received any action
+    if action.connect.is_some()
+        || action.disconnect
+        || action.start_hosting.is_some()
+        || action.stop_hosting
+        || action.start_discovery
+        || action.stop_discovery
+    {
+        log::debug!(
+            "[handle_multiplayer_action] Received action: connect={:?}, disconnect={}, start_hosting={:?}, stop_hosting={}, start_discovery={}, stop_discovery={}",
+            action.connect,
+            action.disconnect,
+            action.start_hosting,
+            action.stop_hosting,
+            action.start_discovery,
+            action.stop_discovery
+        );
+    }
+
+    // Handle start hosting
+    if let Some((server_name, port)) = &action.start_hosting {
+        let world_gen_byte = match world_gen {
+            WorldGenType::Normal => 0,
+            WorldGenType::Flat => 1,
+            WorldGenType::Benchmark => 2,
+        };
+        match multiplayer.start_host(server_name.clone(), *port, world_seed, world_gen_byte) {
+            Ok(()) => {
+                log::debug!(
+                    "[Multiplayer] Started hosting '{}' on port {}",
+                    server_name,
+                    port
+                );
+            }
+            Err(e) => {
+                log::warn!("[Multiplayer] Failed to start hosting: {}", e);
+            }
+        }
+    }
+
+    // Handle stop hosting
+    if action.stop_hosting {
+        multiplayer.stop_host();
+        log::debug!("[Multiplayer] Stopped hosting");
+    }
+
+    // Handle connect
+    if let Some(addr) = action.connect {
+        log::debug!("[Multiplayer] Connect action triggered for {}", addr);
+        match multiplayer.connect(&addr.to_string()) {
+            Ok(()) => {
+                log::debug!("[Multiplayer] Connecting to {}", addr);
+            }
+            Err(e) => {
+                log::warn!("[Multiplayer] Failed to connect: {}", e);
+            }
+        }
+    }
+
+    // Handle disconnect
+    if action.disconnect {
+        multiplayer.disconnect();
+        log::debug!("[Multiplayer] Disconnected");
+    }
+
+    // Handle start discovery
+    if action.start_discovery {
+        log::debug!("[Multiplayer] Start discovery action triggered");
+        if let Err(e) = multiplayer.start_discovery() {
+            log::warn!("[Multiplayer] Failed to start discovery: {}", e);
+        } else {
+            log::debug!("[Multiplayer] Started LAN discovery");
+        }
+    }
+
+    // Handle stop discovery
+    if action.stop_discovery {
+        multiplayer.stop_discovery();
+        log::debug!("[Multiplayer] Stopped LAN discovery");
+    }
+
+    // Handle stencil broadcast (when hosting)
+    if let Some((stencil_id, name, compressed_data)) = &action.broadcast_stencil_loaded
+        && multiplayer.is_hosting()
+    {
+        multiplayer.broadcast_stencil_loaded(*stencil_id, name.clone(), compressed_data.clone());
+        log::debug!(
+            "[Multiplayer] Broadcast StencilLoaded: id={} name='{}'",
+            stencil_id,
+            name
+        );
+    }
+}

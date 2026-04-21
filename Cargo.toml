@@ -1,0 +1,87 @@
+[features]
+# dev-tools: includes sprite generation and benchmark terrain tools.
+# Included in default so that `cargo build` / `make build` continues to work
+# without extra flags.  Strip it for a minimal production binary by building
+# with --no-default-features.
+default = ["dev-tools"]
+dev-tools = []
+# threaded-server: enable experimental threaded server mode (disabled by default)
+threaded-server = []
+
+[package]
+name = "voxel-world"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.94.1"
+description = "GPU-accelerated voxel sandbox using Vulkan compute shaders for real-time ray marching"
+license = "MIT"
+repository = "https://github.com/paulrobello/voxel-world"
+authors = ["Paul Robello <probello@gmail.com>"]
+
+[dependencies]
+vulkano = "0.35.2"
+winit = "0.30.12"
+
+shaderc = "0.8.3"
+egui_winit_vulkano = "0.28.0"
+# SEC-015: winit_input_helper is pinned to a specific git commit because no
+# crates.io release compatible with winit 0.30 exists yet.  Once a release
+# lands on crates.io, switch to a version specifier to eliminate this
+# supply-chain risk (no published checksum = no cargo-audit coverage).
+winit_input_helper = { git = "https://github.com/rukai/winit_input_helper", rev = "638b12fe73b8eb08ed9a8a107d554f4c3b99e8cf" }
+
+nalgebra = { version = "0.34.2", features = ["bytemuck"] }
+bytemuck = { version = "1.25.0", features = ["derive"] }
+
+notify = "8.2.0"
+ply-rs = "0.1.3"
+
+image = "0.25.10"
+crossterm = "0.29.0"
+noise = "0.9.0"
+clap = { version = "4.6.0", features = ["derive"] }
+rayon = "1.11.0"
+zstd = "0.13.3"
+bincode = { version = "2.0", features = ["serde"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+crossbeam-channel = "0.5.15"
+num_cpus = "1.17.0"
+dirs = "6.0.0"
+rfd = "0.17.2"
+
+# Networking
+renet = "2.0"
+renet_netcode = "2.0"
+lz4_flex = "0.13"
+tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "time", "macros"] }
+log = "0.4"
+env_logger = "0.11"
+png = "0.18.1"
+rand = "0.8"
+socket2 = "0.6.3"
+
+# macOS cursor handling (winit's set_cursor_visible crashes)
+[target.'cfg(target_os = "macos")'.dependencies]
+core-graphics = "0.25.0"
+objc2 = "0.6.4"
+objc2-app-kit = { version = "0.3.2", features = ["NSCursor"] }
+
+# Apple Silicon hardware metrics (CPU/GPU frequency, power, temperature) for the
+# benchmark profile CSV. IOReport-backed; no sudo required. Unavailable on any
+# other platform, so this dependency is strictly gated by target triple.
+[target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dependencies]
+macmon = "0.7.0"
+
+[dev-dependencies]
+tempfile = "3.27.0"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+opt-level = 3
+strip = true
+panic = "abort"
+
+[profile.dev]
+opt-level = 1
