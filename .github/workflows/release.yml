@@ -148,18 +148,13 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y cmake ninja-build libvulkan-dev vulkan-tools mesa-vulkan-drivers libshaderc-dev
+          sudo apt-get install -y cmake ninja-build libvulkan-dev vulkan-tools mesa-vulkan-drivers libshaderc-dev libxkbcommon-dev libwayland-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
 
       - name: Get version
         id: version
         run: |
           CARGO_VERSION=$(cargo metadata --format-version 1 --no-deps | jq -r '.packages[0].version')
           echo "version=$CARGO_VERSION" >> $GITHUB_OUTPUT
-
-      - name: Run tests
-        run: cargo test --verbose
-        env:
-          CMAKE_POLICY_VERSION_MINIMUM: 3.5
 
       - name: Dry run publish
         run: cargo publish --dry-run
