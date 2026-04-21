@@ -47,3 +47,4 @@ voxel-world_screen_shot.png
 .pi/extensions/discord-relay/state.json
 *.log
 .claude/scheduled_tasks.lock
+.gemini
