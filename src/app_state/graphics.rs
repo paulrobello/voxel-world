@@ -1,0 +1,90 @@
+use std::sync::Arc;
+
+use vulkano::command_buffer::allocator::StandardCommandBufferAllocator;
+use vulkano::descriptor_set::allocator::StandardDescriptorSetAllocator as StdDescriptorSetAllocator;
+use vulkano::{
+    buffer::Subbuffer,
+    descriptor_set::DescriptorSet,
+    device::{Device, Queue},
+    image::{Image, view::ImageView},
+    instance::Instance,
+    memory::allocator::StandardMemoryAllocator,
+};
+
+use crate::falling_block::GpuFallingBlock;
+use crate::gpu_resources::{self, GpuLight};
+use crate::hot_reload::HotReloadComputePipeline;
+use crate::particles;
+use crate::remote_player::GpuRemotePlayer;
+
+pub struct Graphics {
+    pub instance: Arc<Instance>,
+    pub device: Arc<Device>,
+    /// Primary graphics queue (rendering, compute, presentation).
+    pub queue: Arc<Queue>,
+    /// Dedicated transfer queue for async DMA uploads.
+    /// On discrete GPUs, this is a separate queue for parallel PCIe transfers.
+    /// On unified memory systems, this may be the same as the graphics queue.
+    pub transfer_queue: Arc<Queue>,
+    /// Queue family index of the graphics queue.
+    pub graphics_queue_family: u32,
+    /// Queue family index of the transfer queue.
+    #[allow(dead_code)] // Reserved for future queue ownership transfers
+    pub transfer_queue_family: u32,
+    /// Whether transfer and graphics queues are from different families.
+    pub separate_transfer_queue: bool,
+
+    pub memory_allocator: Arc<StandardMemoryAllocator>,
+    pub descriptor_set_allocator: Arc<StdDescriptorSetAllocator>,
+    pub command_buffer_allocator: Arc<StandardCommandBufferAllocator>,
+
+    pub render_pipeline: HotReloadComputePipeline,
+    pub resample_pipeline: HotReloadComputePipeline,
+
+    pub voxel_set: Arc<DescriptorSet>,
+    pub texture_set: Arc<DescriptorSet>,
+    pub texture_atlas_view: Arc<ImageView>,
+    /// Custom texture atlas for procedurally generated textures (16 slots × 64×64).
+    pub custom_texture_atlas: Arc<Image>,
+    /// Picture atlas for frame pictures (64 slots × 32×32).
+    pub picture_atlas: Arc<Image>,
+    /// Picture atlas image view for shader access.
+    pub picture_atlas_view: Arc<ImageView>,
+    /// Multiplayer custom texture array (64x64 per slot, up to 32 slots by default).
+    pub multiplayer_texture_array: Option<Arc<Image>>,
+    /// Multiplayer texture array view for shader access.
+    pub multiplayer_texture_array_view: Option<Arc<ImageView>>,
+    /// Multiplayer texture array sampler.
+    pub multiplayer_texture_sampler: Option<Arc<vulkano::image::sampler::Sampler>>,
+    /// Number of active slots in the multiplayer texture array.
+    pub multiplayer_texture_count: u32,
+
+    pub particle_buffer: Subbuffer<[particles::GpuParticle]>,
+    pub particle_set: Arc<DescriptorSet>,
+    pub light_buffer: Subbuffer<[GpuLight]>,
+    pub light_set: Arc<DescriptorSet>,
+    pub chunk_metadata_buffer: Subbuffer<[u32]>,
+    pub chunk_metadata_set: Arc<DescriptorSet>,
+    pub brick_mask_buffer: Subbuffer<[u32]>,
+    pub brick_dist_buffer: Subbuffer<[u32]>,
+    pub brick_and_model_set: Arc<DescriptorSet>,
+    pub falling_block_buffer: Subbuffer<[GpuFallingBlock]>,
+    pub water_source_buffer: Subbuffer<[gpu_resources::GpuWaterSource]>,
+    pub template_block_buffer: Subbuffer<[gpu_resources::GpuTemplateBlock]>,
+    #[allow(dead_code)] // Will be used when stencils are fully integrated
+    pub stencil_block_buffer: Subbuffer<[gpu_resources::GpuStencilBlock]>,
+    /// Remote player buffer for multiplayer player rendering
+    pub remote_player_buffer: Subbuffer<[GpuRemotePlayer]>,
+    pub voxel_image: Arc<Image>,
+    pub model_atlas_8: Arc<Image>,
+    pub model_atlas_16: Arc<Image>,
+    pub model_atlas_32: Arc<Image>,
+    pub model_palettes: Arc<Image>,
+    pub model_palette_emission: Arc<Image>,
+    pub model_metadata: Arc<Image>,
+    /// Per-block custom data (e.g., picture_id, offset_x, offset_y for frames).
+    pub block_custom_data: Arc<Image>,
+    pub model_properties_buffer: Subbuffer<[gpu_resources::GpuModelProperties]>,
+
+    pub rcx: Option<gpu_resources::RenderContext>,
+}

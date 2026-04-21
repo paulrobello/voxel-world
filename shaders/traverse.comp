@@ -1,0 +1,1050 @@
+/*
+ * traverse.comp -- Main GPU ray marching compute shader.
+ *
+ * Each invocation handles one pixel (8x8 workgroups). Performs DDA ray traversal
+ * through the 3D block texture, with SVT brick-level skipping for empty space.
+ * Applies texture sampling, ambient occlusion, directional shadows, point lights,
+ * and all render-mode overlays. Based on Amanatides & Woo (1987).
+ */
+#version 460
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+#include "common.glsl"
+
+// Shared-memory cache for chunk_flags (CHUNKS_X*Y*Z bits packed into u32s).
+// Populated cooperatively at the top of main() and read by `isChunkEmpty` (accel.glsl)
+// to avoid per-ray storage-buffer reads. 16×16×16 chunks → 128 u32s → 512 bytes.
+const uint CHUNK_FLAG_WORDS = (CHUNKS_X * CHUNKS_Y * CHUNKS_Z) / 32u;
+shared uint s_chunk_flags[CHUNK_FLAG_WORDS];
+
+#include "accel.glsl"
+#include "util.glsl"
+#include "sky.glsl"
+#include "models.glsl"
+#include "lighting.glsl"
+#include "materials.glsl"
+#include "overlays.glsl"
+#include "transparency.glsl"
+
+// Sample painted block using per-voxel metadata (texture_idx, tint_idx)
+// Supports both main atlas textures (0-44) and custom textures (128+)
+// metadata.r = textureIndex
+// metadata.g bits 0-4 = tintIndex (0-31)
+// metadata.g bits 5-7 = blendMode (0-4)
+vec3 getPaintedColor(uvec2 metadata, vec3 local_hit, vec3 normal, uint stepped_axis, vec3 worldPos) {
+    uint textureIndex = metadata.r;
+    uint tintIndex = metadata.g & 0x1Fu;
+    uint blendMode = (metadata.g >> 5u) & 0x07u;
+
+    vec2 uv;
+    if (stepped_axis == 0) {
+        uv = vec2(local_hit.z, 1.0 - local_hit.y);
+    } else if (stepped_axis == 1) {
+        uv = vec2(local_hit.x, local_hit.z);
+    } else {
+        uv = vec2(local_hit.x, 1.0 - local_hit.y);
+    }
+
+    // Use blend mode-aware function from materials.glsl
+    return getPaintedBlockColor(textureIndex, tintIndex, blendMode, uv);
+}
+
+// Check if a block position matches the breaking block
+bool isBreakingBlock(ivec3 blockPos) {
+    return pc.break_block_x >= 0 &&
+           blockPos.x == pc.break_block_x &&
+           blockPos.y == pc.break_block_y &&
+           blockPos.z == pc.break_block_z;
+}
+
+// ---------------------------------------------------------------------------
+// Water entry state initializer
+//
+// Records the surface crossing information when a ray first enters a water
+// block.  Called both for the starting block (prevT == 0) and for transitions
+// discovered during DDA traversal.
+// ---------------------------------------------------------------------------
+void enterWaterState(
+    uvec3 coord,
+    vec3 origin,
+    vec3 dir,
+    vec3 sgn_dir,
+    float prevT,
+    uint stepped_axis,
+    out bool inWater,
+    out float waterEntryT,
+    out uint waterEntryAxis,
+    out vec3 waterSurfaceNormal,
+    out vec3 waterSurfaceHit,
+    out uint currentWaterType)
+{
+    inWater = true;
+    waterEntryT = prevT;
+    waterEntryAxis = stepped_axis;
+    waterSurfaceNormal = vec3(0.0);
+    waterSurfaceNormal[stepped_axis] = -sgn_dir[stepped_axis];
+    waterSurfaceHit = origin + dir * prevT;
+    uvec2 metadata = readModelMetadata(ivec3(coord));
+    currentWaterType = metadata.g;
+}
+
+// ---------------------------------------------------------------------------
+// Tinted glass entry state initializer
+//
+// Records the surface crossing information when a ray first enters a tinted
+// glass block and reads the initial tint contribution.
+// ---------------------------------------------------------------------------
+void enterTintedGlassState(
+    uvec3 coord,
+    vec3 origin,
+    vec3 dir,
+    vec3 sgn_dir,
+    float prevT,
+    uint stepped_axis,
+    out bool passedTintedGlass,
+    out vec3 tintedGlassSurfaceNormal,
+    out vec3 tintedGlassSurfaceHit,
+    out ivec3 firstTintedGlassCoord,
+    out vec3 firstTintedGlassLocalHit,
+    inout vec3 accumulatedTint)
+{
+    passedTintedGlass = true;
+    tintedGlassSurfaceNormal = vec3(0.0);
+    tintedGlassSurfaceNormal[stepped_axis] = -sgn_dir[stepped_axis];
+    tintedGlassSurfaceHit = origin + dir * prevT;
+    firstTintedGlassCoord = ivec3(coord);
+    firstTintedGlassLocalHit = tintedGlassSurfaceHit - vec3(coord);
+    uvec2 metadata = readModelMetadata(ivec3(coord));
+    uint tintIndex = metadata.g & 0x1Fu;
+    accumulatedTint *= TINT_PALETTE[tintIndex];
+}
+
+bool traversal(vec3 origin, vec3 dir, out vec3 color, inout uint steps, out float hitDistance, out bool outPassedTintedGlass, out vec3 outAccumulatedTint) {
+    hitDistance = FLT_MAX;
+    outPassedTintedGlass = false;
+    outAccumulatedTint = vec3(1.0);
+
+    vec3 inv_dir = 1. / dir;
+    vec3 sgn_dir = sign(inv_dir);
+    inv_dir = clamp(inv_dir, vec3(-FLT_MAX), vec3(FLT_MAX));
+
+    vec3 t1 = -origin * inv_dir;
+    vec3 t2 = (worldSize() - origin) * inv_dir;
+
+    vec3 tmins = min(t1, t2);
+    vec3 tmaxs = max(t1, t2);
+
+    float tmin = 0;
+    float tmax = FLT_MAX;
+    for (int i = 0; i < 3; i++) {
+        tmin = max(tmin, tmins[i]);
+        tmax = min(tmax, tmaxs[i]);
+    }
+
+    if (tmin > tmax) {
+        return false;
+    }
+
+    float maxWorldDistance = tmax - tmin;
+
+    vec3 absDir = abs(normalize(dir));
+    float stepRatio = (absDir.x + absDir.y + absDir.z) * 1.1;
+    uint dynamicMaxSteps = min(pc.max_ray_steps, uint(maxWorldDistance * stepRatio) + 16u);
+
+    uint stepped_axis;
+    if (tmins.x >= tmins.y && tmins.x >= tmins.z) {
+        stepped_axis = 0;
+    } else if (tmins.y >= tmins.z) {
+        stepped_axis = 1;
+    } else {
+        stepped_axis = 2;
+    }
+
+    origin += dir * tmin;
+    uvec3 coord = uvec3(clamp(floor(origin), vec3(0), worldSize() - 1.0));
+    vec3 t = (coord + 0.5 * (1 + sgn_dir) - origin) * inv_dir;
+
+    uvec3 ustep = uvec3(ivec3(sgn_dir));
+    vec3 delta = inv_dir * sgn_dir;
+
+    bool inWater = false;
+    float waterEntryT = 0.0;
+    float waterDepth = 0.0;
+    vec3 waterSurfaceNormal = vec3(0.0);
+    uint waterEntryAxis = 0;
+    vec3 waterSurfaceHit = vec3(0.0);
+
+    bool passedGlass = false;
+    float glassDepth = 0.0;
+    float glassEntryT = 0.0;
+    vec3 glassSurfaceNormal = vec3(0.0);
+    vec3 glassSurfaceHit = vec3(0.0);
+    uint glassEntryAxis = 0;
+    ivec3 firstGlassCoord = ivec3(-1);
+    vec3 firstGlassLocalHit = vec3(0.0);
+
+    // Tinted glass state
+    bool passedTintedGlass = false;
+    vec3 accumulatedTint = vec3(1.0);
+    vec3 tintedGlassSurfaceNormal = vec3(0.0);
+    vec3 tintedGlassSurfaceHit = vec3(0.0);
+    ivec3 firstTintedGlassCoord = ivec3(-1);
+    vec3 firstTintedGlassLocalHit = vec3(0.0);
+
+    uint blockType = readBlockTypeAtTexCoord(ivec3(coord));
+    // Debug cutaway: treat blocks in cutaway chunk as air
+    if (isInCutawayChunk(ivec3(coord)) && blockType != BLOCK_AIR) {
+        blockType = BLOCK_AIR;
+    }
+    bool instantHit = (blockType != BLOCK_AIR && blockType != BLOCK_WATER && blockType != BLOCK_GLASS && blockType != BLOCK_TINTED_GLASS && blockType != BLOCK_MODEL && blockType != BLOCK_CRYSTAL);
+
+    // Track water type for rendering
+    uint currentWaterType = WATER_TYPE_OCEAN;
+
+    // Initialize transparency state for the block the ray starts inside.
+    // prevT = 0, stepped_axis = 1 (top face) for the conceptual entry normal.
+    if (blockType == BLOCK_WATER) {
+        enterWaterState(coord, origin, dir, sgn_dir,
+                        /*prevT=*/0.0, /*stepped_axis=*/1u,
+                        inWater, waterEntryT, waterEntryAxis,
+                        waterSurfaceNormal, waterSurfaceHit, currentWaterType);
+        // The ray is already inside: the surface normal points up (top face).
+        waterSurfaceNormal = vec3(0.0, 1.0, 0.0);
+    }
+
+    if (blockType == BLOCK_GLASS) {
+        passedGlass = true;
+        glassEntryT = 0.0;
+        glassSurfaceNormal = vec3(0.0, 1.0, 0.0);
+        glassEntryAxis = 1;
+        glassSurfaceHit = origin;
+        firstGlassCoord = ivec3(coord);
+        firstGlassLocalHit = origin - vec3(coord);
+    }
+
+    if (blockType == BLOCK_TINTED_GLASS) {
+        enterTintedGlassState(coord, origin, dir, sgn_dir,
+                              /*prevT=*/0.0, /*stepped_axis=*/1u,
+                              passedTintedGlass,
+                              tintedGlassSurfaceNormal, tintedGlassSurfaceHit,
+                              firstTintedGlassCoord, firstTintedGlassLocalHit,
+                              accumulatedTint);
+        // The ray is already inside: the surface normal points up (top face).
+        tintedGlassSurfaceNormal = vec3(0.0, 1.0, 0.0);
+    }
+
+    float prevT = 0.0;
+
+    bool subVoxelHit = false;
+    vec3 subVoxelColor = vec3(0.5);
+    vec3 subVoxelNormal = vec3(0.0, 1.0, 0.0);
+    vec3 subVoxelHitPos = vec3(0.0);
+    float subVoxelAlpha = 1.0;
+    bool subVoxelEmissive = false;  // Track if hit model emits light (skip shadows)
+    bool subVoxelIsGlassPane = false;  // Glass pane models use simplified lighting (no shadows)
+
+    if (!instantHit)
+    while (steps < dynamicMaxSteps) {
+        steps++;
+
+        if (any(greaterThanEqual(coord, worldSizeU()))) {
+            if (inWater && pc.player_in_water == 0) {
+                            waterDepth = (min(min(t.x, t.y), t.z) - waterEntryT) * length(dir);
+                            float clarity = getWaterClarity(uint(currentWaterType));
+                            float depthFactor = 1.0 - exp(-waterDepth / clarity);
+                            vec3 waterTint = getWaterTintFn(uint(currentWaterType));
+                            color = mix(WATER_COLOR * waterTint, WATER_DEEP_COLOR * waterTint, depthFactor);
+                            hitDistance = waterEntryT * length(dir);
+                            return true;            }
+            // Pass tint state back to caller
+            outPassedTintedGlass = passedTintedGlass;
+            outAccumulatedTint = accumulatedTint;
+            return false;
+        }
+
+        ivec3 chunkPos = ivec3(coord) / int(CHUNK_SIZE);
+        if (isChunkEmpty(chunkPos)) {
+            vec3 currentPos = origin + dir * min(min(t.x, t.y), t.z);
+            ivec3 chunkWorldPos = chunkPos * int(CHUNK_SIZE);
+            vec3 chunkMin = vec3(chunkWorldPos);
+            vec3 chunkMax = chunkMin + float(CHUNK_SIZE);
+
+            vec3 tExit = mix(
+                (chunkMin - currentPos) * inv_dir,
+                (chunkMax - currentPos) * inv_dir,
+                vec3(dir.x > 0.0 ? 1.0 : 0.0, dir.y > 0.0 ? 1.0 : 0.0, dir.z > 0.0 ? 1.0 : 0.0)
+            );
+
+            float minExit = min(min(tExit.x, tExit.y), tExit.z);
+            if (tExit.x == minExit) {
+                stepped_axis = 0;
+            } else if (tExit.y == minExit) {
+                stepped_axis = 1;
+            } else {
+                stepped_axis = 2;
+            }
+
+            vec3 newPos = currentPos + dir * (minExit + 0.001);
+            coord = uvec3(clamp(floor(newPos), vec3(0), worldSize() - 1.0));
+            t = (vec3(coord) + 0.5 * (1.0 + sgn_dir) - origin) * inv_dir;
+        }
+        else {
+            // Use optimized check with pre-computed chunkPos (avoids redundant division)
+            if (isBrickEmptyFast(ivec3(coord), chunkPos)) {
+                vec3 currentPos = origin + dir * min(min(t.x, t.y), t.z);
+
+                // Skip to brick boundary
+                ivec3 brickWorldPos = getBrickWorldPos(ivec3(coord));
+                vec3 brickMin = vec3(brickWorldPos);
+                vec3 brickMax = brickMin + float(BRICK_SIZE);
+
+                vec3 tExit = mix(
+                    (brickMin - currentPos) * inv_dir,
+                    (brickMax - currentPos) * inv_dir,
+                    vec3(dir.x > 0.0 ? 1.0 : 0.0, dir.y > 0.0 ? 1.0 : 0.0, dir.z > 0.0 ? 1.0 : 0.0)
+                );
+
+                float minExit = min(min(tExit.x, tExit.y), tExit.z);
+
+                if (tExit.x == minExit) {
+                    stepped_axis = 0;
+                } else if (tExit.y == minExit) {
+                    stepped_axis = 1;
+                } else {
+                    stepped_axis = 2;
+                }
+
+                vec3 newPos = currentPos + dir * (minExit + 0.001);
+                newPos = clamp(newPos, vec3(0.0), worldSize() - 1.0);
+                coord = uvec3(floor(newPos));
+                t = (vec3(coord) + 0.5 * (1.0 + sgn_dir) - origin) * inv_dir;
+            }
+        }
+
+        blockType = readBlockTypeAtTexCoord(ivec3(coord));
+        // Debug cutaway: treat blocks in cutaway chunk as air
+        if (isInCutawayChunk(ivec3(coord)) && blockType != BLOCK_AIR) {
+            blockType = BLOCK_AIR;
+        }
+
+        // Cache metadata read once per block for types that need it
+        // Avoids redundant texture fetches within the same coordinate
+        bool needsMeta = (blockType == BLOCK_WATER || blockType == BLOCK_TINTED_GLASS ||
+                          blockType == BLOCK_MODEL || blockType == BLOCK_CRYSTAL);
+        uvec2 cachedMeta = needsMeta ? readModelMetadata(ivec3(coord)) : uvec2(0u);
+
+        // -- Transparency state updates --
+        // Each block type records its entry crossing once; subsequent crossings
+        // of the same type only accumulate depth / tint.
+
+        if (blockType == BLOCK_WATER && !inWater) {
+            enterWaterState(coord, origin, dir, sgn_dir, prevT, stepped_axis,
+                            inWater, waterEntryT, waterEntryAxis,
+                            waterSurfaceNormal, waterSurfaceHit, currentWaterType);
+        }
+
+        if (blockType == BLOCK_GLASS && !passedGlass) {
+            passedGlass = true;
+            glassEntryT = prevT;
+            glassEntryAxis = stepped_axis;
+            glassSurfaceNormal = vec3(0.0);
+            glassSurfaceNormal[stepped_axis] = -sgn_dir[stepped_axis];
+            glassSurfaceHit = origin + dir * prevT;
+            firstGlassCoord = ivec3(coord);
+            firstGlassLocalHit = glassSurfaceHit - vec3(coord);
+        }
+
+        if (blockType == BLOCK_GLASS) {
+            glassDepth += 1.0;
+        }
+
+        if (blockType == BLOCK_TINTED_GLASS) {
+            if (!passedTintedGlass) {
+                enterTintedGlassState(coord, origin, dir, sgn_dir, prevT, stepped_axis,
+                                      passedTintedGlass,
+                                      tintedGlassSurfaceNormal, tintedGlassSurfaceHit,
+                                      firstTintedGlassCoord, firstTintedGlassLocalHit,
+                                      accumulatedTint);
+            } else {
+                // Already recorded entry — only accumulate additional tint layers
+                uint tintIndex = cachedMeta.g & 0x1Fu;
+                accumulatedTint *= TINT_PALETTE[tintIndex];
+            }
+
+            // Early cutoff if tint absorbs too much light
+            if (max(accumulatedTint.r, max(accumulatedTint.g, accumulatedTint.b)) < 0.01) {
+                color = vec3(0.0);
+                return true;
+            }
+        }
+
+        if (blockType == BLOCK_MODEL) {
+            uint model_id = cachedMeta.r;
+            uint rotation = cachedMeta.g & 3u;
+            bool waterlogged = isModelWaterlogged(cachedMeta.g);
+
+            // Skip ground cover models (grass, flowers, etc.) when hide_ground_cover is enabled
+            if (pc.hide_ground_cover != 0u && model_id > 0u) {
+                ModelProperties props = model_properties[model_id];
+                if ((props.flags & MODEL_FLAG_IS_GROUND_COVER) != 0u) {
+                    // Treat as air and skip remaining model processing
+                    blockType = BLOCK_AIR;
+                    model_id = 0u;
+                }
+            }
+
+            if (waterlogged && !inWater) {
+                inWater = true;
+                waterEntryT = prevT;
+                waterEntryAxis = stepped_axis;
+                waterSurfaceNormal = vec3(0.0);
+                waterSurfaceNormal[stepped_axis] = -sgn_dir[stepped_axis];
+                waterSurfaceHit = origin + dir * prevT;
+            }
+
+            vec3 cameraLocalPos = origin - vec3(coord);
+            bool cameraInsideThisBlock =
+                all(greaterThanEqual(cameraLocalPos, vec3(0.0))) &&
+                all(lessThan(cameraLocalPos, vec3(1.0)));
+
+            vec3 localEntry;
+            float distToBlock = 1e9;
+
+            if (cameraInsideThisBlock) {
+                localEntry = clamp(cameraLocalPos, vec3(0.001), vec3(0.999));
+                distToBlock = 0.0;
+            } else {
+                vec3 entryNormal;
+                vec3 entryLocal;
+                float entryT = rayBlockIntersect(origin, dir, ivec3(coord), entryNormal, entryLocal);
+                if (entryT < 0.0) {
+                    blockType = BLOCK_AIR;
+                    distToBlock = 1e9;
+                } else {
+                    localEntry = clamp(entryLocal, vec3(0.001), vec3(0.999));
+                    distToBlock = entryT * length(dir);
+                }
+            }
+
+            if (model_id > 0u && distToBlock < pc.lod_model_distance) {
+                vec3 dirNorm = normalize(dir);
+                bool skipCoarseMask = (model_id >= 160u && model_id <= 175u); // Frame models
+                if (skipCoarseMask || modelMaskBlocksRay(localEntry, dirNorm, model_id, rotation)) {
+                    // Read per-block custom data (for frames: picture_id, offsets, dimensions)
+                    uint custom_data = imageLoad(blockCustomData, ivec3(coord)).r;
+
+                    vec3 subColor;
+                    vec3 subNormal;
+                    float subT;
+                    float subAlpha;
+                    if (marchSubVoxelModel(localEntry, dirNorm, model_id, rotation, custom_data, subColor, subNormal, subT, subAlpha)) {
+                        // Only record the FIRST translucent model hit
+                        // Subsequent translucent models are skipped to avoid double-blending artifacts
+                        if (!subVoxelHit) {
+                            subVoxelHit = true;
+                            subVoxelColor = subColor;
+                            subVoxelNormal = subNormal;
+                            subVoxelHitPos = vec3(coord) + localEntry + dirNorm * subT;
+                            subVoxelAlpha = subAlpha;
+                            // Check if model emits light (skip shadow calculations)
+                            ModelProperties props = model_properties[model_id];
+                            subVoxelEmissive = props.emission.a > 0.0 ||
+                                               (props.flags & MODEL_FLAG_IS_LIGHT_SOURCE) != 0u;
+                            // Glass pane models (119-150) use simplified lighting to avoid frame shadow artifacts
+                            subVoxelIsGlassPane = (model_id >= 119u && model_id <= 150u);
+
+                            if (inWater) {
+                                float currentT = (tmin + distToBlock / length(dir) + subT);
+                                waterDepth = (currentT - waterEntryT) * length(dir);
+                            }
+
+                            // If model is opaque, we're done
+                            if (subAlpha >= 0.99) {
+                                break;
+                            }
+                            // If translucent, continue marching to find background for blending
+                        }
+                        // Already have a translucent hit - skip additional translucent models
+                        // to avoid bright band artifacts from double-counting
+                    }
+                }
+            }
+        }
+
+        if (blockType == BLOCK_CRYSTAL) {
+            uint tintIndex = cachedMeta.g & 0x1Fu;
+            uint rotation = 0u;  // Crystals don't rotate
+
+            vec3 cameraLocalPos = origin - vec3(coord);
+            bool cameraInsideThisBlock =
+                all(greaterThanEqual(cameraLocalPos, vec3(0.0))) &&
+                all(lessThan(cameraLocalPos, vec3(1.0)));
+
+            vec3 localEntry;
+            float distToBlock = 1e9;
+
+            if (cameraInsideThisBlock) {
+                localEntry = clamp(cameraLocalPos, vec3(0.001), vec3(0.999));
+                distToBlock = 0.0;
+            } else {
+                vec3 entryNormal;
+                vec3 entryLocal;
+                float entryT = rayBlockIntersect(origin, dir, ivec3(coord), entryNormal, entryLocal);
+                if (entryT < 0.0) {
+                    blockType = BLOCK_AIR;
+                    distToBlock = 1e9;
+                } else {
+                    localEntry = clamp(entryLocal, vec3(0.001), vec3(0.999));
+                    distToBlock = entryT * length(dir);
+                }
+            }
+
+            if (distToBlock < pc.lod_model_distance) {
+                vec3 dirNorm = normalize(dir);
+                // Early out using coarse mask
+                if (modelMaskBlocksRay(localEntry, dirNorm, CRYSTAL_MODEL_ID, rotation)) {
+                    // Crystals don't use custom_data (pass 0)
+                    vec3 subColor;
+                    vec3 subNormal;
+                    float subT;
+                    float subAlpha;
+                    if (marchSubVoxelModel(localEntry, dirNorm, CRYSTAL_MODEL_ID, rotation, 0u, subColor, subNormal, subT, subAlpha)) {
+                        subVoxelHit = true;
+                        // Apply tint color to the neutral crystal model color
+                        subVoxelColor = subColor * TINT_PALETTE[tintIndex];
+                        subVoxelNormal = subNormal;
+                        subVoxelHitPos = vec3(coord) + localEntry + dirNorm * subT;
+                        subVoxelAlpha = subAlpha;
+                        // Crystal blocks are always emissive
+                        subVoxelEmissive = true;
+
+                        if (inWater) {
+                            float currentT = (tmin + distToBlock / length(dir) + subT);
+                            waterDepth = (currentT - waterEntryT) * length(dir);
+                        }
+
+                        // Crystals are opaque model
+                        if (subAlpha >= 0.99) {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (blockType != BLOCK_AIR && blockType != BLOCK_WATER && blockType != BLOCK_GLASS && blockType != BLOCK_TINTED_GLASS && blockType != BLOCK_MODEL && blockType != BLOCK_CRYSTAL)
+            break;
+
+        prevT = min(min(t.x, t.y), t.z);
+
+        if (t.x < t.y) {
+            if (t.x < t.z) {
+                coord.x += ustep.x;
+                t.x += delta.x;
+                stepped_axis = 0;
+            } else {
+                coord.z += ustep.z;
+                t.z += delta.z;
+                stepped_axis = 2;
+            }
+        } else {
+            if (t.y < t.z) {
+                coord.y += ustep.y;
+                t.y += delta.y;
+                stepped_axis = 1;
+            } else {
+                coord.z += ustep.z;
+                t.z += delta.z;
+                stepped_axis = 2;
+            }
+        }
+    }
+
+    bool modelMiss = ((blockType == BLOCK_MODEL || blockType == BLOCK_CRYSTAL) && !subVoxelHit);
+    if (!instantHit && (blockType == BLOCK_AIR || blockType == BLOCK_WATER || blockType == BLOCK_GLASS || modelMiss)) {
+        if (inWater && pc.player_in_water == 0) {
+            float currentT = min(min(t.x, t.y), t.z);
+            waterDepth = (currentT - waterEntryT) * length(dir);
+            float clarity = getWaterClarity(uint(currentWaterType));
+            float depthFactor = 1.0 - exp(-waterDepth / clarity);
+            vec3 waterTint = getWaterTintFn(uint(currentWaterType));
+            color = mix(WATER_COLOR * waterTint, WATER_DEEP_COLOR * waterTint, depthFactor);
+            hitDistance = waterEntryT * length(dir);
+            return true;
+        }
+        // Pass tint state back to caller
+        outPassedTintedGlass = passedTintedGlass;
+        outAccumulatedTint = accumulatedTint;
+        return false;
+    }
+
+    if (inWater) {
+        float currentT = min(min(t.x, t.y), t.z) - min(delta.x, min(delta.y, delta.z));
+        waterDepth = (currentT - waterEntryT) * length(dir);
+    }
+
+    vec3 mask = vec3(0);
+    mask[stepped_axis] = 1;
+    float t_inside = dot(t, mask) - dot(delta, mask);
+
+    hitDistance = (tmin + t_inside) * length(dir);
+
+    vec3 hit = origin + dir * t_inside;
+    vec3 local_hit = hit - coord;
+
+    vec3 normal = -mask * sgn_dir;
+
+    vec3 blockColor;
+    vec3 backgroundColor;
+
+    // Cache metadata for final hit block (avoids redundant reads across color/emission checks)
+    bool finalNeedsMeta = (blockType == BLOCK_PAINTED || blockType == BLOCK_CRYSTAL ||
+                           blockType == BLOCK_WATER || blockType == BLOCK_MODEL);
+    uvec2 finalMeta = finalNeedsMeta ? readModelMetadata(ivec3(coord)) : uvec2(0u);
+
+    // Handle sub-voxel model hits with transparency blending
+    // When a translucent model is hit, the ray continues to find the background,
+    // so blockType may have changed from BLOCK_MODEL/BLOCK_CRYSTAL to the background block type
+    if (subVoxelHit) {
+        // Get background color (what's behind the model)
+        if (blockType == BLOCK_MODEL || blockType == BLOCK_CRYSTAL) {
+            // Opaque model or no background found - use gray
+            backgroundColor = vec3(0.5, 0.5, 0.5);
+        } else if (blockType == BLOCK_PAINTED) {
+            backgroundColor = getPaintedColor(finalMeta, local_hit, normal, stepped_axis, hit);
+        } else {
+            // Translucent model with background - use actual background color
+            backgroundColor = getBlockColor(blockType, local_hit, normal, stepped_axis, hit, 0u);
+        }
+
+        // Blend translucent model with background
+        if (subVoxelAlpha < 0.99) {
+            blockColor = subVoxelColor * subVoxelAlpha + backgroundColor * (1.0 - subVoxelAlpha);
+            normal = subVoxelNormal;
+        } else {
+            // Opaque model
+            blockColor = subVoxelColor;
+            normal = subVoxelNormal;
+        }
+    } else if (blockType == BLOCK_MODEL) {
+        // Model block but ray missed the model geometry - shouldn't normally happen
+        backgroundColor = vec3(0.5, 0.5, 0.5);
+        blockColor = backgroundColor;
+    } else if (blockType == BLOCK_CRYSTAL && !subVoxelHit) {
+        // Crystal model miss - fallback to tinted solid (shouldn't normally happen)
+        uint tintIndex = finalMeta.g & 0x1Fu;
+        blockColor = vec3(0.8) * TINT_PALETTE[tintIndex];
+    } else if (blockType == BLOCK_PAINTED) {
+        blockColor = getPaintedColor(finalMeta, local_hit, normal, stepped_axis, hit);
+    } else {
+        // Regular solid block - pass currentWaterType for water blocks
+        uint extraData = 0u;
+        if (blockType == BLOCK_WATER) {
+            // If we hit water here (rare, usually handled above), use the type we found
+            // Actually, for surface rendering, we need to read metadata if we haven't
+            extraData = finalMeta.g;
+        }
+        blockColor = getBlockColor(blockType, local_hit, normal, stepped_axis, hit, extraData);
+    }
+
+    // Track emission for emissive blocks
+    vec3 blockEmission = vec3(0.0);
+    float emissionStrength = 0.0;
+    if (isEmissiveBlock(blockType)) {
+        uint tintIndex = 0u;
+        if (blockType == BLOCK_CRYSTAL) {
+            tintIndex = finalMeta.g & 0x1Fu;
+        }
+        blockEmission = getEmissionColor(blockType, tintIndex);
+        emissionStrength = getEmissionStrength(blockType);
+    }
+
+    vec2 uv;
+    if (stepped_axis == 0) {
+        uv = local_hit.yz;
+    } else if (stepped_axis == 1) {
+        uv = local_hit.xz;
+    } else {
+        uv = local_hit.xy;
+    }
+
+    float aoDistance = pc.lod_ao_distance > 0.0 ? pc.lod_ao_distance : 32.0;
+    float shadowDistance = pc.lod_shadow_distance > 0.0 ? pc.lod_shadow_distance : 64.0;
+    float pointLightDistance = pc.lod_point_light_distance > 0.0 ? pc.lod_point_light_distance : 24.0;
+    float skyExposureDistance = aoDistance;
+
+    bool nearEnoughForAO = hitDistance < aoDistance && pc.enable_ao != 0;
+    bool nearEnoughForShadow = hitDistance < shadowDistance && pc.enable_shadows != 0;
+    bool nearEnoughForPointLights = hitDistance < pointLightDistance && pc.enable_point_lights != 0;
+    bool nearEnoughForSkyExposure = hitDistance < skyExposureDistance;
+
+    float ao = 1.0;
+    if (nearEnoughForAO && !subVoxelHit) {
+        // Only apply block-level AO to full blocks, not sub-voxels (thin geometry looks wrong with block AO)
+        ao = calculateAO(ivec3(coord), normal, uv);
+    }
+
+    vec3 sunDir = getCurrentSunDir();
+
+    switch (pc.render_mode) {
+        case COORD:
+        color = vec3(coord) / (worldSize() - 1.0);
+        break;
+        case TEXTURED:
+        {
+        float daylight = getDaylightFactor(pc.time_of_day);
+        vec3 lightingHit = subVoxelHit ? subVoxelHitPos : hit;
+        // Sub-voxels need larger offset to clear geometry and avoid self-occlusion
+        // Increased for 32³ models where sub-voxels are denser (1/32 = 0.03125 per sub-voxel)
+        float receiverOffset = subVoxelHit ? 0.04 : 0.01;
+        vec3 shadowOffset = normal * receiverOffset + sunDir * (subVoxelHit ? 0.02 : 0.002);
+        // Emissive models don't need sky exposure checks - they're self-illuminated
+        // Fast path: near top of world is definitely exposed to sky
+        float skyExposure = subVoxelEmissive ? 1.0 :
+                            (nearEnoughForSkyExposure ?
+                                (lightingHit.y > float(pc.texture_size_y) - 32.0 ? 1.0
+                                    : getSkyExposure(lightingHit + shadowOffset))
+                                : 1.0);
+        vec3 shadowOrigin = lightingHit + shadowOffset;
+        uint dummyDbg;
+        vec3 shadowTint = vec3(1.0);
+        // Skip starting block for sub-voxel origins to avoid self-occlusion artifacts
+        bool ignoreStartModel = subVoxelHit;
+        // Emissive sub-voxel models use simplified self-illuminated lighting
+        // No shadow rays, no directional sun - use view-dependent shading for depth
+        if (subVoxelEmissive) {
+            // View-dependent shading: faces pointing toward camera are brighter
+            // This gives depth without sun dependency
+            vec3 viewDir = normalize(pc.camera_pos.xyz - (lightingHit + textureOrigin()));
+            float viewDot = max(0.0, dot(normal, viewDir));
+            // Use squared falloff for edge definition, but keep minimum bright enough
+            // Range 0.55 to 1.0 - edges are darker but overall model stays visible
+            float viewShading = mix(0.55, 1.0, viewDot * viewDot);
+            color = blockColor * viewShading;
+            // Add point light contribution if any (other lights can still affect it slightly)
+            if (pc.light_count > 0 && nearEnoughForPointLights) {
+                vec3 pointLightContrib = calculatePointLights(lightingHit, normal);
+                color += blockColor * pointLightContrib * 0.3;
+            }
+        } else if (subVoxelHit && (subVoxelAlpha < 0.7 || subVoxelIsGlassPane)) {
+            // Translucent sub-voxels and glass pane models use simplified lighting
+            // No shadows - avoids self-shadowing artifacts on thin frame geometry
+            float sunLight = max(0.0, dot(normal, sunDir));
+            float baseAmbient = mix(pc.ambient_light, pc.ambient_light + 0.25, daylight);
+            float direct = mix(0.3, 0.7, daylight) * sunLight;
+            float lighting = baseAmbient + direct;
+
+            vec3 pointLightContrib = vec3(0.0);
+            if (pc.light_count > 0 && nearEnoughForPointLights) {
+                pointLightContrib = calculatePointLights(lightingHit, normal);
+            }
+
+            color = blockColor * lighting + blockColor * pointLightContrib * 0.7;
+        } else {
+            // Normal lighting path for non-emissive surfaces
+            float shadow = nearEnoughForShadow ? castShadowRayInternal(shadowOrigin, ignoreStartModel, dummyDbg, shadowTint) : 1.0;
+            float sunLight = max(0.0, dot(normal, sunDir));
+            float baseAmbient = mix(pc.ambient_light, pc.ambient_light + 0.25, daylight);
+            // Allow true darkness when ambient_light is 0; otherwise use half ambient as floor
+            float minAmbient = pc.ambient_light * 0.5;
+            // Sky exposure is only used to detect enclosed spaces (caves, rooms).
+            // It should NOT cast a visible shadow - only the sun/moon shadow does that.
+            // When sky AND sun are both blocked (enclosed), reduce ambient to darkness.
+            // When sun can reach OR sky is visible, use full ambient (no sky shadow).
+            bool isEnclosed = (skyExposure < 0.1) && (shadow < 0.1);
+            float ambient = isEnclosed ? minAmbient : baseAmbient;
+            // Direct sun should only be reduced by actual blockers along the sun ray.
+            // Tying it to vertical sky exposure caused a second "top-down" shadow overlay
+            // when the sky above was occluded even though the sun was visible at an angle.
+            float direct = mix(0.2, 0.65, daylight) * sunLight * shadow;
+            float lighting = ambient + direct;
+
+            // Apply tinted shadow to direct lighting color
+            vec3 sunColor = getSunColor() * shadowTint;
+
+            vec3 pointLightContrib = vec3(0.0);
+            if (pc.light_count > 0 && nearEnoughForPointLights) {
+                pointLightContrib = calculatePointLights(lightingHit, normal);
+            }
+
+            // Blend ambient (white) with direct (sun color with tint)
+            vec3 ambientColor = blockColor * ambient * ao;
+            vec3 directColor = blockColor * sunColor * direct * ao;
+            color = ambientColor + directColor + blockColor * pointLightContrib * (0.7 + 0.3 * ao);
+        }
+
+        // Add emissive glow for light-emitting blocks
+        // Emissive blocks self-illuminate regardless of external lighting
+        if (emissionStrength > 0.0) {
+            // Emission is additive and not affected by shadows or AO
+            // Scale by emission strength and add a subtle pulsing effect for lava
+            float pulse = 1.0;
+            if (blockType == BLOCK_LAVA) {
+                // Slow pulsing glow for lava (position-dependent; CPU pre-multiplies the time phase)
+                pulse = 0.9 + 0.1 * sin(pc.lava_time_phase + hit.x * 0.5 + hit.z * 0.3);
+            } else if (blockType == BLOCK_GLOW_MUSHROOM) {
+                // Gentle breathing effect for mushrooms (fully pre-computed on CPU)
+                pulse = pc.mushroom_pulse;
+            }
+            vec3 emission = blockEmission * emissionStrength * pulse;
+            // Emissive blocks appear bright even in shadow
+            color = mix(color, blockColor + emission, emissionStrength * 0.8);
+            // Add extra glow on top
+            color += emission * 0.3;
+        }
+        }
+        break;
+        case SHADOW_DEBUG:
+        {
+        vec3 lightingHit = subVoxelHit ? subVoxelHitPos : hit;
+        vec3 sunDir = getCurrentSunDir();
+        float receiverOffset = subVoxelHit ? 0.02 : 0.01;
+        vec3 shadowOrigin = lightingHit + normal * receiverOffset + sunDir * (subVoxelHit ? 0.01 : 0.002);
+        uint dbgFlag;
+        vec3 dbgTint;
+        bool ignoreStartModel = subVoxelHit;
+        float shadow = castShadowRayInternal(shadowOrigin, ignoreStartModel, dbgFlag, dbgTint);
+        if (dbgFlag == 0u) color = vec3(0.0, 1.0, 0.0);
+        else if (dbgFlag == 1u) color = vec3(0.0, 0.0, 1.0);
+        else if (dbgFlag == 2u) color = vec3(1.0, 0.0, 0.0);
+        else if (dbgFlag == 3u) color = vec3(1.0, 0.5, 0.0);
+        else if (dbgFlag == 4u) color = vec3(0.7, 0.0, 0.7);
+        else if (dbgFlag == 5u) color = vec3(0.7, 0.7, 0.0);
+        else if (dbgFlag == 6u) color = vec3(0.0, 0.6, 0.6);
+        else if (dbgFlag == 7u) color = vec3(1.0, 0.0, 1.0);
+        else if (dbgFlag == 8u) color = vec3(0.5, 0.5, 0.5);
+        else color = vec3(1.0,1.0,1.0);
+        color *= shadow;
+        }
+        break;
+        case NORMAL:
+        color = normal * 0.5 + 0.5;
+        break;
+        case UV:
+        color = vec3(uv, 0);
+        break;
+        case DEPTH:
+        float depth = (tmin + t_inside) * length(dir);
+        float maxDim = max(worldSize().x, max(worldSize().y, worldSize().z));
+        color = vec3(1 / (1 + depth / maxDim)) + vec3(0.3, 0.0, 0.7) / 256;
+        break;
+        case BRICK_DEBUG:
+        {
+            uint testMask = brick_masks[0];
+            uint testDist = brick_distances[0];
+
+            ivec3 chunkPos = ivec3(coord) / int(CHUNK_SIZE);
+            ivec3 localVoxel = ivec3(coord) - chunkPos * int(CHUNK_SIZE);
+            ivec3 brickPos = localVoxel / int(BRICK_SIZE);
+
+            uint brickIdx = uint(brickPos.x) + uint(brickPos.y) * BRICKS_PER_AXIS
+                          + uint(brickPos.z) * BRICKS_PER_AXIS * BRICKS_PER_AXIS;
+            uint chunkIdx = uint(chunkPos.x) + uint(chunkPos.z) * CHUNKS_X
+                          + uint(chunkPos.y) * CHUNKS_X * CHUNKS_Z;
+
+            uint maskOffset = chunkIdx * 2u;
+            uint wordIdx = brickIdx / 32u;
+            uint bitIdx = brickIdx % 32u;
+            uint mask = brick_masks[maskOffset + wordIdx];
+            bool brickHasSolid = (mask & (1u << bitIdx)) != 0u;
+
+            bool blockIsAir = (blockType == BLOCK_AIR);
+
+            if (!brickHasSolid && !blockIsAir) {
+                color = vec3(1.0, 0.0, 0.0);
+            } else if (brickHasSolid && !blockIsAir) {
+                color = vec3(0.0, 0.8, 0.0);
+            } else if (brickHasSolid && blockIsAir) {
+                color = vec3(0.3, 0.3, 0.8);
+            } else {
+                color = vec3(0.2, 0.2, 0.2);
+            }
+
+            color += vec3(float(testMask & 1u), float(testDist & 1u), 0.0) * 0.001;
+        }
+        break;
+    }
+
+    if (isBreakingBlock(ivec3(coord))) {
+        float crack = getCrackPattern(uv, pc.break_progress);
+        color = mix(color, vec3(0.0), crack * 0.8);
+    }
+
+    if (pc.show_chunk_boundaries != 0) {
+        float boundaryFactor = chunkBoundaryFactor(hit, stepped_axis);
+        if (boundaryFactor > 0.0) {
+            vec3 wireColor = vec3(1.0, 1.0, 0.0);
+            color = mix(color, wireColor, boundaryFactor * 0.8);
+        }
+
+        float shiftFactor = chunkShiftBoundaryFactor(hit, stepped_axis);
+        if (shiftFactor > 0.0) {
+            // Magenta highlight for impending origin-shift window edges.
+            vec3 shiftColor = vec3(1.0, 0.2, 1.0);
+            color = mix(color, shiftColor, 0.9);
+        }
+    }
+
+    // Post-hit transparency overlays: applied in order — water first (deepest),
+    // then glass, then tinted glass (closest to the camera).
+    applyWaterOverlay(dir, inWater, waterDepth,
+                      waterSurfaceHit, waterSurfaceNormal,
+                      currentWaterType, color);
+
+    applyGlassOverlay(dir, passedGlass, glassDepth,
+                      glassSurfaceNormal, firstGlassLocalHit,
+                      firstGlassCoord, color);
+
+    applyTintedGlassOverlay(dir, passedTintedGlass, accumulatedTint,
+                            tintedGlassSurfaceNormal, firstTintedGlassLocalHit,
+                            firstTintedGlassCoord, color);
+
+    // Pass tint state back to caller
+    outPassedTintedGlass = passedTintedGlass;
+    outAccumulatedTint = accumulatedTint;
+    return true;
+}
+
+void main() {
+    // Cooperatively load chunk_flags into shared memory before any early return.
+    // All 64 threads in the 8×8 workgroup MUST reach the barrier, so this lives
+    // above any conditional `return`.
+    {
+        uint tid = gl_LocalInvocationIndex;
+        for (uint i = tid; i < CHUNK_FLAG_WORDS; i += gl_WorkGroupSize.x * gl_WorkGroupSize.y) {
+            s_chunk_flags[i] = chunk_flags[i];
+        }
+        barrier();
+    }
+
+    ivec2 pixelCoord = ivec2(gl_GlobalInvocationID.xy);
+
+    if (pc.pass_mode == 1) {
+        ivec2 distSize = imageSize(distanceImage);
+        if (any(greaterThanEqual(pixelCoord, distSize)))
+            return;
+
+        vec3 o = pc.pixelToRay[3].xyz;
+        vec3 d = mat3(pc.pixelToRay) * vec3(pixelCoord * 4 + 2, 1);
+
+        vec3 color;
+        uint steps = 0;
+        float hitDistance = 9999.0;
+        bool dummyTinted;
+        vec3 dummyTint;
+
+        traversal(o, d, color, steps, hitDistance, dummyTinted, dummyTint);
+
+        imageStore(distanceImage, pixelCoord, vec4(hitDistance, 0, 0, 0));
+        return;
+    }
+
+    ivec2 imageSize = imageSize(targetImage);
+    if (any(greaterThanEqual(pixelCoord, imageSize)))
+        return;
+
+    vec3 o = pc.pixelToRay[3].xyz;
+    vec3 d = mat3(pc.pixelToRay) * vec3(pixelCoord, 1);
+
+    if (pc.pass_mode == 2) {
+        ivec2 distCoord = pixelCoord / 4;
+        float hintDist = imageLoad(distanceImage, distCoord).r;
+
+        if (hintDist < 9000.0) {
+            vec3 normalizedDir = normalize(d);
+            float startT = max(0.0, hintDist - 8.0);
+            o = o + normalizedDir * startT;
+        }
+    }
+
+    vec3 color;
+    uint steps = 0;
+    float hitDistance;
+    bool passedTintedGlass;
+    vec3 accumulatedTint;
+
+    bool hit = traversal(o, d, color, steps, hitDistance, passedTintedGlass, accumulatedTint);
+
+    bool underwater = pc.player_in_water != 0;
+
+    if (pc.render_mode == STEPS) {
+        uint maxDim = max(pc.texture_size_x, max(pc.texture_size_y, pc.texture_size_z));
+        color = stepsToInferno(steps, 0, (maxDim - 1) * 3);
+    } else if (hit) {
+        renderTargetBlockOutline(o, d, color, hitDistance);
+        renderWaterSourceMarkers(o, d, color, hitDistance);
+        color = applyFog(color, hitDistance, d);
+        // Apply tint after fog so fog color is also tinted
+        if (passedTintedGlass) {
+            color *= accumulatedTint;
+        }
+    } else {
+        if (pc.transparent_background != 0u) {
+            // Chroma-key sky for sprite generation: magenta with zero alpha.
+            imageStore(targetImage, pixelCoord, vec4(1.0, 0.0, 1.0, 0.0));
+            return;
+        }
+        color = getSkyColor(d);
+        // Apply tinted glass effect to sky (before fog so fog doesn't undo the tint)
+        if (passedTintedGlass) {
+            color *= accumulatedTint;
+        } else {
+            // Only apply fog when not looking through tinted glass
+            // (tinted glass already provides the "distant" color effect)
+            float skyDistance = length(vec3(pc.texture_size_x, pc.texture_size_y, pc.texture_size_z)) * 0.5;
+            color = applyFog(color, skyDistance, d);
+        }
+        // Still render water source markers even when looking at sky (e.g., inside water)
+        float farDistance = length(vec3(pc.texture_size_x, pc.texture_size_y, pc.texture_size_z));
+        renderWaterSourceMarkers(o, d, color, farDistance);
+    }
+
+    if (pc.particle_count > 0 && pc.render_mode != STEPS) {
+        float particleDist = hitDistance;
+        renderParticles(o, d, color, particleDist);
+        if (particleDist < hitDistance) {
+            vec3 fogColor = getSkyColor(normalize(d));
+            float fogFactor = getFogFactor(particleDist) * pc.fog_overlay_scale;
+            color = mix(color, fogColor, fogFactor * 0.3);
+        }
+    }
+
+    if (pc.falling_block_count > 0 && pc.render_mode != STEPS) {
+        float fallingDist = hitDistance;
+        renderFallingBlocks(o, d, color, fallingDist);
+        if (fallingDist < hitDistance) {
+            vec3 fogColor = getSkyColor(normalize(d));
+            float fogFactor = getFogFactor(fallingDist) * pc.fog_overlay_scale;
+            color = mix(color, fogColor, fogFactor * 0.5);
+        }
+    }
+
+    // Render remote players in multiplayer
+    if (pc.remote_player_count > 0 && pc.render_mode != STEPS) {
+        renderRemotePlayers(o, d, color, hitDistance);
+    }
+
+    if (pc.render_mode != STEPS) {
+        renderPreviewBlock(o, d, color, hitDistance);
+        renderTemplatePreview(o, d, color, hitDistance);
+        renderStencilBlocks(o, d, color, hitDistance);
+        renderSelectionWireframe(o, d, color, hitDistance);
+        renderSelectionMarkers(o, d, color, hitDistance);
+        renderMeasurementLines(o, d, color, hitDistance);
+        renderMeasurementMarkers(o, d, color, hitDistance);
+    }
+
+    if (underwater) {
+        vec2 screenUV = vec2(pixelCoord) / vec2(imageSize);
+        float waveDistort = noise2D(screenUV * 8.0 + vec2(pc.animation_time * 0.5, pc.animation_time * 0.3)) * 0.02;
+        waveDistort += noise2D(screenUV * 15.0 + vec2(-pc.animation_time * 0.4, pc.animation_time * 0.6)) * 0.01;
+        float colorShift = waveDistort * 3.0;
+        vec3 underwaterTint = vec3(0.15, 0.35 + colorShift, 0.55 + colorShift * 0.5);
+        color = mix(color, underwaterTint, 0.3);
+    }
+
+    color += vec3(float(brick_masks[0] & 1u), float(brick_distances[0] & 1u), 0.0) * 0.00001;
+
+    imageStore(targetImage, pixelCoord, vec4(color, 1.0));
+}
