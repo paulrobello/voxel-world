@@ -62,6 +62,7 @@ jobs:
         run: |
           sudo apt-get update -y
           sudo apt-get install -y cmake ninja-build libvulkan-dev vulkan-tools mesa-vulkan-drivers libshaderc-dev libxkbcommon-dev libwayland-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
+          echo "SHADERC_LIB_DIR=/usr/lib" >> $GITHUB_ENV
 
       - name: Install build dependencies (Windows)
         if: runner.os == 'Windows'
