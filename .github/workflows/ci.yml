@@ -33,10 +33,10 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      - name: Install Vulkan SDK (headless)
+      - name: Install build dependencies
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y libvulkan-dev vulkan-tools mesa-vulkan-drivers
+          sudo apt-get install -y cmake ninja-build libvulkan-dev vulkan-tools mesa-vulkan-drivers libshaderc-dev
       - name: Run Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
@@ -48,9 +48,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Install Vulkan SDK (headless)
+      - name: Install build dependencies
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y libvulkan-dev vulkan-tools mesa-vulkan-drivers
+          sudo apt-get install -y cmake ninja-build libvulkan-dev vulkan-tools mesa-vulkan-drivers libshaderc-dev
       - name: Run tests
         run: cargo test --all-features
