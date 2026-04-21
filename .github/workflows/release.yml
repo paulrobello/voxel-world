@@ -58,14 +58,6 @@ jobs:
           $vulkanSdk = Get-ChildItem "C:\VulkanSDK" -Directory | Sort-Object Name -Descending | Select-Object -First 1
           echo "VULKAN_SDK=$($vulkanSdk.FullName)" >> $env:GITHUB_ENV
           echo "$($vulkanSdk.FullName)\Bin" >> $env:GITHUB_PATH
-          # Download pre-built shaderc for Windows
-          $shadercUrl = "https://github.com/google/shaderc/releases/download/v2025.1/shaderc-windows-x64.zip"
-          Invoke-WebRequest -Uri $shadercUrl -OutFile shaderc.zip
-          Expand-Archive shaderc.zip -DestinationPath C:\shaderc
-          echo "C:\shaderc\install\bin" >> $env:GITHUB_PATH
-          echo "SHADERC_LIB_DIR=C:\shaderc\install\lib" >> $env:GITHUB_ENV
-          echo "INCLUDE=C:\shaderc\install\include;$env:INCLUDE" >> $env:GITHUB_ENV
-          echo "LIB=C:\shaderc\install\lib;$env:LIB" >> $env:GITHUB_ENV
 
       - name: Get version
         shell: bash
