@@ -1,0 +1,244 @@
+name: Release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  build-binaries:
+    name: Build - ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS ARM64
+            os: macos-latest
+            target: aarch64-apple-darwin
+            artifact_name: voxel-world
+            asset_name: voxel-world-macos-arm64.zip
+
+          - name: macOS x86_64
+            os: macos-latest
+            target: x86_64-apple-darwin
+            artifact_name: voxel-world
+            asset_name: voxel-world-macos-x86_64.zip
+
+          - name: Windows x86_64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact_name: voxel-world.exe
+            asset_name: voxel-world-windows-x86_64.zip
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install Vulkan SDK (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install molten-vk vulkan-headers vulkan-loader
+          echo "VK_ICD_FILENAMES=/usr/local/share/vulkan/icd.d/MoltenVK_icd.json" >> $GITHUB_ENV
+          echo "DYLD_LIBRARY_PATH=/usr/local/lib" >> $GITHUB_ENV
+
+      - name: Install Vulkan SDK (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          choco install vulkan-sdk --yes
+          echo "VULKAN_SDK=C:\VulkanSDK\*" >> $env:GITHUB_ENV
+
+      - name: Get version
+        shell: bash
+        run: |
+          VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n1)
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+      - name: Build binary
+        shell: bash
+        run: cargo build --release --target ${{ matrix.target }} --no-default-features
+
+      - name: Bundle macOS app
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p voxel-world.app/Contents/MacOS
+          mkdir -p voxel-world.app/Contents/Resources
+
+          cp target/${{ matrix.target }}/release/${{ matrix.artifact_name }} voxel-world.app/Contents/MacOS/voxel-world
+          chmod +x voxel-world.app/Contents/MacOS/voxel-world
+
+          cat <<EOF > voxel-world.app/Contents/Info.plist
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>CFBundleExecutable</key>
+              <string>voxel-world</string>
+              <key>CFBundleIdentifier</key>
+              <string>com.paulrobello.voxel-world</string>
+              <key>CFBundleName</key>
+              <string>Voxel World</string>
+              <key>CFBundlePackageType</key>
+              <string>APPL</string>
+              <key>CFBundleShortVersionString</key>
+              <string>${{ env.VERSION }}</string>
+              <key>CFBundleVersion</key>
+              <string>${{ env.VERSION }}</string>
+              <key>LSMinimumSystemVersion</key>
+              <string>10.13</string>
+              <key>NSHighResolutionCapable</key>
+              <true/>
+          </dict>
+          </plist>
+          EOF
+
+          # Bundle MoltenVK runtime alongside the app
+          mkdir -p voxel-world.app/Contents/Frameworks
+          if [ -f /usr/local/lib/libMoltenVK.dylib ]; then
+            cp /usr/local/lib/libMoltenVK.dylib voxel-world.app/Contents/Frameworks/
+          fi
+
+          zip -r ${{ matrix.asset_name }} voxel-world.app
+
+          mkdir -p release-binaries
+          mv ${{ matrix.asset_name }} release-binaries/
+
+      - name: Package Windows binary
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          mkdir -p release-binaries
+          cp target/${{ matrix.target }}/release/${{ matrix.artifact_name }} release-binaries/voxel-world.exe
+          cd release-binaries
+          7z a ../voxel-world-windows-x86_64.zip voxel-world.exe
+          cd ..
+          mv voxel-world-windows-x86_64.zip release-binaries/${{ matrix.asset_name }}
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.target }}
+          path: release-binaries/${{ matrix.asset_name }}
+          retention-days: 1
+
+  publish-crates:
+    name: Publish to crates.io
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [build-binaries]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Vulkan SDK
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y libvulkan-dev vulkan-tools mesa-vulkan-drivers
+
+      - name: Get version
+        id: version
+        run: |
+          CARGO_VERSION=$(cargo metadata --format-version 1 --no-deps | jq -r '.packages[0].version')
+          echo "version=$CARGO_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Run tests
+        run: cargo test --verbose
+
+      - name: Dry run publish
+        run: cargo publish --dry-run
+
+      - name: Publish to crates.io
+        run: cargo publish --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || echo "Version may already exist on crates.io, continuing..."
+        continue-on-error: true
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      - name: Discord notification
+        if: success()
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        uses: Ilshidur/action-discord@master
+        with:
+          args: 'Published {{ EVENT_PAYLOAD.repository.name }} v${{ steps.version.outputs.version }} to crates.io!'
+        continue-on-error: true
+
+  github-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [build-binaries]
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Get version
+        id: get_version
+        run: |
+          version=$(cargo metadata --format-version 1 --no-deps | jq -r '.packages[0].version')
+          echo "version=$version" >> $GITHUB_OUTPUT
+
+      - name: Download binary artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: binary-*
+          path: binaries
+          merge-multiple: true
+
+      - name: List downloaded binaries
+        run: ls -lh binaries/
+
+      - name: Create GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="v${{ steps.get_version.outputs.version }}"
+
+          if gh release view "$VERSION" --repo '${{ github.repository }}' >/dev/null 2>&1; then
+            echo "Release $VERSION already exists. Deleting and recreating..."
+            gh release delete "$VERSION" --repo '${{ github.repository }}' --yes
+          fi
+
+          gh release create \
+            "$VERSION" \
+            --repo '${{ github.repository }}' \
+            --generate-notes \
+            --latest
+
+      - name: Upload binaries to GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload \
+            'v${{ steps.get_version.outputs.version }}' binaries/* \
+            --repo '${{ github.repository }}' \
+            --clobber
+
+    outputs:
+      version: ${{ steps.get_version.outputs.version }}
+
+  notify-release:
+    name: Discord Release Notification
+    runs-on: ubuntu-latest
+    needs: [github-release]
+    steps:
+      - name: Discord notification
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        uses: Ilshidur/action-discord@master
+        with:
+          args: 'Released voxel-world v${{ needs.github-release.outputs.version }} with binaries for macOS (ARM64 + x86_64) and Windows! Grab it from the GitHub releases page.'
+        continue-on-error: true
