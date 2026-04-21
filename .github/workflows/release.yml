@@ -28,6 +28,12 @@ jobs:
             artifact_name: voxel-world
             asset_name: voxel-world-macos-x86_64.zip
 
+          - name: Linux x86_64
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact_name: voxel-world
+            asset_name: voxel-world-linux-x86_64.tar.gz
+
           - name: Windows x86_64
             os: windows-latest
             target: x86_64-pc-windows-msvc
@@ -50,6 +56,12 @@ jobs:
           echo "DYLD_LIBRARY_PATH=/usr/local/lib" >> $GITHUB_ENV
           echo "SHADERC_LIB_DIR=/usr/local/lib" >> $GITHUB_ENV
 
+      - name: Install build dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y cmake ninja-build libvulkan-dev vulkan-tools mesa-vulkan-drivers libshaderc-dev libxkbcommon-dev libwayland-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
+
       - name: Install build dependencies (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -71,7 +83,7 @@ jobs:
         env:
           CMAKE_POLICY_VERSION_MINIMUM: 3.5
 
-      - name: Bundle macOS app
+      - name: Package release (macOS)
         if: runner.os == 'macOS'
         run: |
           mkdir -p voxel-world.app/Contents/MacOS
@@ -79,6 +91,11 @@ jobs:
 
           cp target/${{ matrix.target }}/release/${{ matrix.artifact_name }} voxel-world.app/Contents/MacOS/voxel-world
           chmod +x voxel-world.app/Contents/MacOS/voxel-world
+
+          # Bundle runtime resources
+          cp -r shaders voxel-world.app/Contents/MacOS/
+          cp -r textures voxel-world.app/Contents/MacOS/
+          cp -r assets voxel-world.app/Contents/MacOS/
 
           cat <<EOF > voxel-world.app/Contents/Info.plist
           <?xml version="1.0" encoding="UTF-8"?>
@@ -116,14 +133,26 @@ jobs:
           mkdir -p release-binaries
           mv ${{ matrix.asset_name }} release-binaries/
 
-      - name: Package Windows binary
+      - name: Package release (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p voxel-world
+          cp target/${{ matrix.target }}/release/${{ matrix.artifact_name }} voxel-world/
+          cp -r shaders textures assets voxel-world/
+          chmod +x voxel-world/voxel-world
+          tar czf ${{ matrix.asset_name }} voxel-world
+          mkdir -p release-binaries
+          mv ${{ matrix.asset_name }} release-binaries/
+
+      - name: Package release (Windows)
         if: runner.os == 'Windows'
         shell: bash
         run: |
-          mkdir -p release-binaries
-          cp target/${{ matrix.target }}/release/${{ matrix.artifact_name }} release-binaries/voxel-world.exe
-          cd release-binaries
-          7z a ../voxel-world-windows-x86_64.zip voxel-world.exe
+          mkdir -p voxel-world
+          cp target/${{ matrix.target }}/release/${{ matrix.artifact_name }} voxel-world/voxel-world.exe
+          cp -r shaders textures assets voxel-world/
+          cd voxel-world
+          7z a ../voxel-world-windows-x86_64.zip *
           cd ..
           mv voxel-world-windows-x86_64.zip release-binaries/${{ matrix.asset_name }}
 
@@ -247,5 +276,5 @@ jobs:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         uses: Ilshidur/action-discord@master
         with:
-          args: 'Released voxel-world v${{ needs.github-release.outputs.version }} with binaries for macOS (ARM64 + x86_64) and Windows! Grab it from the GitHub releases page.'
+          args: 'Released voxel-world v${{ needs.github-release.outputs.version }} with binaries for macOS (ARM64 + x86_64), Linux x86_64, and Windows x86_64! Grab it from the GitHub releases page.'
         continue-on-error: true

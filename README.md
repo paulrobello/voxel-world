@@ -16,6 +16,7 @@ Grab the latest release for your platform from the [Releases page](https://githu
 
 - **macOS ARM64**: `voxel-world-macos-arm64.zip`
 - **macOS x86_64**: `voxel-world-macos-x86_64.zip`
+- **Linux x86_64**: `voxel-world-linux-x86_64.tar.gz`
 - **Windows**: `voxel-world-windows-x86_64.zip`
 
 ### Build from source
