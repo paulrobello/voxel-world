@@ -1,20 +1,19 @@
+# Build output
 /target
+Cargo.lock
 
-# Ignore clipboard dumps
-.gemini-clipboard/
+# OS files
+.DS_Store
+Thumbs.db
 
-# Local profiling output
-profiles/
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
 
-# World save / runtime data directories
-data*/
-worlds/
-user_models/
-
-# User preferences
-user_prefs.json
-
-# Python / virtualenvs
+# Python
 .venv/
 venv/
 ENV/
@@ -25,7 +24,6 @@ __pycache__/
 *.pyd
 .python-version
 .pytest_cache/
-.idea/
 
 # Generated visualizations
 layer_viz.html
@@ -33,18 +31,33 @@ layer_viz_*.html
 voxel-world_layer_infographic.html
 
 # Benchmark / profiling data
+profiles/
 profile.csv
 *.csv
 
-# Scratch folder for one-off scripts and data transformations
-claude_scratch/
-.DS_Store
+# World save / runtime data
+data*/
+worlds/
+user_models/
+
+# User preferences
+user_prefs.json
+
+# Screenshots
 voxel-world_screen_shot.png
-*-mcp.json
-.claude/.cc2cc-session-id
-*.local.*
+
+# Scratch / temp
+claude_scratch/
 *.backup
-.pi/extensions/discord-relay/state.json
 *.log
+*.local.*
+*-mcp.json
+
+# AI tool state (not project config)
+.gemini/
+.gemini-clipboard/
+.claude/.cc2cc-session-id
 .claude/scheduled_tasks.lock
-.gemini
+
+# Discord relay state
+.pi/extensions/discord-relay/state.json
