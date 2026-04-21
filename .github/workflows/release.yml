@@ -76,6 +76,8 @@ jobs:
       - name: Build binary
         shell: bash
         run: cargo build --release --target ${{ matrix.target }} --no-default-features
+        env:
+          CMAKE_POLICY_VERSION_MINIMUM: 3.5
 
       - name: Bundle macOS app
         if: runner.os == 'macOS'
@@ -164,15 +166,20 @@ jobs:
 
       - name: Run tests
         run: cargo test --verbose
+        env:
+          CMAKE_POLICY_VERSION_MINIMUM: 3.5
 
       - name: Dry run publish
         run: cargo publish --dry-run
+        env:
+          CMAKE_POLICY_VERSION_MINIMUM: 3.5
 
       - name: Publish to crates.io
         run: cargo publish --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || echo "Version may already exist on crates.io, continuing..."
         continue-on-error: true
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          CMAKE_POLICY_VERSION_MINIMUM: 3.5
 
       - name: Discord notification
         if: success()
