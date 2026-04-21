@@ -136,6 +136,7 @@ jobs:
 
   publish-crates:
     name: Publish to crates.io
+    if: false  # Disabled: winit_input_helper has no crates.io release for winit 0.30
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: [build-binaries]
