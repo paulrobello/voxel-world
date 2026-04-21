@@ -46,3 +46,4 @@ voxel-world_screen_shot.png
 *.backup
 .pi/extensions/discord-relay/state.json
 *.log
+.claude/scheduled_tasks.lock
