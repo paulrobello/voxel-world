@@ -23,10 +23,10 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install Vulkan SDK
+      - name: Install build dependencies
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y libvulkan-dev vulkan-tools mesa-vulkan-drivers
+          sudo apt-get install -y cmake ninja-build libvulkan-dev vulkan-tools mesa-vulkan-drivers libshaderc-dev
 
       - name: Get version
         id: version
