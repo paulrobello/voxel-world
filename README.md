@@ -10,13 +10,23 @@ A GPU-accelerated voxel sandbox using Vulkan compute shaders for real-time ray m
 
 ## Quick Start
 
+### Download a release binary
+
+Grab the latest release for your platform from the [Releases page](https://github.com/paulrobello/voxel-world/releases):
+
+- **macOS ARM64**: `voxel-world-macos-arm64.zip`
+- **macOS x86_64**: `voxel-world-macos-x86_64.zip`
+- **Windows**: `voxel-world-windows-x86_64.zip`
+
+### Build from source
+
 ```bash
 git clone https://github.com/paulrobello/voxel-world.git
 cd voxel-world
 make run
 ```
 
-The Makefile handles macOS Vulkan environment variables automatically. First build compiles shaders (~1–3 min); subsequent builds are incremental.
+Requires [Rust 1.94.1+](https://www.rust-lang.org), Vulkan SDK, and a Git LFS client. The Makefile handles macOS Vulkan environment variables automatically. First build compiles shaders (~1–3 min); subsequent builds are incremental.
 
 ### Quality Presets
 
