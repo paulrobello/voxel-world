@@ -61,3 +61,4 @@ claude_scratch/
 
 # Discord relay state
 .pi/extensions/discord-relay/state.json
+graphify-out/
