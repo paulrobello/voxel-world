@@ -10,7 +10,7 @@ threaded-server = []
 
 [package]
 name = "voxel-world"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.94.1"
 description = "GPU-accelerated voxel sandbox using Vulkan compute shaders for real-time ray marching"
