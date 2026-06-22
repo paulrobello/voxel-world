@@ -20,7 +20,7 @@ authors = ["Paul Robello <probello@gmail.com>"]
 
 [dependencies]
 vulkano = "0.35.2"
-winit = "0.30.12"
+winit = "0.30.13"
 
 shaderc = "0.8.3"
 egui_winit_vulkano = "0.28.0"
@@ -44,7 +44,7 @@ rayon = "1.12.0"
 zstd = "0.13.3"
 bincode = { version = "2.0", features = ["serde"] }
 serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.149"
+serde_json = "1.0.150"
 crossbeam-channel = "0.5.15"
 num_cpus = "1.17.0"
 dirs = "6.0.0"
@@ -54,15 +54,15 @@ rfd = "0.17.2"
 renet = "2.0"
 renet_netcode = "2.0"
 lz4_flex = "0.13"
-tokio = { version = "1.52.1", features = ["rt-multi-thread", "net", "sync", "time", "macros"] }
-log = "0.4.29"
+tokio = { version = "1.52.3", features = ["rt-multi-thread", "net", "sync", "time", "macros"] }
+log = "0.4.33"
 env_logger = "0.11.10"
 png = "0.18.1"
 rand = "0.10"
-socket2 = "0.6.3"
+socket2 = "0.6.4"
 
 # Force minimum version to fix RUSTSEC-2026-0007 (integer overflow in bytes <1.11.1)
-bytes = "1.11.1"
+bytes = "1.12.0"
 
 # macOS cursor handling (winit's set_cursor_visible crashes)
 [target.'cfg(target_os = "macos")'.dependencies]
