@@ -30,7 +30,7 @@ egui_winit_vulkano = "0.28.0"
 # supply-chain risk (no published checksum = no cargo-audit coverage).
 winit_input_helper = { git = "https://github.com/rukai/winit_input_helper", rev = "638b12fe73b8eb08ed9a8a107d554f4c3b99e8cf" }
 
-nalgebra = { version = "0.34.2", features = ["bytemuck"] }
+nalgebra = { version = "0.35.0", features = ["bytemuck"] }
 bytemuck = { version = "1.25.0", features = ["derive"] }
 
 notify = "8.2.0"
