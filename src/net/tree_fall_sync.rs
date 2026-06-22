@@ -75,7 +75,7 @@ impl Default for TreeFallSync {
 ///
 /// Sized so a worst-case serialized `TreeFell { blocks: Vec<TreeFellBlock> }`
 /// stays under ~1500 bytes: each block is ~18 bytes on the wire (entity_id
-/// u32 + position [i32;3] + block_type u8 + bincode framing), so 80 blocks
+/// u32 + position [i32;3] + block_type u8 + postcard framing), so 80 blocks
 /// ≈ 1440 bytes + enum tag + length-prefix overhead. Trees larger than this
 /// are split into multiple `TreeFell` messages by [`build_tree_fell_batched`].
 pub const MAX_TREE_FELL_BLOCKS_PER_MSG: usize = 80;
@@ -253,7 +253,6 @@ pub fn detect_tree_blocks(
 mod tests {
     use super::*;
     use crate::net::protocol::FallingBlockLanded;
-    use bincode;
 
     fn make_tree_fell_block(
         entity_id: u32,
@@ -394,8 +393,7 @@ mod tests {
             .map(|i| (Vector3::new(i, 64, 0), BlockType::Log))
             .collect();
         let tree_fell = sync.build_tree_fell(blocks);
-        let encoded = bincode::serde::encode_to_vec(&tree_fell, bincode::config::standard())
-            .expect("encode TreeFell");
+        let encoded = postcard::to_stdvec(&tree_fell).expect("encode TreeFell");
         assert!(
             encoded.len() < 1500,
             "TreeFell with {} blocks encoded to {} bytes (>=MTU)",
@@ -455,13 +453,10 @@ mod tests {
         let tree_fell = sync.build_tree_fell(tree_blocks);
 
         // Serialize
-        let encoded = bincode::serde::encode_to_vec(&tree_fell, bincode::config::standard())
-            .expect("Failed to encode TreeFell");
+        let encoded = postcard::to_stdvec(&tree_fell).expect("Failed to encode TreeFell");
 
         // Deserialize
-        let (decoded, _): (TreeFell, usize) =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                .expect("Failed to decode TreeFell");
+        let decoded: TreeFell = postcard::from_bytes(&encoded).expect("Failed to decode TreeFell");
 
         assert_eq!(decoded.blocks.len(), tree_fell.blocks.len());
         for (orig, dec) in tree_fell.blocks.iter().zip(decoded.blocks.iter()) {
@@ -566,19 +561,15 @@ mod tests {
         assert_eq!(entity_ids.len(), 10);
 
         // === Phase 2: Serialize TreeFell message (simulates network transmission) ===
-        let encoded = bincode::serde::encode_to_vec(&tree_fell, bincode::config::standard())
-            .expect("Failed to encode TreeFell");
+        let encoded = postcard::to_stdvec(&tree_fell).expect("Failed to encode TreeFell");
 
         // === Phase 3: All clients receive the TreeFell message ===
-        let (decoded1, _): (TreeFell, usize) =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                .expect("Client 1 failed to decode TreeFell");
-        let (decoded2, _): (TreeFell, usize) =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                .expect("Client 2 failed to decode TreeFell");
-        let (decoded3, _): (TreeFell, usize) =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                .expect("Client 3 failed to decode TreeFell");
+        let decoded1: TreeFell =
+            postcard::from_bytes(&encoded).expect("Client 1 failed to decode TreeFell");
+        let decoded2: TreeFell =
+            postcard::from_bytes(&encoded).expect("Client 2 failed to decode TreeFell");
+        let decoded3: TreeFell =
+            postcard::from_bytes(&encoded).expect("Client 3 failed to decode TreeFell");
 
         // All clients apply the tree fall
         client1_handler.apply_tree_fell(&decoded1, &mut client1_system);
@@ -732,13 +723,11 @@ mod tests {
         let server_msg = ServerMessage::TreeFell(tree_fell.clone());
 
         // Serialize as ServerMessage
-        let encoded = bincode::serde::encode_to_vec(&server_msg, bincode::config::standard())
-            .expect("Failed to encode ServerMessage");
+        let encoded = postcard::to_stdvec(&server_msg).expect("Failed to encode ServerMessage");
 
         // Deserialize as ServerMessage
-        let (decoded, _): (ServerMessage, usize) =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                .expect("Failed to decode ServerMessage");
+        let decoded: ServerMessage =
+            postcard::from_bytes(&encoded).expect("Failed to decode ServerMessage");
 
         // Verify correct message type and apply to client
         match decoded {
@@ -788,11 +777,8 @@ mod tests {
             let tree_fell = sync.build_tree_fell(tree);
 
             // Serialize and deserialize
-            let encoded = bincode::serde::encode_to_vec(&tree_fell, bincode::config::standard())
-                .expect("Failed to encode");
-            let (decoded, _): (TreeFell, usize) =
-                bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                    .expect("Failed to decode");
+            let encoded = postcard::to_stdvec(&tree_fell).expect("Failed to encode");
+            let decoded: TreeFell = postcard::from_bytes(&encoded).expect("Failed to decode");
 
             // Apply to client
             handler.apply_tree_fell(&decoded, &mut client);
@@ -839,8 +825,7 @@ mod tests {
         );
 
         // Serialize
-        let encoded = bincode::serde::encode_to_vec(&tree_fell, bincode::config::standard())
-            .expect("Failed to encode large tree");
+        let encoded = postcard::to_stdvec(&tree_fell).expect("Failed to encode large tree");
 
         // Verify bandwidth efficiency (TreeFell is smaller than individual spawns)
         // Each TreeFellBlock is ~16 bytes, so 50 blocks = ~800 bytes
@@ -856,9 +841,8 @@ mod tests {
         );
 
         // Deserialize and apply
-        let (decoded, _): (TreeFell, usize) =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                .expect("Failed to decode large tree");
+        let decoded: TreeFell =
+            postcard::from_bytes(&encoded).expect("Failed to decode large tree");
 
         handler.apply_tree_fell(&decoded, &mut client);
 
@@ -886,11 +870,9 @@ mod tests {
         assert!(tree_fell.blocks.is_empty());
 
         // Serialize/deserialize
-        let encoded = bincode::serde::encode_to_vec(&tree_fell, bincode::config::standard())
-            .expect("Failed to encode empty tree");
-        let (decoded, _): (TreeFell, usize) =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                .expect("Failed to decode empty tree");
+        let encoded = postcard::to_stdvec(&tree_fell).expect("Failed to encode empty tree");
+        let decoded: TreeFell =
+            postcard::from_bytes(&encoded).expect("Failed to decode empty tree");
 
         // Apply to client (should be no-op)
         handler.apply_tree_fell(&decoded, &mut client);
@@ -929,11 +911,8 @@ mod tests {
         assert_eq!(tree_fell.blocks.len(), 7);
 
         // Serialize and apply
-        let encoded = bincode::serde::encode_to_vec(&tree_fell, bincode::config::standard())
-            .expect("Failed to encode");
-        let (decoded, _): (TreeFell, usize) =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                .expect("Failed to decode");
+        let encoded = postcard::to_stdvec(&tree_fell).expect("Failed to encode");
+        let decoded: TreeFell = postcard::from_bytes(&encoded).expect("Failed to decode");
 
         handler.apply_tree_fell(&decoded, &mut client);
 

@@ -586,8 +586,6 @@ mod tests {
     /// 6. Client removes the falling block and places the static block
     #[test]
     fn test_falling_block_sync_flow() {
-        use bincode;
-
         // === Setup ===
         let mut server_sync = FallingBlockSync::new();
         let mut client_system = ClientFallingBlockSystem::new();
@@ -600,11 +598,9 @@ mod tests {
         assert_eq!(server_sync.active_count(), 1);
 
         // === Phase 2: Serialize and send spawn to client ===
-        let encoded = bincode::serde::encode_to_vec(&spawn_msg, bincode::config::standard())
-            .expect("Failed to encode spawn");
-        let (decoded_spawn, _): (FallingBlockSpawned, usize) =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                .expect("Failed to decode spawn");
+        let encoded = postcard::to_stdvec(&spawn_msg).expect("Failed to encode spawn");
+        let decoded_spawn: FallingBlockSpawned =
+            postcard::from_bytes(&encoded).expect("Failed to decode spawn");
 
         // === Phase 3: Client receives and spawns block ===
         client_system.spawn_from_network(&decoded_spawn);
@@ -623,11 +619,9 @@ mod tests {
         };
 
         // === Phase 5: Serialize and send land to client ===
-        let encoded = bincode::serde::encode_to_vec(&land_msg, bincode::config::standard())
-            .expect("Failed to encode land");
-        let (decoded_land, _): (FallingBlockLanded, usize) =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                .expect("Failed to decode land");
+        let encoded = postcard::to_stdvec(&land_msg).expect("Failed to encode land");
+        let decoded_land: FallingBlockLanded =
+            postcard::from_bytes(&encoded).expect("Failed to decode land");
 
         // === Phase 6: Client handles landing ===
         let landed = client_system.handle_landed(&decoded_land);
@@ -715,8 +709,6 @@ mod tests {
     /// This verifies the P0 critical sync point: "Falling sand visible to all connected players"
     #[test]
     fn test_falling_sand_visible_to_all_players() {
-        use bincode;
-
         // === Setup: Simulate server and 3 connected clients ===
         let mut server_sync = FallingBlockSync::new();
         let mut client1 = ClientFallingBlockSystem::new();
@@ -736,19 +728,16 @@ mod tests {
         assert_eq!(server_sync.active_count(), 1);
 
         // === Phase 2: Serialize spawn message (simulates network transmission) ===
-        let encoded_spawn = bincode::serde::encode_to_vec(&spawn_msg, bincode::config::standard())
-            .expect("Failed to encode spawn message");
+        let encoded_spawn =
+            postcard::to_stdvec(&spawn_msg).expect("Failed to encode spawn message");
 
         // === Phase 3: All clients receive the spawn message ===
-        let (decoded_spawn1, _): (FallingBlockSpawned, usize) =
-            bincode::serde::decode_from_slice(&encoded_spawn, bincode::config::standard())
-                .expect("Client 1 failed to decode spawn");
-        let (decoded_spawn2, _): (FallingBlockSpawned, usize) =
-            bincode::serde::decode_from_slice(&encoded_spawn, bincode::config::standard())
-                .expect("Client 2 failed to decode spawn");
-        let (decoded_spawn3, _): (FallingBlockSpawned, usize) =
-            bincode::serde::decode_from_slice(&encoded_spawn, bincode::config::standard())
-                .expect("Client 3 failed to decode spawn");
+        let decoded_spawn1: FallingBlockSpawned =
+            postcard::from_bytes(&encoded_spawn).expect("Client 1 failed to decode spawn");
+        let decoded_spawn2: FallingBlockSpawned =
+            postcard::from_bytes(&encoded_spawn).expect("Client 2 failed to decode spawn");
+        let decoded_spawn3: FallingBlockSpawned =
+            postcard::from_bytes(&encoded_spawn).expect("Client 3 failed to decode spawn");
 
         // All clients spawn the falling block
         client1.spawn_from_network(&decoded_spawn1);
@@ -791,19 +780,15 @@ mod tests {
         };
 
         // === Phase 6: Serialize and broadcast land message ===
-        let encoded_land = bincode::serde::encode_to_vec(&land_msg, bincode::config::standard())
-            .expect("Failed to encode land message");
+        let encoded_land = postcard::to_stdvec(&land_msg).expect("Failed to encode land message");
 
         // === Phase 7: All clients receive land message ===
-        let (decoded_land1, _): (FallingBlockLanded, usize) =
-            bincode::serde::decode_from_slice(&encoded_land, bincode::config::standard())
-                .expect("Client 1 failed to decode land");
-        let (decoded_land2, _): (FallingBlockLanded, usize) =
-            bincode::serde::decode_from_slice(&encoded_land, bincode::config::standard())
-                .expect("Client 2 failed to decode land");
-        let (decoded_land3, _): (FallingBlockLanded, usize) =
-            bincode::serde::decode_from_slice(&encoded_land, bincode::config::standard())
-                .expect("Client 3 failed to decode land");
+        let decoded_land1: FallingBlockLanded =
+            postcard::from_bytes(&encoded_land).expect("Client 1 failed to decode land");
+        let decoded_land2: FallingBlockLanded =
+            postcard::from_bytes(&encoded_land).expect("Client 2 failed to decode land");
+        let decoded_land3: FallingBlockLanded =
+            postcard::from_bytes(&encoded_land).expect("Client 3 failed to decode land");
 
         // All clients handle landing
         let land1 = client1.handle_landed(&decoded_land1);
@@ -849,7 +834,6 @@ mod tests {
     #[test]
     fn test_falling_block_via_server_message_protocol() {
         use crate::net::protocol::ServerMessage;
-        use bincode;
 
         // === Setup ===
         let mut server_sync = FallingBlockSync::new();
@@ -862,13 +846,12 @@ mod tests {
         let server_msg_spawn = ServerMessage::FallingBlockSpawned(spawn.clone());
 
         // Serialize as ServerMessage
-        let encoded = bincode::serde::encode_to_vec(&server_msg_spawn, bincode::config::standard())
-            .expect("Failed to encode ServerMessage");
+        let encoded =
+            postcard::to_stdvec(&server_msg_spawn).expect("Failed to encode ServerMessage");
 
         // Deserialize as ServerMessage
-        let (decoded, _): (ServerMessage, usize) =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                .expect("Failed to decode ServerMessage");
+        let decoded: ServerMessage =
+            postcard::from_bytes(&encoded).expect("Failed to decode ServerMessage");
 
         // Verify correct message type
         match decoded {
@@ -892,11 +875,10 @@ mod tests {
         let server_msg_land = ServerMessage::FallingBlockLanded(land);
 
         // Serialize and deserialize
-        let encoded = bincode::serde::encode_to_vec(&server_msg_land, bincode::config::standard())
-            .expect("Failed to encode land ServerMessage");
-        let (decoded, _): (ServerMessage, usize) =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                .expect("Failed to decode land ServerMessage");
+        let encoded =
+            postcard::to_stdvec(&server_msg_land).expect("Failed to encode land ServerMessage");
+        let decoded: ServerMessage =
+            postcard::from_bytes(&encoded).expect("Failed to decode land ServerMessage");
 
         match decoded {
             ServerMessage::FallingBlockLanded(received_land) => {
@@ -918,8 +900,6 @@ mod tests {
     /// Integration test: Verifies falling blocks of different types (sand, gravel, snow).
     #[test]
     fn test_all_falling_block_types() {
-        use bincode;
-
         let mut server_sync = FallingBlockSync::new();
         let mut client = ClientFallingBlockSystem::new();
 
@@ -933,10 +913,8 @@ mod tests {
         for (block_type, name) in &falling_types {
             // Spawn
             let spawn = server_sync.register_spawn(Vector3::new(0, 50, 0), *block_type);
-            let encoded =
-                bincode::serde::encode_to_vec(&spawn, bincode::config::standard()).unwrap();
-            let (decoded, _): (FallingBlockSpawned, usize) =
-                bincode::serde::decode_from_slice(&encoded, bincode::config::standard()).unwrap();
+            let encoded = postcard::to_stdvec(&spawn).unwrap();
+            let decoded: FallingBlockSpawned = postcard::from_bytes(&encoded).unwrap();
 
             client.spawn_from_network(&decoded);
 
@@ -950,10 +928,8 @@ mod tests {
                 position: [0, 40, 0],
                 block_type: *block_type,
             };
-            let encoded =
-                bincode::serde::encode_to_vec(&land, bincode::config::standard()).unwrap();
-            let (decoded, _): (FallingBlockLanded, usize) =
-                bincode::serde::decode_from_slice(&encoded, bincode::config::standard()).unwrap();
+            let encoded = postcard::to_stdvec(&land).unwrap();
+            let decoded: FallingBlockLanded = postcard::from_bytes(&encoded).unwrap();
 
             let landed = client.handle_landed(&decoded);
             assert!(landed.is_some(), "{} should land", name);

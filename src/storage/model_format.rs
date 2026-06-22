@@ -10,7 +10,7 @@ use crate::sub_voxel::{
 };
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
-use std::io::{self, BufReader, BufWriter};
+use std::io::{self, BufReader, BufWriter, Read};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -18,7 +18,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const VXM_MAGIC: [u8; 4] = *b"VXM2";
 
 /// Current version of the VXM format.
-const VXM_VERSION: u16 = 2;
+const VXM_VERSION: u16 = 3;
 
 /// A portable file format for sub-voxel models (.vxm).
 /// This allows models to be shared between worlds and users.
@@ -219,8 +219,7 @@ impl LibraryManager {
         let file = File::create(path)?;
         let mut writer = BufWriter::new(file);
 
-        bincode::serde::encode_into_std_write(&vxm, &mut writer, bincode::config::legacy())
-            .map_err(io::Error::other)?;
+        postcard::to_io(&vxm, &mut writer).map_err(io::Error::other)?;
 
         Ok(())
     }
@@ -231,11 +230,10 @@ impl LibraryManager {
         let file = File::open(path)?;
         let mut reader = BufReader::new(file);
 
-        let vxm = bincode::serde::decode_from_std_read::<VxmFile, _, _>(
-            &mut reader,
-            bincode::config::legacy(),
-        )
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+        let mut bytes = Vec::new();
+        reader.read_to_end(&mut bytes)?;
+        let vxm: VxmFile = postcard::from_bytes(&bytes)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
         if vxm.magic != VXM_MAGIC {
             return Err(io::Error::new(
@@ -358,8 +356,7 @@ impl WorldModelStore {
         let path = world_dir.join("models.dat");
         let file = File::create(path)?;
         let mut writer = BufWriter::new(file);
-        bincode::serde::encode_into_std_write(self, &mut writer, bincode::config::legacy())
-            .map_err(io::Error::other)?;
+        postcard::to_io(self, &mut writer).map_err(io::Error::other)?;
         Ok(())
     }
 
@@ -372,11 +369,10 @@ impl WorldModelStore {
         }
         let file = File::open(path)?;
         let mut reader = BufReader::new(file);
-        let store = bincode::serde::decode_from_std_read::<WorldModelStore, _, _>(
-            &mut reader,
-            bincode::config::legacy(),
-        )
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+        let mut bytes = Vec::new();
+        reader.read_to_end(&mut bytes)?;
+        let store: WorldModelStore = postcard::from_bytes(&bytes)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
         Ok(Some(store))
     }
 
@@ -435,8 +431,7 @@ impl DoorPairStore {
         let path = world_dir.join("door_pairs.dat");
         let file = File::create(path)?;
         let mut writer = BufWriter::new(file);
-        bincode::serde::encode_into_std_write(self, &mut writer, bincode::config::legacy())
-            .map_err(io::Error::other)?;
+        postcard::to_io(self, &mut writer).map_err(io::Error::other)?;
         Ok(())
     }
 
@@ -449,11 +444,10 @@ impl DoorPairStore {
         }
         let file = File::open(path)?;
         let mut reader = BufReader::new(file);
-        let store = bincode::serde::decode_from_std_read::<DoorPairStore, _, _>(
-            &mut reader,
-            bincode::config::legacy(),
-        )
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+        let mut bytes = Vec::new();
+        reader.read_to_end(&mut bytes)?;
+        let store: DoorPairStore = postcard::from_bytes(&bytes)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
         Ok(Some(store))
     }
 

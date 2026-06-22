@@ -703,7 +703,7 @@ mod tests {
         assert_eq!(applied_a, BlockType::Sand);
 
         // Order B: block delta first, then chunk. The chunk data predates the
-        // delta (bincode round-trips don't carry timestamps yet), so a naive
+        // delta (serialization round-trips do not carry timestamps yet), so a naive
         // "later chunk wins" would revert to Stone. The correct behavior is
         // that the delta still wins. We document the constraint here; if
         // that handling regresses (e.g. chunk blindly stomps on block state)

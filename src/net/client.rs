@@ -184,11 +184,11 @@ impl GameClient {
                     );
                     continue;
                 }
-                match bincode::serde::decode_from_slice::<ServerMessage, _>(
-                    &message,
-                    bincode::config::standard().with_limit::<MAX_INBOUND_MESSAGE_SIZE>(),
-                ) {
-                    Ok((msg, _)) => {
+                // The `message.len()` guard above already caps untrusted input
+                // at MAX_INBOUND_MESSAGE_SIZE before decode (postcard has no
+                // built-in decode limit; the input slice is the bound).
+                match postcard::from_bytes::<ServerMessage>(&message) {
+                    Ok(msg) => {
                         self.handle_server_message(&msg);
                         messages.push(msg);
                     }
@@ -280,7 +280,7 @@ impl GameClient {
         };
 
         let msg = ClientMessage::PlayerInput(input);
-        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+        if let Ok(encoded) = postcard::to_stdvec(&msg) {
             self.client.send_message(0, renet::Bytes::from(encoded)); // Channel 0 = PlayerMovement
         }
     }
@@ -289,7 +289,7 @@ impl GameClient {
     pub fn request_chunks(&mut self, positions: Vec<[i32; 3]>) {
         let msg = ClientMessage::RequestChunks(crate::net::protocol::RequestChunks { positions });
 
-        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+        if let Ok(encoded) = postcard::to_stdvec(&msg) {
             self.client.send_message(2, renet::Bytes::from(encoded)); // Channel 2 = GameState
         }
     }
@@ -298,7 +298,7 @@ impl GameClient {
     pub fn send_command(&mut self, command: String) {
         let msg = ClientMessage::ConsoleCommand(crate::net::protocol::ConsoleCommand { command });
 
-        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+        if let Ok(encoded) = postcard::to_stdvec(&msg) {
             self.client.send_message(2, renet::Bytes::from(encoded));
         }
     }
@@ -307,7 +307,7 @@ impl GameClient {
     pub fn send_place_block(&mut self, position: [i32; 3], block: BlockData) {
         let msg = ClientMessage::PlaceBlock(PlaceBlock { position, block });
 
-        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+        if let Ok(encoded) = postcard::to_stdvec(&msg) {
             self.client.send_message(1, renet::Bytes::from(encoded)); // Channel 1 = BlockUpdates
         }
     }
@@ -316,7 +316,7 @@ impl GameClient {
     pub fn send_break_block(&mut self, position: [i32; 3]) {
         let msg = ClientMessage::BreakBlock(BreakBlock { position });
 
-        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+        if let Ok(encoded) = postcard::to_stdvec(&msg) {
             self.client.send_message(1, renet::Bytes::from(encoded)); // Channel 1 = BlockUpdates
         }
     }
@@ -337,7 +337,7 @@ impl GameClient {
             upper_block,
         });
 
-        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+        if let Ok(encoded) = postcard::to_stdvec(&msg) {
             self.client.send_message(1, renet::Bytes::from(encoded)); // Channel 1 = BlockUpdates
         }
     }
@@ -346,7 +346,7 @@ impl GameClient {
     pub fn send_bulk_operation(&mut self, operation: BulkOperation) {
         let msg = ClientMessage::BulkOperation(operation);
 
-        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+        if let Ok(encoded) = postcard::to_stdvec(&msg) {
             self.client.send_message(1, renet::Bytes::from(encoded)); // Channel 1 = BlockUpdates
         }
     }
@@ -358,7 +358,7 @@ impl GameClient {
         let pos_count = positions.len();
         let msg = ClientMessage::RequestChunks(RequestChunks { positions });
 
-        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+        if let Ok(encoded) = postcard::to_stdvec(&msg) {
             let len = encoded.len();
             self.client.send_message(2, renet::Bytes::from(encoded)); // Channel 2 = GameState
             log::debug!(
@@ -375,7 +375,7 @@ impl GameClient {
         use crate::net::protocol::RequestTexture;
         let msg = ClientMessage::RequestTexture(RequestTexture { slot });
 
-        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+        if let Ok(encoded) = postcard::to_stdvec(&msg) {
             self.client.send_message(2, renet::Bytes::from(encoded)); // Channel 2 = GameState
         }
     }
@@ -390,7 +390,7 @@ impl GameClient {
             model_data,
         }));
 
-        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+        if let Ok(encoded) = postcard::to_stdvec(&msg) {
             let len = encoded.len();
             self.client.send_message(2, renet::Bytes::from(encoded)); // Channel 2 = GameState
             log::debug!("[Client] Sent model upload: {} bytes", len);
@@ -403,7 +403,7 @@ impl GameClient {
         use crate::net::protocol::UploadTexture;
         let msg = ClientMessage::UploadTexture(UploadTexture { name, png_data });
 
-        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+        if let Ok(encoded) = postcard::to_stdvec(&msg) {
             let len = encoded.len();
             self.client.send_message(2, renet::Bytes::from(encoded)); // Channel 2 = GameState
             log::debug!("[Client] Sent texture upload: {} bytes", len);
@@ -415,7 +415,7 @@ impl GameClient {
         use crate::net::protocol::SetPlayerName;
         let msg = ClientMessage::SetPlayerName(SetPlayerName { name });
 
-        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+        if let Ok(encoded) = postcard::to_stdvec(&msg) {
             self.client.send_message(2, renet::Bytes::from(encoded)); // Channel 2 = GameState
         }
     }
@@ -425,7 +425,7 @@ impl GameClient {
         use crate::net::protocol::ChatMessage;
         let msg = ClientMessage::ChatMessage(ChatMessage { message });
 
-        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+        if let Ok(encoded) = postcard::to_stdvec(&msg) {
             self.client.send_message(2, renet::Bytes::from(encoded)); // Channel 2 = GameState
         }
     }

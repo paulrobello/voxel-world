@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 const VXS_MAGIC: [u8; 4] = *b"STCL";
 
 /// Current version of the VXS format.
-const VXS_VERSION: u16 = 1;
+const VXS_VERSION: u16 = 2;
 
 /// Maximum stencil dimension in blocks (128×128×128).
 pub const MAX_STENCIL_SIZE: u8 = 128;
@@ -223,9 +223,9 @@ impl StencilFile {
         // Validate before serialization
         self.validate()?;
 
-        // Serialize with bincode
-        let binary = bincode::serde::encode_to_vec(self, bincode::config::legacy())
-            .map_err(|e| format!("Bincode serialization failed: {}", e))?;
+        // Serialize with postcard
+        let binary =
+            postcard::to_stdvec(self).map_err(|e| format!("Serialization failed: {}", e))?;
 
         // Compress with zstd level 3
         let compressed = zstd::encode_all(&binary[..], 3)
@@ -240,10 +240,9 @@ impl StencilFile {
         let decompressed =
             zstd::decode_all(data).map_err(|e| format!("Zstd decompression failed: {}", e))?;
 
-        // Deserialize with bincode
-        let (stencil, _): (StencilFile, _) =
-            bincode::serde::decode_from_slice(&decompressed, bincode::config::legacy())
-                .map_err(|e| format!("Bincode deserialization failed: {}", e))?;
+        // Deserialize with postcard
+        let stencil: StencilFile = postcard::from_bytes(&decompressed)
+            .map_err(|e| format!("Deserialization failed: {}", e))?;
 
         // Validate after deserialization
         stencil.validate()?;

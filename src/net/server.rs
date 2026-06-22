@@ -55,7 +55,7 @@ pub struct GameServer {
     picture_manager: Option<PictureManager>,
     /// World directory path (for loading models.dat).
     world_dir: Option<std::path::PathBuf>,
-    /// Cumulative count of bincode encode failures in broadcast/send paths.
+    /// Cumulative count of encode failures in broadcast/send paths.
     /// Non-zero values indicate an internal serialization bug; exposed for the
     /// debug HUD and tests.
     encode_failures: u64,
@@ -360,7 +360,7 @@ impl GameServer {
     /// failure so the caller's hot path stays unadorned. Returns `true` if the
     /// message was queued for send.
     fn broadcast_encoded(&mut self, channel: u8, label: &'static str, msg: &ServerMessage) -> bool {
-        match bincode::serde::encode_to_vec(msg, bincode::config::standard()) {
+        match postcard::to_stdvec(msg) {
             Ok(encoded) => {
                 let n = encoded.len() as u64;
                 self.net_stats.bytes_out = self.net_stats.bytes_out.saturating_add(n);
@@ -393,7 +393,7 @@ impl GameServer {
         msg: &ServerMessage,
         exclude_client_id: u64,
     ) -> bool {
-        match bincode::serde::encode_to_vec(msg, bincode::config::standard()) {
+        match postcard::to_stdvec(msg) {
             Ok(encoded) => {
                 let n = encoded.len() as u64;
                 self.net_stats.bytes_out = self.net_stats.bytes_out.saturating_add(n);
@@ -558,7 +558,7 @@ impl GameServer {
             custom_texture_count,
         });
 
-        match bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+        match postcard::to_stdvec(&msg) {
             Ok(encoded) => {
                 self.server
                     .send_message(client_id, 2, renet::Bytes::from(encoded)); // Channel 2 = GameState
@@ -576,9 +576,7 @@ impl GameServer {
                     ServerMessage::ConnectionRejected(crate::net::protocol::ConnectionRejected {
                         reason: "Internal server error encoding handshake".into(),
                     });
-                if let Ok(encoded) =
-                    bincode::serde::encode_to_vec(&rejection, bincode::config::standard())
-                {
+                if let Ok(encoded) = postcard::to_stdvec(&rejection) {
                     self.server
                         .send_message(client_id, 2, renet::Bytes::from(encoded));
                 }
@@ -600,9 +598,7 @@ impl GameServer {
                 name: host.name.clone(),
                 position: host.position,
             });
-            if let Ok(encoded) =
-                bincode::serde::encode_to_vec(&host_join, bincode::config::standard())
-            {
+            if let Ok(encoded) = postcard::to_stdvec(&host_join) {
                 self.server
                     .send_message(client_id, 2, renet::Bytes::from(encoded));
                 log::debug!(
@@ -621,9 +617,7 @@ impl GameServer {
                     name: other_player.name.clone(),
                     position: other_player.position,
                 });
-                if let Ok(encoded) =
-                    bincode::serde::encode_to_vec(&other_join, bincode::config::standard())
-                {
+                if let Ok(encoded) = postcard::to_stdvec(&other_join) {
                     self.server
                         .send_message(client_id, 2, renet::Bytes::from(encoded));
                     log::debug!(
@@ -642,7 +636,7 @@ impl GameServer {
             position: spawn_position,
         });
 
-        if let Ok(encoded) = bincode::serde::encode_to_vec(&join_msg, bincode::config::standard()) {
+        if let Ok(encoded) = postcard::to_stdvec(&join_msg) {
             let bytes = renet::Bytes::from(encoded);
             // Send to all other clients
             for &other_client_id in self.players.keys() {
@@ -869,7 +863,7 @@ impl GameServer {
     pub fn send_chunk(&mut self, client_id: u64, chunk: ChunkData) {
         let position = chunk.position;
         let msg = ServerMessage::ChunkData(chunk);
-        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+        if let Ok(encoded) = postcard::to_stdvec(&msg) {
             let len = encoded.len();
             self.server
                 .send_message(client_id, 3, renet::Bytes::from(encoded)); // Channel 3 = ChunkStream
@@ -893,7 +887,7 @@ impl GameServer {
     pub fn send_chunk_with_epoch(&mut self, client_id: u64, chunk: ChunkData, epoch: u64) {
         let position = chunk.position;
         let msg = ServerMessage::ChunkData(chunk);
-        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+        if let Ok(encoded) = postcard::to_stdvec(&msg) {
             let len = encoded.len();
             self.server
                 .send_message(client_id, 3, renet::Bytes::from(encoded));
@@ -917,7 +911,7 @@ impl GameServer {
     /// This saves bandwidth by not sending the full chunk data.
     pub fn send_chunk_generate_local(&mut self, client_id: u64, position: [i32; 3]) {
         let msg = ServerMessage::ChunkGenerateLocal(ChunkGenerateLocal { position });
-        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+        if let Ok(encoded) = postcard::to_stdvec(&msg) {
             let len = encoded.len();
             self.server
                 .send_message(client_id, 3, renet::Bytes::from(encoded)); // Channel 3 = ChunkStream
@@ -953,7 +947,7 @@ impl GameServer {
             };
 
             let msg = ServerMessage::PlayerState(state);
-            if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+            if let Ok(encoded) = postcard::to_stdvec(&msg) {
                 let bytes = renet::Bytes::from(encoded);
                 for &client_id in self.players.keys() {
                     if self.host_client_id != Some(client_id) {
@@ -981,7 +975,7 @@ impl GameServer {
             };
 
             let msg = ServerMessage::PlayerState(state);
-            if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+            if let Ok(encoded) = postcard::to_stdvec(&msg) {
                 let bytes = renet::Bytes::from(encoded);
                 for &other_client_id in self.players.keys() {
                     if other_client_id != client_id {
@@ -1005,7 +999,7 @@ impl GameServer {
             paused,
             time_of_day,
         });
-        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+        if let Ok(encoded) = postcard::to_stdvec(&msg) {
             self.server
                 .broadcast_message(2, renet::Bytes::from(encoded));
             log::debug!(
@@ -1020,7 +1014,7 @@ impl GameServer {
     pub fn broadcast_spawn_position(&mut self, position: [f32; 3]) {
         use crate::net::protocol::SpawnPositionChanged;
         let msg = ServerMessage::SpawnPositionChanged(SpawnPositionChanged { position });
-        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+        if let Ok(encoded) = postcard::to_stdvec(&msg) {
             self.server
                 .broadcast_message(2, renet::Bytes::from(encoded));
             log::debug!(
@@ -1046,7 +1040,7 @@ impl GameServer {
             author,
             model_data,
         });
-        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+        if let Ok(encoded) = postcard::to_stdvec(&msg) {
             self.server
                 .broadcast_message(2, renet::Bytes::from(encoded)); // Channel 2 = GameState
             log::debug!("[Server] Broadcast ModelAdded to all clients");
@@ -1059,7 +1053,7 @@ impl GameServer {
             slot,
             data: png_data,
         });
-        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+        if let Ok(encoded) = postcard::to_stdvec(&msg) {
             self.server
                 .broadcast_message(2, renet::Bytes::from(encoded)); // Channel 2 = GameState
             log::debug!(
@@ -1080,8 +1074,7 @@ impl GameServer {
         // Load and compress models.dat
         let models_data = match WorldModelStore::load(world_dir) {
             Ok(Some(store)) => {
-                let serialized = bincode::serde::encode_to_vec(&store, bincode::config::legacy())
-                    .unwrap_or_default();
+                let serialized = postcard::to_stdvec(&store).unwrap_or_default();
                 compress_prepend_size(&serialized)
             }
             _ => Vec::new(),
@@ -1090,8 +1083,7 @@ impl GameServer {
         // Load and compress door_pairs.dat
         let door_pairs_data = match DoorPairStore::load(world_dir) {
             Ok(Some(store)) => {
-                let serialized = bincode::serde::encode_to_vec(&store, bincode::config::legacy())
-                    .unwrap_or_default();
+                let serialized = postcard::to_stdvec(&store).unwrap_or_default();
                 compress_prepend_size(&serialized)
             }
             _ => Vec::new(),
@@ -1102,10 +1094,7 @@ impl GameServer {
             door_pairs_data,
         };
 
-        if let Ok(encoded) = bincode::serde::encode_to_vec(
-            ServerMessage::ModelRegistrySync(Box::new(msg)),
-            bincode::config::standard(),
-        ) {
+        if let Ok(encoded) = postcard::to_stdvec(&ServerMessage::ModelRegistrySync(Box::new(msg))) {
             self.server
                 .send_message(client_id, 2, renet::Bytes::from(encoded)); // Channel 2 = GameState
         }
@@ -1120,10 +1109,7 @@ impl GameServer {
 
         if let Some(data) = manager.get_texture(slot) {
             let msg = crate::net::protocol::TextureData { slot, data };
-            if let Ok(encoded) = bincode::serde::encode_to_vec(
-                ServerMessage::TextureData(msg),
-                bincode::config::standard(),
-            ) {
+            if let Ok(encoded) = postcard::to_stdvec(&ServerMessage::TextureData(msg)) {
                 self.server
                     .send_message(client_id, 2, renet::Bytes::from(encoded)); // Channel 2 = GameState
             }
@@ -1169,7 +1155,7 @@ impl GameServer {
     pub fn broadcast_picture_added(&mut self, picture_id: u16, name: String) {
         use crate::net::protocol::PictureAdded;
         let msg = ServerMessage::PictureAdded(PictureAdded { picture_id, name });
-        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+        if let Ok(encoded) = postcard::to_stdvec(&msg) {
             self.server
                 .broadcast_message(2, renet::Bytes::from(encoded)); // Channel 2 = GameState
             log::debug!("[Server] Broadcast PictureAdded to all clients");
@@ -1183,7 +1169,7 @@ impl GameServer {
             position,
             picture_id,
         });
-        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+        if let Ok(encoded) = postcard::to_stdvec(&msg) {
             self.server
                 .broadcast_message(1, renet::Bytes::from(encoded)); // Channel 1 = BlockUpdates
             log::debug!(
@@ -1208,7 +1194,7 @@ impl GameServer {
             name,
             stencil_data,
         });
-        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+        if let Ok(encoded) = postcard::to_stdvec(&msg) {
             self.server
                 .broadcast_message(2, renet::Bytes::from(encoded)); // Channel 2 = GameState
             log::debug!("[Server] Broadcast StencilLoaded to all clients");
@@ -1228,7 +1214,7 @@ impl GameServer {
             position,
             rotation,
         });
-        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+        if let Ok(encoded) = postcard::to_stdvec(&msg) {
             self.server
                 .broadcast_message(2, renet::Bytes::from(encoded)); // Channel 2 = GameState
             log::debug!(
@@ -1244,7 +1230,7 @@ impl GameServer {
     pub fn broadcast_stencil_removed(&mut self, stencil_id: u64) {
         use crate::net::protocol::StencilRemoved;
         let msg = ServerMessage::StencilRemoved(StencilRemoved { stencil_id });
-        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+        if let Ok(encoded) = postcard::to_stdvec(&msg) {
             self.server
                 .broadcast_message(2, renet::Bytes::from(encoded)); // Channel 2 = GameState
             log::debug!("[Server] Broadcast StencilRemoved: id={}", stencil_id);
@@ -1265,7 +1251,7 @@ impl GameServer {
             name,
             template_data,
         });
-        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+        if let Ok(encoded) = postcard::to_stdvec(&msg) {
             self.server
                 .broadcast_message(2, renet::Bytes::from(encoded)); // Channel 2 = GameState
             log::debug!("[Server] Broadcast TemplateLoaded to all clients");
@@ -1276,7 +1262,7 @@ impl GameServer {
     pub fn broadcast_template_removed(&mut self, template_id: u64) {
         use crate::net::protocol::TemplateRemoved;
         let msg = ServerMessage::TemplateRemoved(TemplateRemoved { template_id });
-        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+        if let Ok(encoded) = postcard::to_stdvec(&msg) {
             self.server
                 .broadcast_message(2, renet::Bytes::from(encoded)); // Channel 2 = GameState
             log::debug!("[Server] Broadcast TemplateRemoved: id={}", template_id);
@@ -1337,11 +1323,8 @@ impl GameServer {
                 );
                 continue;
             }
-            match bincode::serde::decode_from_slice::<ClientMessage, _>(
-                &data,
-                bincode::config::standard().with_limit::<MAX_INBOUND_MESSAGE_SIZE>(),
-            ) {
-                Ok((msg, _)) => match msg.validate() {
+            match postcard::from_bytes::<ClientMessage>(&data) {
+                Ok(msg) => match msg.validate() {
                     Ok(()) => parsed_messages.push((client_id, msg)),
                     Err(reason) => {
                         log::warn!(
@@ -1438,7 +1421,7 @@ impl GameServer {
             old_name,
             new_name,
         });
-        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+        if let Ok(encoded) = postcard::to_stdvec(&msg) {
             self.server
                 .broadcast_message(2, renet::Bytes::from(encoded)); // Channel 2 = GameState
             log::debug!("[Server] Broadcast PlayerNameChanged: player {}", player_id);
@@ -1453,7 +1436,7 @@ impl GameServer {
             player_name,
             message,
         });
-        if let Ok(encoded) = bincode::serde::encode_to_vec(&msg, bincode::config::standard()) {
+        if let Ok(encoded) = postcard::to_stdvec(&msg) {
             self.server
                 .broadcast_message(2, renet::Bytes::from(encoded)); // Channel 2 = GameState
         }

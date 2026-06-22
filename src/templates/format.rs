@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 const VXT_MAGIC: [u8; 4] = *b"VXT1";
 
 /// Current version of the VXT format.
-const VXT_VERSION: u16 = 1;
+const VXT_VERSION: u16 = 2;
 
 /// Maximum template dimension in blocks (128×128×128 = 2,097,152 blocks).
 pub const MAX_TEMPLATE_SIZE: u8 = 128;
@@ -281,9 +281,9 @@ impl VxtFile {
         // Validate before serialization
         self.validate()?;
 
-        // Serialize with bincode
-        let binary = bincode::serde::encode_to_vec(self, bincode::config::legacy())
-            .map_err(|e| format!("Bincode serialization failed: {}", e))?;
+        // Serialize with postcard
+        let binary =
+            postcard::to_stdvec(self).map_err(|e| format!("Serialization failed: {}", e))?;
 
         // Compress with zstd level 3
         let compressed = zstd::encode_all(&binary[..], 3)
@@ -298,10 +298,9 @@ impl VxtFile {
         let decompressed =
             zstd::decode_all(data).map_err(|e| format!("Zstd decompression failed: {}", e))?;
 
-        // Deserialize with bincode
-        let (template, _): (VxtFile, _) =
-            bincode::serde::decode_from_slice(&decompressed, bincode::config::legacy())
-                .map_err(|e| format!("Bincode deserialization failed: {}", e))?;
+        // Deserialize with postcard
+        let template: VxtFile = postcard::from_bytes(&decompressed)
+            .map_err(|e| format!("Deserialization failed: {}", e))?;
 
         // Validate after deserialization
         template.validate()?;

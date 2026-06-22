@@ -6,7 +6,7 @@
 //! # Test Strategy
 //!
 //! - **Simulate typical gameplay**: Block placement, water flow, falling blocks, player movement
-//! - **Measure serialized message sizes**: Use bincode to get actual wire sizes
+//! - **Measure serialized message sizes**: Use postcard to get actual wire sizes
 //! - **Track bandwidth per second**: Calculate KB/s over test duration
 //! - **Verify against target**: Ensure < 100 KB/s per client
 
@@ -84,8 +84,7 @@ mod tests {
             };
 
             // Serialize to get actual size
-            if let Ok(encoded) = bincode::serde::encode_to_vec(message, bincode::config::standard())
-            {
+            if let Ok(encoded) = postcard::to_stdvec(message) {
                 let size = encoded.len();
                 self.server_to_client_bytes += size;
                 *self
@@ -145,9 +144,7 @@ mod tests {
                     actions: crate::net::protocol::InputActions::default(),
                 };
 
-                if let Ok(encoded) =
-                    bincode::serde::encode_to_vec(&input, bincode::config::standard())
-                {
+                if let Ok(encoded) = postcard::to_stdvec(&input) {
                     stats.client_to_server_bytes += encoded.len();
                 }
 
@@ -179,9 +176,7 @@ mod tests {
             if tick % 4 == 0 {
                 // Block placement message (client → server)
                 let block_data = BlockData::from(BlockType::Stone);
-                if let Ok(encoded) =
-                    bincode::serde::encode_to_vec(&block_data, bincode::config::standard())
-                {
+                if let Ok(encoded) = postcard::to_stdvec(&block_data) {
                     stats.client_to_server_bytes += encoded.len();
                 }
 
@@ -349,8 +344,7 @@ mod tests {
                 actions: crate::net::protocol::InputActions::default(),
             };
 
-            if let Ok(encoded) = bincode::serde::encode_to_vec(&input, bincode::config::standard())
-            {
+            if let Ok(encoded) = postcard::to_stdvec(&input) {
                 total_bytes += encoded.len();
             }
 

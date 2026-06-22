@@ -193,10 +193,9 @@ impl LanDiscovery {
             return None;
         }
 
-        // Deserialize announcement using bincode 2.0 serde API.
+        // Deserialize announcement using postcard.
         // The slice is already bounded by MAX_PACKET_SIZE (1024 bytes).
-        let (announcement, _): (ServerAnnouncement, usize) =
-            bincode::serde::decode_from_slice(&data[5..], bincode::config::standard()).ok()?;
+        let announcement: ServerAnnouncement = postcard::from_bytes(&data[5..]).ok()?;
 
         // Build full address with game port
         let game_addr = SocketAddr::new(addr.ip(), announcement.game_port);
@@ -317,11 +316,10 @@ impl DiscoveryResponder {
             max_players: self.max_players,
         };
 
-        // Serialize using bincode 2.0 serde API
-        let serialized = bincode::serde::encode_to_vec(&announcement, bincode::config::standard())
-            .map_err(|_| {
-                io::Error::new(ErrorKind::InvalidData, "Failed to serialize announcement")
-            })?;
+        // Serialize using postcard
+        let serialized = postcard::to_stdvec(&announcement).map_err(|_| {
+            io::Error::new(ErrorKind::InvalidData, "Failed to serialize announcement")
+        })?;
 
         // Build packet: magic + packet type + payload
         let mut packet = Vec::with_capacity(5 + serialized.len());
@@ -374,10 +372,8 @@ mod tests {
             max_players: 4,
         };
 
-        let serialized =
-            bincode::serde::encode_to_vec(&announcement, bincode::config::standard()).unwrap();
-        let (deserialized, _): (ServerAnnouncement, usize) =
-            bincode::serde::decode_from_slice(&serialized, bincode::config::standard()).unwrap();
+        let serialized = postcard::to_stdvec(&announcement).unwrap();
+        let deserialized: ServerAnnouncement = postcard::from_bytes(&serialized).unwrap();
 
         assert_eq!(deserialized.game_port, 5000);
         assert_eq!(deserialized.server_name, "Test Server");

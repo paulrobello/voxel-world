@@ -20,10 +20,10 @@ pub const DEFAULT_PORT: u16 = 5000;
 
 /// Protocol version for netcode pairing. Bump in lockstep with
 /// `crate::net::protocol::PROTOCOL_SCHEMA_VERSION` so a client with an old
-/// binary is rejected at the netcode handshake, before any bincode decoding
-/// runs.
+/// binary is rejected at the netcode handshake, before any message decoding
+/// runs. Bumped to v3 with the bincode -> postcard wire-format change.
 #[allow(dead_code)]
-pub const PROTOCOL_VERSION: &str = "voxel-world-2";
+pub const PROTOCOL_VERSION: &str = "voxel-world-3";
 
 /// Stable protocol ID derived at compile time from the protocol version string.
 ///

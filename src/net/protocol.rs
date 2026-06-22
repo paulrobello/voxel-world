@@ -1,7 +1,7 @@
 //! Network protocol message types for voxel-world multiplayer.
 //!
 //! This module defines all message types exchanged between client and server.
-//! All messages use bincode for serialization for speed and compactness.
+//! All messages use postcard for serialization for speed and compactness.
 
 // Allow unused code until networking is integrated into the game
 #![allow(dead_code)]
@@ -127,19 +127,20 @@ pub const MAX_BULK_FILL_VOLUME: i64 = (32 * 32 * 32) as i64;
 pub const MAX_TEMPLATE_NAME_LEN: usize = 64;
 
 /// Hard ceiling on the serialized size of a single inbound network message.
-/// Applied as a `bincode` decode limit to prevent a crafted packet from
-/// allocating gigabytes via an unbounded `Vec<u8>` or `String` field.
+/// Enforced by the receive path as a raw-length cap *before* decode (postcard
+/// has no built-in decode limit) to prevent a crafted packet from allocating
+/// gigabytes via an unbounded `Vec<u8>` or `String` field.
 pub const MAX_INBOUND_MESSAGE_SIZE: usize = 8 * 1024 * 1024;
 
 /// Application-level wire-schema version. Bump whenever a serde struct
-/// in this module changes in a way that breaks bincode round-trip with
+/// in this module changes in a way that breaks postcard round-trip with
 /// an older build (added/removed/reordered field, changed enum variant
 /// order, etc.). Netcode's own `PROTOCOL_ID` (see `auth.rs`) must also
-/// be bumped so a mismatched client is rejected before any bincode
+/// be bumped so a mismatched client is rejected before any message
 /// decode is attempted; `PROTOCOL_SCHEMA_VERSION` is the
 /// app-layer backstop that clients can also surface with a readable
-/// message.
-pub const PROTOCOL_SCHEMA_VERSION: u32 = 2;
+/// message. Bumped to 3 with the bincode -> postcard wire-format change.
+pub const PROTOCOL_SCHEMA_VERSION: u32 = 3;
 
 /// Maximum number of chunk positions accepted in a single `RequestChunks`.
 pub const MAX_REQUEST_CHUNKS: usize = 1024;
@@ -373,7 +374,7 @@ pub enum ClientMessage {
     /// Upload a custom model to the server.
     ///
     /// Boxed so the enum's overall stack size isn't dominated by this large
-    /// variant (Name + Author + Vec<u8> ≈ 72 bytes). bincode treats Box<T>
+    /// variant (Name + Author + Vec<u8> ≈ 72 bytes). postcard treats Box<T>
     /// transparently — no wire-format change.
     UploadModel(Box<UploadModel>),
     /// Upload a custom texture to the server.
@@ -396,7 +397,8 @@ impl ClientMessage {
     /// Reject messages whose fields exceed their documented caps.
     ///
     /// Call this at the server message-handling boundary *after* successful
-    /// deserialization. The bincode decode limit already rejects pathologically
+    /// deserialization. The inbound size cap (MAX_INBOUND_MESSAGE_SIZE, enforced
+    /// before decode) already rejects pathologically
     /// large payloads; this method enforces the per-variant sub-limits that the
     /// wire format itself cannot express (e.g. `RequestChunks.positions` count
     /// or `PlaceBlock.position` coordinate bounds).
@@ -916,7 +918,7 @@ pub enum ServerMessage {
     SpawnPositionChanged(SpawnPositionChanged),
     /// Sync custom models from server.
     /// Boxed — large compressed payloads bloat every `ServerMessage`
-    /// instance otherwise. bincode handles `Box<T>` transparently on the wire.
+    /// instance otherwise. postcard handles `Box<T>` transparently on the wire.
     ModelRegistrySync(Box<ModelRegistrySync>),
     /// Texture data response.
     TextureData(TextureData),
@@ -983,7 +985,7 @@ mod tests {
     fn test_protocol_schema_version_matches_netcode_version_string() {
         // Wire-schema bumps must happen in lockstep with the netcode
         // PROTOCOL_VERSION string so old clients are rejected before any
-        // bincode decode runs.
+        // message decode runs.
         let expected = format!("voxel-world-{}", PROTOCOL_SCHEMA_VERSION);
         assert_eq!(
             crate::net::auth::PROTOCOL_VERSION,
@@ -1003,9 +1005,8 @@ mod tests {
             world_gen: 0,
             custom_texture_count: 0,
         };
-        let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
-        let (decoded, _): (ConnectionAccepted, usize) =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard()).unwrap();
+        let encoded = postcard::to_stdvec(&msg).unwrap();
+        let decoded: ConnectionAccepted = postcard::from_bytes(&encoded).unwrap();
         assert_eq!(decoded.protocol_version, PROTOCOL_SCHEMA_VERSION);
     }
 
@@ -1236,11 +1237,11 @@ mod tests {
     }
 
     /// Exercises the decode path with structured-but-random byte sequences to
-    /// assert no panic reaches the caller. The limited-config bincode decoder
-    /// is the single chokepoint for untrusted input, so this is the most
-    /// valuable place to fuzz-probe without pulling in a full fuzzer harness.
+    /// assert no panic reaches the caller. postcard's slice decoder is the
+    /// single chokepoint for untrusted input, so this is the most valuable
+    /// place to fuzz-probe without pulling in a full fuzzer harness.
     #[test]
-    fn test_bincode_decode_random_bytes_never_panics() {
+    fn test_decode_random_bytes_never_panics() {
         use std::hash::Hasher;
 
         // Deterministic pseudo-random via DefaultHasher so failures are
@@ -1262,32 +1263,24 @@ mod tests {
             }
 
             // Both directions should merely return Err; never panic.
-            let _: Result<(ClientMessage, usize), _> = bincode::serde::decode_from_slice(
-                &buf,
-                bincode::config::standard().with_limit::<MAX_INBOUND_MESSAGE_SIZE>(),
-            );
-            let _: Result<(ServerMessage, usize), _> = bincode::serde::decode_from_slice(
-                &buf,
-                bincode::config::standard().with_limit::<MAX_INBOUND_MESSAGE_SIZE>(),
-            );
+            let _: Result<ClientMessage, _> = postcard::from_bytes(&buf);
+            let _: Result<ServerMessage, _> = postcard::from_bytes(&buf);
         }
     }
 
     #[test]
-    fn test_bincode_limit_rejects_oversize_payload() {
-        // Construct a huge legit-looking message and verify the limited config
-        // rejects it during decode.
+    fn test_oversize_payload_exceeds_inbound_limit() {
+        // postcard has no built-in decode limit; untrusted input is bounded by
+        // the receive path, which drops any message whose raw length exceeds
+        // MAX_INBOUND_MESSAGE_SIZE before decode (see GameClient::receive_messages
+        // / GameServer). Verify an oversize message does exceed that cap so the
+        // length guard catches it.
         let msg = ClientMessage::UploadPicture(UploadPicture {
             name: "huge".into(),
             png_data: vec![0u8; MAX_INBOUND_MESSAGE_SIZE + 1],
         });
-        let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
+        let encoded = postcard::to_stdvec(&msg).unwrap();
         assert!(encoded.len() > MAX_INBOUND_MESSAGE_SIZE);
-        let decoded: Result<(ClientMessage, usize), _> = bincode::serde::decode_from_slice(
-            &encoded,
-            bincode::config::standard().with_limit::<MAX_INBOUND_MESSAGE_SIZE>(),
-        );
-        assert!(decoded.is_err());
     }
 
     #[test]
@@ -1311,11 +1304,8 @@ mod tests {
         let msg = ClientMessage::BreakBlock(BreakBlock {
             position: [10, 20, 30],
         });
-        let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
-        let decoded: ClientMessage =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                .unwrap()
-                .0;
+        let encoded = postcard::to_stdvec(&msg).unwrap();
+        let decoded: ClientMessage = postcard::from_bytes(&encoded).unwrap();
         assert_eq!(msg, decoded);
     }
 
@@ -1327,11 +1317,8 @@ mod tests {
             position: [100, 64, 200],
             block_type: BlockType::Log,
         };
-        let encoded = bincode::serde::encode_to_vec(&block, bincode::config::standard()).unwrap();
-        let decoded: TreeFellBlock =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                .unwrap()
-                .0;
+        let encoded = postcard::to_stdvec(&block).unwrap();
+        let decoded: TreeFellBlock = postcard::from_bytes(&encoded).unwrap();
         assert_eq!(block.entity_id, decoded.entity_id);
         assert_eq!(block.position, decoded.position);
         assert_eq!(block.block_type, decoded.block_type);
@@ -1359,12 +1346,8 @@ mod tests {
                 },
             ],
         };
-        let encoded =
-            bincode::serde::encode_to_vec(&tree_fell, bincode::config::standard()).unwrap();
-        let decoded: TreeFell =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                .unwrap()
-                .0;
+        let encoded = postcard::to_stdvec(&tree_fell).unwrap();
+        let decoded: TreeFell = postcard::from_bytes(&encoded).unwrap();
         assert_eq!(tree_fell.blocks.len(), decoded.blocks.len());
         for (orig, dec) in tree_fell.blocks.iter().zip(decoded.blocks.iter()) {
             assert_eq!(orig.entity_id, dec.entity_id);
@@ -1391,11 +1374,8 @@ mod tests {
             ],
         };
         let msg = ServerMessage::TreeFell(tree_fell);
-        let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
-        let decoded: ServerMessage =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                .unwrap()
-                .0;
+        let encoded = postcard::to_stdvec(&msg).unwrap();
+        let decoded: ServerMessage = postcard::from_bytes(&encoded).unwrap();
 
         match decoded {
             ServerMessage::TreeFell(decoded_tree) => {
@@ -1413,12 +1393,8 @@ mod tests {
     fn test_tree_fell_empty_blocks() {
         // Test TreeFell with no blocks (edge case)
         let tree_fell = TreeFell { blocks: vec![] };
-        let encoded =
-            bincode::serde::encode_to_vec(&tree_fell, bincode::config::standard()).unwrap();
-        let decoded: TreeFell =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                .unwrap()
-                .0;
+        let encoded = postcard::to_stdvec(&tree_fell).unwrap();
+        let decoded: TreeFell = postcard::from_bytes(&encoded).unwrap();
         assert!(decoded.blocks.is_empty());
     }
 
@@ -1438,12 +1414,8 @@ mod tests {
             });
         }
         let tree_fell = TreeFell { blocks };
-        let encoded =
-            bincode::serde::encode_to_vec(&tree_fell, bincode::config::standard()).unwrap();
-        let decoded: TreeFell =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                .unwrap()
-                .0;
+        let encoded = postcard::to_stdvec(&tree_fell).unwrap();
+        let decoded: TreeFell = postcard::from_bytes(&encoded).unwrap();
         assert_eq!(decoded.blocks.len(), 50);
     }
 
@@ -1454,12 +1426,8 @@ mod tests {
             paused: true,
             time_of_day: 0.5,
         };
-        let encoded =
-            bincode::serde::encode_to_vec(&pause_msg, bincode::config::standard()).unwrap();
-        let decoded: DayCyclePauseChanged =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                .unwrap()
-                .0;
+        let encoded = postcard::to_stdvec(&pause_msg).unwrap();
+        let decoded: DayCyclePauseChanged = postcard::from_bytes(&encoded).unwrap();
         assert_eq!(pause_msg.paused, decoded.paused);
         assert_eq!(pause_msg.time_of_day, decoded.time_of_day);
 
@@ -1468,12 +1436,8 @@ mod tests {
             paused: false,
             time_of_day: 0.25,
         };
-        let encoded =
-            bincode::serde::encode_to_vec(&resume_msg, bincode::config::standard()).unwrap();
-        let decoded: DayCyclePauseChanged =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                .unwrap()
-                .0;
+        let encoded = postcard::to_stdvec(&resume_msg).unwrap();
+        let decoded: DayCyclePauseChanged = postcard::from_bytes(&encoded).unwrap();
         assert!(!decoded.paused);
         assert!((decoded.time_of_day - 0.25).abs() < f32::EPSILON);
     }
@@ -1485,11 +1449,8 @@ mod tests {
             paused: true,
             time_of_day: 0.75,
         });
-        let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
-        let decoded: ServerMessage =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                .unwrap()
-                .0;
+        let encoded = postcard::to_stdvec(&msg).unwrap();
+        let decoded: ServerMessage = postcard::from_bytes(&encoded).unwrap();
 
         match decoded {
             ServerMessage::DayCyclePauseChanged(pause) => {
@@ -1506,24 +1467,16 @@ mod tests {
         let spawn_msg = SpawnPositionChanged {
             position: [100.0, 64.0, 200.0],
         };
-        let encoded =
-            bincode::serde::encode_to_vec(&spawn_msg, bincode::config::standard()).unwrap();
-        let decoded: SpawnPositionChanged =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                .unwrap()
-                .0;
+        let encoded = postcard::to_stdvec(&spawn_msg).unwrap();
+        let decoded: SpawnPositionChanged = postcard::from_bytes(&encoded).unwrap();
         assert_eq!(spawn_msg.position, decoded.position);
 
         // Test with different values
         let spawn_msg2 = SpawnPositionChanged {
             position: [-50.5, 128.0, -75.25],
         };
-        let encoded2 =
-            bincode::serde::encode_to_vec(&spawn_msg2, bincode::config::standard()).unwrap();
-        let decoded2: SpawnPositionChanged =
-            bincode::serde::decode_from_slice(&encoded2, bincode::config::standard())
-                .unwrap()
-                .0;
+        let encoded2 = postcard::to_stdvec(&spawn_msg2).unwrap();
+        let decoded2: SpawnPositionChanged = postcard::from_bytes(&encoded2).unwrap();
         assert_eq!(spawn_msg2.position, decoded2.position);
     }
 
@@ -1533,11 +1486,8 @@ mod tests {
         let msg = ServerMessage::SpawnPositionChanged(SpawnPositionChanged {
             position: [150.0, 70.0, 250.0],
         });
-        let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
-        let decoded: ServerMessage =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                .unwrap()
-                .0;
+        let encoded = postcard::to_stdvec(&msg).unwrap();
+        let decoded: ServerMessage = postcard::from_bytes(&encoded).unwrap();
 
         match decoded {
             ServerMessage::SpawnPositionChanged(spawn) => {
@@ -1554,12 +1504,8 @@ mod tests {
             picture_id: 42,
             name: "sunset.png".to_string(),
         };
-        let encoded =
-            bincode::serde::encode_to_vec(&picture_msg, bincode::config::standard()).unwrap();
-        let decoded: PictureAdded =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                .unwrap()
-                .0;
+        let encoded = postcard::to_stdvec(&picture_msg).unwrap();
+        let decoded: PictureAdded = postcard::from_bytes(&encoded).unwrap();
         assert_eq!(picture_msg.picture_id, decoded.picture_id);
         assert_eq!(picture_msg.name, decoded.name);
     }
@@ -1571,11 +1517,8 @@ mod tests {
             picture_id: 100,
             name: "landscape.png".to_string(),
         });
-        let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
-        let decoded: ServerMessage =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                .unwrap()
-                .0;
+        let encoded = postcard::to_stdvec(&msg).unwrap();
+        let decoded: ServerMessage = postcard::from_bytes(&encoded).unwrap();
 
         match decoded {
             ServerMessage::PictureAdded(picture) => {
@@ -1593,12 +1536,8 @@ mod tests {
             position: [10, 20, 30],
             picture_id: Some(42),
         };
-        let encoded =
-            bincode::serde::encode_to_vec(&frame_msg, bincode::config::standard()).unwrap();
-        let decoded: FramePictureSet =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                .unwrap()
-                .0;
+        let encoded = postcard::to_stdvec(&frame_msg).unwrap();
+        let decoded: FramePictureSet = postcard::from_bytes(&encoded).unwrap();
         assert_eq!(decoded.position, [10, 20, 30]);
         assert_eq!(decoded.picture_id, Some(42));
 
@@ -1607,12 +1546,8 @@ mod tests {
             position: [5, 6, 7],
             picture_id: None,
         };
-        let encoded =
-            bincode::serde::encode_to_vec(&cleared_msg, bincode::config::standard()).unwrap();
-        let decoded: FramePictureSet =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                .unwrap()
-                .0;
+        let encoded = postcard::to_stdvec(&cleared_msg).unwrap();
+        let decoded: FramePictureSet = postcard::from_bytes(&encoded).unwrap();
         assert_eq!(decoded.position, [5, 6, 7]);
         assert_eq!(decoded.picture_id, None);
     }
@@ -1624,11 +1559,8 @@ mod tests {
             position: [100, 64, -50],
             picture_id: Some(5),
         });
-        let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
-        let decoded: ServerMessage =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                .unwrap()
-                .0;
+        let encoded = postcard::to_stdvec(&msg).unwrap();
+        let decoded: ServerMessage = postcard::from_bytes(&encoded).unwrap();
 
         match decoded {
             ServerMessage::FramePictureSet(frame) => {
@@ -1656,11 +1588,8 @@ mod tests {
             ],
         };
         let msg = ClientMessage::UploadPicture(upload.clone());
-        let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
-        let decoded: ClientMessage =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                .unwrap()
-                .0;
+        let encoded = postcard::to_stdvec(&msg).unwrap();
+        let decoded: ClientMessage = postcard::from_bytes(&encoded).unwrap();
 
         match decoded {
             ClientMessage::UploadPicture(decoded_upload) => {
@@ -1691,12 +1620,9 @@ mod tests {
         };
         let client_msg = ClientMessage::UploadPicture(upload);
         let encoded_client =
-            bincode::serde::encode_to_vec(&client_msg, bincode::config::standard())
-                .expect("Client message should encode");
+            postcard::to_stdvec(&client_msg).expect("Client message should encode");
         let decoded_client: ClientMessage =
-            bincode::serde::decode_from_slice(&encoded_client, bincode::config::standard())
-                .expect("Client message should decode")
-                .0;
+            postcard::from_bytes(&encoded_client).expect("Client message should decode");
 
         // Verify client message
         match &decoded_client {
@@ -1713,12 +1639,9 @@ mod tests {
         };
         let server_msg1 = ServerMessage::PictureAdded(picture_added);
         let encoded_server1 =
-            bincode::serde::encode_to_vec(&server_msg1, bincode::config::standard())
-                .expect("PictureAdded should encode");
+            postcard::to_stdvec(&server_msg1).expect("PictureAdded should encode");
         let decoded_server1: ServerMessage =
-            bincode::serde::decode_from_slice(&encoded_server1, bincode::config::standard())
-                .expect("PictureAdded should decode")
-                .0;
+            postcard::from_bytes(&encoded_server1).expect("PictureAdded should decode");
 
         // Verify PictureAdded
         match decoded_server1 {
@@ -1736,12 +1659,9 @@ mod tests {
         };
         let server_msg2 = ServerMessage::FramePictureSet(frame_set);
         let encoded_server2 =
-            bincode::serde::encode_to_vec(&server_msg2, bincode::config::standard())
-                .expect("FramePictureSet should encode");
+            postcard::to_stdvec(&server_msg2).expect("FramePictureSet should encode");
         let decoded_server2: ServerMessage =
-            bincode::serde::decode_from_slice(&encoded_server2, bincode::config::standard())
-                .expect("FramePictureSet should decode")
-                .0;
+            postcard::from_bytes(&encoded_server2).expect("FramePictureSet should decode");
 
         // Verify FramePictureSet
         match decoded_server2 {
@@ -1758,13 +1678,9 @@ mod tests {
             picture_id: None,
         };
         let server_msg3 = ServerMessage::FramePictureSet(clear_frame);
-        let encoded_server3 =
-            bincode::serde::encode_to_vec(&server_msg3, bincode::config::standard())
-                .expect("Clear frame should encode");
+        let encoded_server3 = postcard::to_stdvec(&server_msg3).expect("Clear frame should encode");
         let decoded_server3: ServerMessage =
-            bincode::serde::decode_from_slice(&encoded_server3, bincode::config::standard())
-                .expect("Clear frame should decode")
-                .0;
+            postcard::from_bytes(&encoded_server3).expect("Clear frame should decode");
 
         match decoded_server3 {
             ServerMessage::FramePictureSet(f) => {
@@ -1783,11 +1699,8 @@ mod tests {
             picture_id: Some(u16::MAX),
         };
         let msg = ServerMessage::FramePictureSet(frame);
-        let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
-        let decoded: ServerMessage =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                .unwrap()
-                .0;
+        let encoded = postcard::to_stdvec(&msg).unwrap();
+        let decoded: ServerMessage = postcard::from_bytes(&encoded).unwrap();
 
         match decoded {
             ServerMessage::FramePictureSet(f) => {
@@ -1805,12 +1718,8 @@ mod tests {
             name: "castle_wall".to_string(),
             stencil_data: vec![0x53, 0x54, 0x43, 0x4C, 0x00, 0x01], // "STCL" magic + version
         };
-        let encoded =
-            bincode::serde::encode_to_vec(&stencil_msg, bincode::config::standard()).unwrap();
-        let decoded: StencilLoaded =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                .unwrap()
-                .0;
+        let encoded = postcard::to_stdvec(&stencil_msg).unwrap();
+        let decoded: StencilLoaded = postcard::from_bytes(&encoded).unwrap();
         assert_eq!(decoded.stencil_id, 42);
         assert_eq!(decoded.name, "castle_wall");
         assert_eq!(decoded.stencil_data.len(), 6);
@@ -1826,11 +1735,8 @@ mod tests {
             name: "tower_base".to_string(),
             stencil_data: vec![0x00, 0x01, 0x02, 0x03],
         });
-        let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
-        let decoded: ServerMessage =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                .unwrap()
-                .0;
+        let encoded = postcard::to_stdvec(&msg).unwrap();
+        let decoded: ServerMessage = postcard::from_bytes(&encoded).unwrap();
 
         match decoded {
             ServerMessage::StencilLoaded(s) => {
@@ -1850,12 +1756,8 @@ mod tests {
             position: [100, 64, 200],
             rotation: 2,
         };
-        let encoded =
-            bincode::serde::encode_to_vec(&transform, bincode::config::standard()).unwrap();
-        let decoded: StencilTransformUpdate =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                .unwrap()
-                .0;
+        let encoded = postcard::to_stdvec(&transform).unwrap();
+        let decoded: StencilTransformUpdate = postcard::from_bytes(&encoded).unwrap();
         assert_eq!(decoded.stencil_id, 42);
         assert_eq!(decoded.position, [100, 64, 200]);
         assert_eq!(decoded.rotation, 2);
@@ -1869,11 +1771,8 @@ mod tests {
             position: [50, 32, -100],
             rotation: 1,
         });
-        let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
-        let decoded: ServerMessage =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                .unwrap()
-                .0;
+        let encoded = postcard::to_stdvec(&msg).unwrap();
+        let decoded: ServerMessage = postcard::from_bytes(&encoded).unwrap();
 
         match decoded {
             ServerMessage::StencilTransformUpdate(t) => {
@@ -1889,11 +1788,8 @@ mod tests {
     fn test_stencil_removed_serialization() {
         // Test StencilRemoved struct serialization
         let removed = StencilRemoved { stencil_id: 42 };
-        let encoded = bincode::serde::encode_to_vec(&removed, bincode::config::standard()).unwrap();
-        let decoded: StencilRemoved =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                .unwrap()
-                .0;
+        let encoded = postcard::to_stdvec(&removed).unwrap();
+        let decoded: StencilRemoved = postcard::from_bytes(&encoded).unwrap();
         assert_eq!(decoded.stencil_id, 42);
     }
 
@@ -1901,11 +1797,8 @@ mod tests {
     fn test_server_message_stencil_removed() {
         // Test ServerMessage::StencilRemoved serialization
         let msg = ServerMessage::StencilRemoved(StencilRemoved { stencil_id: 999 });
-        let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
-        let decoded: ServerMessage =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                .unwrap()
-                .0;
+        let encoded = postcard::to_stdvec(&msg).unwrap();
+        let decoded: ServerMessage = postcard::from_bytes(&encoded).unwrap();
 
         match decoded {
             ServerMessage::StencilRemoved(r) => {
@@ -1930,12 +1823,9 @@ mod tests {
             stencil_data: vec![0x53, 0x54, 0x43, 0x4C], // STCL magic
         };
         let msg1 = ServerMessage::StencilLoaded(loaded);
-        let encoded1 = bincode::serde::encode_to_vec(&msg1, bincode::config::standard())
-            .expect("StencilLoaded should encode");
+        let encoded1 = postcard::to_stdvec(&msg1).expect("StencilLoaded should encode");
         let decoded1: ServerMessage =
-            bincode::serde::decode_from_slice(&encoded1, bincode::config::standard())
-                .expect("StencilLoaded should decode")
-                .0;
+            postcard::from_bytes(&encoded1).expect("StencilLoaded should decode");
 
         match decoded1 {
             ServerMessage::StencilLoaded(s) => {
@@ -1952,12 +1842,9 @@ mod tests {
             rotation: 1,
         };
         let msg2 = ServerMessage::StencilTransformUpdate(transform);
-        let encoded2 = bincode::serde::encode_to_vec(&msg2, bincode::config::standard())
-            .expect("StencilTransformUpdate should encode");
+        let encoded2 = postcard::to_stdvec(&msg2).expect("StencilTransformUpdate should encode");
         let decoded2: ServerMessage =
-            bincode::serde::decode_from_slice(&encoded2, bincode::config::standard())
-                .expect("StencilTransformUpdate should decode")
-                .0;
+            postcard::from_bytes(&encoded2).expect("StencilTransformUpdate should decode");
 
         match decoded2 {
             ServerMessage::StencilTransformUpdate(t) => {
@@ -1971,12 +1858,9 @@ mod tests {
         // Step 3: Server broadcasts StencilRemoved
         let removed = StencilRemoved { stencil_id: 1 };
         let msg3 = ServerMessage::StencilRemoved(removed);
-        let encoded3 = bincode::serde::encode_to_vec(&msg3, bincode::config::standard())
-            .expect("StencilRemoved should encode");
+        let encoded3 = postcard::to_stdvec(&msg3).expect("StencilRemoved should encode");
         let decoded3: ServerMessage =
-            bincode::serde::decode_from_slice(&encoded3, bincode::config::standard())
-                .expect("StencilRemoved should decode")
-                .0;
+            postcard::from_bytes(&encoded3).expect("StencilRemoved should decode");
 
         match decoded3 {
             ServerMessage::StencilRemoved(r) => {
@@ -1996,11 +1880,8 @@ mod tests {
             stencil_data: large_data.clone(),
         };
         let msg = ServerMessage::StencilLoaded(stencil);
-        let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
-        let decoded: ServerMessage =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                .unwrap()
-                .0;
+        let encoded = postcard::to_stdvec(&msg).unwrap();
+        let decoded: ServerMessage = postcard::from_bytes(&encoded).unwrap();
 
         match decoded {
             ServerMessage::StencilLoaded(s) => {
@@ -2023,11 +1904,8 @@ mod tests {
                 rotation,
             };
             let msg = ServerMessage::StencilTransformUpdate(transform);
-            let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
-            let decoded: ServerMessage =
-                bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                    .unwrap()
-                    .0;
+            let encoded = postcard::to_stdvec(&msg).unwrap();
+            let decoded: ServerMessage = postcard::from_bytes(&encoded).unwrap();
 
             match decoded {
                 ServerMessage::StencilTransformUpdate(t) => {
@@ -2050,12 +1928,8 @@ mod tests {
             name: "test_template".to_string(),
             template_data: vec![1, 2, 3, 4, 5],
         };
-        let encoded =
-            bincode::serde::encode_to_vec(&template, bincode::config::standard()).unwrap();
-        let decoded: TemplateLoaded =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                .unwrap()
-                .0;
+        let encoded = postcard::to_stdvec(&template).unwrap();
+        let decoded: TemplateLoaded = postcard::from_bytes(&encoded).unwrap();
         assert_eq!(decoded.template_id, 42);
         assert_eq!(decoded.name, "test_template");
         assert_eq!(decoded.template_data, vec![1, 2, 3, 4, 5]);
@@ -2069,11 +1943,8 @@ mod tests {
             name: "castle".to_string(),
             template_data: vec![10, 20, 30],
         });
-        let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
-        let decoded: ServerMessage =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                .unwrap()
-                .0;
+        let encoded = postcard::to_stdvec(&msg).unwrap();
+        let decoded: ServerMessage = postcard::from_bytes(&encoded).unwrap();
 
         match decoded {
             ServerMessage::TemplateLoaded(t) => {
@@ -2089,11 +1960,8 @@ mod tests {
     fn test_template_removed_serialization() {
         // Test TemplateRemoved struct serialization
         let removed = TemplateRemoved { template_id: 42 };
-        let encoded = bincode::serde::encode_to_vec(&removed, bincode::config::standard()).unwrap();
-        let decoded: TemplateRemoved =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                .unwrap()
-                .0;
+        let encoded = postcard::to_stdvec(&removed).unwrap();
+        let decoded: TemplateRemoved = postcard::from_bytes(&encoded).unwrap();
         assert_eq!(decoded.template_id, 42);
     }
 
@@ -2101,11 +1969,8 @@ mod tests {
     fn test_server_message_template_removed() {
         // Test ServerMessage::TemplateRemoved serialization
         let msg = ServerMessage::TemplateRemoved(TemplateRemoved { template_id: 999 });
-        let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
-        let decoded: ServerMessage =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                .unwrap()
-                .0;
+        let encoded = postcard::to_stdvec(&msg).unwrap();
+        let decoded: ServerMessage = postcard::from_bytes(&encoded).unwrap();
 
         match decoded {
             ServerMessage::TemplateRemoved(r) => {
@@ -2128,12 +1993,8 @@ mod tests {
             template_data: vec![1, 2, 3, 4, 5, 6, 7, 8],
         };
         let msg1 = ServerMessage::TemplateLoaded(loaded);
-        let encoded =
-            bincode::serde::encode_to_vec(&msg1, bincode::config::standard()).expect("encode");
-        let decoded: ServerMessage =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                .expect("decode")
-                .0;
+        let encoded = postcard::to_stdvec(&msg1).expect("encode");
+        let decoded: ServerMessage = postcard::from_bytes(&encoded).expect("decode");
 
         match decoded {
             ServerMessage::TemplateLoaded(t) => {
@@ -2146,12 +2007,8 @@ mod tests {
         // Step 2: Server broadcasts TemplateRemoved
         let removed = TemplateRemoved { template_id: 1 };
         let msg2 = ServerMessage::TemplateRemoved(removed);
-        let encoded =
-            bincode::serde::encode_to_vec(&msg2, bincode::config::standard()).expect("encode");
-        let decoded: ServerMessage =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                .expect("decode")
-                .0;
+        let encoded = postcard::to_stdvec(&msg2).expect("encode");
+        let decoded: ServerMessage = postcard::from_bytes(&encoded).expect("decode");
 
         match decoded {
             ServerMessage::TemplateRemoved(r) => {
@@ -2171,11 +2028,8 @@ mod tests {
             template_data: large_data.clone(),
         };
         let msg = ServerMessage::TemplateLoaded(template);
-        let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
-        let decoded: ServerMessage =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                .unwrap()
-                .0;
+        let encoded = postcard::to_stdvec(&msg).unwrap();
+        let decoded: ServerMessage = postcard::from_bytes(&encoded).unwrap();
 
         match decoded {
             ServerMessage::TemplateLoaded(t) => {

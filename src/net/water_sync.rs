@@ -88,7 +88,6 @@ mod tests {
     #[test]
     fn test_water_sync_produces_identical_state() {
         use crate::water::{MAX_MASS, WaterGrid};
-        use bincode;
 
         let mut server_grid = WaterGrid::new();
         let mut client_grid = WaterGrid::new();
@@ -162,11 +161,9 @@ mod tests {
                     .collect();
 
                 let encoded =
-                    bincode::serde::encode_to_vec(&protocol_updates, bincode::config::standard())
-                        .expect("Failed to encode water updates");
-                let (decoded, _len): (Vec<crate::net::protocol::WaterCellUpdate>, usize) =
-                    bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                        .expect("Failed to decode water updates");
+                    postcard::to_stdvec(&protocol_updates).expect("Failed to encode water updates");
+                let decoded: Vec<crate::net::protocol::WaterCellUpdate> =
+                    postcard::from_bytes(&encoded).expect("Failed to decode water updates");
 
                 for update in decoded {
                     let pos =

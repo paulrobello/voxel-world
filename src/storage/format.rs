@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 /// Version of the serialization format.
 /// v2: Added tinted and painted metadata
 /// v3: Added frame metadata (custom_data for models)
-pub const FORMAT_VERSION: u8 = 3;
+pub const FORMAT_VERSION: u8 = 4;
 
 /// Metadata for a single block in a chunk.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]

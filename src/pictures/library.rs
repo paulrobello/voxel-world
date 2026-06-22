@@ -363,9 +363,8 @@ impl PictureLibrary {
         let decompressed =
             zstd::decode_all(&compressed[..]).map_err(|e| format!("Decompression failed: {e}"))?;
 
-        let (library, _): (Self, _) =
-            bincode::serde::decode_from_slice(&decompressed, bincode::config::legacy())
-                .map_err(|e| format!("Deserialization failed: {e}"))?;
+        let library: Self = postcard::from_bytes(&decompressed)
+            .map_err(|e| format!("Deserialization failed: {e}"))?;
 
         Ok(library)
     }
@@ -379,8 +378,7 @@ impl PictureLibrary {
             fs::create_dir_all(parent).map_err(|e| format!("Failed to create directory: {e}"))?;
         }
 
-        let binary = bincode::serde::encode_to_vec(self, bincode::config::legacy())
-            .map_err(|e| format!("Serialization failed: {e}"))?;
+        let binary = postcard::to_stdvec(self).map_err(|e| format!("Serialization failed: {e}"))?;
 
         let compressed =
             zstd::encode_all(&binary[..], 3).map_err(|e| format!("Compression failed: {e}"))?;

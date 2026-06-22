@@ -438,18 +438,17 @@ impl<'a> NetworkSyncContext<'a> {
                 }
             };
 
-            let vxm: VxmFile =
-                match bincode::serde::decode_from_slice(&decompressed, bincode::config::legacy()) {
-                    Ok((vxm, _)) => vxm,
-                    Err(e) => {
-                        log::warn!(
-                            "[Server] Failed to deserialize model '{}': {:?}",
-                            upload.name,
-                            e
-                        );
-                        continue;
-                    }
-                };
+            let vxm: VxmFile = match postcard::from_bytes(&decompressed) {
+                Ok(vxm) => vxm,
+                Err(e) => {
+                    log::warn!(
+                        "[Server] Failed to deserialize model '{}': {:?}",
+                        upload.name,
+                        e
+                    );
+                    continue;
+                }
+            };
 
             let model = vxm.to_model();
             let model_id = match self.sim.model_registry.register(model.clone()) {
@@ -572,18 +571,17 @@ impl<'a> NetworkSyncContext<'a> {
                 }
             };
 
-            let vxm: VxmFile =
-                match bincode::serde::decode_from_slice(&decompressed, bincode::config::legacy()) {
-                    Ok((vxm, _)) => vxm,
-                    Err(e) => {
-                        log::warn!(
-                            "[Client] Failed to deserialize model '{}': {:?}",
-                            model_added.name,
-                            e
-                        );
-                        continue;
-                    }
-                };
+            let vxm: VxmFile = match postcard::from_bytes(&decompressed) {
+                Ok(vxm) => vxm,
+                Err(e) => {
+                    log::warn!(
+                        "[Client] Failed to deserialize model '{}': {:?}",
+                        model_added.name,
+                        e
+                    );
+                    continue;
+                }
+            };
 
             let mut model = vxm.to_model();
             model.id = model_added.model_id;

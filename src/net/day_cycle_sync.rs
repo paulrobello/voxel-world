@@ -115,7 +115,6 @@ impl DayCycleSync {
 mod tests {
     use super::*;
     use crate::net::protocol::{DayCyclePauseChanged, ServerMessage};
-    use bincode;
 
     fn make_pause_msg(paused: bool, time_of_day: f32) -> DayCyclePauseChanged {
         DayCyclePauseChanged {
@@ -224,13 +223,11 @@ mod tests {
         let pause_msg = make_pause_msg(true, 0.5);
         let server_msg = ServerMessage::DayCyclePauseChanged(pause_msg);
 
-        let encoded = bincode::serde::encode_to_vec(&server_msg, bincode::config::standard())
-            .expect("Failed to encode ServerMessage");
+        let encoded = postcard::to_stdvec(&server_msg).expect("Failed to encode ServerMessage");
 
         // === Phase 3: Client receives and decodes message ===
-        let (decoded, _): (ServerMessage, usize) =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                .expect("Failed to decode ServerMessage");
+        let decoded: ServerMessage =
+            postcard::from_bytes(&encoded).expect("Failed to decode ServerMessage");
 
         // === Phase 4: Client applies pause state ===
         match decoded {
@@ -269,12 +266,9 @@ mod tests {
         // === Phase 1: Pause ===
         server_sync.set_paused(true, 0.3);
         let pause_msg = ServerMessage::DayCyclePauseChanged(make_pause_msg(true, 0.3));
-        let encoded = bincode::serde::encode_to_vec(&pause_msg, bincode::config::standard())
-            .expect("Failed to encode");
+        let encoded = postcard::to_stdvec(&pause_msg).expect("Failed to encode");
 
-        let (decoded, _): (ServerMessage, usize) =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                .expect("Failed to decode");
+        let decoded: ServerMessage = postcard::from_bytes(&encoded).expect("Failed to decode");
 
         if let ServerMessage::DayCyclePauseChanged(pause) = decoded {
             client_sync.apply_from_server(pause.paused, pause.time_of_day);
@@ -287,12 +281,9 @@ mod tests {
         // === Phase 2: Resume ===
         server_sync.set_paused(false, 0.35);
         let resume_msg = ServerMessage::DayCyclePauseChanged(make_pause_msg(false, 0.35));
-        let encoded = bincode::serde::encode_to_vec(&resume_msg, bincode::config::standard())
-            .expect("Failed to encode");
+        let encoded = postcard::to_stdvec(&resume_msg).expect("Failed to encode");
 
-        let (decoded, _): (ServerMessage, usize) =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                .expect("Failed to decode");
+        let decoded: ServerMessage = postcard::from_bytes(&encoded).expect("Failed to decode");
 
         if let ServerMessage::DayCyclePauseChanged(pause) = decoded {
             client_sync.apply_from_server(pause.paused, pause.time_of_day);
@@ -324,14 +315,11 @@ mod tests {
         let pause_msg = ServerMessage::DayCyclePauseChanged(make_pause_msg(true, 0.6));
 
         // Serialize once (simulates broadcast)
-        let encoded = bincode::serde::encode_to_vec(&pause_msg, bincode::config::standard())
-            .expect("Failed to encode");
+        let encoded = postcard::to_stdvec(&pause_msg).expect("Failed to encode");
 
         // === Phase 2: All clients receive the message ===
         for client_sync in &mut [&mut client1_sync, &mut client2_sync, &mut client3_sync] {
-            let (decoded, _): (ServerMessage, usize) =
-                bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                    .expect("Failed to decode");
+            let decoded: ServerMessage = postcard::from_bytes(&encoded).expect("Failed to decode");
 
             if let ServerMessage::DayCyclePauseChanged(pause) = decoded {
                 client_sync.apply_from_server(pause.paused, pause.time_of_day);
@@ -352,14 +340,11 @@ mod tests {
         assert!(changed);
 
         let resume_msg = ServerMessage::DayCyclePauseChanged(make_pause_msg(false, 0.65));
-        let encoded = bincode::serde::encode_to_vec(&resume_msg, bincode::config::standard())
-            .expect("Failed to encode");
+        let encoded = postcard::to_stdvec(&resume_msg).expect("Failed to encode");
 
         // All clients receive resume
         for client_sync in &mut [&mut client1_sync, &mut client2_sync, &mut client3_sync] {
-            let (decoded, _): (ServerMessage, usize) =
-                bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                    .expect("Failed to decode");
+            let decoded: ServerMessage = postcard::from_bytes(&encoded).expect("Failed to decode");
 
             if let ServerMessage::DayCyclePauseChanged(pause) = decoded {
                 client_sync.apply_from_server(pause.paused, pause.time_of_day);
@@ -392,12 +377,9 @@ mod tests {
 
         server_sync.set_paused(true, test_time);
         let pause_msg = ServerMessage::DayCyclePauseChanged(make_pause_msg(true, test_time));
-        let encoded = bincode::serde::encode_to_vec(&pause_msg, bincode::config::standard())
-            .expect("Failed to encode");
+        let encoded = postcard::to_stdvec(&pause_msg).expect("Failed to encode");
 
-        let (decoded, _): (ServerMessage, usize) =
-            bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                .expect("Failed to decode");
+        let decoded: ServerMessage = postcard::from_bytes(&encoded).expect("Failed to decode");
 
         if let ServerMessage::DayCyclePauseChanged(pause) = decoded {
             // Verify exact time is preserved
@@ -442,12 +424,9 @@ mod tests {
                 *expected_paused,
                 *expected_time,
             ));
-            let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard())
-                .expect("Failed to encode");
+            let encoded = postcard::to_stdvec(&msg).expect("Failed to encode");
 
-            let (decoded, _): (ServerMessage, usize) =
-                bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                    .expect("Failed to decode");
+            let decoded: ServerMessage = postcard::from_bytes(&encoded).expect("Failed to decode");
 
             if let ServerMessage::DayCyclePauseChanged(pause) = decoded {
                 client_sync.apply_from_server(pause.paused, pause.time_of_day);
@@ -487,13 +466,11 @@ mod tests {
                 paused: server.paused,
                 time_of_day: server.time_of_day,
             });
-            let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard())
-                .expect("Failed to encode");
+            let encoded = postcard::to_stdvec(&msg).expect("Failed to encode");
 
             for client in clients {
-                let (decoded, _): (ServerMessage, usize) =
-                    bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                        .expect("Failed to decode");
+                let decoded: ServerMessage =
+                    postcard::from_bytes(&encoded).expect("Failed to decode");
 
                 if let ServerMessage::DayCyclePauseChanged(pause) = decoded {
                     client.apply_from_server(pause.paused, pause.time_of_day);

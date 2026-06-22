@@ -3,7 +3,7 @@
 //! This module provides networking capabilities using renet and renet_netcode:
 //!
 //! - **Channel configuration**: Different delivery guarantees for different message types
-//! - **Protocol messages**: Client↔Server message types with bincode serialization
+//! - **Protocol messages**: Client↔Server message types with postcard serialization
 //! - **Chunk streaming**: Priority-based chunk loading with cancellation
 //! - **Player sync**: Client-side prediction and server reconciliation
 //! - **Block sync**: Block change broadcasting with AoI filtering

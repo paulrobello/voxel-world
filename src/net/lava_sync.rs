@@ -85,7 +85,6 @@ mod tests {
     #[test]
     fn test_lava_sync_produces_identical_state() {
         use crate::lava::{LavaGrid, MAX_MASS};
-        use bincode;
 
         let mut server_grid = LavaGrid::new();
         let mut client_grid = LavaGrid::new();
@@ -162,11 +161,9 @@ mod tests {
                     .collect();
 
                 let encoded =
-                    bincode::serde::encode_to_vec(&protocol_updates, bincode::config::standard())
-                        .expect("Failed to encode lava updates");
-                let (decoded, _len): (Vec<crate::net::protocol::LavaCellUpdate>, usize) =
-                    bincode::serde::decode_from_slice(&encoded, bincode::config::standard())
-                        .expect("Failed to decode lava updates");
+                    postcard::to_stdvec(&protocol_updates).expect("Failed to encode lava updates");
+                let decoded: Vec<crate::net::protocol::LavaCellUpdate> =
+                    postcard::from_bytes(&encoded).expect("Failed to decode lava updates");
 
                 for update in decoded {
                     let pos =
@@ -354,10 +351,8 @@ mod tests {
                 block: BlockData::from(crate::chunk::BlockType::Cobblestone),
             });
 
-            let encoded =
-                bincode::serde::encode_to_vec(&server_msg, bincode::config::standard()).unwrap();
-            let (decoded, _): (ServerMessage, usize) =
-                bincode::serde::decode_from_slice(&encoded, bincode::config::standard()).unwrap();
+            let encoded = postcard::to_stdvec(&server_msg).unwrap();
+            let decoded: ServerMessage = postcard::from_bytes(&encoded).unwrap();
 
             match decoded {
                 ServerMessage::BlockChanged(change) => {
