@@ -146,7 +146,7 @@ impl<'a> BlockInteractionContext<'a> {
             if pos.y < 0 || pos.y >= TEXTURE_SIZE_Y as i32 {
                 continue;
             }
-            let Some(block) = block_data_for_params(params) else {
+            let Some(block) = crate::placement::block_data_for_params(params) else {
                 continue;
             };
             changes.push(([pos.x, pos.y, pos.z], block));
@@ -770,49 +770,6 @@ impl<'a> BlockInteractionContext<'a> {
     }
 }
 
-// ── Shape-edit sync helper ───────────────────────────────────────────────────
-
-/// Builds the `BlockData` representing what `place_blocks_at_positions`
-/// writes for `params`, or `None` for Model/Air (which placement skips).
-///
-/// Branch-per-type to mirror `place_blocks_at_positions` exactly:
-/// - TintedGlass/Crystal carry `tint_index`
-/// - Painted carries texture+tint via `BlockPaintData::simple`
-/// - Water carries `water_type` (so receivers place the source via their
-///   existing Water apply arm in `apply_remote_block_changes`)
-/// - Lava and any plain block use `BlockData::from(block_type)`
-/// - Model/Air return `None` (placement skips them, so sync skips them too)
-pub(super) fn block_data_for_params(
-    params: crate::placement::BlockPlacementParams,
-) -> Option<crate::net::protocol::BlockData> {
-    use crate::chunk::{BlockPaintData, WaterType};
-    use crate::net::protocol::BlockData;
-
-    let block = match params.block_type {
-        BlockType::TintedGlass | BlockType::Crystal => BlockData {
-            block_type: params.block_type,
-            tint_index: Some(params.tint_index),
-            ..Default::default()
-        },
-        BlockType::Painted => BlockData {
-            block_type: params.block_type,
-            paint_data: Some(BlockPaintData::simple(
-                params.paint_texture,
-                params.tint_index,
-            )),
-            ..Default::default()
-        },
-        BlockType::Water => BlockData {
-            block_type: params.block_type,
-            water_type: Some(WaterType::from_u8(params.tint_index)),
-            ..Default::default()
-        },
-        BlockType::Model | BlockType::Air => return None,
-        other => BlockData::from(other),
-    };
-    Some(block)
-}
-
 // ── Thin `impl App` delegates ─────────────────────────────────────────────────
 //
 // Each method constructs a [`BlockInteractionContext`] from the relevant `App`
@@ -1148,71 +1105,5 @@ mod tests {
         assert!(should_place_inverted_stair(0, 0.5));
         // Just below boundary
         assert!(!should_place_inverted_stair(0, 0.4999));
-    }
-
-    // ── block_data_for_params: params → BlockData conversion (NET-001) ──────
-    //
-    // Exercises every per-type branch the shape-edit sync path can produce so
-    // the conversion cannot silently drift from `place_blocks_at_positions`.
-
-    use crate::chunk::{BlockPaintData, BlockType, WaterType};
-    use crate::net::protocol::BlockData;
-    use crate::placement::BlockPlacementParams;
-
-    #[test]
-    fn test_block_data_for_plain_block() {
-        // Stone / Dirt / etc. carry only the block_type.
-        let bd = block_data_for_params(BlockPlacementParams::new(BlockType::Stone, 0, 0))
-            .expect("plain block yields BlockData");
-        assert_eq!(bd, BlockData::from(BlockType::Stone));
-        assert!(bd.tint_index.is_none() && bd.paint_data.is_none() && bd.water_type.is_none());
-    }
-
-    #[test]
-    fn test_block_data_for_tinted_glass_and_crystal() {
-        for ty in [BlockType::TintedGlass, BlockType::Crystal] {
-            let bd = block_data_for_params(BlockPlacementParams::new(ty, 7, 0))
-                .expect("tinted block yields BlockData");
-            assert_eq!(bd.block_type, ty);
-            assert_eq!(bd.tint_index, Some(7));
-            assert!(bd.paint_data.is_none() && bd.water_type.is_none());
-        }
-    }
-
-    #[test]
-    fn test_block_data_for_painted() {
-        let bd = block_data_for_params(BlockPlacementParams::new(BlockType::Painted, 4, 9))
-            .expect("painted block yields BlockData");
-        assert_eq!(bd.block_type, BlockType::Painted);
-        // paint_data mirrors BlockPaintData::simple(texture, tint).
-        assert_eq!(bd.paint_data, Some(BlockPaintData::simple(9, 4)));
-        assert!(bd.tint_index.is_none() && bd.water_type.is_none());
-    }
-
-    #[test]
-    fn test_block_data_for_water_carries_source_type() {
-        // tint_index selects the WaterType; the receiver's apply path places
-        // the source from this field, so carrying it is load-bearing.
-        let bd = block_data_for_params(BlockPlacementParams::new(BlockType::Water, 2, 0))
-            .expect("water yields BlockData");
-        assert_eq!(bd.block_type, BlockType::Water);
-        assert_eq!(bd.water_type, Some(WaterType::River)); // from_u8(2) == River
-    }
-
-    #[test]
-    fn test_block_data_for_lava_is_plain() {
-        // Lava falls through to the plain-block branch (the client-side apply
-        // path has no Lava-specific source placement, matching single-block).
-        let bd = block_data_for_params(BlockPlacementParams::new(BlockType::Lava, 0, 0))
-            .expect("lava yields BlockData");
-        assert_eq!(bd, BlockData::from(BlockType::Lava));
-    }
-
-    #[test]
-    fn test_block_data_for_model_and_air_is_none() {
-        // place_blocks_at_positions skips Model and Air; sync must skip them
-        // too so they never appear in a BlocksChanged batch.
-        assert!(block_data_for_params(BlockPlacementParams::new(BlockType::Model, 0, 0)).is_none());
-        assert!(block_data_for_params(BlockPlacementParams::new(BlockType::Air, 0, 0)).is_none());
     }
 }

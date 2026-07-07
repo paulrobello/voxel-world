@@ -191,7 +191,18 @@ pub fn copy(
 
         // Place block
         world.set_block(dest_pos, block_data.block_type);
-        changed_blocks.push((dest_pos, block_data.block_type));
+        // Record the full per-block metadata (model/tint/paint/water) so the
+        // multiplayer sync re-applies the exact block that was copied.
+        changed_blocks.push((
+            dest_pos,
+            crate::net::protocol::BlockData {
+                block_type: block_data.block_type,
+                model_data: block_data.model_data,
+                paint_data: block_data.paint_data,
+                tint_index: block_data.tint_data,
+                water_type: block_data.water_data,
+            },
+        ));
         copied_count += 1;
 
         // Place metadata

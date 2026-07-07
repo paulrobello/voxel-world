@@ -97,7 +97,8 @@ pub fn render_hud(
             template_library: &ui.template_library,
             stencil_library: &ui.stencil_library,
             stencil_manager: &mut ui.stencil_manager,
-            water_grid: &sim.water_grid,
+            water_grid: &mut sim.water_grid,
+            lava_grid: &mut sim.lava_grid,
             picture_library: &sim.picture_library,
             active_placement: &mut ui.active_placement,
             active_stencil_placement: &mut ui.active_stencil_placement,
@@ -148,20 +149,24 @@ pub fn render_hud(
     // Handle multiplayer panel actions
     handle_multiplayer_action(multiplayer, &multiplayer_action, world_seed, world_gen);
 
-    // Sync console command block changes to multiplayer
+    // Sync console command block changes to multiplayer. Send one batched
+    // `BlocksChanged` per `MAX_BLOCKS_CHANGED`-entry chunk (instead of N single
+    // `send_place_block` calls) so console edits carrying tint/paint/water
+    // metadata reach other peers correctly and a large `/fill` doesn't flood.
     if multiplayer.is_connected() && !ui.console.pending_block_syncs.is_empty() {
         let block_changes = std::mem::take(&mut ui.console.pending_block_syncs);
         let count = block_changes.len();
-        for (pos, block_type) in block_changes {
-            // Create BlockData for the block type
-            let block_data = crate::net::protocol::BlockData {
-                block_type,
-                model_data: None,
-                paint_data: None,
-                tint_index: None,
-                water_type: None,
-            };
-            multiplayer.send_place_block([pos.x, pos.y, pos.z], block_data);
+        let batches = crate::console::build_blocks_changed_batches(block_changes);
+        if batches.len() > 1 {
+            log::warn!(
+                "[Multiplayer] Console edit produced {} block changes; sending in {} batches of at most {}",
+                count,
+                batches.len(),
+                crate::net::protocol::MAX_BLOCKS_CHANGED
+            );
+        }
+        for batch in batches {
+            multiplayer.send_blocks_changed(batch);
         }
         log::debug!(
             "[Multiplayer] Synced {} block changes from console commands",

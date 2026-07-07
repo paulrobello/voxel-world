@@ -63,7 +63,7 @@ pub enum CommandResult {
     /// These should be synced to the server in multiplayer mode.
     Success {
         message: String,
-        changed_blocks: Vec<(Vector3<i32>, crate::chunk::BlockType)>,
+        changed_blocks: Vec<(Vector3<i32>, crate::net::protocol::BlockData)>,
     },
     /// Command failed with error message.
     Error(String),
@@ -136,13 +136,37 @@ impl CommandResult {
     /// Create a success result with block changes (for world-modifying commands).
     pub fn success_with_blocks(
         message: impl Into<String>,
-        changed_blocks: Vec<(Vector3<i32>, crate::chunk::BlockType)>,
+        changed_blocks: Vec<(Vector3<i32>, crate::net::protocol::BlockData)>,
     ) -> Self {
         CommandResult::Success {
             message: message.into(),
             changed_blocks,
         }
     }
+}
+
+/// Chunk a drained `pending_block_syncs` list into `BlocksChanged` batches,
+/// each capped at [`MAX_BLOCKS_CHANGED`] entries, so a large console edit
+/// (`/fill` over a big region) syncs as one batched message per cap-sized chunk
+/// instead of N single-block messages, and never exceeds the server's per-message
+/// block limit. An empty input yields no batches.
+///
+/// Each `(Vector3<i32>, BlockData)` entry is converted to the wire tuple
+/// `([i32;3], BlockData)`; metadata (tint/paint/water_type) is preserved
+/// verbatim so remote peers re-apply the exact block the local player wrote.
+pub fn build_blocks_changed_batches(
+    changes: Vec<(Vector3<i32>, crate::net::protocol::BlockData)>,
+) -> Vec<crate::net::protocol::BlocksChanged> {
+    use crate::net::protocol::{BlocksChanged, MAX_BLOCKS_CHANGED};
+    changes
+        .chunks(MAX_BLOCKS_CHANGED)
+        .map(|chunk| BlocksChanged {
+            changes: chunk
+                .iter()
+                .map(|(pos, bd)| ([pos.x, pos.y, pos.z], bd.clone()))
+                .collect(),
+        })
+        .collect()
 }
 
 /// Pending command awaiting confirmation.
@@ -298,8 +322,10 @@ pub struct ConsoleState {
     /// Pending spawn position to set (from console command).
     pub pending_set_spawn_position: Option<[f64; 3]>,
     /// Pending block changes to sync to server in multiplayer mode.
-    /// Contains (position, block_type) pairs for each modified block.
-    pub pending_block_syncs: Vec<(Vector3<i32>, crate::chunk::BlockType)>,
+    /// Contains `(position, BlockData)` pairs for each modified block, carrying
+    /// full metadata (tint/paint/water_type) so remote peers re-apply the exact
+    /// block the local player wrote.
+    pub pending_block_syncs: Vec<(Vector3<i32>, crate::net::protocol::BlockData)>,
     /// Pending player name change to send to server.
     pub pending_set_player_name: Option<String>,
     /// Pending chat message to send to server.
@@ -948,7 +974,8 @@ impl ConsoleState {
         template_selection: &mut crate::templates::TemplateSelection,
         template_library: &crate::templates::TemplateLibrary,
         stencil_library: &crate::stencils::StencilLibrary,
-        water_grid: &crate::water::WaterGrid,
+        water_grid: &mut crate::water::WaterGrid,
+        lava_grid: &mut crate::lava::LavaGrid,
         picture_library: &crate::pictures::PictureLibrary,
         terrain_generator: &crate::terrain_gen::TerrainGenerator,
         author: &str,
@@ -979,6 +1006,7 @@ impl ConsoleState {
             template_library,
             stencil_library,
             water_grid,
+            lava_grid,
             picture_library,
             terrain_generator,
             author,
@@ -995,7 +1023,8 @@ impl ConsoleState {
         template_selection: &mut crate::templates::TemplateSelection,
         template_library: &crate::templates::TemplateLibrary,
         stencil_library: &crate::stencils::StencilLibrary,
-        water_grid: &crate::water::WaterGrid,
+        water_grid: &mut crate::water::WaterGrid,
+        lava_grid: &mut crate::lava::LavaGrid,
         picture_library: &crate::pictures::PictureLibrary,
         terrain_generator: &crate::terrain_gen::TerrainGenerator,
         author: &str,
@@ -1016,6 +1045,7 @@ impl ConsoleState {
                     template_library,
                     stencil_library,
                     water_grid,
+                    lava_grid,
                     picture_library,
                     terrain_generator,
                     author,
@@ -1035,6 +1065,7 @@ impl ConsoleState {
             template_library,
             stencil_library,
             water_grid,
+            lava_grid,
             picture_library,
             terrain_generator,
             false,
@@ -1053,7 +1084,8 @@ impl ConsoleState {
         template_selection: &mut crate::templates::TemplateSelection,
         template_library: &crate::templates::TemplateLibrary,
         stencil_library: &crate::stencils::StencilLibrary,
-        water_grid: &crate::water::WaterGrid,
+        water_grid: &mut crate::water::WaterGrid,
+        lava_grid: &mut crate::lava::LavaGrid,
         picture_library: &crate::pictures::PictureLibrary,
         terrain_generator: &crate::terrain_gen::TerrainGenerator,
         author: &str,
@@ -1066,6 +1098,7 @@ impl ConsoleState {
             template_library,
             stencil_library,
             water_grid,
+            lava_grid,
             picture_library,
             terrain_generator,
             true,
@@ -1235,7 +1268,8 @@ impl ConsoleState {
         template_selection: &mut crate::templates::TemplateSelection,
         template_library: &crate::templates::TemplateLibrary,
         stencil_library: &crate::stencils::StencilLibrary,
-        water_grid: &crate::water::WaterGrid,
+        water_grid: &mut crate::water::WaterGrid,
+        lava_grid: &mut crate::lava::LavaGrid,
         picture_library: &crate::pictures::PictureLibrary,
         terrain_generator: &crate::terrain_gen::TerrainGenerator,
         confirmed: bool,
@@ -1251,12 +1285,12 @@ impl ConsoleState {
 
         match cmd.as_str() {
             "help" | "?" => commands::help(),
-            "fill" => commands::fill(args, world, player_pos, confirmed),
+            "fill" => commands::fill(args, world, water_grid, lava_grid, player_pos, confirmed),
             "floodfill" | "flood_fill" | "ff" => {
                 commands::floodfill(args, world, player_pos, self.raycast_hit, confirmed)
             }
-            "sphere" => commands::sphere(args, world, player_pos, confirmed),
-            "boxme" => commands::boxme(args, world, player_pos, confirmed),
+            "sphere" => commands::sphere(args, world, water_grid, lava_grid, player_pos, confirmed),
+            "boxme" => commands::boxme(args, world, water_grid, lava_grid, player_pos, confirmed),
             "copy" => commands::copy(args, world, player_pos, confirmed),
             "tp" | "teleport" => commands::tp(args, player_pos),
             "locate" => commands::locate(args, player_pos, terrain_generator, world),
@@ -1446,5 +1480,91 @@ pub fn validate_y_bounds(y: i32) -> Option<String> {
         ))
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::chunk::{BlockPaintData, BlockType, WaterType};
+    use crate::net::protocol::{BlockData, MAX_BLOCKS_CHANGED};
+
+    /// Mixed-metadata console edit (stone + tinted glass + painted + water)
+    /// batch-builds into a single `BlocksChanged` preserving every field, so
+    /// remote peers re-apply tint/paint/water_type instead of bare block types
+    /// (the CON-001 regression).
+    #[test]
+    fn test_build_blocks_changed_batches_preserves_metadata() {
+        let entries: Vec<(Vector3<i32>, BlockData)> = vec![
+            (Vector3::new(1, 2, 3), BlockData::from(BlockType::Stone)),
+            (
+                Vector3::new(4, 5, 6),
+                BlockData {
+                    block_type: BlockType::TintedGlass,
+                    tint_index: Some(5),
+                    ..Default::default()
+                },
+            ),
+            (
+                Vector3::new(7, 8, 9),
+                BlockData {
+                    block_type: BlockType::Painted,
+                    paint_data: Some(BlockPaintData::simple(3, 9)),
+                    ..Default::default()
+                },
+            ),
+            (
+                Vector3::new(10, 11, 12),
+                BlockData {
+                    block_type: BlockType::Water,
+                    water_type: Some(WaterType::River),
+                    ..Default::default()
+                },
+            ),
+        ];
+        let batches = build_blocks_changed_batches(entries.clone());
+        assert_eq!(batches.len(), 1, "one batch for <= MAX entries");
+        assert_eq!(batches[0].changes.len(), 4);
+        // Position conversion Vector3 -> [i32;3] and metadata preserved verbatim.
+        assert_eq!(
+            batches[0].changes[0],
+            ([1, 2, 3], BlockData::from(BlockType::Stone))
+        );
+        assert_eq!(batches[0].changes[1].0, [4, 5, 6]);
+        assert_eq!(batches[0].changes[1].1.tint_index, Some(5));
+        assert_eq!(
+            batches[0].changes[2].1.paint_data,
+            Some(BlockPaintData::simple(3, 9))
+        );
+        assert_eq!(batches[0].changes[3].1.water_type, Some(WaterType::River));
+    }
+
+    /// Edits exceeding `MAX_BLOCKS_CHANGED` chunk into multiple capped batches
+    /// (nothing dropped) — the >MAX cap-handling required by CON-001.
+    #[test]
+    fn test_build_blocks_changed_batches_chunks_at_cap() {
+        let over = MAX_BLOCKS_CHANGED + 3;
+        let entries: Vec<(Vector3<i32>, BlockData)> = (0..over)
+            .map(|i| {
+                (
+                    Vector3::new(i as i32, 0, 0),
+                    BlockData::from(BlockType::Stone),
+                )
+            })
+            .collect();
+        let batches = build_blocks_changed_batches(entries);
+        assert_eq!(batches.len(), 2, "MAX + remainder splits into two batches");
+        assert_eq!(batches[0].changes.len(), MAX_BLOCKS_CHANGED);
+        assert_eq!(batches[1].changes.len(), 3);
+        // First and last positions are present (nothing dropped).
+        assert_eq!(batches[0].changes[0].0, [0, 0, 0]);
+        assert_eq!(batches[1].changes[2].0, [(over - 1) as i32, 0, 0]);
+    }
+
+    /// Empty input yields no batches (the hud.rs guard relies on this).
+    #[test]
+    fn test_build_blocks_changed_batches_empty() {
+        let batches = build_blocks_changed_batches(Vec::new());
+        assert!(batches.is_empty());
     }
 }

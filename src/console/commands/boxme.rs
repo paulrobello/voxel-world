@@ -4,6 +4,8 @@
 
 use super::fill;
 use crate::console::CommandResult;
+use crate::lava::LavaGrid;
+use crate::water::WaterGrid;
 use crate::world::World;
 use nalgebra::Vector3;
 
@@ -14,6 +16,8 @@ use nalgebra::Vector3;
 pub fn boxme(
     args: &[&str],
     world: &mut World,
+    water_grid: &mut WaterGrid,
+    lava_grid: &mut LavaGrid,
     player_pos: Vector3<i32>,
     confirmed: bool,
 ) -> CommandResult {
@@ -45,5 +49,7 @@ pub fn boxme(
         "hollow",
     ];
 
-    fill::fill(&fill_args, world, player_pos, confirmed)
+    fill::fill(
+        &fill_args, world, water_grid, lava_grid, player_pos, confirmed,
+    )
 }

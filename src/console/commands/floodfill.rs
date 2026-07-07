@@ -231,7 +231,7 @@ pub fn floodfill(
     let mut changed_blocks = Vec::new();
     for pos in &affected {
         world.set_block(*pos, target_block);
-        changed_blocks.push((*pos, target_block));
+        changed_blocks.push((*pos, crate::net::protocol::BlockData::from(target_block)));
         count += 1;
     }
 

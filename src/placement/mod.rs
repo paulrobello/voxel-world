@@ -6,7 +6,7 @@
 
 mod helpers;
 
-pub use helpers::{BlockPlacementParams, place_blocks_at_positions};
+pub use helpers::{BlockPlacementParams, block_data_for_params, place_blocks_at_positions};
 
 // Re-export per-tool placement modules (will be added as tools are refactored)
 // pub mod sphere;
