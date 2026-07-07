@@ -238,6 +238,21 @@ impl WorldSim {
             );
         }
 
+        // Persist custom models so their IDs survive library churn between
+        // sessions. Models are snapshotted in ID order (see
+        // [`ModelRegistry::to_world_store`]) so stored index i maps exactly to
+        // registry ID FIRST_CUSTOM_MODEL_ID + i. On reload, models.dat is loaded
+        // before the library so saved custom-model IDs stay stable.
+        let model_store = self.model_registry.to_world_store();
+        if let Err(e) = model_store.save(&self.world_dir) {
+            log::error!("[Storage] Failed to save model store: {}", e);
+        } else {
+            let count = model_store.len();
+            if count > 0 {
+                log::debug!("[Storage] Saved {} custom models", count);
+            }
+        }
+
         self.save_metadata(measurement_markers);
     }
 

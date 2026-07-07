@@ -288,7 +288,7 @@ impl ModelRegistry {
 
     /// Returns an iterator over custom (user-created) models.
     ///
-    /// Custom models have IDs >= FIRST_CUSTOM_MODEL_ID (161+).
+    /// Custom models have IDs >= FIRST_CUSTOM_MODEL_ID (176+).
     pub fn iter_custom_models(&self) -> impl Iterator<Item = &SubVoxelModel> {
         let start_id = FIRST_CUSTOM_MODEL_ID as usize;
         self.models.iter().skip(start_id)
@@ -302,6 +302,34 @@ impl ModelRegistry {
         } else {
             0
         }
+    }
+
+    /// Snapshots custom models (in ID order) into a `WorldModelStore` for
+    /// persistence to `models.dat`.
+    ///
+    /// The store assigns IDs as `first_custom_id + index`, which exactly matches
+    /// the registry's custom-model ID assignment (contiguous from
+    /// `FIRST_CUSTOM_MODEL_ID`) when iterated in ID order. The result is safe to
+    /// round-trip through `models.dat`: `store.models[i]` corresponds to registry
+    /// ID `FIRST_CUSTOM_MODEL_ID + i`.
+    ///
+    /// Custom IDs are contiguous by construction (`register()` always appends and
+    /// there is no public model-deletion API), so a length mismatch here would
+    /// indicate a gap in the custom-ID range and would corrupt `models.dat`
+    /// round-trips — caught by the `debug_assert!`.
+    pub fn to_world_store(&self) -> crate::storage::model_format::WorldModelStore {
+        let mut store = crate::storage::model_format::WorldModelStore::new(FIRST_CUSTOM_MODEL_ID);
+        for model in self.iter_custom_models() {
+            store.add_model(model, "world");
+        }
+        debug_assert_eq!(
+            store.len(),
+            self.custom_model_count(),
+            "custom model count mismatch: store {} vs registry {}",
+            store.len(),
+            self.custom_model_count()
+        );
+        store
     }
 
     /// Updates an existing model by name, or registers it as new.
@@ -342,6 +370,12 @@ impl ModelRegistry {
     ///
     /// Returns the number of models loaded, or an error if the directory
     /// cannot be read. Individual file errors are logged but don't stop loading.
+    ///
+    /// Idempotent: a library model whose `name` is already registered (e.g.
+    /// loaded earlier from `models.dat`) is skipped instead of re-registered
+    /// under a new ID. This makes the world-open sequence safe — `models.dat`
+    /// loads first with stable IDs, then the library only adds genuinely new
+    /// models at the next free IDs.
     pub fn load_library_models(&mut self, library_path: &Path) -> std::io::Result<usize> {
         use crate::storage::model_format::LibraryManager;
 
@@ -352,10 +386,15 @@ impl ModelRegistry {
         let library = LibraryManager::new(library_path);
         let model_names = library.list_models()?;
         let mut loaded = 0;
+        let mut skipped = 0;
 
         for name in model_names {
             match library.load_model(&name) {
                 Ok(model) => {
+                    if self.name_to_id.contains_key(&model.name) {
+                        skipped += 1;
+                        continue;
+                    }
                     if self.register(model).is_some() {
                         loaded += 1;
                     }
@@ -364,6 +403,13 @@ impl ModelRegistry {
                     log::warn!("Warning: Failed to load library model '{}': {}", name, e);
                 }
             }
+        }
+
+        if skipped > 0 {
+            log::debug!(
+                "[ModelRegistry] Skipped {} library models already registered",
+                skipped
+            );
         }
 
         Ok(loaded)
@@ -1449,5 +1495,154 @@ mod tests {
             initial_count,
             "re-registering identical palette should not allocate a new slot",
         );
+    }
+
+    /// MDL-001 acceptance test: custom-model IDs survive library churn across a
+    /// save/reload cycle when `models.dat` is the source of truth.
+    ///
+    /// Reproduces the bug scenario at the unit level:
+    ///   1. Register "Alpha" (ID = FIRST_CUSTOM_MODEL_ID) and "Beta" (ID + 1).
+    ///   2. Snapshot to `models.dat` via `to_world_store` + `save`.
+    ///   3. Rebuild the registry from `models.dat`, then load a library that has
+    ///      "Alpha" + a NEW "Gamma" but is MISSING "Beta".
+    ///   4. A saved reference to Beta's ID must still resolve to Beta, because
+    ///      `models.dat` carried it even though the library file was deleted.
+    #[test]
+    fn custom_model_ids_survive_library_churn_via_models_dat() {
+        use crate::storage::model_format::{LibraryManager, WorldModelStore};
+        use tempfile::tempdir;
+
+        let world_dir = tempdir().expect("tempdir").keep();
+
+        // --- Phase 1: register Alpha + Beta in the original session. ---
+        let mut reg = ModelRegistry::new();
+        assert_eq!(
+            reg.len(),
+            FIRST_CUSTOM_MODEL_ID as usize,
+            "builtins must fill 0..FIRST_CUSTOM_MODEL_ID"
+        );
+
+        let mut alpha = SubVoxelModel::new("Alpha");
+        alpha.set_voxel(0, 0, 0, 1);
+        let mut beta = SubVoxelModel::new("Beta");
+        beta.set_voxel(1, 0, 0, 2);
+
+        let alpha_id = reg.register(alpha).expect("register Alpha");
+        let beta_id = reg.register(beta).expect("register Beta");
+        assert_eq!(alpha_id, FIRST_CUSTOM_MODEL_ID);
+        assert_eq!(beta_id, FIRST_CUSTOM_MODEL_ID + 1);
+
+        // Snapshot + save models.dat.
+        let store = reg.to_world_store();
+        assert_eq!(store.len(), 2);
+        store.save(&world_dir).expect("save models.dat");
+
+        // --- Phase 2: rebuild registry from models.dat, then a churned library. ---
+        let mut reg2 = ModelRegistry::new();
+
+        let loaded = WorldModelStore::load(&world_dir)
+            .expect("load ok")
+            .expect("store present");
+        assert_eq!(loaded.len(), 2);
+        for (_id, model) in loaded.iter() {
+            reg2.register(model).expect("re-register from models.dat");
+        }
+        assert_eq!(reg2.get_id("Alpha"), Some(FIRST_CUSTOM_MODEL_ID));
+        assert_eq!(reg2.get_id("Beta"), Some(FIRST_CUSTOM_MODEL_ID + 1));
+
+        // Library now has Alpha (duplicate) + Gamma (new); Beta file deleted.
+        let lib_dir = tempdir().expect("lib tempdir").keep();
+        let lib = LibraryManager::new(&lib_dir);
+        lib.init().expect("init lib");
+        let mut alpha_lib = SubVoxelModel::new("Alpha");
+        alpha_lib.set_voxel(0, 0, 0, 1);
+        let mut gamma_lib = SubVoxelModel::new("Gamma");
+        gamma_lib.set_voxel(2, 0, 0, 3);
+        lib.save_model(&alpha_lib, "tester").expect("save Alpha");
+        lib.save_model(&gamma_lib, "tester").expect("save Gamma");
+
+        let loaded_count = reg2.load_library_models(&lib_dir).expect("load library");
+        // Alpha skipped (already from models.dat), Gamma newly loaded.
+        assert_eq!(loaded_count, 1, "only Gamma should be newly loaded");
+
+        // --- Phase 3: acceptance assertions. ---
+        // Alpha kept its ID despite the library still containing it.
+        assert_eq!(reg2.get_id("Alpha"), Some(FIRST_CUSTOM_MODEL_ID));
+        // Beta — whose library file was DELETED — still resolves at its saved ID
+        // because models.dat carried it. This is the core MDL-001 acceptance.
+        let beta_model = reg2
+            .get(FIRST_CUSTOM_MODEL_ID + 1)
+            .expect("Beta model present at saved ID");
+        assert_eq!(beta_model.name, "Beta");
+        assert_eq!(beta_model.get_voxel(1, 0, 0), 2);
+        // Gamma got the next free ID after the models.dat models.
+        assert_eq!(reg2.get_id("Gamma"), Some(FIRST_CUSTOM_MODEL_ID + 2));
+        // No duplicate IDs: exactly 3 custom models (Alpha, Beta, Gamma).
+        assert_eq!(reg2.len(), FIRST_CUSTOM_MODEL_ID as usize + 3);
+    }
+
+    /// `load_library_models` must be idempotent: calling it twice does not
+    /// duplicate models or shift IDs.
+    #[test]
+    fn load_library_models_is_idempotent() {
+        use crate::storage::model_format::LibraryManager;
+        use tempfile::tempdir;
+
+        let lib_dir = tempdir().expect("tempdir").keep();
+        let lib = LibraryManager::new(&lib_dir);
+        lib.init().expect("init lib");
+
+        let mut model = SubVoxelModel::new("Lamp");
+        model.set_voxel(0, 0, 0, 1);
+        lib.save_model(&model, "tester").expect("save");
+
+        let mut reg = ModelRegistry::new();
+        let first = reg.load_library_models(&lib_dir).expect("first load");
+        assert_eq!(first, 1);
+        let id_after_first = reg.get_id("Lamp").expect("Lamp registered");
+
+        let second = reg.load_library_models(&lib_dir).expect("second load");
+        assert_eq!(
+            second, 0,
+            "second load should skip the already-registered model"
+        );
+        let id_after_second = reg.get_id("Lamp").expect("Lamp still registered");
+        assert_eq!(
+            id_after_first, id_after_second,
+            "ID must not shift on reload"
+        );
+        assert_eq!(
+            reg.len(),
+            FIRST_CUSTOM_MODEL_ID as usize + 1,
+            "no duplicate model registered"
+        );
+    }
+
+    /// `to_world_store` produces a store aligned with the registry's custom IDs.
+    #[test]
+    fn to_world_store_aligns_with_registry_ids() {
+        use crate::storage::model_format::WorldModelStore;
+
+        let mut reg = ModelRegistry::new();
+        let mut a = SubVoxelModel::new("A");
+        a.set_voxel(0, 0, 0, 1);
+        let mut b = SubVoxelModel::new("B");
+        b.set_voxel(1, 0, 0, 2);
+        let a_id = reg.register(a).expect("register A");
+        let b_id = reg.register(b).expect("register B");
+
+        let store = reg.to_world_store();
+        assert_eq!(store.first_custom_id, FIRST_CUSTOM_MODEL_ID);
+        assert_eq!(store.len(), 2);
+        // Store index 0 -> registry FIRST_CUSTOM_MODEL_ID, index 1 -> +1.
+        let m0 = store.get_model(FIRST_CUSTOM_MODEL_ID).expect("model at A");
+        assert_eq!(m0.name, "A");
+        let m1 = store
+            .get_model(FIRST_CUSTOM_MODEL_ID + 1)
+            .expect("model at B");
+        assert_eq!(m1.name, "B");
+        // Out-of-range IDs return None.
+        assert!(store.get_model(a_id - 1).is_none());
+        assert!(store.get_model(b_id + 1).is_none());
     }
 }

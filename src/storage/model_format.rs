@@ -245,7 +245,11 @@ impl LibraryManager {
         Ok(vxm.to_model())
     }
 
-    /// Lists all available models in the library.
+    /// Lists all available models in the library, sorted by name.
+    ///
+    /// Filesystem readdir order is not stable across runs or platforms, so the
+    /// sort makes new-model ID assignment reproducible: a model added later
+    /// always lands at a deterministic position relative to existing entries.
     pub fn list_models(&self) -> io::Result<Vec<String>> {
         let mut names = Vec::new();
         if self.root_path.exists() {
@@ -259,6 +263,7 @@ impl LibraryManager {
                 }
             }
         }
+        names.sort();
         Ok(names)
     }
 
@@ -550,5 +555,29 @@ mod tests {
         // Out of range returns None
         assert!(loaded.get_model(38).is_none());
         assert!(loaded.get_model(41).is_none());
+    }
+
+    /// `list_models` returns names in deterministic sorted order regardless of
+    /// insertion order. This stabilizes new-model ID assignment across sessions.
+    #[test]
+    fn list_models_returns_sorted_output() {
+        let dir = tempdir().unwrap();
+        let manager = LibraryManager::new(dir.path());
+        manager.init().unwrap();
+
+        // Save models in non-sorted insertion order.
+        let mut zebra = SubVoxelModel::new("Zebra");
+        zebra.set_voxel(0, 0, 0, 1);
+        let mut apple = SubVoxelModel::new("Apple");
+        apple.set_voxel(0, 0, 0, 2);
+        let mut mango = SubVoxelModel::new("Mango");
+        mango.set_voxel(0, 0, 0, 3);
+
+        manager.save_model(&zebra, "tester").unwrap();
+        manager.save_model(&apple, "tester").unwrap();
+        manager.save_model(&mango, "tester").unwrap();
+
+        let listed = manager.list_models().unwrap();
+        assert_eq!(listed, vec!["Apple", "Mango", "Zebra"]);
     }
 }

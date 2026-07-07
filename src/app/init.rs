@@ -287,9 +287,39 @@ impl App {
             &render_pipeline,
         );
 
-        // Create model registry with built-in models and load library models
+        // Create model registry with built-in models.
         let mut model_registry = ModelRegistry::new();
         let library_path = user_models_dir();
+
+        // Load persisted custom models from models.dat BEFORE the library so saved
+        // custom-model IDs stay stable across library churn (MDL-001). Stored models
+        // are registered in order, reproducing their exact saved IDs (builtins
+        // already occupy 0..FIRST_CUSTOM_MODEL_ID; the first stored model lands at
+        // FIRST_CUSTOM_MODEL_ID, etc.).
+        match storage::model_format::WorldModelStore::load(&world_dir) {
+            Ok(Some(store)) => {
+                let count = store.len();
+                for (id, model) in store.iter() {
+                    if model_registry.register(model).is_none() {
+                        log::warn!(
+                            "[Init] Failed to re-register custom model id {} from models.dat (registry full?)",
+                            id
+                        );
+                    }
+                }
+                if count > 0 {
+                    log::debug!("[Init] Loaded {} custom models from models.dat", count);
+                }
+            }
+            Ok(None) => {}
+            Err(e) => {
+                log::warn!("[Init] Failed to load models.dat: {}", e);
+            }
+        }
+
+        // Load library models — idempotent: models already registered from
+        // models.dat are skipped, so only genuinely new models acquire the next
+        // free IDs.
         match model_registry.load_library_models(&library_path) {
             Ok(count) if count > 0 => {
                 log::debug!("Loaded {} custom models from library", count);
