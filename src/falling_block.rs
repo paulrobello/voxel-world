@@ -19,6 +19,52 @@ pub const MAX_FALLING_BLOCKS: usize = 256;
 /// gravity we can't have the two drift silently.
 pub const GRAVITY: f32 = 20.0;
 
+/// Maximum dt (seconds) fed into a single falling-block physics step.
+///
+/// Frame stalls (chunk generation, GPU uploads, window resize) can produce
+/// multi-hundred-millisecond frames. Feeding that directly to the sim lets a
+/// falling block skip the cell it should have landed on (PHY-004 tunneling).
+/// The update loop clamps the raw frame dt to this before integrating, giving
+/// a 20 fps simulation floor regardless of render hitches.
+pub const MAX_PHYSICS_DT: f32 = 0.05; // 50 ms
+
+/// Hard cap on how many cells a falling block may descend in one step.
+///
+/// `FallingBlock::update` samples a single cell at the block's new bottom
+/// edge for collision, so the per-step fall must stay at 1 cell or a thin
+/// floor between the old and new positions can be skipped. The terminal
+/// velocity below is derived from this: at the max substep (`MAX_PHYSICS_DT`)
+/// a block at terminal velocity moves exactly this many cells.
+pub const MAX_FALL_CELLS_PER_STEP: i32 = 1;
+
+/// Terminal downward velocity in cells per second.
+///
+/// `MAX_FALL_CELLS_PER_STEP / MAX_PHYSICS_DT` = 1 / 0.05 = 20 cells/s. Even a
+/// pathological dt cannot push a block further than `MAX_FALL_CELLS_PER_STEP`
+/// per step because downward velocity is clamped to this before integration.
+pub const MAX_FALL_VELOCITY: f32 = MAX_FALL_CELLS_PER_STEP as f32 / MAX_PHYSICS_DT;
+
+/// Decomposes a raw frame dt into physics substeps (PHY-004).
+///
+/// Clamps the total to `MAX_PHYSICS_DT` so a frame stall doesn't simulate
+/// hundreds of milliseconds of physics at once, then splits the clamped total
+/// into `N` equal substeps each `≤ MAX_PHYSICS_DT` that sum exactly to the
+/// clamped total (no simulated time lost to substep rounding). Returns the
+/// substeps and the clamped total so callers can log how much was dropped.
+///
+/// With the clamp in place `N` is normally 1; the loop generalizes so that
+/// raising `MAX_PHYSICS_DT` or calling with a larger dt still produces
+/// correctly-sized substeps instead of a single oversized step.
+pub fn physics_substeps(raw_dt: f32) -> (Vec<f32>, f32) {
+    let clamped = raw_dt.clamp(0.0, MAX_PHYSICS_DT);
+    if clamped <= 0.0 {
+        return (Vec::new(), 0.0);
+    }
+    let n = ((clamped / MAX_PHYSICS_DT).ceil() as usize).max(1);
+    let sub = clamped / n as f32;
+    (vec![sub; n], clamped)
+}
+
 /// A single falling block entity.
 #[derive(Debug, Clone, Copy)]
 pub struct FallingBlock {
@@ -60,6 +106,14 @@ impl FallingBlock {
 
         // Apply gravity
         self.velocity.y -= GRAVITY * delta_time;
+
+        // Terminal velocity backstop (PHY-004): cap downward speed so the
+        // single-cell collision check below can never skip a floor cell, even
+        // if delta_time is larger than expected. At MAX_PHYSICS_DT this limits
+        // the per-step fall to MAX_FALL_CELLS_PER_STEP.
+        if self.velocity.y < -MAX_FALL_VELOCITY {
+            self.velocity.y = -MAX_FALL_VELOCITY;
+        }
 
         // Calculate new position
         let new_pos = self.position + self.velocity * delta_time;
@@ -399,5 +453,74 @@ mod tests {
 
         // Removing non-existent ID should return false
         assert!(!system.remove_by_id(999));
+    }
+
+    #[test]
+    fn test_physics_substeps_clamps_large_dt() {
+        // PHY-004: a 500 ms frame stall is clamped to MAX_PHYSICS_DT (50 ms)
+        // and the substeps each stay ≤ MAX_PHYSICS_DT while summing exactly
+        // to the clamped total (no simulated time lost to rounding).
+        let (substeps, clamped) = physics_substeps(0.500);
+        assert!(
+            (clamped - MAX_PHYSICS_DT).abs() < 1e-6,
+            "raw dt clamped to MAX_PHYSICS_DT, got {clamped}"
+        );
+        assert!(substeps.iter().all(|&s| s <= MAX_PHYSICS_DT + 1e-6));
+        let sum: f32 = substeps.iter().sum();
+        assert!(
+            (sum - clamped).abs() < 1e-6,
+            "substeps sum to clamped total"
+        );
+        assert!(!substeps.is_empty());
+    }
+
+    #[test]
+    fn test_physics_substeps_preserves_small_dt() {
+        // A normal 60 fps frame dt passes through as a single substep.
+        let (substeps, clamped) = physics_substeps(0.016);
+        assert!((clamped - 0.016).abs() < 1e-6);
+        assert_eq!(substeps.len(), 1);
+        assert!((substeps[0] - 0.016).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_terminal_velocity_caps_per_step_fall() {
+        // PHY-004 backstop: even with a pathological downward velocity and a
+        // max-sized substep, a single update() call cannot move the block
+        // more than MAX_FALL_CELLS_PER_STEP cells downward.
+        let mut fb = FallingBlock::new(1, Vector3::new(0.5, 100.5, 0.5), BlockType::Sand);
+        fb.velocity.y = -1000.0; // far beyond terminal velocity
+        let before = fb.position.y;
+        fb.update(MAX_PHYSICS_DT, |_, _, _| false); // open space, no landing
+        let fallen = before - fb.position.y;
+        assert!(
+            fallen <= MAX_FALL_CELLS_PER_STEP as f32 + 1e-5,
+            "fell {fallen} cells in one step, cap is {MAX_FALL_CELLS_PER_STEP}"
+        );
+    }
+
+    #[test]
+    fn test_no_tunnel_through_floor_with_large_dt() {
+        // PHY-004: a fast-falling block given a pathological dt must still
+        // land ON a solid floor instead of skipping past it.
+        //
+        // Without the terminal-velocity cap, velocity=-1000 with dt=0.05
+        // integrates to a ~50-cell step; the single-cell collision check at
+        // the new bottom edge reads a cell far below y=0 and misses the floor
+        // entirely (tunnel). With MAX_FALL_VELOCITY the step is clamped to
+        // MAX_FALL_CELLS_PER_STEP so the probe always samples the cell
+        // directly below the block and the floor is detected.
+        let mut fb = FallingBlock::new(1, Vector3::new(0.5, 1.5, 0.5), BlockType::Sand);
+        fb.velocity.y = -1000.0;
+        let result = fb.update(0.05, |_, y, _| y == 0); // solid floor at y=0
+        assert!(
+            result.is_some(),
+            "must detect the floor instead of tunneling through it"
+        );
+        let land_pos = result.unwrap();
+        assert_eq!(
+            land_pos.y, 1,
+            "lands ON top of the floor (y=0), not below it"
+        );
     }
 }

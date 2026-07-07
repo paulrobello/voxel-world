@@ -668,11 +668,28 @@ impl App {
         // Server-authoritative: Only process physics on server (host) or in single-player
         // Pure clients only spawn/render falling blocks based on network messages
         if !self.multiplayer.is_client() {
+            // PHY-004: clamp + substep the falling-block dt so a frame stall
+            // (chunk gen, GPU upload, window resize) can't make a block skip the
+            // cell it should have landed on. Total simulated time is clamped to
+            // MAX_PHYSICS_DT (20 fps floor) and split into substeps each
+            // ≤ MAX_PHYSICS_DT; per-step fall is additionally bounded by
+            // MAX_FALL_VELOCITY in falling_block.rs.
+            let raw_dt = delta_time as f32;
+            let (substeps, clamped_total) = crate::falling_block::physics_substeps(raw_dt);
+            if raw_dt > crate::falling_block::MAX_PHYSICS_DT
+                && (self.args.verbose || self.ui.frame.total_frames.is_multiple_of(60))
+            {
+                log::warn!(
+                    "[Physics] Frame dt {:.1}ms exceeds {:.0}ms cap; simulating {:.1}ms of falling-block physics (PHY-004)",
+                    raw_dt * 1000.0,
+                    crate::falling_block::MAX_PHYSICS_DT * 1000.0,
+                    clamped_total * 1000.0,
+                );
+            }
             // Note: X and Z can be any value in an infinite world, only Y has bounds
-            let landed = self
-                .sim
-                .falling_blocks
-                .update(delta_time as f32, |x, y, z| {
+            let mut landed = Vec::new();
+            for sub_dt in &substeps {
+                let step_landed = self.sim.falling_blocks.update(*sub_dt, |x, y, z| {
                     // Y bounds check only (X and Z are infinite)
                     if y < 0 || y >= TEXTURE_SIZE_Y as i32 {
                         return false;
@@ -682,6 +699,8 @@ impl App {
                         .get_block(Vector3::new(x, y, z))
                         .is_some_and(|b| b.is_solid())
                 });
+                landed.extend(step_landed);
+            }
 
             // Process any blocks that have landed
             if !landed.is_empty() {
