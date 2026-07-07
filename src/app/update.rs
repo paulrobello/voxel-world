@@ -699,36 +699,49 @@ impl App {
             }
         }
 
-        // Process incoming falling block messages from server (client-side)
-        if self.multiplayer.has_pending_falling_block_spawns() {
-            for spawn in self.multiplayer.take_pending_falling_block_spawns() {
-                // Spawn falling block from network message with server's entity ID
-                let grid_pos = Vector3::new(
-                    spawn.position[0].floor() as i32,
-                    spawn.position[1].floor() as i32,
-                    spawn.position[2].floor() as i32,
-                );
-                self.sim
-                    .falling_blocks
-                    .spawn_with_id(spawn.entity_id, grid_pos, spawn.block_type);
+        // Process incoming falling block messages from server (remote clients only).
+        // The host runs the authoritative sim above and broadcasts landings to
+        // clients; because it is also a loopback client it would otherwise
+        // receive its own landing broadcasts and double-place blocks via the
+        // network-consume path. Single player has no pending network messages,
+        // so the guard is a no-op there.
+        if self.multiplayer.is_client() {
+            if self.multiplayer.has_pending_falling_block_spawns() {
+                for spawn in self.multiplayer.take_pending_falling_block_spawns() {
+                    // Spawn falling block from network message with server's entity ID
+                    let grid_pos = Vector3::new(
+                        spawn.position[0].floor() as i32,
+                        spawn.position[1].floor() as i32,
+                        spawn.position[2].floor() as i32,
+                    );
+                    self.sim.falling_blocks.spawn_with_id(
+                        spawn.entity_id,
+                        grid_pos,
+                        spawn.block_type,
+                    );
+                }
             }
-        }
 
-        // Process incoming landing messages from server (client-side)
-        if self.multiplayer.has_pending_falling_block_lands() {
-            let mut all_landed = Vec::new();
-            for land in self.multiplayer.take_pending_falling_block_lands() {
-                // Remove the falling block by entity ID
-                self.sim.falling_blocks.remove_by_id(land.entity_id);
+            // Process incoming landing messages from server
+            if self.multiplayer.has_pending_falling_block_lands() {
+                let mut all_landed = Vec::new();
+                for land in self.multiplayer.take_pending_falling_block_lands() {
+                    // Remove the falling block by entity ID
+                    self.sim.falling_blocks.remove_by_id(land.entity_id);
 
-                all_landed.push(crate::falling_block::LandedBlock {
-                    entity_id: land.entity_id,
-                    position: Vector3::new(land.position[0], land.position[1], land.position[2]),
-                    block_type: land.block_type,
-                });
-            }
-            if !all_landed.is_empty() {
-                self.process_landed_blocks(all_landed);
+                    all_landed.push(crate::falling_block::LandedBlock {
+                        entity_id: land.entity_id,
+                        position: Vector3::new(
+                            land.position[0],
+                            land.position[1],
+                            land.position[2],
+                        ),
+                        block_type: land.block_type,
+                    });
+                }
+                if !all_landed.is_empty() {
+                    self.process_landed_blocks(all_landed);
+                }
             }
         }
 
