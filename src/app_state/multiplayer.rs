@@ -1165,6 +1165,29 @@ impl MultiplayerState {
                     );
                     return;
                 }
+                // SEC-M01: reach check. Reject bulk ops whose entire region
+                // is far from the sender. Mirrors NET-001's bulk-edit reach
+                // policy: 3× single-block reach, accepted if any one corner
+                // of the region is in range.
+                let reach_ok = if let Some(ref server) = self.server {
+                    if let Some(player_info) = server.get_player(client_id) {
+                        let reach = self.block_validator.max_placement_distance() * 3.0;
+                        op.validate_reach(player_info.position, reach).is_ok()
+                    } else {
+                        false
+                    }
+                } else {
+                    // Threaded-server mode: skip (mirrors the PlaceBlock TODO).
+                    true
+                };
+                if !reach_ok {
+                    log::warn!(
+                        "[Server] Rejected BulkOperation from client {}: \
+                         region entirely outside build reach",
+                        client_id
+                    );
+                    return;
+                }
                 // Materialize the operation into concrete (pos, block) pairs.
                 // Fill / Replace produce ≤ MAX_BULK_FILL_VOLUME entries;
                 // Template is not yet implemented server-side because the

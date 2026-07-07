@@ -276,6 +276,15 @@ impl BlockValidator {
         }
     }
 
+    /// Returns the configured single-block placement reach.
+    ///
+    /// SEC-M01: BulkOperation reach uses `max_placement_distance × scale`
+    /// (scale mirrors NET-001's bulk-edit factor of 3.0) so the bulk reach
+    /// policy stays derived from one source of truth.
+    pub fn max_placement_distance(&self) -> f32 {
+        self.max_placement_distance
+    }
+
     /// Validates a block placement.
     /// Returns Ok(()) if valid, Err with reason if invalid.
     pub fn validate_placement(

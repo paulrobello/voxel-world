@@ -269,6 +269,58 @@ impl BulkOperation {
         }
         Ok(())
     }
+
+    /// SEC-M01: server-side reach check for a `BulkOperation`.
+    ///
+    /// `validate()` only checks volume/name/bounds; it has no player position,
+    /// so the reach check runs at the server apply site where the sender's
+    /// position is known. Returns `Ok(())` when at least one corner of the
+    /// operation's region (or the single `Template` position) is within
+    /// `reach` blocks of `player_pos`. This mirrors NET-001's
+    /// `BlockValidator::validate_bulk_reach`: a batch anchored near the
+    /// player passes; a batch aimed entirely far away is rejected wholesale.
+    ///
+    /// Callers pass `single_block_reach × scale` — e.g.
+    /// `BlockValidator::max_placement_distance() * 3.0` — to match the
+    /// bulk-edit reach policy. This method is self-contained so
+    /// `BulkOperation` (in `protocol.rs`) does not depend on the validator
+    /// type.
+    pub fn validate_reach(&self, player_pos: [f32; 3], reach: f32) -> Result<(), &'static str> {
+        let reach_sq = reach * reach;
+        let anchors: [[i32; 3]; 8] = match self {
+            BulkOperation::Fill { start, end, .. } | BulkOperation::Replace { start, end, .. } => {
+                // Inclusive bounding-box corners (endpoints may be reversed).
+                let (sx, ex) = (start[0].min(end[0]), start[0].max(end[0]));
+                let (sy, ey) = (start[1].min(end[1]), start[1].max(end[1]));
+                let (sz, ez) = (start[2].min(end[2]), start[2].max(end[2]));
+                [
+                    [sx, sy, sz],
+                    [ex, sy, sz],
+                    [sx, ey, sz],
+                    [ex, ey, sz],
+                    [sx, sy, ez],
+                    [ex, sy, ez],
+                    [sx, ey, ez],
+                    [ex, ey, ez],
+                ]
+            }
+            BulkOperation::Template { position, .. } => [
+                *position, *position, *position, *position, *position, *position, *position,
+                *position,
+            ],
+        };
+        let any_in_reach = anchors.iter().any(|pos| {
+            let dx = pos[0] as f32 - player_pos[0];
+            let dy = pos[1] as f32 - player_pos[1];
+            let dz = pos[2] as f32 - player_pos[2];
+            dx * dx + dy * dy + dz * dz <= reach_sq
+        });
+        if any_in_reach {
+            Ok(())
+        } else {
+            Err("BulkOperation region entirely outside build reach")
+        }
+    }
 }
 
 /// Request chunks from the server.
@@ -2108,5 +2160,67 @@ mod tests {
             }
             _ => panic!("Expected TemplateLoaded"),
         }
+    }
+
+    /// SEC-M01: a BulkOperation Fill whose entire region is far from the
+    /// sender is rejected; one anchored near the player is accepted.
+    #[test]
+    fn test_bulk_operation_validate_reach_fill() {
+        let far = BulkOperation::Fill {
+            start: [10_000, 100, 10_000],
+            end: [10_005, 100, 10_005],
+            block: BlockData::from(BlockType::Stone),
+        };
+        let near = BulkOperation::Fill {
+            start: [-2, 0, -2],
+            end: [2, 0, 2],
+            block: BlockData::from(BlockType::Stone),
+        };
+        let player_pos = [0.0, 0.0, 0.0];
+        // Mirrors the production reach: 6.0 single-block reach × 3.0 scale = 18.0.
+        let reach = 18.0;
+
+        assert!(
+            far.validate_reach(player_pos, reach).is_err(),
+            "far-away Fill must be rejected"
+        );
+        assert!(
+            near.validate_reach(player_pos, reach).is_ok(),
+            "nearby Fill must be accepted"
+        );
+    }
+
+    /// SEC-M01: the region only needs one corner in reach. A Fill whose near
+    /// edge touches the player's reach bubble passes even though most of the
+    /// volume is outside it.
+    #[test]
+    fn test_bulk_operation_validate_reach_one_corner_in_range() {
+        // Volume spans from inside the 18-block bubble out past it.
+        let op = BulkOperation::Fill {
+            start: [0, 0, 0],
+            end: [1_000, 0, 1_000],
+            block: BlockData::from(BlockType::Stone),
+        };
+        assert!(
+            op.validate_reach([0.0, 0.0, 0.0], 18.0).is_ok(),
+            "any single corner in reach must accept the whole op"
+        );
+    }
+
+    /// SEC-M01: a Template placement uses its single position as the anchor.
+    #[test]
+    fn test_bulk_operation_validate_reach_template() {
+        let far = BulkOperation::Template {
+            position: [5_000, 64, 5_000],
+            template_name: "t".into(),
+            rotation: 0,
+        };
+        let near = BulkOperation::Template {
+            position: [5, 64, 5],
+            template_name: "t".into(),
+            rotation: 0,
+        };
+        assert!(far.validate_reach([0.0, 64.0, 0.0], 18.0).is_err());
+        assert!(near.validate_reach([0.0, 64.0, 0.0], 18.0).is_ok());
     }
 }

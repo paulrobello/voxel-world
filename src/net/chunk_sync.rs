@@ -15,6 +15,22 @@ use crate::chunk::{
 use crate::net::protocol::RequestChunks;
 use lz4_flex::{compress_prepend_size, decompress_size_prepended};
 
+/// Upper bound on the decompressed size of an inbound serialized chunk.
+///
+/// SEC-001: `decompress_size_prepended` allocates a `Vec` sized by the 4-byte
+/// LZ4 size header *before* decompressing. A hostile peer can send a tiny
+/// packet whose header claims gigabytes, OOMing the receiver. We read the
+/// header ourselves and reject anything above this cap prior to allocation.
+///
+/// Derived from the wire format in `SerializedChunk::compress`: `CHUNK_VOLUME`
+/// bytes of block ids plus up to four sparse channels (each a 2-byte count +
+/// per-entry bytes). A block lives in at most one channel, and the largest
+/// entry is a model record at 9 bytes, so the structural worst case is
+/// `CHUNK_VOLUME + 4×2 + CHUNK_VOLUME×9 ≈ 320 KiB`. 1 MiB gives ~3× headroom
+/// for future format additions while staying 8× tighter than
+/// `MAX_INBOUND_MESSAGE_SIZE` (8 MiB) and firmly bounding attacker allocation.
+const MAX_INBOUND_CHUNK_DECOMPRESSED_SIZE: usize = 1024 * 1024;
+
 /// Priority level for chunk requests.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ChunkPriority {
@@ -488,8 +504,25 @@ impl SerializedChunk {
 
     /// Decompresses chunk data from network transmission.
     /// Returns a SerializedChunk ready for conversion to a Chunk.
+    ///
+    /// SEC-001: the LZ4 size header is read and bounds-checked *before* any
+    /// allocation so a hostile peer can't claim gigabytes in the 4-byte
+    /// prefix and OOM us. See `MAX_INBOUND_CHUNK_DECOMPRESSED_SIZE`.
     pub fn decompress(compressed_data: &[u8]) -> Result<Self, &'static str> {
-        // Decompress with LZ4
+        if compressed_data.len() < 4 {
+            return Err("Compressed chunk data too short for LZ4 size header");
+        }
+        let declared_size = u32::from_le_bytes([
+            compressed_data[0],
+            compressed_data[1],
+            compressed_data[2],
+            compressed_data[3],
+        ]) as usize;
+        if declared_size > MAX_INBOUND_CHUNK_DECOMPRESSED_SIZE {
+            return Err("Decompressed chunk size exceeds inbound cap");
+        }
+
+        // Allocation is now bounded by the cap above.
         let raw = decompress_size_prepended(compressed_data)
             .map_err(|_| "Failed to decompress chunk data")?;
 
@@ -768,5 +801,50 @@ mod tests {
         let positions: Vec<[i32; 3]> = manager.pending_requests.keys().copied().collect();
         manager.cancel_requests(&positions);
         assert_eq!(manager.pending_count(), 0);
+    }
+
+    /// SEC-001: a forged payload whose 4-byte LZ4 size header claims a huge
+    /// decompressed size must be rejected *before* allocation, without
+    /// allocating/OOMing. If the cap guard regresses, `decompress_size_prepended`
+    /// would attempt the claimed allocation here and the test would fail (or
+    /// the process would OOM) rather than returning our `Err`.
+    #[test]
+    fn test_decompress_rejects_decompression_bomb() {
+        let mut bomb = Vec::new();
+        // Header claims 2 GiB of decompressed output.
+        bomb.extend_from_slice(&(2u32 * 1024 * 1024 * 1024).to_le_bytes());
+        // Tiny body, nowhere near the claimed size.
+        bomb.extend_from_slice(&[0u8; 16]);
+
+        let err = SerializedChunk::decompress(&bomb).unwrap_err();
+        assert!(
+            err.contains("inbound cap"),
+            "decompression bomb must be rejected by the cap guard, got: {err}"
+        );
+    }
+
+    /// SEC-001: a payload too short to even contain the 4-byte size header
+    /// is rejected cleanly.
+    #[test]
+    fn test_decompress_rejects_short_payload() {
+        let err = SerializedChunk::decompress(&[0u8; 2]).unwrap_err();
+        assert!(err.contains("size header"), "got: {err}");
+    }
+
+    /// SEC-001 regression: the happy path still round-trips after the guard.
+    #[test]
+    fn test_decompress_round_trip_after_guard() {
+        let original = SerializedChunk {
+            position: [0, 0, 0],
+            version: 1,
+            blocks: vec![0u8; CHUNK_VOLUME],
+            model_data: vec![],
+            paint_data: vec![],
+            tint_data: vec![],
+            water_data: vec![],
+        };
+        let compressed = original.compress().unwrap();
+        let back = SerializedChunk::decompress(&compressed).unwrap();
+        assert_eq!(back.blocks.len(), CHUNK_VOLUME);
     }
 }
