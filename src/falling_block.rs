@@ -210,12 +210,11 @@ impl FallingBlockSystem {
             return None;
         }
 
-        // Generate entity ID
+        // PHY-002: the local counter is the sole allocator for locally-spawned
+        // blocks. `advance_counter_past` preserves the 0-reserved and wrap
+        // invariants.
         let entity_id = self.next_entity_id;
-        self.next_entity_id = self.next_entity_id.wrapping_add(1);
-        if self.next_entity_id == 0 {
-            self.next_entity_id = 1; // Skip 0
-        }
+        self.advance_counter_past(entity_id);
 
         // Convert grid position to center of block
         let center = Vector3::new(
@@ -224,14 +223,39 @@ impl FallingBlockSystem {
             grid_position.z as f32 + 0.5,
         );
 
-        self.blocks
-            .push(FallingBlock::new(entity_id, center, block_type));
+        // Defensive guard: the monotonic counter should make a live collision
+        // impossible in normal operation (only reachable via a u32 wrap past
+        // MAX). Replace the stale entry instead of producing a duplicate.
+        let existing = self.blocks.iter().position(|fb| fb.entity_id == entity_id);
+        debug_assert!(
+            existing.is_none(),
+            "spawn allocated entity_id {} that was already live",
+            entity_id
+        );
+        if let Some(idx) = existing {
+            log::warn!(
+                "[FallingBlockSystem] entity_id {} collision on local spawn; replacing stale entry",
+                entity_id
+            );
+            self.blocks[idx] = FallingBlock::new(entity_id, center, block_type);
+        } else {
+            self.blocks
+                .push(FallingBlock::new(entity_id, center, block_type));
+        }
         Some(entity_id)
     }
 
-    /// Spawns a falling block with a specific entity ID (for network sync).
+    /// Spawns a falling block with a server-supplied entity ID (network sync).
     ///
-    /// Used by clients when receiving spawn messages from server.
+    /// PHY-002: the server's ID is authoritative, so we adopt it — but we must
+    /// also ensure future local `spawn` calls never reuse it. We advance the
+    /// local counter past `entity_id`, keeping the locally-allocated range
+    /// disjoint from every network-adopted ID.
+    ///
+    /// If a block with this ID is already live (legitimate under re-broadcasts
+    /// or retries), the stale entry is replaced rather than appending a
+    /// duplicate — preserving the "one live block per ID" invariant that
+    /// `remove_by_id` relies on.
     pub fn spawn_with_id(
         &mut self,
         entity_id: u32,
@@ -242,6 +266,10 @@ impl FallingBlockSystem {
             return false;
         }
 
+        // Adopt the server ID and move the local counter past it so future
+        // local spawns cannot collide with this network-spawned block.
+        self.advance_counter_past(entity_id);
+
         // Convert grid position to center of block
         let center = Vector3::new(
             grid_position.x as f32 + 0.5,
@@ -249,9 +277,26 @@ impl FallingBlockSystem {
             grid_position.z as f32 + 0.5,
         );
 
-        self.blocks
-            .push(FallingBlock::new(entity_id, center, block_type));
+        if let Some(idx) = self.blocks.iter().position(|fb| fb.entity_id == entity_id) {
+            log::warn!(
+                "[FallingBlockSystem] spawn_with_id for already-live entity_id {}; replacing stale entry",
+                entity_id
+            );
+            self.blocks[idx] = FallingBlock::new(entity_id, center, block_type);
+        } else {
+            self.blocks
+                .push(FallingBlock::new(entity_id, center, block_type));
+        }
         true
+    }
+
+    /// PHY-002: advances `next_entity_id` past `id` so no future local `spawn`
+    /// ever reuses `id`. Preserves the "0 is reserved" invariant and the u32
+    /// wrap-around behavior (after `u32::MAX` the counter wraps to 1, not 0).
+    fn advance_counter_past(&mut self, id: u32) {
+        let after = id.wrapping_add(1);
+        let after = if after == 0 { 1 } else { after };
+        self.next_entity_id = self.next_entity_id.max(after);
     }
 
     /// Removes a falling block by entity ID (for network sync).
@@ -522,5 +567,92 @@ mod tests {
             land_pos.y, 1,
             "lands ON top of the floor (y=0), not below it"
         );
+    }
+
+    #[test]
+    fn test_local_spawn_ids_are_strictly_increasing_and_unique() {
+        // PHY-002: local spawn() is the authoritative allocator and must never
+        // reuse or backtrack on an ID.
+        let mut system = FallingBlockSystem::new();
+        let mut prev = 0u32;
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..64 {
+            let id = system
+                .spawn(Vector3::new(0, 0, 0), BlockType::Sand)
+                .expect("spawn succeeds under MAX_FALLING_BLOCKS");
+            assert!(id > prev, "id {id} not strictly greater than prev {prev}");
+            assert!(seen.insert(id), "id {id} was allocated twice");
+            prev = id;
+        }
+    }
+
+    #[test]
+    fn test_spawn_with_id_advances_counter_past_server_id() {
+        // PHY-002: adopting a server-supplied ID must advance the local counter
+        // past it so the next local spawn can never collide.
+        let mut system = FallingBlockSystem::new();
+        let server_id = 999u32;
+        assert!(system.spawn_with_id(server_id, Vector3::new(5, 10, 3), BlockType::Sand));
+
+        let next_local = system
+            .spawn(Vector3::new(6, 10, 3), BlockType::Sand)
+            .unwrap();
+        assert!(
+            next_local > server_id,
+            "local id {next_local} must be > server_id {server_id} to avoid collision"
+        );
+
+        // Subsequent local spawns keep strictly increasing.
+        let next_local2 = system
+            .spawn(Vector3::new(7, 10, 3), BlockType::Sand)
+            .unwrap();
+        assert!(next_local2 > next_local);
+    }
+
+    #[test]
+    fn test_spawn_with_id_replaces_stale_live_block() {
+        // PHY-002: a duplicate spawn_with_id (re-broadcast / retry) must not
+        // leave two live blocks sharing an ID. The stale entry is replaced.
+        let mut system = FallingBlockSystem::new();
+        let id = 42u32;
+        assert!(system.spawn_with_id(id, Vector3::new(1, 5, 1), BlockType::Sand));
+        assert_eq!(system.count(), 1);
+
+        // Same ID again — must replace, not append.
+        assert!(system.spawn_with_id(id, Vector3::new(2, 6, 2), BlockType::Gravel));
+        assert_eq!(system.count(), 1);
+
+        // Exactly one block live for this ID.
+        assert_eq!(system.gpu_data().len(), 1);
+    }
+
+    #[test]
+    fn test_remove_by_id_targets_correct_block_after_network_spawn() {
+        // PHY-002: after a server-ID spawn followed by local spawns, a
+        // remove_by_id for the server ID must remove exactly the right block
+        // and leave the others intact — this is the invariant that was broken
+        // by the old collision-prone allocator.
+        let mut system = FallingBlockSystem::new();
+        let server_id = 500u32;
+        assert!(system.spawn_with_id(server_id, Vector3::new(0, 0, 0), BlockType::Sand));
+        let local1 = system
+            .spawn(Vector3::new(1, 0, 0), BlockType::Sand)
+            .unwrap();
+        let local2 = system
+            .spawn(Vector3::new(2, 0, 0), BlockType::Sand)
+            .unwrap();
+        assert_ne!(local1, server_id);
+        assert_ne!(local2, server_id);
+        assert_ne!(local1, local2);
+        assert_eq!(system.count(), 3);
+
+        // Remove the server-spawned block by ID; locals are unaffected.
+        assert!(system.remove_by_id(server_id));
+        assert_eq!(system.count(), 2);
+        assert!(system.remove_by_id(local1));
+        assert!(system.remove_by_id(local2));
+        assert_eq!(system.count(), 0);
+        // Server ID already gone — second removal must report no-op.
+        assert!(!system.remove_by_id(server_id));
     }
 }
