@@ -1,92 +1,304 @@
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Result as IoResult, Seek, SeekFrom, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-/// A region file manages a 32x32 grid of chunks.
-/// Format: 4KB Location Table | 4KB Timestamp Table | Data Sectors (4KB each)
+use crate::constants::WORLD_CHUNKS_Y;
+
+/// A region file stores a 32x32 column of chunks spanning the full world height.
+///
+/// On-disk layout (v2):
+/// ```text
+/// [ location table  : CHUNKS_PER_REGION * 4 bytes (u32 BE each) ]
+/// [ timestamp table : CHUNKS_PER_REGION * 4 bytes (u32 BE each) ]
+/// [ marker          : 4-byte magic + 4-byte version (BE)         ]
+/// [ zero-padded to the next SECTOR_SIZE boundary                 ]
+/// [ data sectors    : SECTOR_SIZE each ]
+/// ```
+/// The location + timestamp tables plus the marker occupy the leading
+/// `HEADER_SIZE` bytes. v1 files (8-height, 64 KiB header, no marker) are
+/// detected on open and atomically rebuilt into the v2 layout.
 pub struct RegionFile {
     file: File,
-    /// Location table: index -> (offset_in_sectors, sector_count)
+    /// Location table: index -> (offset_in_sectors << 8) | sector_count
     locations: [u32; CHUNKS_PER_REGION],
     /// Timestamp table: index -> unix_timestamp
     timestamps: [u32; CHUNKS_PER_REGION],
 }
 
 pub const CHUNKS_PER_REGION_SIDE: i32 = 32;
-pub const REGION_HEIGHT: i32 = 8; // Half of WORLD_CHUNKS_Y (16 chunks = 512 blocks)
+/// Region height equals the full world height. Previously this was hard-coded
+/// to 8 (half of WORLD_CHUNKS_Y), which clamped chunk Y=8..15 into slots 0..7
+/// and silently aliased every edit at block Y>=256 onto the chunk 256 blocks
+/// below it on save. See STOR-001.
+pub const REGION_HEIGHT: i32 = WORLD_CHUNKS_Y;
 pub const CHUNKS_PER_REGION: usize =
     (CHUNKS_PER_REGION_SIDE * CHUNKS_PER_REGION_SIDE * REGION_HEIGHT) as usize;
 pub const SECTOR_SIZE: usize = 4096;
-pub const HEADER_SECTORS: usize = (CHUNKS_PER_REGION * 4 * 2).div_ceil(SECTOR_SIZE);
+
+/// Magic + version written at the end of the header so older (8-height,
+/// 64 KiB-header, markerless) files can be detected and migrated instead of
+/// being silently misread under the new 16-height layout.
+pub const REGION_MAGIC: [u8; 4] = *b"VXRF";
+pub const REGION_VERSION: u32 = 2;
+const REGION_MARKER_BYTES: usize = REGION_MAGIC.len() + std::mem::size_of::<u32>();
+
+pub const HEADER_SECTORS: usize =
+    (CHUNKS_PER_REGION * 4 * 2 + REGION_MARKER_BYTES).div_ceil(SECTOR_SIZE);
 pub const HEADER_SIZE: usize = HEADER_SECTORS * SECTOR_SIZE;
+/// Byte offset of the marker (magic + version) within the header.
+const MARKER_OFFSET: usize = CHUNKS_PER_REGION * 4 * 2;
+
+// --- Old (v1, pre-marker, 8-height) format constants, used only for migration ---
+const OLD_V1_REGION_HEIGHT: i32 = 8;
+const OLD_V1_CHUNKS_PER_REGION: usize =
+    (CHUNKS_PER_REGION_SIDE * CHUNKS_PER_REGION_SIDE * OLD_V1_REGION_HEIGHT) as usize;
+const OLD_V1_HEADER_SIZE: usize = OLD_V1_CHUNKS_PER_REGION * 4 * 2;
 
 impl RegionFile {
     pub fn open<P: AsRef<Path>>(path: P) -> IoResult<Self> {
+        let path_ref = path.as_ref();
         let mut file = OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)
             .truncate(false)
-            .open(path)?;
-
-        let mut locations = vec![0u32; CHUNKS_PER_REGION];
-        let mut timestamps = vec![0u32; CHUNKS_PER_REGION];
+            .open(path_ref)?;
 
         let file_len = file.metadata()?.len();
-        if file_len < HEADER_SIZE as u64 {
-            // New file, initialize header
-            file.set_len(HEADER_SIZE as u64)?;
-            file.seek(SeekFrom::Start(0))?;
-            let zero_header = vec![0u8; HEADER_SIZE];
-            file.write_all(&zero_header)?;
+
+        // Classify the on-disk file:
+        //   marker present              -> v2: load tables directly
+        //   >= old v1 header, no marker -> v1 (8-height): migrate atomically
+        //   anything else (short/empty) -> brand new: init as v2
+        let has_marker = file_len >= HEADER_SIZE as u64 && Self::read_marker(&mut file)?;
+
+        if has_marker {
+            Self::load_v2(file)
+        } else if file_len >= OLD_V1_HEADER_SIZE as u64 {
+            Self::migrate_v1(path_ref.to_path_buf(), file)
         } else {
-            // Read existing header
-            file.seek(SeekFrom::Start(0))?;
-            let mut header_buf = vec![0u8; HEADER_SIZE];
-            file.read_exact(&mut header_buf)?;
-
-            for i in 0..CHUNKS_PER_REGION {
-                let offset = i * 4;
-                locations[i] = u32::from_be_bytes([
-                    header_buf[offset],
-                    header_buf[offset + 1],
-                    header_buf[offset + 2],
-                    header_buf[offset + 3],
-                ]);
-
-                let ts_offset = (CHUNKS_PER_REGION * 4) + i * 4;
-                timestamps[i] = u32::from_be_bytes([
-                    header_buf[ts_offset],
-                    header_buf[ts_offset + 1],
-                    header_buf[ts_offset + 2],
-                    header_buf[ts_offset + 3],
-                ]);
-            }
+            Self::init_new(file)
         }
+    }
 
-        let mut locations_arr = [0u32; CHUNKS_PER_REGION];
-        locations_arr.copy_from_slice(&locations);
-        let mut timestamps_arr = [0u32; CHUNKS_PER_REGION];
-        timestamps_arr.copy_from_slice(&timestamps);
+    fn read_marker(file: &mut File) -> IoResult<bool> {
+        file.seek(SeekFrom::Start(MARKER_OFFSET as u64))?;
+        let mut buf = [0u8; 4];
+        file.read_exact(&mut buf)?;
+        Ok(buf == REGION_MAGIC)
+    }
 
+    /// Writes magic + version at `MARKER_OFFSET` into a buffer that is at least
+    /// `HEADER_SIZE` bytes long. Called on every full-header write/creation so
+    /// the invariant "every new-format file on disk has the marker" holds.
+    fn write_marker_into(header: &mut [u8]) {
+        debug_assert!(header.len() >= MARKER_OFFSET + REGION_MARKER_BYTES);
+        let magic_end = MARKER_OFFSET + REGION_MAGIC.len();
+        header[MARKER_OFFSET..magic_end].copy_from_slice(&REGION_MAGIC);
+        let ver_end = magic_end + std::mem::size_of::<u32>();
+        header[magic_end..ver_end].copy_from_slice(&REGION_VERSION.to_be_bytes());
+    }
+
+    fn init_new(mut file: File) -> IoResult<Self> {
+        file.set_len(HEADER_SIZE as u64)?;
+        file.seek(SeekFrom::Start(0))?;
+        let mut header = vec![0u8; HEADER_SIZE];
+        Self::write_marker_into(&mut header);
+        file.write_all(&header)?;
+        file.flush()?;
         Ok(Self {
             file,
-            locations: locations_arr,
-            timestamps: timestamps_arr,
+            locations: [0u32; CHUNKS_PER_REGION],
+            timestamps: [0u32; CHUNKS_PER_REGION],
         })
     }
 
+    fn load_v2(mut file: File) -> IoResult<Self> {
+        file.seek(SeekFrom::Start(0))?;
+        let mut header_buf = vec![0u8; HEADER_SIZE];
+        file.read_exact(&mut header_buf)?;
+
+        let mut locations = [0u32; CHUNKS_PER_REGION];
+        let mut timestamps = [0u32; CHUNKS_PER_REGION];
+        for i in 0..CHUNKS_PER_REGION {
+            let off = i * 4;
+            locations[i] = u32::from_be_bytes([
+                header_buf[off],
+                header_buf[off + 1],
+                header_buf[off + 2],
+                header_buf[off + 3],
+            ]);
+            let ts_off = CHUNKS_PER_REGION * 4 + i * 4;
+            timestamps[i] = u32::from_be_bytes([
+                header_buf[ts_off],
+                header_buf[ts_off + 1],
+                header_buf[ts_off + 2],
+                header_buf[ts_off + 3],
+            ]);
+        }
+        Ok(Self {
+            file,
+            locations,
+            timestamps,
+        })
+    }
+
+    /// Atomically rebuilds an old (v1, 8-height, 64 KiB-header, markerless) file
+    /// into the v2 layout. The old index formula was identical
+    /// (`lx + lz*32 + ly*1024` with `ly` in 0..7), so each old slot `i` maps 1:1
+    /// onto the same index in the new (larger) table; old slots 8192..16384
+    /// never existed and the high (y>=8) half held aliased/corrupt data that is
+    /// intentionally dropped. Live chunk records are copied byte-for-byte and
+    /// laid out contiguously after the new header.
+    fn migrate_v1(path: PathBuf, mut old_file: File) -> IoResult<Self> {
+        log::info!(
+            "[Storage] Migrating old-format region file to v2 (8-height -> {}-height): {}",
+            REGION_HEIGHT,
+            path.display()
+        );
+
+        old_file.seek(SeekFrom::Start(0))?;
+        let mut old_header = vec![0u8; OLD_V1_HEADER_SIZE];
+        old_file.read_exact(&mut old_header)?;
+
+        let mut old_locations = [0u32; OLD_V1_CHUNKS_PER_REGION];
+        let mut old_timestamps = [0u32; OLD_V1_CHUNKS_PER_REGION];
+        for i in 0..OLD_V1_CHUNKS_PER_REGION {
+            let off = i * 4;
+            old_locations[i] = u32::from_be_bytes([
+                old_header[off],
+                old_header[off + 1],
+                old_header[off + 2],
+                old_header[off + 3],
+            ]);
+            let ts_off = OLD_V1_CHUNKS_PER_REGION * 4 + i * 4;
+            old_timestamps[i] = u32::from_be_bytes([
+                old_header[ts_off],
+                old_header[ts_off + 1],
+                old_header[ts_off + 2],
+                old_header[ts_off + 3],
+            ]);
+        }
+
+        let old_file_len = old_file.metadata()?.len();
+
+        // New image: header first, live records appended contiguously.
+        let mut new_image: Vec<u8> = vec![0u8; HEADER_SIZE];
+        let mut new_locations = [0u32; CHUNKS_PER_REGION];
+        let mut new_timestamps = [0u32; CHUNKS_PER_REGION];
+        let mut cursor_bytes: usize = HEADER_SIZE;
+
+        for (i, &loc) in old_locations.iter().enumerate() {
+            if loc == 0 {
+                continue;
+            }
+            let offset_sectors = (loc >> 8) as u64;
+            let sector_count = (loc & 0xFF) as usize;
+            if offset_sectors == 0 || sector_count == 0 {
+                continue;
+            }
+
+            let old_byte_offset =
+                offset_sectors
+                    .checked_mul(SECTOR_SIZE as u64)
+                    .ok_or_else(|| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "v1 chunk offset overflow during migration",
+                        )
+                    })?;
+            let record_len = sector_count.checked_mul(SECTOR_SIZE).ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "v1 chunk sector count overflow during migration",
+                )
+            })?;
+
+            if old_byte_offset + record_len as u64 > old_file_len {
+                log::warn!(
+                    "[Storage] Skipping out-of-range chunk slot {i} while migrating {}: record extends past EOF",
+                    path.display()
+                );
+                continue;
+            }
+
+            old_file.seek(SeekFrom::Start(old_byte_offset))?;
+            let mut record = vec![0u8; record_len];
+            old_file.read_exact(&mut record)?;
+
+            // Validate inner [data_len:u32 BE][data][padding] before copying through.
+            let data_len =
+                u32::from_be_bytes([record[0], record[1], record[2], record[3]]) as usize;
+            if data_len + 4 > record_len {
+                log::warn!(
+                    "[Storage] Skipping corrupt chunk slot {i} while migrating {}: declared data_len {data_len} exceeds record size",
+                    path.display()
+                );
+                continue;
+            }
+
+            new_image.extend_from_slice(&record);
+            let new_offset_sectors = (cursor_bytes / SECTOR_SIZE) as u32;
+            new_locations[i] = (new_offset_sectors << 8) | (sector_count as u32 & 0xFF);
+            new_timestamps[i] = old_timestamps[i];
+            cursor_bytes += record_len;
+        }
+
+        // Serialize new tables + marker into the header portion of the image.
+        for i in 0..CHUNKS_PER_REGION {
+            let off = i * 4;
+            new_image[off..off + 4].copy_from_slice(&new_locations[i].to_be_bytes());
+            let ts_off = CHUNKS_PER_REGION * 4 + i * 4;
+            new_image[ts_off..ts_off + 4].copy_from_slice(&new_timestamps[i].to_be_bytes());
+        }
+        Self::write_marker_into(&mut new_image);
+
+        // Atomically replace the original via a sibling temp file.
+        let tmp_path: PathBuf = {
+            let mut s = path.as_os_str().to_owned();
+            s.push(".migrate.tmp");
+            PathBuf::from(s)
+        };
+        {
+            let mut tmp = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .open(&tmp_path)?;
+            tmp.write_all(&new_image)?;
+            tmp.flush()?;
+            tmp.sync_all()?;
+        }
+        std::fs::rename(&tmp_path, &path)?;
+
+        // Reopen the migrated file and load it as v2.
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .truncate(false)
+            .open(&path)?;
+        Self::load_v2(file)
+    }
+
     #[inline]
-    fn chunk_index(x: i32, y: i32, z: i32) -> usize {
+    fn chunk_index(x: i32, y: i32, z: i32) -> IoResult<usize> {
+        if !(0..REGION_HEIGHT).contains(&y) {
+            let max_y = REGION_HEIGHT;
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("chunk Y {y} out of region range [0, {max_y})"),
+            ));
+        }
         let lx = x.rem_euclid(32) as usize;
-        let ly = y.clamp(0, REGION_HEIGHT - 1) as usize;
+        let ly = y as usize;
         let lz = z.rem_euclid(32) as usize;
-        lx + lz * 32 + ly * 1024
+        Ok(lx + lz * 32 + ly * 1024)
     }
 
     /// Reads a chunk's compressed data from the file.
     pub fn read_chunk(&mut self, x: i32, y: i32, z: i32) -> IoResult<Option<Vec<u8>>> {
-        let index = Self::chunk_index(x, y, z);
+        let index = Self::chunk_index(x, y, z)?;
         let loc = self.locations[index];
         if loc == 0 {
             return Ok(None);
@@ -128,7 +340,7 @@ impl RegionFile {
 
     /// Writes a chunk's compressed data to the file.
     pub fn write_chunk(&mut self, x: i32, y: i32, z: i32, data: &[u8]) -> IoResult<()> {
-        let index = Self::chunk_index(x, y, z);
+        let index = Self::chunk_index(x, y, z)?;
         let loc = self.locations[index];
         let old_offset_sectors = (loc >> 8) as u64;
         let old_sector_count = (loc & 0xFF) as usize;
@@ -184,5 +396,141 @@ impl RegionFile {
         self.file.flush()?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+    use tempfile::NamedTempFile;
+
+    fn read_marker_from_disk(path: &Path) -> [u8; 4] {
+        let mut f = std::fs::File::open(path).expect("open");
+        f.seek(SeekFrom::Start(MARKER_OFFSET as u64))
+            .expect("seek marker");
+        let mut buf = [0u8; 4];
+        f.read_exact(&mut buf).expect("read marker");
+        buf
+    }
+
+    #[test]
+    fn chunk_index_is_injective_across_full_height() {
+        let mut seen: HashSet<usize> = HashSet::new();
+        for x in 0..CHUNKS_PER_REGION_SIDE {
+            for z in 0..CHUNKS_PER_REGION_SIDE {
+                for y in 0..REGION_HEIGHT {
+                    let idx = RegionFile::chunk_index(x, y, z).expect("in-range coord must be Ok");
+                    assert!(
+                        seen.insert(idx),
+                        "index collision at (x={x}, y={y}, z={z}) -> {idx}"
+                    );
+                }
+            }
+        }
+        assert_eq!(seen.len(), CHUNKS_PER_REGION);
+    }
+
+    #[test]
+    fn chunk_index_rejects_out_of_range_y() {
+        assert!(RegionFile::chunk_index(0, -1, 0).is_err());
+        assert!(RegionFile::chunk_index(0, REGION_HEIGHT, 0).is_err());
+        assert!(RegionFile::chunk_index(0, REGION_HEIGHT + 5, 0).is_err());
+        // Top boundary is exclusive; REGION_HEIGHT - 1 is the last valid slot.
+        assert!(RegionFile::chunk_index(0, 0, 0).is_ok());
+        assert!(RegionFile::chunk_index(0, REGION_HEIGHT - 1, 0).is_ok());
+        // Negative x/z are folded by rem_euclid and must remain Ok.
+        assert!(RegionFile::chunk_index(-1, 0, -1).is_ok());
+    }
+
+    #[test]
+    fn round_trip_at_block_y_480_survives() {
+        let tmp = NamedTempFile::new().expect("tempfile");
+        let path = tmp.path().to_path_buf();
+        let payload: Vec<u8> = (0..123u8).collect();
+        // Chunk y=15 covers block Y ~480 -- exactly the range the old bug corrupted.
+        {
+            let mut rf = RegionFile::open(&path).expect("open new");
+            rf.write_chunk(5, 15, 7, &payload).expect("write y=15");
+            assert_eq!(rf.read_chunk(5, 15, 7).unwrap().unwrap(), payload);
+        }
+        // Reopen and read back from disk.
+        let mut rf = RegionFile::open(&path).expect("reopen");
+        let got = rf.read_chunk(5, 15, 7).expect("read y=15").expect("some");
+        assert_eq!(got, payload);
+        assert_eq!(read_marker_from_disk(&path), REGION_MAGIC);
+    }
+
+    #[test]
+    fn y0_and_y8_no_longer_collide() {
+        let tmp = NamedTempFile::new().expect("tempfile");
+        let path = tmp.path().to_path_buf();
+        let low: Vec<u8> = vec![0xAA; 50];
+        let high: Vec<u8> = vec![0xBB; 60];
+        {
+            let mut rf = RegionFile::open(&path).expect("open");
+            rf.write_chunk(1, 0, 1, &low).expect("write y=0");
+            rf.write_chunk(1, 8, 1, &high).expect("write y=8");
+            // Immediate in-memory reads: distinct indices, no aliasing.
+            assert_eq!(rf.read_chunk(1, 0, 1).unwrap().unwrap(), low);
+            assert_eq!(rf.read_chunk(1, 8, 1).unwrap().unwrap(), high);
+        }
+        // Disk round-trip after reopen -- regression for STOR-001.
+        let mut rf = RegionFile::open(&path).expect("reopen");
+        assert_eq!(rf.read_chunk(1, 0, 1).unwrap().unwrap(), low);
+        assert_eq!(rf.read_chunk(1, 8, 1).unwrap().unwrap(), high);
+    }
+
+    #[test]
+    fn migrates_old_v1_file_to_v2() {
+        // Construct a byte buffer mimicking an old (8-height, 64 KiB-header,
+        // markerless) file with one live chunk at y in 0..7.
+        let old_data: Vec<u8> = (0..77u8).collect();
+        let data_len = old_data.len() as u32;
+        let slot_y: i32 = 3;
+        let old_index = (slot_y as usize) * 1024; // x=0, z=0, y=3
+        let old_offset_sectors: u32 = (OLD_V1_HEADER_SIZE / SECTOR_SIZE) as u32;
+        let sector_count: u32 = ((old_data.len() + 4) as u32).div_ceil(SECTOR_SIZE as u32);
+        let old_loc = (old_offset_sectors << 8) | (sector_count & 0xFF);
+
+        let mut buf = vec![0u8; OLD_V1_HEADER_SIZE];
+        buf[old_index * 4..old_index * 4 + 4].copy_from_slice(&old_loc.to_be_bytes());
+        let ts_off = OLD_V1_CHUNKS_PER_REGION * 4 + old_index * 4;
+        let ts: u32 = 1_700_000_000;
+        buf[ts_off..ts_off + 4].copy_from_slice(&ts.to_be_bytes());
+
+        let mut record = vec![0u8; sector_count as usize * SECTOR_SIZE];
+        record[0..4].copy_from_slice(&data_len.to_be_bytes());
+        record[4..4 + old_data.len()].copy_from_slice(&old_data);
+        buf.extend_from_slice(&record);
+
+        // Sanity: the buffer has no marker (smaller than the new HEADER_SIZE).
+        assert!(buf.len() < HEADER_SIZE);
+
+        let tmp = NamedTempFile::new().expect("tempfile");
+        tmp.as_file().write_all(&buf).expect("write old file");
+        tmp.as_file().sync_all().expect("sync");
+
+        let path = tmp.path().to_path_buf();
+        let mut rf = RegionFile::open(&path).expect("migration should succeed");
+
+        // (a) marker now present on disk at the reserved offset.
+        assert_eq!(read_marker_from_disk(&path), REGION_MAGIC);
+        // (b) the live y<8 chunk's bytes are preserved.
+        let got = rf
+            .read_chunk(0, slot_y, 0)
+            .expect("read migrated chunk")
+            .expect("chunk must be present after migration");
+        assert_eq!(got, old_data);
+        // (c) on-disk header size matches the new HEADER_SIZE.
+        let file_len = std::fs::metadata(&path).expect("stat").len() as usize;
+        assert!(
+            file_len >= HEADER_SIZE,
+            "migrated file_len={file_len} < HEADER_SIZE={HEADER_SIZE}"
+        );
+        // Pin the layout so a future constant change can't silently pass.
+        assert_eq!(REGION_HEIGHT, 16);
+        assert_eq!(CHUNKS_PER_REGION, 16384);
+        assert_eq!(HEADER_SIZE, 33 * SECTOR_SIZE);
     }
 }
