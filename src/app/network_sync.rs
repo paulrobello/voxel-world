@@ -586,19 +586,29 @@ impl<'a> NetworkSyncContext<'a> {
             let mut model = vxm.to_model();
             model.id = model_added.model_id;
 
-            let registered_id = match self.sim.model_registry.register(model.clone()) {
+            // Server-authoritative placement: the client must resolve this exact
+            // ID to the same model the host assigned, so register_at (not
+            // register, which would ignore model_id and append instead).
+            let registered_id = match self
+                .sim
+                .model_registry
+                .register_at(model_added.model_id, model.clone())
+            {
                 Some(id) => id,
                 None => {
                     log::warn!(
-                        "[Client] Cannot register model '{}': registry full",
-                        model_added.name
+                        "[Client] Cannot register model '{}' at server id {}: registry gap or full",
+                        model_added.name,
+                        model_added.model_id
                     );
                     continue;
                 }
             };
 
+            // On success the client ID now equals the server ID by construction.
+            debug_assert_eq!(registered_id, model_added.model_id);
             log::debug!(
-                "[Client] Registered model '{}' as ID {} (server ID {})",
+                "[Client] Registered model '{}' at id {} (matches server id {})",
                 model_added.name,
                 registered_id,
                 model_added.model_id
@@ -611,6 +621,30 @@ impl<'a> NetworkSyncContext<'a> {
                     log::debug!("[Client] Generated sprite for model {}", registered_id);
                 }
             }
+        }
+    }
+
+    /// Applies a pending full model-registry sync from the server (client-side).
+    ///
+    /// Joining clients receive `ModelRegistrySync` right after
+    /// `ConnectionAccepted`. The pure parse-and-register logic lives in
+    /// `ModelRegistry::apply_registry_sync` so it can be unit-tested without
+    /// network state. Must run before `register_pending_models` so the bulk
+    /// registry is seeded before incremental `ModelAdded` deltas arrive.
+    pub fn apply_model_registry_sync(&mut self) {
+        if !self.multiplayer.has_pending_model_registry_sync() {
+            return;
+        }
+        let syncs = self.multiplayer.take_pending_model_registry_sync();
+        for sync in syncs {
+            log::debug!(
+                "[Client] Applying ModelRegistrySync ({} model bytes, {} door-pair bytes)",
+                sync.models_data.len(),
+                sync.door_pairs_data.len()
+            );
+            self.sim
+                .model_registry
+                .apply_registry_sync(&sync.models_data, &sync.door_pairs_data);
         }
     }
 
@@ -822,6 +856,16 @@ impl crate::app::core::App {
             ui: &mut self.ui,
         }
         .register_pending_models();
+    }
+
+    #[inline]
+    pub fn apply_model_registry_sync(&mut self) {
+        NetworkSyncContext {
+            sim: &mut self.sim,
+            multiplayer: &mut self.multiplayer,
+            ui: &mut self.ui,
+        }
+        .apply_model_registry_sync();
     }
 
     #[inline]

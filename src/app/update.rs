@@ -507,6 +507,11 @@ impl App {
                 self.process_picture_uploads();
             }
 
+            // Apply full model-registry sync first (joining clients), then any
+            // incremental ModelAdded deltas. Order matters: the bulk sync seeds
+            // the server-authoritative IDs before incremental placements land.
+            self.apply_model_registry_sync();
+
             // Register models received from server (all connected clients)
             self.register_pending_models();
 

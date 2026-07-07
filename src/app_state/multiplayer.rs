@@ -60,6 +60,10 @@ pub enum NetworkEvent {
     ChunkRequested(u64, Vec<[i32; 3]>),
     /// A new custom model was announced by the server (client-side).
     ModelAdded(crate::net::protocol::ModelAdded),
+    /// Full model-registry sync from the server (client-side, joining clients).
+    /// Boxed — the compressed payloads are large. Server-authoritative IDs are
+    /// applied via `ModelRegistry::register_at` so the client matches the host.
+    ModelRegistrySync(Box<crate::net::protocol::ModelRegistrySync>),
     /// A client uploaded a new model for registration (server-side).
     ModelUploaded(u64, crate::net::protocol::UploadModel),
     /// A client uploaded a new texture (server-side).
@@ -1334,19 +1338,13 @@ impl MultiplayerState {
                 }
             }
             ServerMessage::ModelRegistrySync(sync) => {
-                log::debug!("[Client] Received ModelRegistrySync");
-                if !sync.models_data.is_empty() {
-                    log::debug!(
-                        "[Client] Received {} bytes of model data",
-                        sync.models_data.len()
-                    );
-                }
-                if !sync.door_pairs_data.is_empty() {
-                    log::debug!(
-                        "[Client] Received {} bytes of door pair data",
-                        sync.door_pairs_data.len()
-                    );
-                }
+                log::debug!(
+                    "[Client] Received ModelRegistrySync ({} model bytes, {} door-pair bytes)",
+                    sync.models_data.len(),
+                    sync.door_pairs_data.len()
+                );
+                self.events
+                    .push_back(NetworkEvent::ModelRegistrySync(sync.clone()));
             }
             ServerMessage::TextureData(tex) => {
                 log::debug!("[Client] Received texture for slot {}", tex.slot);
@@ -1963,6 +1961,25 @@ impl MultiplayerState {
         self.events
             .iter()
             .any(|e| matches!(e, NetworkEvent::ModelAdded(_)))
+    }
+
+    /// Takes all pending full model-registry syncs received from the server.
+    /// Call this from the game loop on joining clients before
+    /// `take_pending_models` so the bulk registry is seeded first.
+    pub fn take_pending_model_registry_sync(
+        &mut self,
+    ) -> Vec<crate::net::protocol::ModelRegistrySync> {
+        Self::drain_variant(&mut self.events, |e| match e {
+            NetworkEvent::ModelRegistrySync(sync) => Some((**sync).clone()),
+            _ => None,
+        })
+    }
+
+    /// Returns true if there is a pending model-registry sync to apply.
+    pub fn has_pending_model_registry_sync(&self) -> bool {
+        self.events
+            .iter()
+            .any(|e| matches!(e, NetworkEvent::ModelRegistrySync(_)))
     }
 
     /// Takes all pending model uploads from clients and clears the queue.

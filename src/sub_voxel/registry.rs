@@ -255,6 +255,149 @@ impl ModelRegistry {
         Some(id)
     }
 
+    /// Registers a model at a server-authoritative ID (multiplayer sync).
+    ///
+    /// Unlike [`register`](Self::register), which always appends, this places
+    /// `model` at exactly index `id`. This is required when a client applies a
+    /// `WorldModelStore` / `ModelAdded` from the server: the server's IDs must
+    /// be preserved verbatim so every client resolves a given ID to the same
+    /// model.
+    ///
+    /// - `id == len()`: appends (mirrors `register()`'s palette intern).
+    /// - `id < len()`: overwrites the existing slot (mirrors
+    ///   `update_or_register`'s overwrite branch — releases the old palette,
+    ///   interns the new one, and fixes `name_to_id` so the old occupant's name
+    ///   no longer resolves to this id).
+    /// - `id > len()`: returns `None` (gap — should not happen with contiguous
+    ///   server data; logs a `warn!`).
+    ///
+    /// Returns `Some(id)` on success, `None` on gap or `MAX_MODELS` overflow.
+    #[must_use]
+    pub fn register_at(&mut self, id: u8, mut model: SubVoxelModel) -> Option<u8> {
+        let target = id as usize;
+        if target >= MAX_MODELS {
+            log::warn!(
+                "[ModelRegistry] register_at({}) rejected: exceeds MAX_MODELS ({})",
+                id,
+                MAX_MODELS
+            );
+            return None;
+        }
+        model.id = id;
+        let tier = model.resolution.tier();
+
+        if target == self.models.len() {
+            // Append — mirror register().
+            let (palette_id, newly_allocated) = self
+                .palette_table
+                .intern(&model.palette, model.palette_emission_slice())
+                .expect(
+                    "PaletteTable capacity exceeded — cannot exceed MAX_MODELS distinct palettes",
+                );
+            self.name_to_id.insert(model.name.clone(), id);
+            self.models.push(model);
+            debug_assert!(self.model_palette_ids.len() == target);
+            self.model_palette_ids.push(palette_id);
+            if newly_allocated {
+                self.dirty_palette_ids.insert(palette_id);
+            }
+            self.dirty_model_ids.insert(id);
+            self.tier_dirty[tier] = true;
+            Some(id)
+        } else if target < self.models.len() {
+            // Overwrite — mirror update_or_register's overwrite branch.
+            let old_palette_id = self.model_palette_ids[target];
+            self.palette_table.release(old_palette_id);
+            let (new_palette_id, newly_allocated) = self
+                .palette_table
+                .intern(&model.palette, model.palette_emission_slice())
+                .expect("PaletteTable capacity exceeded");
+            self.model_palette_ids[target] = new_palette_id;
+            if newly_allocated {
+                self.dirty_palette_ids.insert(new_palette_id);
+            }
+            // Drop the old occupant's name→id mapping (only if it still points
+            // at THIS slot — defensive against duplicate names elsewhere).
+            let old_name = self.models[target].name.clone();
+            if self.name_to_id.get(&old_name).copied() == Some(id) {
+                self.name_to_id.remove(&old_name);
+            }
+            self.name_to_id.insert(model.name.clone(), id);
+            self.models[target] = model;
+            self.dirty_model_ids.insert(id);
+            self.tier_dirty[tier] = true;
+            Some(id)
+        } else {
+            // target > len() — gap in the ID range.
+            log::warn!(
+                "[ModelRegistry] register_at({}) rejected: gap (current len {})",
+                id,
+                self.models.len()
+            );
+            None
+        }
+    }
+
+    /// Applies a full model-registry sync from the server (client-side).
+    ///
+    /// `models_data` is LZ4-compressed (`compress_prepend_size`) postcard-
+    /// serialized [`WorldModelStore`]; `door_pairs_data` is the same for
+    /// [`DoorPairStore`]. Each model is placed at its server-authoritative ID
+    /// via [`register_at`](Self::register_at), and door pairs are loaded via
+    /// [`load_door_pairs`](Self::load_door_pairs).
+    ///
+    /// Robust to empty or corrupt payloads: a `warn!` is logged and that
+    /// payload is skipped (no panic). This is the pure parse-and-register step
+    /// shared with the production multiplayer apply path and unit tests.
+    pub fn apply_registry_sync(&mut self, models_data: &[u8], door_pairs_data: &[u8]) {
+        use crate::storage::model_format::{DoorPairStore, WorldModelStore};
+        use lz4_flex::decompress_size_prepended;
+
+        if !models_data.is_empty() {
+            match decompress_size_prepended(models_data) {
+                Ok(bytes) => match postcard::from_bytes::<WorldModelStore>(&bytes) {
+                    Ok(store) => {
+                        for (id, model) in store.iter() {
+                            if self.register_at(id, model).is_none() {
+                                log::warn!(
+                                    "[ModelRegistry] apply_registry_sync: could not place model at id {} (current len {})",
+                                    id,
+                                    self.models.len()
+                                );
+                            }
+                        }
+                    }
+                    Err(e) => log::warn!(
+                        "[ModelRegistry] apply_registry_sync: WorldModelStore deserialize failed: {:?}",
+                        e
+                    ),
+                },
+                Err(e) => log::warn!(
+                    "[ModelRegistry] apply_registry_sync: models_data decompress failed: {:?}",
+                    e
+                ),
+            }
+        }
+
+        if !door_pairs_data.is_empty() {
+            match decompress_size_prepended(door_pairs_data) {
+                Ok(bytes) => match postcard::from_bytes::<DoorPairStore>(&bytes) {
+                    Ok(store) => {
+                        self.load_door_pairs(store.get_all().to_vec());
+                    }
+                    Err(e) => log::warn!(
+                        "[ModelRegistry] apply_registry_sync: DoorPairStore deserialize failed: {:?}",
+                        e
+                    ),
+                },
+                Err(e) => log::warn!(
+                    "[ModelRegistry] apply_registry_sync: door_pairs_data decompress failed: {:?}",
+                    e
+                ),
+            }
+        }
+    }
+
     /// Gets a model by ID.
     #[inline]
     pub fn get(&self, id: u8) -> Option<&SubVoxelModel> {
@@ -1644,5 +1787,155 @@ mod tests {
         // Out-of-range IDs return None.
         assert!(store.get_model(a_id - 1).is_none());
         assert!(store.get_model(b_id + 1).is_none());
+    }
+
+    /// MDL-002: `register_at` places custom models at server-authoritative IDs,
+    /// supports in-place overwrite (fixing `name_to_id`), and rejects gaps.
+    #[test]
+    fn register_at_places_and_overwrites() {
+        let mut reg = ModelRegistry::new();
+        let initial_len = reg.len();
+        assert_eq!(initial_len, FIRST_CUSTOM_MODEL_ID as usize);
+
+        // Append two models at the next two IDs.
+        let mut a = SubVoxelModel::new("Alpha");
+        a.set_voxel(0, 0, 0, 1);
+        let mut b = SubVoxelModel::new("Beta");
+        b.set_voxel(1, 0, 0, 2);
+        assert_eq!(
+            reg.register_at(FIRST_CUSTOM_MODEL_ID, a).unwrap(),
+            FIRST_CUSTOM_MODEL_ID
+        );
+        assert_eq!(
+            reg.register_at(FIRST_CUSTOM_MODEL_ID + 1, b).unwrap(),
+            FIRST_CUSTOM_MODEL_ID + 1
+        );
+        assert_eq!(reg.get(FIRST_CUSTOM_MODEL_ID).unwrap().name, "Alpha");
+        assert_eq!(
+            reg.get(FIRST_CUSTOM_MODEL_ID).unwrap().get_voxel(0, 0, 0),
+            1
+        );
+        assert_eq!(reg.get(FIRST_CUSTOM_MODEL_ID + 1).unwrap().name, "Beta");
+        assert_eq!(
+            reg.get(FIRST_CUSTOM_MODEL_ID + 1)
+                .unwrap()
+                .get_voxel(1, 0, 0),
+            2
+        );
+        assert_eq!(reg.len(), initial_len + 2);
+
+        // Overwrite slot FIRST_CUSTOM_MODEL_ID with a different model. The old
+        // occupant's name ("Alpha") must no longer resolve; the new one must.
+        let mut a2 = SubVoxelModel::new("AlphaTwo");
+        a2.set_voxel(2, 0, 0, 3);
+        assert_eq!(
+            reg.register_at(FIRST_CUSTOM_MODEL_ID, a2).unwrap(),
+            FIRST_CUSTOM_MODEL_ID
+        );
+        assert_eq!(reg.get(FIRST_CUSTOM_MODEL_ID).unwrap().name, "AlphaTwo");
+        assert_eq!(
+            reg.get(FIRST_CUSTOM_MODEL_ID).unwrap().get_voxel(2, 0, 0),
+            3
+        );
+        assert!(
+            reg.get_id("Alpha").is_none(),
+            "old occupant's name must be cleared from name_to_id after overwrite"
+        );
+        assert_eq!(reg.get_id("AlphaTwo"), Some(FIRST_CUSTOM_MODEL_ID));
+        // No duplicate IDs: len unchanged after overwrite.
+        assert_eq!(reg.len(), initial_len + 2);
+        // Beta untouched.
+        assert_eq!(reg.get(FIRST_CUSTOM_MODEL_ID + 1).unwrap().name, "Beta");
+        // palette bookkeeping stays consistent (model_palette_ids parallels models).
+        assert_eq!(reg.model_palette_ids.len(), reg.models.len());
+
+        // Gap rejection: id beyond len+1 returns None and does not mutate state.
+        let len_before = reg.len();
+        let mut orphan = SubVoxelModel::new("Orphan");
+        orphan.set_voxel(0, 0, 0, 1);
+        assert_eq!(
+            reg.register_at(255, orphan),
+            None,
+            "gap id must be rejected"
+        );
+        assert_eq!(
+            reg.len(),
+            len_before,
+            "rejected register_at must not grow the registry"
+        );
+        assert!(reg.get_id("Orphan").is_none());
+    }
+
+    /// MDL-002 acceptance: after applying a serialized `WorldModelStore`, a
+    /// fresh registry's IDs exactly match the store's `first_custom_id + index`.
+    /// This pins the client/host ID-match contract without a real socket — the
+    /// same `apply_registry_sync` code runs in the production multiplayer path.
+    #[test]
+    fn apply_registry_sync_roundtrip_matches_server_ids() {
+        use crate::storage::model_format::WorldModelStore;
+        use lz4_flex::compress_prepend_size;
+
+        // Build a store with two distinguishable models (server-side construction).
+        let mut store = WorldModelStore::new(FIRST_CUSTOM_MODEL_ID);
+        let mut a = SubVoxelModel::new("HostA");
+        a.set_voxel(0, 0, 0, 1);
+        let mut b = SubVoxelModel::new("HostB");
+        b.set_voxel(1, 0, 0, 2);
+        store.add_model(&a, "host");
+        store.add_model(&b, "host");
+
+        // Serialize + compress exactly like the server (send_model_registry).
+        let models_data = {
+            let serialized = postcard::to_stdvec(&store).expect("serialize store");
+            compress_prepend_size(&serialized)
+        };
+        // No door pairs in this test — empty payload is a no-op.
+        let door_pairs_data: Vec<u8> = Vec::new();
+
+        // Client side: fresh registry applies the sync.
+        let mut client_reg = ModelRegistry::new();
+        client_reg.apply_registry_sync(&models_data, &door_pairs_data);
+
+        // Each store model must land at first_custom_id + index with matching voxels.
+        assert_eq!(
+            client_reg
+                .get(FIRST_CUSTOM_MODEL_ID)
+                .expect("HostA placed")
+                .name,
+            "HostA"
+        );
+        assert_eq!(
+            client_reg
+                .get(FIRST_CUSTOM_MODEL_ID)
+                .expect("HostA placed")
+                .get_voxel(0, 0, 0),
+            1
+        );
+        assert_eq!(
+            client_reg
+                .get(FIRST_CUSTOM_MODEL_ID + 1)
+                .expect("HostB placed")
+                .name,
+            "HostB"
+        );
+        assert_eq!(
+            client_reg
+                .get(FIRST_CUSTOM_MODEL_ID + 1)
+                .expect("HostB placed")
+                .get_voxel(1, 0, 0),
+            2
+        );
+        // Registry length now spans builtins + both custom models.
+        assert_eq!(client_reg.len(), FIRST_CUSTOM_MODEL_ID as usize + 2);
+
+        // Round-trip stability: re-applying the same sync overwrites cleanly
+        // (server re-sends on reconnect) without corrupting bookkeeping.
+        client_reg.apply_registry_sync(&models_data, &door_pairs_data);
+        assert_eq!(
+            client_reg.len(),
+            FIRST_CUSTOM_MODEL_ID as usize + 2,
+            "re-applying identical sync must not grow the registry"
+        );
+        assert_eq!(client_reg.get(FIRST_CUSTOM_MODEL_ID).unwrap().name, "HostA");
     }
 }
