@@ -14,7 +14,7 @@ use crate::constants::{
 };
 use crate::gpu_resources::{
     BRICK_DIST_WORDS, BRICK_MASK_WORDS, CHUNK_METADATA_WORDS, ChunkDataSlice, ChunkUploadConfig,
-    TOTAL_CHUNKS, upload_chunks_batched,
+    GpuUploadResult, TOTAL_CHUNKS, upload_chunks_batched,
 };
 use crate::svt::ChunkSVT;
 use crate::utils::ChunkStats;
@@ -496,7 +496,12 @@ impl App {
         // `skip_zero_slices` is safe here because the texture was just cleared.
         if !upload_refs.is_empty() {
             let t_upload = Instant::now();
-            self.upload_chunk_refs_with(&upload_refs, true);
+            if let Err(e) = self.upload_chunk_refs_with(&upload_refs, true) {
+                log::error!(
+                    "[GPU] Origin-shift near-chunk upload failed ({} chunks): {e:?}",
+                    upload_refs.len()
+                );
+            }
             upload_us = t_upload.elapsed();
 
             // Update metadata buffers for near chunks
@@ -786,19 +791,27 @@ impl App {
                         )
                     })
                     .collect();
-                self.upload_chunk_refs(&upload_slices);
+                let upload_ok = self.upload_chunk_refs(&upload_slices).is_ok();
 
                 // Release uploads (block_data no longer needed - metadata already computed)
                 drop(uploads);
 
-                for pos in &uploaded_positions {
-                    if let Some(chunk) = self.sim.world.get_chunk_mut(*pos) {
-                        chunk.mark_clean();
+                if upload_ok {
+                    for pos in &uploaded_positions {
+                        if let Some(chunk) = self.sim.world.get_chunk_mut(*pos) {
+                            chunk.mark_clean();
+                        }
                     }
-                }
 
-                // Already uploaded this frame; avoid a second upload in upload_world_to_gpu
-                self.sim.world.remove_dirty_positions(&uploaded_positions);
+                    // Already uploaded this frame; avoid a second upload in upload_world_to_gpu
+                    self.sim.world.remove_dirty_positions(&uploaded_positions);
+                } else {
+                    // Upload failed: leave chunks dirty so upload_world_to_gpu retries next frame.
+                    log::error!(
+                        "[GPU] Loaded-chunk upload failed ({} chunks); keeping dirty for retry",
+                        uploaded_positions.len()
+                    );
+                }
             }
 
             // === Process network chunks (multiplayer mode) ===
@@ -868,17 +881,25 @@ impl App {
                             )
                         })
                         .collect();
-                    self.upload_chunk_refs(&upload_slices);
+                    let upload_ok = self.upload_chunk_refs(&upload_slices).is_ok();
 
-                    // Mark chunks clean
-                    for pos in &uploaded_positions {
-                        if let Some(chunk) = self.sim.world.get_chunk_mut(*pos) {
-                            chunk.mark_clean();
+                    if upload_ok {
+                        // Mark chunks clean
+                        for pos in &uploaded_positions {
+                            if let Some(chunk) = self.sim.world.get_chunk_mut(*pos) {
+                                chunk.mark_clean();
+                            }
                         }
-                    }
 
-                    // Avoid duplicate upload
-                    self.sim.world.remove_dirty_positions(&uploaded_positions);
+                        // Avoid duplicate upload
+                        self.sim.world.remove_dirty_positions(&uploaded_positions);
+                    } else {
+                        // Upload failed: leave chunks dirty so upload_world_to_gpu retries next frame.
+                        log::error!(
+                            "[GPU] Network-chunk upload failed ({} chunks); keeping dirty for retry",
+                            uploaded_positions.len()
+                        );
+                    }
                 }
             }
         }
@@ -1009,7 +1030,12 @@ impl App {
                     )
                 })
                 .collect();
-            self.upload_chunk_refs(&chunks_to_clear);
+            if let Err(e) = self.upload_chunk_refs(&chunks_to_clear) {
+                log::error!(
+                    "[GPU] Failed to clear {} unloaded chunk texture slots: {e:?}",
+                    chunks_to_clear.len()
+                );
+            }
         }
 
         // Apply pre-computed metadata updates to GPU buffers
@@ -1135,7 +1161,14 @@ impl App {
                 .iter()
                 .map(|u| (u.pos, u.block, &*u.meta, &*u.custom))
                 .collect();
-            self.upload_chunk_refs(&upload_slices);
+            if let Err(e) = self.upload_chunk_refs(&upload_slices) {
+                // Upload failed: skip metadata update and keep chunks dirty so they retry next frame.
+                log::error!(
+                    "[GPU] upload_world_to_gpu: chunk upload failed ({} chunks), keeping dirty for retry: {e:?}",
+                    upload_slices.len()
+                );
+                return;
+            }
 
             // Immediate metadata update to prevent visibility gaps.
             // Parallelize SVT computation across uploaded chunks, then apply results sequentially.
@@ -1240,7 +1273,14 @@ impl App {
             .iter()
             .map(|u| (u.pos, u.block, &*u.meta, &*u.custom))
             .collect();
-        self.upload_chunk_refs(&upload_slices);
+        if let Err(e) = self.upload_chunk_refs(&upload_slices) {
+            // Upload failed: keep chunks dirty so they retry next frame.
+            log::error!(
+                "[GPU] upload_all_dirty_chunks: chunk upload failed ({} chunks), keeping dirty for retry: {e:?}",
+                upload_slices.len()
+            );
+            return;
+        }
 
         let uploaded_positions: Vec<_> = uploads.iter().map(|u| u.pos).collect();
         drop(uploads);
@@ -1276,17 +1316,23 @@ impl App {
     }
 
     /// Uploads chunk data that is already slice-backed to GPU.
-    fn upload_chunk_refs(&self, uploads: &[ChunkDataSlice<'_>]) {
-        self.upload_chunk_refs_with(uploads, false);
+    /// Returns `Err` if the GPU staging write failed so the caller can keep
+    /// the affected chunks dirty and retry next frame instead of panicking.
+    fn upload_chunk_refs(&self, uploads: &[ChunkDataSlice<'_>]) -> GpuUploadResult {
+        self.upload_chunk_refs_with(uploads, false)
     }
 
     /// Like [`Self::upload_chunk_refs`] but allows the caller to enable the
     /// zero-slice skip optimization. Must only be used when the destination
     /// texture region is guaranteed zero (i.e., right after a full texture
     /// clear during an origin shift).
-    fn upload_chunk_refs_with(&self, uploads: &[ChunkDataSlice<'_>], skip_zero_slices: bool) {
+    fn upload_chunk_refs_with(
+        &self,
+        uploads: &[ChunkDataSlice<'_>],
+        skip_zero_slices: bool,
+    ) -> GpuUploadResult {
         if uploads.is_empty() {
-            return;
+            return Ok(());
         }
         upload_chunks_batched(
             &self.graphics.memory_allocator,
@@ -1302,7 +1348,7 @@ impl App {
                 skip_zero_slices,
             },
             uploads,
-        );
+        )
     }
 
     /// Refreshes chunk and brick metadata buffers and records profiling time.

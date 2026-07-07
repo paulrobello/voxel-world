@@ -2794,6 +2794,16 @@ pub struct ChunkUploadConfig<'a> {
     pub skip_zero_slices: bool,
 }
 
+/// Boxed-error result used by per-frame GPU upload paths. Errors are propagated
+/// rather than panicked so the caller can log and retry the batch next frame
+/// instead of crashing mid-frame. Covers both staging-buffer allocation
+/// (`AllocateBufferError`) and host-visible mapping writes (`HostAccessError`)
+/// via the boxed trait object.
+pub type GpuResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
+/// Unit-returning specialization for upload-style operations.
+pub type GpuUploadResult = GpuResult<()>;
+
 /// Uploads chunk data to GPU textures using async DMA transfers.
 ///
 /// On discrete GPUs with separate transfer queues this allows PCIe transfers
@@ -2803,7 +2813,7 @@ pub fn upload_chunks_batched(
     command_buffer_allocator: &Arc<StandardCommandBufferAllocator>,
     config: ChunkUploadConfig<'_>,
     chunks: &[ChunkDataSlice<'_>],
-) {
+) -> GpuUploadResult {
     let ChunkUploadConfig {
         transfer_queue,
         graphics_queue_family,
@@ -2815,7 +2825,7 @@ pub fn upload_chunks_batched(
         skip_zero_slices,
     } = config;
     if chunks.is_empty() {
-        return;
+        return Ok(());
     }
 
     // Filter uploads that fit into the current texture window and collect offsets.
@@ -2867,7 +2877,7 @@ pub fn upload_chunks_batched(
     }
 
     if uploads.is_empty() {
-        return;
+        return Ok(());
     }
 
     // When skip_zero_slices is enabled (origin-shift path only), detect
@@ -2927,77 +2937,75 @@ pub fn upload_chunks_batched(
     // Get staging buffers - prefer reusing from pool
     let t_staging = std::time::Instant::now();
     let mut staging_allocated = false;
-    let (block_staging, meta_staging, custom_staging) = STAGING_POOL.with(|pool| {
-        let mut p = pool.borrow_mut();
+    let (block_staging, meta_staging, custom_staging) =
+        STAGING_POOL.with(|pool| -> GpuResult<StagingBufferPair> {
+            let mut p = pool.borrow_mut();
 
-        // Find a triple with sufficient sizes
-        let idx_opt = p.iter().position(|(b, m, c)| {
-            b.size() as usize >= total_block_bytes
-                && m.size() as usize >= total_meta_bytes
-                && c.size() as usize >= total_custom_bytes
-        });
+            // Find a triple with sufficient sizes
+            let idx_opt = p.iter().position(|(b, m, c)| {
+                b.size() as usize >= total_block_bytes
+                    && m.size() as usize >= total_meta_bytes
+                    && c.size() as usize >= total_custom_bytes
+            });
 
-        if let Some(idx) = idx_opt {
-            p.swap_remove(idx)
-        } else {
-            staging_allocated = true;
-            // Allocate new staging buffers
-            let block_buf = Buffer::new_slice::<u8>(
-                memory_allocator.clone(),
-                BufferCreateInfo {
-                    usage: BufferUsage::TRANSFER_SRC,
-                    ..Default::default()
-                },
-                AllocationCreateInfo {
-                    memory_type_filter: MemoryTypeFilter::PREFER_HOST
-                        | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-                    ..Default::default()
-                },
-                total_block_bytes as u64,
-            )
-            .unwrap();
+            if let Some(idx) = idx_opt {
+                Ok(p.swap_remove(idx))
+            } else {
+                staging_allocated = true;
+                // Allocate new staging buffers
+                let block_buf = Buffer::new_slice::<u8>(
+                    memory_allocator.clone(),
+                    BufferCreateInfo {
+                        usage: BufferUsage::TRANSFER_SRC,
+                        ..Default::default()
+                    },
+                    AllocationCreateInfo {
+                        memory_type_filter: MemoryTypeFilter::PREFER_HOST
+                            | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                        ..Default::default()
+                    },
+                    total_block_bytes as u64,
+                )?;
 
-            // Allocate at least 1 byte so the staging buffer is always valid
-            // even when the first shift happens to have no meta/custom to upload.
-            let meta_buf = Buffer::new_slice::<u8>(
-                memory_allocator.clone(),
-                BufferCreateInfo {
-                    usage: BufferUsage::TRANSFER_SRC,
-                    ..Default::default()
-                },
-                AllocationCreateInfo {
-                    memory_type_filter: MemoryTypeFilter::PREFER_HOST
-                        | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-                    ..Default::default()
-                },
-                total_meta_bytes.max(1) as u64,
-            )
-            .unwrap();
+                // Allocate at least 1 byte so the staging buffer is always valid
+                // even when the first shift happens to have no meta/custom to upload.
+                let meta_buf = Buffer::new_slice::<u8>(
+                    memory_allocator.clone(),
+                    BufferCreateInfo {
+                        usage: BufferUsage::TRANSFER_SRC,
+                        ..Default::default()
+                    },
+                    AllocationCreateInfo {
+                        memory_type_filter: MemoryTypeFilter::PREFER_HOST
+                            | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                        ..Default::default()
+                    },
+                    total_meta_bytes.max(1) as u64,
+                )?;
 
-            let custom_buf = Buffer::new_slice::<u8>(
-                memory_allocator.clone(),
-                BufferCreateInfo {
-                    usage: BufferUsage::TRANSFER_SRC,
-                    ..Default::default()
-                },
-                AllocationCreateInfo {
-                    memory_type_filter: MemoryTypeFilter::PREFER_HOST
-                        | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-                    ..Default::default()
-                },
-                total_custom_bytes.max(1) as u64,
-            )
-            .unwrap();
+                let custom_buf = Buffer::new_slice::<u8>(
+                    memory_allocator.clone(),
+                    BufferCreateInfo {
+                        usage: BufferUsage::TRANSFER_SRC,
+                        ..Default::default()
+                    },
+                    AllocationCreateInfo {
+                        memory_type_filter: MemoryTypeFilter::PREFER_HOST
+                            | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                        ..Default::default()
+                    },
+                    total_custom_bytes.max(1) as u64,
+                )?;
 
-            (block_buf, meta_buf, custom_buf)
-        }
-    });
+                Ok((block_buf, meta_buf, custom_buf))
+            }
+        })?;
     let staging_us = t_staging.elapsed();
 
     // Write data to staging buffers (skip zero slices entirely).
     let t_memcpy = std::time::Instant::now();
     {
-        let mut block_write = block_staging.write().unwrap();
+        let mut block_write = block_staging.write()?;
         let mut block_cursor = 0usize;
         for upload in &uploads {
             let blen = upload.block_data.len();
@@ -3006,7 +3014,7 @@ pub fn upload_chunks_batched(
         }
 
         if total_meta_bytes > 0 {
-            let mut meta_write = meta_staging.write().unwrap();
+            let mut meta_write = meta_staging.write()?;
             let mut meta_cursor = 0usize;
             for upload in &uploads {
                 if !upload.upload_meta {
@@ -3019,7 +3027,7 @@ pub fn upload_chunks_batched(
         }
 
         if total_custom_bytes > 0 {
-            let mut custom_write = custom_staging.write().unwrap();
+            let mut custom_write = custom_staging.write()?;
             let mut custom_cursor = 0usize;
             for upload in &uploads {
                 if !upload.upload_custom {
@@ -3249,6 +3257,8 @@ pub fn upload_chunks_batched(
 
     // Note: We do NOT wait here! The fence is polled on the next upload call.
     // Staging buffers are kept alive in the ring buffer until the transfer completes.
+
+    Ok(())
 }
 
 /// Flushes all pending chunk transfers, waiting for GPU completion.
@@ -3263,7 +3273,7 @@ pub fn update_chunk_metadata(
     world: &mut crate::world::World,
     chunk_metadata_buffer: &Subbuffer<[u32]>,
     texture_origin: Vector3<i32>,
-) {
+) -> GpuUploadResult {
     CHUNK_META_SCRATCH.with(|scratch| {
         let mut metadata = scratch.borrow_mut();
         metadata.clear();
@@ -3300,9 +3310,10 @@ pub fn update_chunk_metadata(
             }
         }
 
-        let mut buffer_write = chunk_metadata_buffer.write().unwrap();
+        let mut buffer_write = chunk_metadata_buffer.write()?;
         buffer_write.copy_from_slice(&metadata);
-    });
+        Ok(())
+    })
 }
 
 #[allow(dead_code)]
@@ -3311,7 +3322,7 @@ pub fn update_brick_metadata(
     brick_mask_buffer: &Subbuffer<[u32]>,
     brick_dist_buffer: &Subbuffer<[u32]>,
     texture_origin: Vector3<i32>,
-) {
+) -> GpuUploadResult {
     use crate::svt::ChunkSVT;
 
     BRICK_MASK_SCRATCH.with(|mask_scratch| {
@@ -3357,15 +3368,16 @@ pub fn update_brick_metadata(
             }
 
             {
-                let mut mask_write = brick_mask_buffer.write().unwrap();
+                let mut mask_write = brick_mask_buffer.write()?;
                 mask_write.copy_from_slice(&brick_masks);
             }
             {
-                let mut dist_write = brick_dist_buffer.write().unwrap();
+                let mut dist_write = brick_dist_buffer.write()?;
                 dist_write.copy_from_slice(&brick_distances);
             }
-        });
-    });
+            Ok(())
+        })
+    })
 }
 
 pub fn save_screenshot(

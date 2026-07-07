@@ -571,7 +571,8 @@ fn render_icon(
             skip_zero_slices: false,
         },
         &[(chunk_pos, &block_buf, &meta_buf, &custom_buf)],
-    );
+    )
+    .expect("sprite-gen: GPU chunk upload failed — is a Vulkan device available?");
 
     let block_center = Vector3::new(
         (chunk_pos.x * CHUNK_SIZE as i32 + local_pos.0 as i32) as f64 + 0.5,
