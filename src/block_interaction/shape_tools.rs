@@ -35,6 +35,7 @@ impl<'a> BlockInteractionContext<'a> {
             &mut self.sim.water_grid,
             &mut self.sim.lava_grid,
         );
+        self.sync_shape_blocks(&positions, params);
 
         // Invalidate minimap cache for affected area
         if let Some(first_pos) = positions.first() {
@@ -82,6 +83,7 @@ impl<'a> BlockInteractionContext<'a> {
             &mut self.sim.water_grid,
             &mut self.sim.lava_grid,
         );
+        self.sync_shape_blocks(&positions, params);
 
         // Invalidate minimap cache for affected area
         if let Some(first_pos) = positions.first() {
@@ -128,6 +130,7 @@ impl<'a> BlockInteractionContext<'a> {
             &mut self.sim.water_grid,
             &mut self.sim.lava_grid,
         );
+        self.sync_shape_blocks(&positions, params);
 
         // Invalidate minimap cache for affected area
         self.sim.world.invalidate_minimap_cache(start.x, start.z);
@@ -175,6 +178,7 @@ impl<'a> BlockInteractionContext<'a> {
             &mut self.sim.water_grid,
             &mut self.sim.lava_grid,
         );
+        self.sync_shape_blocks(&positions, params);
 
         // Invalidate minimap cache for affected area
         if let Some(first_pos) = positions.first() {
@@ -226,6 +230,7 @@ impl<'a> BlockInteractionContext<'a> {
             &mut self.sim.water_grid,
             &mut self.sim.lava_grid,
         );
+        self.sync_shape_blocks(&positions, params);
 
         // Invalidate minimap cache for affected area
         self.sim.world.invalidate_minimap_cache(start.x, start.z);
@@ -270,6 +275,7 @@ impl<'a> BlockInteractionContext<'a> {
             &mut self.sim.water_grid,
             &mut self.sim.lava_grid,
         );
+        self.sync_shape_blocks(&positions, params);
 
         // Invalidate minimap cache for affected area
         self.sim.world.invalidate_minimap_cache(start.x, start.z);
@@ -319,6 +325,7 @@ impl<'a> BlockInteractionContext<'a> {
             &mut self.sim.water_grid,
             &mut self.sim.lava_grid,
         );
+        self.sync_shape_blocks(&positions, params);
 
         // Invalidate minimap cache for affected area
         self.sim.world.invalidate_minimap_cache(center.x, center.z);
@@ -362,6 +369,7 @@ impl<'a> BlockInteractionContext<'a> {
             &mut self.sim.water_grid,
             &mut self.sim.lava_grid,
         );
+        self.sync_shape_blocks(&positions, params);
 
         // Invalidate minimap cache for affected area
         if let Some(first_pos) = positions.first() {
@@ -409,6 +417,7 @@ impl<'a> BlockInteractionContext<'a> {
             &mut self.sim.water_grid,
             &mut self.sim.lava_grid,
         );
+        self.sync_shape_blocks(&positions, params);
 
         // Invalidate minimap cache for affected area
         if let Some(first_pos) = positions.first() {
@@ -452,6 +461,7 @@ impl<'a> BlockInteractionContext<'a> {
             &mut self.sim.water_grid,
             &mut self.sim.lava_grid,
         );
+        self.sync_shape_blocks(&positions, params);
 
         // Invalidate minimap cache for affected area
         if let Some(first_pos) = positions.first() {
@@ -495,6 +505,7 @@ impl<'a> BlockInteractionContext<'a> {
             &mut self.sim.water_grid,
             &mut self.sim.lava_grid,
         );
+        self.sync_shape_blocks(&positions, params);
 
         // Invalidate minimap cache for affected area
         if let Some(first_pos) = positions.first() {
@@ -538,6 +549,7 @@ impl<'a> BlockInteractionContext<'a> {
             &mut self.sim.water_grid,
             &mut self.sim.lava_grid,
         );
+        self.sync_shape_blocks(&positions, params);
 
         // Invalidate minimap cache for affected area
         if let Some(first_pos) = positions.first() {
@@ -581,6 +593,7 @@ impl<'a> BlockInteractionContext<'a> {
             &mut self.sim.water_grid,
             &mut self.sim.lava_grid,
         );
+        self.sync_shape_blocks(&positions, params);
 
         // Invalidate minimap cache for affected area
         if let Some(first_pos) = positions.first() {
@@ -625,6 +638,7 @@ impl<'a> BlockInteractionContext<'a> {
             &mut self.sim.water_grid,
             &mut self.sim.lava_grid,
         );
+        self.sync_shape_blocks(&positions, params);
 
         // Invalidate minimap cache for affected area
         if let Some(first_pos) = positions.first() {
@@ -685,6 +699,7 @@ impl<'a> BlockInteractionContext<'a> {
             &mut self.sim.water_grid,
             &mut self.sim.lava_grid,
         );
+        self.sync_shape_blocks(&positions_a, params_a);
 
         // Place Block B positions
         let placed_b = place_blocks_at_positions(
@@ -694,6 +709,7 @@ impl<'a> BlockInteractionContext<'a> {
             &mut self.sim.water_grid,
             &mut self.sim.lava_grid,
         );
+        self.sync_shape_blocks(&positions_b, params_b);
 
         // Invalidate minimap cache for affected area
         if let Some(first_pos) = positions_a.first() {
@@ -799,13 +815,15 @@ impl<'a> BlockInteractionContext<'a> {
             count
         } else {
             // Place regular blocks using shared helper
-            place_blocks_at_positions(
+            let count = place_blocks_at_positions(
                 &final_positions,
                 params,
                 &mut self.sim.world,
                 &mut self.sim.water_grid,
                 &mut self.sim.lava_grid,
-            )
+            );
+            self.sync_shape_blocks(&final_positions, params);
+            count
         };
 
         // Invalidate minimap cache

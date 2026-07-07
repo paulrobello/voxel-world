@@ -14,8 +14,8 @@ use renet_netcode::NetcodeClientTransport;
 use crate::net::auth::{ClientAuth, ConnectionState, ConnectionTracker};
 use crate::net::channel::create_connection_config;
 use crate::net::protocol::{
-    BlockData, BreakBlock, BulkOperation, ClientMessage, InputActions, PlaceBlock, PlayerInput,
-    ServerMessage,
+    BlockData, BlocksChanged, BreakBlock, BulkOperation, ClientMessage, InputActions, PlaceBlock,
+    PlayerInput, ServerMessage,
 };
 
 /// Voxel-world game client.
@@ -312,6 +312,18 @@ impl GameClient {
         }
     }
 
+    /// Sends a batch of resolved block writes (e.g. from a shape tool) to the
+    /// server. Client-authoritative, mirroring `send_place_block`: the
+    /// originator has already applied the writes locally, and the server
+    /// validates + relays the batch to other clients (originator-excluded).
+    pub fn send_blocks_changed(&mut self, changes: BlocksChanged) {
+        let msg = ClientMessage::BlocksChanged(changes);
+
+        if let Ok(encoded) = postcard::to_stdvec(&msg) {
+            self.client.send_message(1, renet::Bytes::from(encoded)); // Channel 1 = BlockUpdates
+        }
+    }
+
     /// Sends a block break to the server.
     pub fn send_break_block(&mut self, position: [i32; 3]) {
         let msg = ClientMessage::BreakBlock(BreakBlock { position });
@@ -565,6 +577,68 @@ mod tests {
         );
 
         // Clean teardown: neither side panics, encode_failures stays zero.
+        assert_eq!(server.encode_failures(), 0);
+    }
+
+    /// NET-001: a batched `BlocksChanged` (shape-tool sync) round-trips through
+    /// the real renet/netcode transport and is parsed by the server as
+    /// `ClientMessage::BlocksChanged` with the entries intact. Mirrors the
+    /// PlaceBlock smoke test above; combined with the existing
+    /// `ServerMessage::BlocksChanged` client-receive fan-out (which routes each
+    /// entry through the same `NetworkEvent::BlockChanged` path as single-block
+    /// changes) and `apply_remote_block_changes`, this exercises the full
+    /// wire path for shape-edit sync.
+    #[test]
+    fn test_loopback_blocks_changed_send_receive() {
+        let addr = free_local_udp();
+        let mut server =
+            GameServer::new(addr, /*world_seed*/ 42, /*world_gen*/ 0).expect("start server");
+        let key = server.private_key();
+        let mut client = GameClient::with_key(addr, key).expect("start client");
+        client.connect();
+
+        let tick = Duration::from_millis(16);
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while std::time::Instant::now() < deadline && !client.is_connected() {
+            let events = server.update(tick);
+            for event in events {
+                if let renet::ServerEvent::ClientConnected { client_id } = event {
+                    server.handle_client_connected(client_id, [0.0, 64.0, 0.0]);
+                }
+            }
+            server.flush_packets();
+            client.update(tick);
+            client.flush_packets();
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        assert!(client.is_connected(), "client should connect within 5s");
+
+        // Send a small "shape edit" — three stone blocks — as a single batch.
+        let changes: Vec<([i32; 3], BlockData)> = vec![
+            ([1, 64, 2], BlockData::from(crate::chunk::BlockType::Stone)),
+            ([1, 65, 2], BlockData::from(crate::chunk::BlockType::Stone)),
+            ([1, 66, 2], BlockData::from(crate::chunk::BlockType::Stone)),
+        ];
+        client.send_blocks_changed(BlocksChanged { changes });
+        client.flush_packets();
+
+        let mut got_batch: Option<usize> = None;
+        let batch_deadline = std::time::Instant::now() + Duration::from_secs(3);
+        while std::time::Instant::now() < batch_deadline && got_batch.is_none() {
+            let _ = server.update(tick);
+            let msgs = server.receive_client_messages();
+            for (_cid, msg) in msgs {
+                if let crate::net::protocol::ClientMessage::BlocksChanged(bc) = msg {
+                    got_batch = Some(bc.changes.len());
+                }
+            }
+            server.flush_packets();
+            client.update(tick);
+            client.flush_packets();
+            std::thread::sleep(Duration::from_millis(2));
+        }
+
+        assert_eq!(got_batch, Some(3), "server should receive all 3 entries");
         assert_eq!(server.encode_failures(), 0);
     }
 }

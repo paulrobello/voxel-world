@@ -106,6 +106,75 @@ impl<'a> BlockInteractionContext<'a> {
         }
     }
 
+    /// Syncs a batch of resolved block writes (from a shape tool) to the server.
+    ///
+    /// Mirrors `place_blocks_at_positions`: builds a `BlockData` per position
+    /// from `params` using [`block_data_for_params`] (the same per-type
+    /// branches the placement helper writes), skips Model/Air and
+    /// out-of-Y-bounds positions identically, caps the batch at
+    /// `MAX_BLOCKS_CHANGED` (logging truncation rather than panicking), and
+    /// sends a single `BlocksChanged`. The server relays to other clients
+    /// originator-excluded, so the local world is never double-applied.
+    ///
+    /// Water sources are carried by the `BlockData::water_type` field and
+    /// applied by the receiver's existing `apply_remote_block_changes` Water
+    /// arm — no separate source broadcast is needed. (Lava grid sources are
+    /// not placed by the client-side apply path today; the block write itself
+    /// still syncs, matching single-block Lava placement.)
+    pub(super) fn sync_shape_blocks(
+        &mut self,
+        positions: &[Vector3<i32>],
+        params: crate::placement::BlockPlacementParams,
+    ) {
+        if !self.is_connected_to_server() {
+            return;
+        }
+
+        use crate::net::protocol::{BlocksChanged, MAX_BLOCKS_CHANGED};
+
+        let mut changes: Vec<([i32; 3], crate::net::protocol::BlockData)> =
+            Vec::with_capacity(positions.len().min(MAX_BLOCKS_CHANGED));
+        let mut skipped_overflow = 0u32;
+
+        for pos in positions {
+            if changes.len() >= MAX_BLOCKS_CHANGED {
+                skipped_overflow =
+                    skipped_overflow.saturating_add((positions.len() - changes.len()) as u32);
+                break;
+            }
+            // Mirror place_blocks_at_positions skips (Y bounds; Model/Air).
+            if pos.y < 0 || pos.y >= TEXTURE_SIZE_Y as i32 {
+                continue;
+            }
+            let Some(block) = block_data_for_params(params) else {
+                continue;
+            };
+            changes.push(([pos.x, pos.y, pos.z], block));
+        }
+
+        if skipped_overflow > 0 {
+            log::warn!(
+                "[Client] Shape edit produced {} positions beyond the {}-entry sync cap; \
+                 the first {} were synced and the rest will reconcile via chunk resend / autosave",
+                skipped_overflow,
+                MAX_BLOCKS_CHANGED,
+                MAX_BLOCKS_CHANGED
+            );
+        }
+
+        if changes.is_empty() {
+            return;
+        }
+
+        log::debug!(
+            "[Client] Syncing {} block(s) from shape edit ({:?})",
+            changes.len(),
+            params.block_type
+        );
+        self.multiplayer
+            .send_blocks_changed(BlocksChanged { changes });
+    }
+
     /// Returns the currently selected block from the hotbar.
     pub(super) fn selected_block(&self) -> BlockType {
         self.ui.hotbar.hotbar_blocks[self.ui.hotbar.hotbar_index]
@@ -701,6 +770,49 @@ impl<'a> BlockInteractionContext<'a> {
     }
 }
 
+// ── Shape-edit sync helper ───────────────────────────────────────────────────
+
+/// Builds the `BlockData` representing what `place_blocks_at_positions`
+/// writes for `params`, or `None` for Model/Air (which placement skips).
+///
+/// Branch-per-type to mirror `place_blocks_at_positions` exactly:
+/// - TintedGlass/Crystal carry `tint_index`
+/// - Painted carries texture+tint via `BlockPaintData::simple`
+/// - Water carries `water_type` (so receivers place the source via their
+///   existing Water apply arm in `apply_remote_block_changes`)
+/// - Lava and any plain block use `BlockData::from(block_type)`
+/// - Model/Air return `None` (placement skips them, so sync skips them too)
+pub(super) fn block_data_for_params(
+    params: crate::placement::BlockPlacementParams,
+) -> Option<crate::net::protocol::BlockData> {
+    use crate::chunk::{BlockPaintData, WaterType};
+    use crate::net::protocol::BlockData;
+
+    let block = match params.block_type {
+        BlockType::TintedGlass | BlockType::Crystal => BlockData {
+            block_type: params.block_type,
+            tint_index: Some(params.tint_index),
+            ..Default::default()
+        },
+        BlockType::Painted => BlockData {
+            block_type: params.block_type,
+            paint_data: Some(BlockPaintData::simple(
+                params.paint_texture,
+                params.tint_index,
+            )),
+            ..Default::default()
+        },
+        BlockType::Water => BlockData {
+            block_type: params.block_type,
+            water_type: Some(WaterType::from_u8(params.tint_index)),
+            ..Default::default()
+        },
+        BlockType::Model | BlockType::Air => return None,
+        other => BlockData::from(other),
+    };
+    Some(block)
+}
+
 // ── Thin `impl App` delegates ─────────────────────────────────────────────────
 //
 // Each method constructs a [`BlockInteractionContext`] from the relevant `App`
@@ -1036,5 +1148,71 @@ mod tests {
         assert!(should_place_inverted_stair(0, 0.5));
         // Just below boundary
         assert!(!should_place_inverted_stair(0, 0.4999));
+    }
+
+    // ── block_data_for_params: params → BlockData conversion (NET-001) ──────
+    //
+    // Exercises every per-type branch the shape-edit sync path can produce so
+    // the conversion cannot silently drift from `place_blocks_at_positions`.
+
+    use crate::chunk::{BlockPaintData, BlockType, WaterType};
+    use crate::net::protocol::BlockData;
+    use crate::placement::BlockPlacementParams;
+
+    #[test]
+    fn test_block_data_for_plain_block() {
+        // Stone / Dirt / etc. carry only the block_type.
+        let bd = block_data_for_params(BlockPlacementParams::new(BlockType::Stone, 0, 0))
+            .expect("plain block yields BlockData");
+        assert_eq!(bd, BlockData::from(BlockType::Stone));
+        assert!(bd.tint_index.is_none() && bd.paint_data.is_none() && bd.water_type.is_none());
+    }
+
+    #[test]
+    fn test_block_data_for_tinted_glass_and_crystal() {
+        for ty in [BlockType::TintedGlass, BlockType::Crystal] {
+            let bd = block_data_for_params(BlockPlacementParams::new(ty, 7, 0))
+                .expect("tinted block yields BlockData");
+            assert_eq!(bd.block_type, ty);
+            assert_eq!(bd.tint_index, Some(7));
+            assert!(bd.paint_data.is_none() && bd.water_type.is_none());
+        }
+    }
+
+    #[test]
+    fn test_block_data_for_painted() {
+        let bd = block_data_for_params(BlockPlacementParams::new(BlockType::Painted, 4, 9))
+            .expect("painted block yields BlockData");
+        assert_eq!(bd.block_type, BlockType::Painted);
+        // paint_data mirrors BlockPaintData::simple(texture, tint).
+        assert_eq!(bd.paint_data, Some(BlockPaintData::simple(9, 4)));
+        assert!(bd.tint_index.is_none() && bd.water_type.is_none());
+    }
+
+    #[test]
+    fn test_block_data_for_water_carries_source_type() {
+        // tint_index selects the WaterType; the receiver's apply path places
+        // the source from this field, so carrying it is load-bearing.
+        let bd = block_data_for_params(BlockPlacementParams::new(BlockType::Water, 2, 0))
+            .expect("water yields BlockData");
+        assert_eq!(bd.block_type, BlockType::Water);
+        assert_eq!(bd.water_type, Some(WaterType::River)); // from_u8(2) == River
+    }
+
+    #[test]
+    fn test_block_data_for_lava_is_plain() {
+        // Lava falls through to the plain-block branch (the client-side apply
+        // path has no Lava-specific source placement, matching single-block).
+        let bd = block_data_for_params(BlockPlacementParams::new(BlockType::Lava, 0, 0))
+            .expect("lava yields BlockData");
+        assert_eq!(bd, BlockData::from(BlockType::Lava));
+    }
+
+    #[test]
+    fn test_block_data_for_model_and_air_is_none() {
+        // place_blocks_at_positions skips Model and Air; sync must skip them
+        // too so they never appear in a BlocksChanged batch.
+        assert!(block_data_for_params(BlockPlacementParams::new(BlockType::Model, 0, 0)).is_none());
+        assert!(block_data_for_params(BlockPlacementParams::new(BlockType::Air, 0, 0)).is_none());
     }
 }

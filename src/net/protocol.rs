@@ -132,6 +132,15 @@ pub const MAX_TEMPLATE_NAME_LEN: usize = 64;
 /// gigabytes via an unbounded `Vec<u8>` or `String` field.
 pub const MAX_INBOUND_MESSAGE_SIZE: usize = 8 * 1024 * 1024;
 
+/// Maximum number of block entries accepted in a single `BlocksChanged`
+/// batch (client→server shape-tool sync). Shape tools can produce larger
+/// point-sets for very big fills; rather than reject, the sender caps the
+/// batch at this length and logs the truncation, and the server enforces
+/// the same cap in `ClientMessage::validate()`. 4096 keeps a single
+/// message well under `MAX_INBOUND_MESSAGE_SIZE` while covering the
+/// practical range of a single shape edit (a radius-9 sphere ≈ 3k blocks).
+pub const MAX_BLOCKS_CHANGED: usize = 4096;
+
 /// Application-level wire-schema version. Bump whenever a serde struct
 /// in this module changes in a way that breaks postcard round-trip with
 /// an older build (added/removed/reordered field, changed enum variant
@@ -139,8 +148,9 @@ pub const MAX_INBOUND_MESSAGE_SIZE: usize = 8 * 1024 * 1024;
 /// be bumped so a mismatched client is rejected before any message
 /// decode is attempted; `PROTOCOL_SCHEMA_VERSION` is the
 /// app-layer backstop that clients can also surface with a readable
-/// message. Bumped to 3 with the bincode -> postcard wire-format change.
-pub const PROTOCOL_SCHEMA_VERSION: u32 = 3;
+/// message. Bumped to 3 with the bincode -> postcard wire-format change;
+/// bumped to 4 with the addition of `ClientMessage::BlocksChanged`.
+pub const PROTOCOL_SCHEMA_VERSION: u32 = 4;
 
 /// Maximum number of chunk positions accepted in a single `RequestChunks`.
 pub const MAX_REQUEST_CHUNKS: usize = 1024;
@@ -391,6 +401,12 @@ pub enum ClientMessage {
     SetPlayerName(SetPlayerName),
     /// Send chat message.
     ChatMessage(ChatMessage),
+    /// Batch of resolved block writes from a client-side shape edit
+    /// (sphere, cube, wall, …). Client-authoritative like `PlaceBlock`:
+    /// the originator has already applied the writes locally and the
+    /// server is a validate-and-relay hop. Reuses the existing
+    /// `BlocksChanged` payload (also used by `ServerMessage`).
+    BlocksChanged(BlocksChanged),
 }
 
 impl ClientMessage {
@@ -495,6 +511,17 @@ impl ClientMessage {
             ClientMessage::ChatMessage(cm) => {
                 if cm.message.len() > MAX_CHAT_MESSAGE_LEN {
                     return Err("ChatMessage exceeds MAX_CHAT_MESSAGE_LEN");
+                }
+                Ok(())
+            }
+            ClientMessage::BlocksChanged(bc) => {
+                if bc.changes.len() > MAX_BLOCKS_CHANGED {
+                    return Err("BlocksChanged exceeds MAX_BLOCKS_CHANGED");
+                }
+                for (pos, _block) in &bc.changes {
+                    if !is_valid_block_coord(*pos) {
+                        return Err("BlocksChanged position out of world bounds");
+                    }
                 }
                 Ok(())
             }
@@ -1020,6 +1047,32 @@ mod tests {
     }
 
     #[test]
+    fn test_blocks_changed_validate_and_round_trip() {
+        // Cap-sized, in-bounds batch validates cleanly.
+        let changes: Vec<([i32; 3], BlockData)> = (0..MAX_BLOCKS_CHANGED)
+            .map(|i| {
+                (
+                    [(i as i32) & 0x1ff, (i as i32) & 0xff, 0],
+                    BlockData::from(BlockType::Stone),
+                )
+            })
+            .collect();
+        let good = ClientMessage::BlocksChanged(BlocksChanged { changes });
+        assert!(good.validate().is_ok());
+
+        // Round-trips through postcard preserving order and content.
+        let encoded = postcard::to_stdvec(&good).unwrap();
+        let decoded: ClientMessage = postcard::from_bytes(&encoded).unwrap();
+        match decoded {
+            ClientMessage::BlocksChanged(bc) => {
+                assert_eq!(bc.changes.len(), MAX_BLOCKS_CHANGED);
+                assert_eq!(bc.changes[0].1, BlockData::from(BlockType::Stone));
+            }
+            _ => panic!("expected BlocksChanged variant"),
+        }
+    }
+
+    #[test]
     fn test_client_message_validate_rejects_out_of_bounds_coord() {
         let msg = ClientMessage::PlaceBlock(PlaceBlock {
             position: [i32::MAX, 64, 0],
@@ -1223,6 +1276,21 @@ mod tests {
                 "ChatMessage too long",
                 ClientMessage::ChatMessage(ChatMessage {
                     message: "m".repeat(MAX_CHAT_MESSAGE_LEN + 1),
+                }),
+            ),
+            (
+                "BlocksChanged too many entries",
+                ClientMessage::BlocksChanged(BlocksChanged {
+                    changes: vec![
+                        ([0, 0, 0], BlockData::from(BlockType::Stone));
+                        MAX_BLOCKS_CHANGED + 1
+                    ],
+                }),
+            ),
+            (
+                "BlocksChanged oob position",
+                ClientMessage::BlocksChanged(BlocksChanged {
+                    changes: vec![([0, MAX_BLOCK_Y + 1, 0], BlockData::from(BlockType::Stone))],
                 }),
             ),
         ];

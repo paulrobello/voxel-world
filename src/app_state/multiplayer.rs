@@ -845,6 +845,66 @@ impl MultiplayerState {
                     }
                 }
             }
+            ClientMessage::BlocksChanged(msg) => {
+                // Bulk shape-edit sync (client-authoritative, mirroring
+                // PlaceBlock). The originator has already applied the writes
+                // locally; the server validates + relays to other clients.
+                log::debug!(
+                    "[Server] Received BlocksChanged with {} entries from client {}",
+                    msg.changes.len(),
+                    client_id
+                );
+
+                // Anti-cheat: bulk edits legitimately exceed the per-block
+                // rate limit, so use the reach-only check (any block within
+                // expanded build reach of the sender). Reject only batches
+                // that target entirely far-away coords.
+                let reach_ok = if let Some(ref server) = self.server {
+                    if let Some(player_info) = server.get_player(client_id) {
+                        let positions: Vec<[i32; 3]> =
+                            msg.changes.iter().map(|(p, _)| *p).collect();
+                        self.block_validator
+                            .validate_bulk_reach(player_info.position, &positions, 3.0)
+                            .is_ok()
+                    } else {
+                        false
+                    }
+                } else {
+                    // Threaded-server mode: skip (mirrors the PlaceBlock TODO).
+                    true
+                };
+
+                if reach_ok {
+                    if let Some(ref mut server) = self.server {
+                        server.broadcast_block_changes_except(msg, client_id);
+                        log::debug!(
+                            "[Server] Broadcasted BlocksChanged to all clients except originator"
+                        );
+                    }
+                    #[cfg(feature = "threaded-server")]
+                    #[cfg(feature = "threaded-server")]
+                    if let Some(ref server_thread) = self.server_thread {
+                        // No bulk-broadcast command exists for the threaded
+                        // server path; fan out per-entry so the edit still
+                        // reaches remote clients. Host edits are the common
+                        // case and tolerate the per-message cost.
+                        for (pos, block) in &msg.changes {
+                            let _ =
+                                server_thread.send_command(ServerCommand::BroadcastBlockChange(
+                                    crate::net::protocol::BlockChanged {
+                                        position: *pos,
+                                        block: block.clone(),
+                                    },
+                                ));
+                        }
+                    }
+                } else {
+                    log::warn!(
+                        "[Server] BlocksChanged from client {} rejected: out of reach",
+                        client_id
+                    );
+                }
+            }
             ClientMessage::BreakBlock(break_msg) => {
                 log::debug!(
                     "[Server] Received BreakBlock at {:?} from client {}",
@@ -1614,6 +1674,17 @@ impl MultiplayerState {
         if let Some(ref mut client) = self.client {
             client.send_place_block(position, block);
             // Flush immediately for responsive block sync
+            client.flush_packets();
+        }
+    }
+
+    /// Sends a batch of resolved block writes (e.g. from a shape tool) to the
+    /// server. Mirrors `send_place_block`; the server relays to other clients
+    /// originator-excluded so the local world is not double-applied.
+    pub fn send_blocks_changed(&mut self, changes: crate::net::protocol::BlocksChanged) {
+        if let Some(ref mut client) = self.client {
+            client.send_blocks_changed(changes);
+            // Flush immediately so the batch lands in the next server tick.
             client.flush_packets();
         }
     }

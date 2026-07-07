@@ -350,6 +350,43 @@ impl BlockValidator {
         Ok(())
     }
 
+    /// Validates the reach of a bulk (multi-block) edit without the per-block
+    /// rate-limit gate.
+    ///
+    /// A single shape edit legitimately writes thousands of blocks in one
+    /// batch, which would trip `validate_placement`'s per-second rate cap if
+    /// applied per-entry. Instead this checks that *at least one* block in
+    /// the batch is within `reach_scale × max_placement_distance` of the
+    /// player — i.e. the edit is anchored near the player rather than aimed
+    /// at far-away coords. Hostile batches that target only distant positions
+    /// are rejected wholesale; legitimate shape edits that span a region
+    /// around the player pass.
+    ///
+    /// `reach_scale` widens the per-block reach to account for shape tools
+    /// that fill a volume around the player (callers typically pass ~3.0).
+    pub fn validate_bulk_reach(
+        &self,
+        player_pos: [f32; 3],
+        positions: &[[i32; 3]],
+        reach_scale: f32,
+    ) -> Result<(), String> {
+        let limit = self.max_placement_distance * reach_scale;
+        let limit_sq = limit * limit;
+        let any_in_reach = positions.iter().any(|pos| {
+            let dx = pos[0] as f32 - player_pos[0];
+            let dy = pos[1] as f32 - player_pos[1];
+            let dz = pos[2] as f32 - player_pos[2];
+            dx * dx + dy * dy + dz * dz <= limit_sq
+        });
+        if !any_in_reach {
+            return Err(format!(
+                "Bulk edit entirely outside reach (>{:.1} blocks from player)",
+                limit
+            ));
+        }
+        Ok(())
+    }
+
     /// Clears rate limit tracking for a player.
     pub fn clear_player(&mut self, player_id: PlayerId) {
         self.player_actions.remove(&player_id);
