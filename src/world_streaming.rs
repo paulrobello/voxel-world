@@ -987,9 +987,10 @@ impl App {
             .iter()
             .take(CHUNKS_PER_FRAME)
             .map(|pos| {
-                // Cancel pending generation for this chunk if queued
-                self.sim.chunk_loader.cancel_chunk(*pos);
-                self.sim.world.remove_chunk(*pos);
+                // Persist (if dirty) then remove via the WorldSim seam. Pre-STOR-002
+                // this dropped the returned chunk without checking persistence_dirty,
+                // silently losing player edits on unload.
+                self.sim.unload_chunk(*pos);
                 unloaded += 1;
                 *pos
             })
