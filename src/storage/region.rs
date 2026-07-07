@@ -8,21 +8,30 @@ use crate::constants::WORLD_CHUNKS_Y;
 ///
 /// On-disk layout (v2):
 /// ```text
-/// [ location table  : CHUNKS_PER_REGION * 4 bytes (u32 BE each) ]
-/// [ timestamp table : CHUNKS_PER_REGION * 4 bytes (u32 BE each) ]
-/// [ marker          : 4-byte magic + 4-byte version (BE)         ]
-/// [ zero-padded to the next SECTOR_SIZE boundary                 ]
+/// [ location table  : CHUNKS_PER_REGION * 4 bytes (u32 BE each)        ]
+/// [ timestamp table : CHUNKS_PER_REGION * 4 bytes (u32 BE each)        ]
+/// [ marker          : 4-byte magic + 4-byte version (BE)               ]
+/// [ generation      : 4-byte write-generation counter (BE), see STOR-003 ]
+/// [ zero-padded to the next SECTOR_SIZE boundary                       ]
 /// [ data sectors    : SECTOR_SIZE each ]
 /// ```
 /// The location + timestamp tables plus the marker occupy the leading
 /// `HEADER_SIZE` bytes. v1 files (8-height, 64 KiB header, no marker) are
-/// detected on open and atomically rebuilt into the v2 layout.
+/// detected on open and atomically rebuilt into the v2 layout. The generation
+/// counter lives in bytes that were zero padding in v2 files written by
+/// STOR-001, so it is a backward-compatible additive refinement (no version
+/// bump). Readers probe it to cheaply detect that a writer appended a chunk
+/// since they cached the location table; see `refresh_if_stale`.
 pub struct RegionFile {
     file: File,
     /// Location table: index -> (offset_in_sectors << 8) | sector_count
     locations: [u32; CHUNKS_PER_REGION],
     /// Timestamp table: index -> unix_timestamp
     timestamps: [u32; CHUNKS_PER_REGION],
+    /// Write-generation counter, bumped by `write_chunk` after the location
+    /// entry is durable. Readers compare their cached value against the on-disk
+    /// value to decide whether to re-read the location table.
+    generation: u32,
 }
 
 pub const CHUNKS_PER_REGION_SIDE: i32 = 32;
@@ -40,13 +49,20 @@ pub const SECTOR_SIZE: usize = 4096;
 /// being silently misread under the new 16-height layout.
 pub const REGION_MAGIC: [u8; 4] = *b"VXRF";
 pub const REGION_VERSION: u32 = 2;
-const REGION_MARKER_BYTES: usize = REGION_MAGIC.len() + std::mem::size_of::<u32>();
+/// magic + version + 4-byte generation counter (STOR-003). The generation
+/// field occupies bytes that were zero padding in STOR-001 v2 files, so this
+/// does not bump `REGION_VERSION`.
+const REGION_MARKER_BYTES: usize =
+    REGION_MAGIC.len() + std::mem::size_of::<u32>() + std::mem::size_of::<u32>();
 
 pub const HEADER_SECTORS: usize =
     (CHUNKS_PER_REGION * 4 * 2 + REGION_MARKER_BYTES).div_ceil(SECTOR_SIZE);
 pub const HEADER_SIZE: usize = HEADER_SECTORS * SECTOR_SIZE;
 /// Byte offset of the marker (magic + version) within the header.
 const MARKER_OFFSET: usize = CHUNKS_PER_REGION * 4 * 2;
+/// Byte offset of the 4-byte BE write-generation counter, immediately after
+/// the magic + version. Probed by readers to detect stale location caches.
+const GENERATION_OFFSET: usize = MARKER_OFFSET + REGION_MAGIC.len() + std::mem::size_of::<u32>();
 
 // --- Old (v1, pre-marker, 8-height) format constants, used only for migration ---
 const OLD_V1_REGION_HEIGHT: i32 = 8;
@@ -110,6 +126,7 @@ impl RegionFile {
             file,
             locations: [0u32; CHUNKS_PER_REGION],
             timestamps: [0u32; CHUNKS_PER_REGION],
+            generation: 0,
         })
     }
 
@@ -136,10 +153,19 @@ impl RegionFile {
                 header_buf[ts_off + 3],
             ]);
         }
+        // Generation lives in the post-marker padding that STOR-001 v2 files
+        // zero-initialised, so a missing/zero field reads as generation 0.
+        let generation = u32::from_be_bytes([
+            header_buf[GENERATION_OFFSET],
+            header_buf[GENERATION_OFFSET + 1],
+            header_buf[GENERATION_OFFSET + 2],
+            header_buf[GENERATION_OFFSET + 3],
+        ]);
         Ok(Self {
             file,
             locations,
             timestamps,
+            generation,
         })
     }
 
@@ -393,9 +419,66 @@ impl RegionFile {
         self.file.seek(SeekFrom::Start(ts_disk_offset as u64))?;
         self.file.write_all(&timestamp.to_be_bytes())?;
 
+        // Bump the write-generation LAST, after the location entry is durable,
+        // then flush. Generation acts as a publish flag: any reader that
+        // observes generation G is guaranteed the location entries for all
+        // writes <= G are already on disk. See STOR-003.
+        self.generation = self.generation.wrapping_add(1);
+        self.file.seek(SeekFrom::Start(GENERATION_OFFSET as u64))?;
+        self.file.write_all(&self.generation.to_be_bytes())?;
+
         self.file.flush()?;
 
         Ok(())
+    }
+
+    /// Cheaply detects whether another handle has appended writes to this
+    /// region file since this handle cached its location table, and re-reads
+    /// the tables from disk if so. Returns `true` when a refresh occurred.
+    ///
+    /// The hot path is a single 4-byte read of the on-disk generation counter
+    /// at `GENERATION_OFFSET`; the full table re-read only runs when that
+    /// counter has advanced. A file shorter than `HEADER_SIZE` (partial write /
+    /// crash) is treated as generation 0 / not stale rather than risk reading
+    /// garbage and clobbering a possibly-newer in-memory cache.
+    pub fn refresh_if_stale(&mut self) -> IoResult<bool> {
+        let file_len = self.file.metadata()?.len() as usize;
+        if file_len < HEADER_SIZE {
+            return Ok(false);
+        }
+
+        self.file.seek(SeekFrom::Start(GENERATION_OFFSET as u64))?;
+        let mut gen_buf = [0u8; 4];
+        self.file.read_exact(&mut gen_buf)?;
+        let on_disk_generation = u32::from_be_bytes(gen_buf);
+
+        if on_disk_generation == self.generation {
+            return Ok(false);
+        }
+
+        // Stale: re-read the location + timestamp tables from disk so future
+        // read_chunk calls see the writer's appended sectors.
+        self.file.seek(SeekFrom::Start(0))?;
+        let mut header_buf = vec![0u8; CHUNKS_PER_REGION * 4 * 2];
+        self.file.read_exact(&mut header_buf)?;
+        for i in 0..CHUNKS_PER_REGION {
+            let off = i * 4;
+            self.locations[i] = u32::from_be_bytes([
+                header_buf[off],
+                header_buf[off + 1],
+                header_buf[off + 2],
+                header_buf[off + 3],
+            ]);
+            let ts_off = CHUNKS_PER_REGION * 4 + i * 4;
+            self.timestamps[i] = u32::from_be_bytes([
+                header_buf[ts_off],
+                header_buf[ts_off + 1],
+                header_buf[ts_off + 2],
+                header_buf[ts_off + 3],
+            ]);
+        }
+        self.generation = on_disk_generation;
+        Ok(true)
     }
 }
 
@@ -532,5 +615,76 @@ mod tests {
         assert_eq!(REGION_HEIGHT, 16);
         assert_eq!(CHUNKS_PER_REGION, 16384);
         assert_eq!(HEADER_SIZE, 33 * SECTOR_SIZE);
+    }
+
+    /// STOR-003: a separate read handle caching the location table at open
+    /// must see chunks the writer appends later, after `refresh_if_stale`
+    /// detects the bumped on-disk generation. Pins both the bug (stale read
+    /// returns Ok(None)) and the fix (refresh -> visible) at the unit level.
+    #[test]
+    fn generation_refresh_detects_writer_updates() {
+        // Pin the generation field offset: immediately after magic + version.
+        assert_eq!(GENERATION_OFFSET, MARKER_OFFSET + REGION_MAGIC.len() + 4);
+        assert_eq!(GENERATION_OFFSET, 131080);
+        // HEADER_SIZE is unchanged by the additive generation field.
+        assert_eq!(HEADER_SIZE, 33 * SECTOR_SIZE);
+
+        let tmp = NamedTempFile::new().expect("tempfile");
+        let path = tmp.path().to_path_buf();
+
+        let payload_a: Vec<u8> = (0..123u8).collect();
+        let payload_b: Vec<u8> = (200..250u8).collect();
+
+        // Writer 1: write chunk A at (0,0,0). Bumps on-disk generation to 1.
+        {
+            let mut writer = RegionFile::open(&path).expect("open new");
+            writer.write_chunk(0, 0, 0, &payload_a).expect("write A");
+        }
+
+        // Reader: a SEPARATE handle, caches generation G0 + locations with A.
+        let mut reader = RegionFile::open(&path).expect("open reader");
+        assert_eq!(
+            reader.read_chunk(0, 0, 0).expect("read A"),
+            Some(payload_a.clone())
+        );
+
+        // Writer 2: write chunk B at (1,0,0). Bumps on-disk generation to 2.
+        {
+            let mut writer = RegionFile::open(&path).expect("reopen writer");
+            writer.write_chunk(1, 0, 0, &payload_b).expect("write B");
+        }
+
+        // WITHOUT refresh: the reader's cached location for B's slot is still 0
+        // (empty), so it returns Ok(None). This is exactly the STOR-003 bug.
+        assert_eq!(
+            reader
+                .read_chunk(1, 0, 0)
+                .expect("stale read must not error"),
+            None,
+            "stale reader cache must not see the newly-written chunk"
+        );
+
+        // Refresh: detects generation 1 -> 2 on disk, re-reads location table.
+        let refreshed = reader.refresh_if_stale().expect("refresh_if_stale");
+        assert!(refreshed, "refresh must report true after a writer bump");
+
+        // After refresh, B is visible AND A still reads correctly.
+        assert_eq!(
+            reader.read_chunk(1, 0, 0).expect("read B after refresh"),
+            Some(payload_b.clone())
+        );
+        assert_eq!(
+            reader
+                .read_chunk(0, 0, 0)
+                .expect("read A still works after refresh"),
+            Some(payload_a.clone())
+        );
+
+        // A second refresh with no intervening write is a no-op.
+        let refreshed_again = reader.refresh_if_stale().expect("refresh again");
+        assert!(
+            !refreshed_again,
+            "refresh must report false when generation is unchanged"
+        );
     }
 }

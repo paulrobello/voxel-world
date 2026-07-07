@@ -196,6 +196,15 @@ impl ParallelStorageReader {
             Err(_) => return Ok(None), // Region doesn't exist = chunk not saved
         };
 
+        // STOR-003: this handle's cached location table may be stale if the
+        // writer appended a chunk to this region since we first opened it.
+        // Probe the on-disk generation and re-read the tables if it advanced.
+        // A refresh I/O error is propagated like a read error, never swallowed
+        // into Ok(None) (which would silently lose the player's edit).
+        region
+            .refresh_if_stale()
+            .map_err(|e: std::io::Error| e.to_string())?;
+
         match region
             .read_chunk(pos.x, pos.y, pos.z)
             .map_err(|e: std::io::Error| e.to_string())?
@@ -207,5 +216,82 @@ impl ParallelStorageReader {
             }
             None => Ok(None),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::chunk::{BlockType, Chunk};
+    use tempfile::tempdir;
+
+    /// STOR-003 regression at the worker level: a `ParallelStorageReader`
+    /// that cached a region before the writer appended a chunk to it must see
+    /// the freshly-saved chunk on its next read (via the region's
+    /// `refresh_if_stale`), not return `Ok(None)` and trigger a seed-regen
+    /// that loses the player's edit.
+    ///
+    /// Determinism: the `StorageSystem` worker drains its mpsc channel in send
+    /// order, and `save_chunk` flushes on every write. So a `load_chunk` that
+    /// round-trips through the same worker after a `save_chunk` only returns
+    /// once the save has been processed and flushed to disk -- a sync point the
+    /// reader relies on before opening / re-reading the file.
+    #[test]
+    fn parallel_reader_sees_writer_save_after_refresh() {
+        let dir = tempdir().expect("tempdir");
+        let writer = StorageSystem::new(dir.path().to_path_buf());
+
+        let pos_a = ChunkPos::new(0, 0, 0);
+        let pos_b = ChunkPos::new(1, 0, 0); // same region (0,0) as pos_a
+
+        // Chunk A -- written first so the reader can open and cache the region.
+        let mut chunk_a = Chunk::new();
+        chunk_a.set_block(0, 0, 0, BlockType::Stone);
+        writer.save_chunk(pos_a, SerializedChunk::from(&chunk_a));
+        // Sync point: guarantees the Save is durable on disk before the reader
+        // touches the file (channel FIFO; worker handles Save then Load).
+        assert!(
+            writer.load_chunk(pos_a).unwrap().is_some(),
+            "writer must see its own save of chunk A"
+        );
+
+        // Reader opens the region now: caches generation G0 + locations with A.
+        let mut reader = ParallelStorageReader::new(dir.path().to_path_buf());
+        assert!(
+            reader.load_chunk(pos_a).unwrap().is_some(),
+            "reader must see chunk A written before it opened the region"
+        );
+
+        // Writer saves chunk B in the same region: bumps on-disk generation.
+        let mut chunk_b = Chunk::new();
+        chunk_b.set_block(2, 2, 2, BlockType::Dirt);
+        writer.save_chunk(pos_b, SerializedChunk::from(&chunk_b));
+        // Sync point: ensures B is durable on disk before the reader reads.
+        assert!(
+            writer.load_chunk(pos_b).unwrap().is_some(),
+            "writer must see chunk B"
+        );
+
+        // Reader must see B -- refresh_if_stale detects the bumped generation
+        // and re-reads the location table. Without the refresh this returns
+        // Ok(None) and the save is silently lost (the STOR-003 bug).
+        let loaded_b = reader
+            .load_chunk(pos_b)
+            .expect("reader load must not error")
+            .expect("reader must see freshly-saved chunk after refresh");
+        assert_eq!(
+            loaded_b.get_block(2, 2, 2),
+            BlockType::Dirt,
+            "refreshed reader must return the edited block data"
+        );
+
+        // A is still readable through the same refreshed cache.
+        assert!(
+            reader.load_chunk(pos_a).unwrap().is_some(),
+            "chunk A must still be readable after the refresh"
+        );
+
+        // `writer` (and thus its worker thread) drops before `dir`, so the
+        // tempdir cleanup never races an in-flight save.
     }
 }
