@@ -128,7 +128,7 @@ These work regardless of focus state (except when the console is open):
 | `/` | Toggle command console |
 | `R` | Rotate template/stencil placement 90 degrees |
 | `P` | Repaint painted block under cursor |
-| `[` / `]` | Cycle paint texture backward/forward |
+| `[` / `]` | Stencil opacity down/up; also cycles paint texture when a Painted block is in the active hotbar slot |
 | `,` / `.` | Cycle tint color backward/forward |
 | `\` | Toggle stencil render mode (wireframe/solid) |
 | `Cmd/Ctrl+Z` | Undo (editor active) |
@@ -151,9 +151,13 @@ These work regardless of focus state (except when the console is open):
 | `C` | Toggle debug cutaway |
 | `M` | Toggle minimap |
 | `G` | Toggle laser rangefinder |
+| `K` | Toggle water/lava source debug markers (see note below on `K` overlap) |
 | `V` | Toggle template selection mode |
+| `Tab` | Cycle mirror-tool axis (when mirror tool active); toggle multiplayer player list otherwise |
 | `Shift+Right-click` | Rotate custom model / repaint painted block |
 | `Escape` | Cancel tool / close panel |
+
+> **Note on `K`:** The `K` key is overloaded. The global-shortcut handler toggles the stencil browser (above) whenever the console is closed, and the focused gameplay handler additionally toggles water/lava source debug markers when the window has focus. Pressing `K` while focused therefore fires both.
 
 ### UI Panels
 

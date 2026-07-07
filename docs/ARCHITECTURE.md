@@ -309,7 +309,7 @@ graph TB
     style Tree fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
 ```
 
-The generation pipeline uses 5D climate noise (temperature, humidity, continentalness, erosion, weirdness) to select from 17 biome types. Terrain height varies by biome (flat plains, rolling hills, mountains up to 90 blocks). Four cave carver types create underground networks. Trees and vegetation are placed post-surface based on biome suitability.
+The generation pipeline uses 5D climate noise (temperature, humidity, continentalness, erosion, weirdness) to select from 18 biome types. Terrain height varies by biome (flat plains, rolling hills, mountains up to 90 blocks). Four cave carver types create underground networks. Trees and vegetation are placed post-surface based on biome suitability.
 
 ## Sub-Voxel Model System
 
@@ -442,7 +442,7 @@ graph TB
 
 **StorageWorker** runs on a dedicated thread communicating via `crossbeam-channel` with `Load`/`Save`/`Shutdown` commands. Region files are lazily opened.
 
-**Chunk serialization:** `SerializedChunk` stores blocks, model metadata, tint data, paint data, and frame data. Compressed with Zstd level 3, serialized via bincode.
+**Chunk serialization:** `SerializedChunk` stores blocks, model metadata, tint data, paint data, and frame data. Compressed with Zstd level 3, serialized via postcard.
 
 **Model persistence:** `WorldModelStore` saves all custom models to `models.dat`, `DoorPairStore` saves door pairings to `door_pairs.dat`.
 

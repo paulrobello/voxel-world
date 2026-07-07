@@ -27,7 +27,7 @@ cd voxel-world
 make run
 ```
 
-Requires [Rust 1.94.1+](https://www.rust-lang.org), Vulkan SDK, and a Git LFS client. The Makefile handles macOS Vulkan environment variables automatically. First build compiles shaders (~1–3 min); subsequent builds are incremental.
+Requires [Rust 1.94.1+](https://www.rust-lang.org) and the Vulkan SDK. The Makefile handles macOS Vulkan environment variables automatically. First build compiles shaders (~1–3 min); subsequent builds are incremental.
 
 ### Quality Presets
 
@@ -46,9 +46,9 @@ See [Quickstart Guide](docs/QUICKSTART.md) for a full walkthrough.
 - **Vulkan Compute Shader Rendering** — Ray marching through voxel data entirely on GPU; no vertex/fragment pipeline
 - **Sub-Voxel Model System** — Multi-resolution models (8³/16³/32³) for detailed blocks (torches, fences, doors, crystals)
 - **Large Streaming World** — 512×512×512 resident window (16³ chunks of 32³ blocks), infinite X/Z via origin-shift streaming
-- **Procedural Terrain** — 17 biome types driven by 5D climate noise (temperature, humidity, continentalness, erosion, weirdness)
+- **Procedural Terrain** — 18 biome types driven by 5D climate noise (temperature, humidity, continentalness, erosion, weirdness)
 - **Cave Systems** — 4 cave types: cheese, spaghetti, noodle, carved (~25% have surface entrances)
-- **9 Tree Types** — Oak, birch, pine, willow, jungle, acacia, cactus, snow, mushroom
+- **8 Tree Types** — Oak, birch, pine, willow, jungle, acacia, cactus, snow (dead tree + snow pine)
 - **47 Block Types** — Stone, dirt, grass, glass, water, lava, crystal, and more
 - **608 Painted Variants** — 19 textures × 32 tints for player-customized blocks
 - **Water & Lava** — Cellular automata simulation with gravity, spread, and pressure
@@ -349,7 +349,7 @@ See [CLI Reference](docs/CLI.md#multiplayer) for all multiplayer options.
 - **egui** — Immediate mode GUI for settings, editors, and debug panels
 - **renet** — UDP multiplayer networking with Netcode encryption
 - **rayon** — Parallel chunk generation on background thread pool
-- **bincode** — Efficient binary serialization for network and storage
+- **postcard** — Efficient binary serialization for network and storage
 - **lz4** — Chunk compression for network transfer
 - **ash** — Vulkan API bindings
 - **glam** — Mathematics library
