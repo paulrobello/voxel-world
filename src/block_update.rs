@@ -301,10 +301,7 @@ impl BlockUpdateQueue {
 
             // If block above is a leaf, check if it's still supported
             if let Some(above_block) = world.get_block(above_pos)
-                && matches!(
-                    above_block,
-                    BlockType::Leaves | BlockType::PineLeaves | BlockType::WillowLeaves
-                )
+                && above_block.is_leaves()
             {
                 self.enqueue(above_pos, BlockUpdateType::OrphanedLeaves, Vector3::zeros());
             }
@@ -351,10 +348,7 @@ impl BlockUpdateQueue {
 
                     // Also check for orphaned leaves above
                     if let Some(above_block) = world.get_block(above_pos)
-                        && matches!(
-                            above_block,
-                            BlockType::Leaves | BlockType::PineLeaves | BlockType::WillowLeaves
-                        )
+                        && above_block.is_leaves()
                     {
                         self.enqueue(above_pos, BlockUpdateType::OrphanedLeaves, Vector3::zeros());
                     }
@@ -378,10 +372,7 @@ impl BlockUpdateQueue {
         }
 
         if let Some(block) = world.get_block(pos)
-            && matches!(
-                block,
-                BlockType::Leaves | BlockType::PineLeaves | BlockType::WillowLeaves
-            )
+            && block.is_leaves()
         {
             let (leaves, has_log) = world.find_leaf_cluster_and_check_log(pos);
             if !has_log && !leaves.is_empty() {
@@ -406,10 +397,7 @@ impl BlockUpdateQueue {
 
                     // Also check for more orphaned leaves above
                     if let Some(above_block) = world.get_block(above_pos)
-                        && matches!(
-                            above_block,
-                            BlockType::Leaves | BlockType::PineLeaves | BlockType::WillowLeaves
-                        )
+                        && above_block.is_leaves()
                     {
                         self.enqueue(above_pos, BlockUpdateType::OrphanedLeaves, Vector3::zeros());
                     }

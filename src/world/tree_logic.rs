@@ -19,10 +19,7 @@ impl World {
 
         // Verify starting block is leaves
         if let Some(block) = self.get_block(start) {
-            if !matches!(
-                block,
-                BlockType::Leaves | BlockType::PineLeaves | BlockType::WillowLeaves
-            ) {
+            if !block.is_leaves() {
                 return (leaves, true); // Not leaves, assume connected
             }
         } else {
@@ -46,10 +43,7 @@ impl World {
 
         while let Some(pos) = queue.pop_front() {
             if let Some(block) = self.get_block(pos)
-                && matches!(
-                    block,
-                    BlockType::Leaves | BlockType::PineLeaves | BlockType::WillowLeaves
-                )
+                && block.is_leaves()
             {
                 leaves.push((pos, block));
 
@@ -66,11 +60,7 @@ impl World {
                         }
 
                         // Add unvisited leaves to queue (any direction)
-                        if matches!(
-                            neighbor_block,
-                            BlockType::Leaves | BlockType::PineLeaves | BlockType::WillowLeaves
-                        ) && !visited.contains(&neighbor)
-                        {
+                        if neighbor_block.is_leaves() && !visited.contains(&neighbor) {
                             visited.insert(neighbor);
                             queue.push_back(neighbor);
                         }
