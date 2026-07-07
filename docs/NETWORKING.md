@@ -30,7 +30,7 @@ Multiplayer architecture for Voxel World — encrypted UDP networking via renet/
 - Bandwidth-aware chunk streaming with LZ4 compression and epoch-based dedup
 - Unified typed event queue replacing individual pending-message vectors
 
-**Tech stack:** renet (reliable/unreliable multiplexed channels), renet_netcode (encrypted UDP transport), bincode (serialization), LZ4 (chunk compression)
+**Tech stack:** renet (reliable/unreliable multiplexed channels), renet_netcode (encrypted UDP transport), postcard (serialization), LZ4 (chunk compression)
 
 ## Getting Started
 
@@ -150,9 +150,18 @@ The authentication system uses renet netcode's **Secure mode** with per-session 
 
 - **Server** generates a random 32-byte private key at startup via `ServerAuth::new()`
 - **Loopback client** (the host's own client) receives the key directly via `GameClient::with_key()`
-- **Remote clients** obtain the key out-of-band via a hex-encoded pairing code displayed on the host console
-- `PROTOCOL_ID` is a compile-time FNV-1a hash of the version string `"voxel-world-2"`, ensuring mismatched binaries fail at the netcode handshake
-- `PROTOCOL_SCHEMA_VERSION` (currently `2`) is an application-level version check sent in `ConnectionAccepted` — clients refuse to continue if it doesn't match their compile-time value
+- **Remote clients** obtain the key out-of-band via a 64-hex-character pairing code displayed on the host console (and in the in-game Multiplayer → Host panel). The code is the lower-hex encoding of the 32-byte key, produced by `auth::key_to_pairing_code` and decoded on the client by `auth::pairing_code_to_key`
+- `PROTOCOL_ID` is a compile-time FNV-1a hash of the version string `"voxel-world-4"`, ensuring mismatched binaries fail at the netcode handshake
+- `PROTOCOL_SCHEMA_VERSION` (currently `4`) is an application-level version check sent in `ConnectionAccepted` — clients refuse to continue if it doesn't match their compile-time value
+
+**Pairing-code flow:**
+
+1. Host starts a server (`MultiplayerState::start_host`). The 32-byte key is generated inside `ServerAuth::new` and is never sent over the wire.
+2. Host displays the 64-hex pairing code in two places: a `log::info!` line at server startup (`[GameServer] Session pairing code: …` / `[Multiplayer] Hosting on port … — pairing code: …`), and the in-game Multiplayer → Host panel (monospaced, copyable).
+3. The host shares that code with the remote player over a trusted side channel (chat, voice, etc.). Anyone holding the code can join.
+4. The remote player enters the code in Multiplayer → Join → "Pairing Code" along with the host address. The Connect button stays disabled until both an address parses and a non-empty code is present.
+5. `MultiplayerState::connect(addr, code)` decodes the code via `pairing_code_to_key` and constructs `GameClient::with_key(addr, key)` — the same Secure-mode path the host's loopback client uses. A malformed or empty code returns an error and the client does **not** fall back to unsecured transport.
+6. The resulting `ConnectToken` is signed by the decoded key; the server's netcode layer validates the signature as part of the normal handshake.
 
 **Connection timeout:** 30 seconds — generous enough to survive frame stalls from chunk generation and GPU uploads without the netcode layer expiring the connection.
 
@@ -171,7 +180,7 @@ The connection budget is 60 KB per tick at 60 Hz (~28.8 Mbps theoretical through
 
 ## Protocol Messages
 
-All messages use bincode serialization for speed and compactness. A size limit of 8 MB (`MAX_INBOUND_MESSAGE_SIZE`) prevents OOM from hostile peers.
+All messages use postcard serialization for speed and compactness. A size limit of 8 MB (`MAX_INBOUND_MESSAGE_SIZE`), enforced as a raw-length cap before decode, prevents OOM from hostile peers.
 
 ### Client → Server
 
@@ -395,7 +404,7 @@ Every inbound `ClientMessage` is validated after deserialization:
 | `TICK_RATE` | `20` | `net/mod.rs` | Server updates per second |
 | `CONNECTION_TIMEOUT_MS` | `30000` | `net/auth.rs` | Netcode connection timeout |
 | `CHUNK_RESEND_WINDOW` | `30s` | `net/server.rs` | Chunk dedup window |
-| `MAX_INBOUND_MESSAGE_SIZE` | `8 MB` | `net/protocol.rs` | Bincode decode size limit |
+| `MAX_INBOUND_MESSAGE_SIZE` | `8 MB` | `net/protocol.rs` | Postcard decode size limit |
 | `MAX_BULK_FILL_VOLUME` | `32768` | `net/protocol.rs` | Max blocks in a Fill/Replace |
 | `SERVER_TIMEOUT_SECS` | `5` | `net/discovery.rs` | LAN discovery entry TTL |
 

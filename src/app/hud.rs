@@ -47,6 +47,10 @@ pub fn render_hud(
 
     // Get discovered servers for multiplayer panel
     ui.multiplayer_panel.join.discovered_servers = multiplayer.get_discovered_servers();
+    // Sync the host pairing code so the Host tab can display it. This is a
+    // per-frame clone of a 64-char Option<String> — cheap relative to the
+    // rest of the HUD work.
+    ui.multiplayer_panel.host.host_pairing_code = multiplayer.host_pairing_code.clone();
 
     let (scale_changed, editor_action, tool_action, multiplayer_action) = HUDRenderer.render(
         &mut rcx.gui,
@@ -1236,10 +1240,12 @@ fn handle_multiplayer_action(
         log::debug!("[Multiplayer] Stopped hosting");
     }
 
-    // Handle connect
-    if let Some(addr) = action.connect {
+    // Handle connect — the action carries the pairing code entered in the
+    // join panel. Secure-mode auth rejects empty/mismatched codes; we never
+    // fall back to unsecured transport here.
+    if let Some((addr, pairing_code)) = &action.connect {
         log::debug!("[Multiplayer] Connect action triggered for {}", addr);
-        match multiplayer.connect(&addr.to_string()) {
+        match multiplayer.connect(&addr.to_string(), pairing_code) {
             Ok(()) => {
                 log::debug!("[Multiplayer] Connecting to {}", addr);
             }

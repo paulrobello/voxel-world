@@ -751,10 +751,16 @@ impl App {
                 }
                 crate::config::GameMode::Client => {
                     if let Some(ref address) = args.connect {
-                        log::debug!("[Multiplayer] Connecting to {}...", address);
-                        match multiplayer.connect(address) {
-                            Ok(()) => log::debug!("[Multiplayer] Connecting..."),
-                            Err(e) => log::warn!("[Multiplayer] Failed to connect: {}", e),
+                        match &args.pairing_code {
+                            Some(code) => match multiplayer.connect(address, code) {
+                                Ok(()) => {
+                                    log::debug!("[Multiplayer] Connecting to {}...", address)
+                                }
+                                Err(e) => log::warn!("[Multiplayer] Failed to connect: {}", e),
+                            },
+                            None => log::error!(
+                                "[Multiplayer] --connect requires --pairing-code <64-hex code from host> for secure auth"
+                            ),
                         }
                     }
                 }

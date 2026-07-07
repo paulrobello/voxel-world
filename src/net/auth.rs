@@ -164,17 +164,49 @@ impl ServerAuth {
     /// Print this on the host console so a remote player can type it into the
     /// client when connecting in Secure mode.
     pub fn pairing_code(&self) -> String {
-        let mut s = String::with_capacity(64);
-        for b in self.private_key.iter() {
-            s.push_str(&format!("{:02x}", b));
-        }
-        s
+        key_to_pairing_code(&self.private_key)
     }
 
     /// Returns the server address.
     pub fn address(&self) -> SocketAddr {
         self.address
     }
+}
+
+/// Encodes a 32-byte server private key as a 64-character lower-hex pairing
+/// code, suitable for sharing out-of-band with a remote client. This is the
+/// canonical form displayed on the host and entered by the joining client.
+pub fn key_to_pairing_code(key: &[u8; 32]) -> String {
+    let mut s = String::with_capacity(64);
+    for b in key.iter() {
+        s.push_str(&format!("{:02x}", b));
+    }
+    s
+}
+
+/// Decodes a 64-character hex pairing code back into the 32-byte server
+/// private key. Surrounding whitespace is trimmed and hex digits are
+/// case-insensitive, so a pasted code with a trailing newline or mixed-case
+/// hex decodes identically. Returns a clear error for wrong-length, empty,
+/// or non-hex input — callers must not fall back to unsecured transport
+/// when this fails.
+pub fn pairing_code_to_key(code: &str) -> Result<[u8; 32], String> {
+    let trimmed = code.trim();
+    if trimmed.len() != 64 {
+        return Err(format!(
+            "Pairing code must be exactly 64 hex characters, got {}",
+            trimmed.len()
+        ));
+    }
+    let mut key = [0u8; 32];
+    for (i, chunk) in trimmed.as_bytes().chunks(2).enumerate() {
+        let s = std::str::from_utf8(chunk)
+            .map_err(|_| format!("Non-UTF-8 byte at position {}", i * 2))?;
+        let b = u8::from_str_radix(s, 16)
+            .map_err(|_| format!("Invalid hex digit at position {}", i * 2))?;
+        key[i] = b;
+    }
+    Ok(key)
 }
 
 /// Client authentication tokens.
@@ -401,6 +433,76 @@ mod tests {
         let code = auth.pairing_code();
         assert_eq!(code.len(), 64);
         assert!(code.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn test_key_to_pairing_code_known_value() {
+        // Fixed 32-byte key → exact 64-char lower-hex string. Pinning the
+        // literal catches any future drift in the encoder format.
+        let key: [u8; 32] = [
+            0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55,
+            0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0xde, 0xad, 0xbe, 0xef,
+            0xfe, 0xed, 0xfa, 0xce,
+        ];
+        assert_eq!(
+            key_to_pairing_code(&key),
+            "0123456789abcdef00112233445566778899aabbccddeeffdeadbeeffeedface"
+        );
+    }
+
+    #[test]
+    fn test_pairing_code_round_trip() {
+        let key: [u8; 32] = [
+            0xff, 0x00, 0x11, 0xee, 0x22, 0xdd, 0x33, 0xcc, 0x44, 0xbb, 0x55, 0xaa, 0x66, 0x99,
+            0x77, 0x88, 0x80, 0x7f, 0x6e, 0x5d, 0x4c, 0x3b, 0x2a, 0x19, 0xf0, 0xe1, 0xd2, 0xc3,
+            0xb4, 0xa5, 0x96, 0x87,
+        ];
+        let code = key_to_pairing_code(&key);
+        assert_eq!(pairing_code_to_key(&code).unwrap(), key);
+    }
+
+    #[test]
+    fn test_pairing_code_case_insensitive() {
+        let key: [u8; 32] = [
+            0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0x01, 0x23, 0x45,
+            0x67, 0x89, 0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0x01,
+            0x23, 0x45, 0x67, 0x89,
+        ];
+        let lower = key_to_pairing_code(&key);
+        let upper = lower.to_uppercase();
+        assert_eq!(pairing_code_to_key(&upper).unwrap(), key);
+    }
+
+    #[test]
+    fn test_pairing_code_trims_surrounding_whitespace() {
+        // A pasted code often carries a trailing newline / spaces; the decoder
+        // must accept it as if it were clean.
+        let key: [u8; 32] = [0xa5; 32];
+        let code = key_to_pairing_code(&key);
+        let pasted = format!("  {}\n\n", code);
+        assert_eq!(pairing_code_to_key(&pasted).unwrap(), key);
+    }
+
+    #[test]
+    fn test_pairing_code_rejects_wrong_length() {
+        // Empty input.
+        assert!(pairing_code_to_key("").is_err());
+        // Too short (63 chars — one byte shy).
+        assert!(pairing_code_to_key(&"a".repeat(63)).is_err());
+        // Too long (65 chars — one byte over).
+        assert!(pairing_code_to_key(&"a".repeat(65)).is_err());
+        // Half length (32 chars — a common "hex of 16 bytes" mistake).
+        assert!(pairing_code_to_key(&"0".repeat(32)).is_err());
+    }
+
+    #[test]
+    fn test_pairing_code_rejects_non_hex() {
+        // 64 chars but contains non-hex characters.
+        let bad = "z".repeat(64);
+        assert!(pairing_code_to_key(&bad).is_err());
+        // Mixed valid prefix + invalid tail.
+        let mixed = format!("{}{}", "0".repeat(60), "!!!!");
+        assert!(pairing_code_to_key(&mixed).is_err());
     }
 
     /// Picks a free ephemeral UDP port so the transport tests can run in

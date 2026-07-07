@@ -217,6 +217,10 @@ pub struct MultiplayerState {
     player_names: Vec<String>,
     /// Server address (set when hosting or connected).
     pub server_address: Option<SocketAddr>,
+    /// Pairing code (64-hex of the server's per-session private key) shown on
+    /// the host so a remote client can authenticate via Secure mode. `Some`
+    /// only while hosting; cleared on `stop_host`.
+    pub host_pairing_code: Option<String>,
     /// Last known ping in milliseconds.
     pub ping_ms: Option<u32>,
     /// Local player's display name.
@@ -270,6 +274,7 @@ impl MultiplayerState {
             player_count: 1, // Host counts as player
             player_names: vec!["Host".to_string()],
             server_address: None,
+            host_pairing_code: None,
             ping_ms: None,
             local_player_name: "Player".to_string(),
             chat_history: Vec::new(),
@@ -347,6 +352,16 @@ impl MultiplayerState {
             localhost
         );
         if let Some(key) = server_key {
+            // Surface the pairing code so the host can share it out-of-band
+            // with a remote client. The key is the same one the loopback
+            // client uses; the hex form is what a remote player will type in.
+            let code = crate::net::auth::key_to_pairing_code(&key);
+            log::info!(
+                "[Multiplayer] Hosting on port {} — pairing code: {}",
+                port,
+                code
+            );
+            self.host_pairing_code = Some(code);
             self.client = Some(GameClient::with_key(localhost, key)?);
         } else {
             self.client = Some(GameClient::new(localhost)?);
@@ -394,6 +409,7 @@ impl MultiplayerState {
         }
         self.discovery_responder = None;
         self.server_address = None;
+        self.host_pairing_code = None;
         self.server_name.clear();
         self.player_count = 1;
         self.player_names = vec!["Host".to_string()];
@@ -403,14 +419,29 @@ impl MultiplayerState {
         }
     }
 
-    /// Connects to a remote server.
-    pub fn connect(&mut self, address: &str) -> Result<(), String> {
+    /// Connects to a remote server using a 64-hex pairing code that matches
+    /// the host's per-session private key. The code is decoded locally and
+    /// fed into `GameClient::with_key` — the same Secure-mode path the host's
+    /// loopback client uses. An empty or malformed code returns an error and
+    /// does NOT fall back to unsecured transport.
+    pub fn connect(&mut self, address: &str, pairing_code: &str) -> Result<(), String> {
         let addr: SocketAddr = address
             .parse()
             .map_err(|e| format!("Invalid address '{}': {}", address, e))?;
 
-        log::debug!("[Multiplayer] Connecting to {}...", addr);
-        self.client = Some(GameClient::new(addr)?);
+        let trimmed = pairing_code.trim();
+        if trimmed.is_empty() {
+            return Err(
+                "Pairing code is required — ask the host for the 64-hex code shown on their screen."
+                    .to_string(),
+            );
+        }
+
+        let key = crate::net::auth::pairing_code_to_key(trimmed)
+            .map_err(|e| format!("Invalid pairing code: {}", e))?;
+
+        log::debug!("[Multiplayer] Connecting to {} with pairing code...", addr);
+        self.client = Some(GameClient::with_key(addr, key)?);
         self.client.as_mut().unwrap().connect();
         self.mode = GameMode::Client;
         self.server_address = Some(addr);

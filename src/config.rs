@@ -182,6 +182,10 @@ pub struct Args {
     #[arg(long, value_name = "ADDRESS")]
     pub connect: Option<String>,
 
+    /// Pairing code for secure auth (64-hex key from the host; required with --connect)
+    #[arg(long, value_name = "PAIRING_CODE")]
+    pub pairing_code: Option<String>,
+
     /// Server port for hosting or connecting (default: 5000)
     #[arg(long, default_value_t = 5000)]
     pub port: u16,

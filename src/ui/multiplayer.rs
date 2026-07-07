@@ -38,6 +38,10 @@ pub struct HostPanelState {
     pub status_message: Option<String>,
     /// Whether currently hosting.
     pub is_hosting: bool,
+    /// Pairing code (64-hex of the server's per-session private key) shown to
+    /// the host so they can share it out-of-band with a remote client. Synced
+    /// from `MultiplayerState::host_pairing_code` each frame.
+    pub host_pairing_code: Option<String>,
 }
 
 impl Default for HostPanelState {
@@ -47,6 +51,7 @@ impl Default for HostPanelState {
             port: "5000".to_string(),
             status_message: None,
             is_hosting: false,
+            host_pairing_code: None,
         }
     }
 }
@@ -56,6 +61,10 @@ impl Default for HostPanelState {
 pub struct JoinPanelState {
     /// Direct connect address input.
     pub address_input: String,
+    /// Pairing code text entry (64-hex). Required for Secure-mode auth; the
+    /// connect button is disabled until the address parses AND a non-empty
+    /// code is present. The host shares this code out-of-band.
+    pub pairing_code: String,
     /// List of discovered servers from LAN discovery.
     pub discovered_servers: Vec<DiscoveredServer>,
     /// Selected server index in the discovered list.
@@ -70,6 +79,7 @@ impl Default for JoinPanelState {
     fn default() -> Self {
         Self {
             address_input: "127.0.0.1:5000".to_string(),
+            pairing_code: String::new(),
             discovered_servers: Vec::new(),
             selected_server: None,
             discovery_active: false,
@@ -102,8 +112,11 @@ pub struct MultiplayerAction {
     pub start_hosting: Option<(String, u16)>,
     /// Request to stop hosting.
     pub stop_hosting: bool,
-    /// Request to connect to address.
-    pub connect: Option<SocketAddr>,
+    /// Request to connect to (address, pairing_code). The pairing code is the
+    /// 64-hex form of the server's private key; Secure-mode auth rejects an
+    /// empty or mismatched code, so the join UI must collect one before this
+    /// action fires.
+    pub connect: Option<(SocketAddr, String)>,
     /// Request to disconnect.
     pub disconnect: bool,
     /// Request to start LAN discovery.
@@ -231,7 +244,7 @@ impl MultiplayerUI {
         let host = &mut state.host;
 
         if host.is_hosting {
-            // Currently hosting - show status and stop button
+            // Currently hosting - show status, pairing code, and stop button
             ui.vertical(|ui| {
                 ui.label(
                     RichText::new("Server Running")
@@ -244,6 +257,32 @@ impl MultiplayerUI {
                 }
 
                 ui.add_space(8.0);
+
+                // Pairing code: the host shares this out-of-band with anyone
+                // they want to join. Remote clients must enter it on the Join
+                // tab to authenticate via Secure mode.
+                if let Some(ref code) = host.host_pairing_code {
+                    ui.label(
+                        RichText::new("Pairing Code (share with remote players):")
+                            .color(Color32::from_gray(200))
+                            .size(12.0),
+                    );
+                    // Monospace + selectable so the host can copy-paste it.
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            RichText::new(code)
+                                .family(egui::FontFamily::Monospace)
+                                .color(Color32::from_rgb(180, 220, 255))
+                                .size(13.0),
+                        );
+                    });
+                    ui.label(
+                        RichText::new("Anyone with this code can join your session.")
+                            .color(Color32::from_gray(140))
+                            .size(10.0),
+                    );
+                    ui.add_space(4.0);
+                }
 
                 if ui.button("Stop Hosting").clicked() {
                     action.stop_hosting = true;
@@ -318,6 +357,14 @@ impl MultiplayerUI {
                         .hint_text("127.0.0.1:5000"),
                 );
             });
+            ui.horizontal(|ui| {
+                ui.label("Pairing Code:");
+                ui.add(
+                    egui::TextEdit::singleline(&mut join.pairing_code)
+                        .desired_width(320.0)
+                        .hint_text("64-hex code from the host (required)"),
+                );
+            });
 
             if is_connected {
                 if ui.button("Disconnect").clicked() {
@@ -326,31 +373,46 @@ impl MultiplayerUI {
             } else {
                 let address_valid = join.address_input.parse::<SocketAddr>().is_ok()
                     || Self::parse_simple_address(&join.address_input).is_some();
+                // Secure-mode auth requires the pairing code; the host shares
+                // it out-of-band. The connect button is disabled until both
+                // fields look present so the user gets immediate feedback.
+                let pairing_present = !join.pairing_code.trim().is_empty();
+                let can_connect = address_valid && pairing_present;
 
                 // Debug: log address validation
                 if !join.address_input.is_empty() {
                     log::debug!(
-                        "[MultiplayerUI] Address '{}' valid: {}",
+                        "[MultiplayerUI] Address '{}' valid: {} (pairing code present: {})",
                         join.address_input,
-                        address_valid
+                        address_valid,
+                        pairing_present
                     );
                 }
 
-                let connect_response = ui.add_enabled(address_valid, egui::Button::new("Connect"));
+                let connect_response = ui.add_enabled(can_connect, egui::Button::new("Connect"));
                 if connect_response.clicked() {
                     log::debug!("[MultiplayerUI] Connect button clicked!");
-                    if let Ok(addr) = join.address_input.parse::<SocketAddr>() {
-                        log::debug!("[MultiplayerUI] Parsed as SocketAddr: {}", addr);
-                        action.connect = Some(addr);
-                    } else if let Some(addr) = Self::parse_simple_address(&join.address_input) {
-                        log::debug!("[MultiplayerUI] Parsed via simple parser: {}", addr);
-                        action.connect = Some(addr);
+                    let parsed_addr = join
+                        .address_input
+                        .parse::<SocketAddr>()
+                        .ok()
+                        .or_else(|| Self::parse_simple_address(&join.address_input));
+                    if let Some(addr) = parsed_addr {
+                        log::debug!("[MultiplayerUI] Connecting to {} with pairing code", addr);
+                        action.connect = Some((addr, join.pairing_code.clone()));
                     } else {
                         log::warn!(
                             "[MultiplayerUI] Failed to parse address: '{}'",
                             join.address_input
                         );
                     }
+                }
+                if !pairing_present {
+                    ui.label(
+                        RichText::new("Enter the host's 64-hex pairing code to connect.")
+                            .color(Color32::from_gray(150))
+                            .size(10.0),
+                    );
                 }
             }
 
@@ -405,17 +467,23 @@ impl MultiplayerUI {
                                 join.selected_server = Some(i);
                             }
 
+                            // Double-click fills the address input so the user
+                            // can enter the pairing code and click Connect.
+                            // Secure-mode auth still requires the code, so we
+                            // don't fire connect directly from the list.
                             if response.double_clicked() && !is_connected {
-                                action.connect = Some(server.address);
+                                join.address_input =
+                                    format!("{}:{}", server.address.ip(), server.game_port);
                             }
                         }
                     });
 
                 if let Some(idx) = join.selected_server
-                    && ui.button("Join Selected").clicked()
+                    && ui.button("Copy Address").clicked()
                     && !is_connected
                 {
-                    action.connect = Some(join.discovered_servers[idx].address);
+                    let server = &join.discovered_servers[idx];
+                    join.address_input = format!("{}:{}", server.address.ip(), server.game_port);
                 }
             } else if join.discovery_active {
                 ui.label(
