@@ -157,6 +157,7 @@ mod tests {
             day_cycle_paused: true,
             world_gen: crate::config::WorldGenType::Normal,
             measurement_markers: vec![],
+            player_modified: false,
         };
         saved.save(&path).expect("save");
 

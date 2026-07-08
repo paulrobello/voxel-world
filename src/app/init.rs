@@ -119,6 +119,9 @@ impl App {
         let mut initial_day_paused = true; // Default
         let mut world_gen = args.world_gen; // Default to CLI arg
         let mut initial_measurement_markers: Vec<Vector3<i32>> = Vec::new();
+        // STOR-004: restored from level.dat so an already-edited world keeps its
+        // player_modified flag across restarts. Defaults false for new/legacy worlds.
+        let mut initial_player_modified = false;
 
         if metadata_path.exists() {
             if let Ok(meta) = storage::metadata::WorldMetadata::load(&metadata_path) {
@@ -144,16 +147,18 @@ impl App {
                         initial_measurement_markers.len()
                     );
                 }
+                initial_player_modified = meta.player_modified;
             }
         } else {
             let meta = storage::metadata::WorldMetadata {
                 seed,
                 spawn_pos: [0.0, 64.0, 0.0], // Initial guess, will be updated
-                version: 1,
+                version: 2,
                 time_of_day: DEFAULT_TIME_OF_DAY,
                 day_cycle_paused: true,
                 world_gen,
                 measurement_markers: Vec::new(),
+                player_modified: false,
             };
             let _ = meta.save(&metadata_path);
             log::debug!(
@@ -540,6 +545,8 @@ impl App {
             world_name: world_name.clone(),
             seed,
             world_gen,
+            player_modified: initial_player_modified,
+            remote_client: false,
             picture_library: PictureLibrary::load(),
         };
 

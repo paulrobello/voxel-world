@@ -118,6 +118,22 @@ pub struct WorldSim {
     pub seed: u32,
     pub world_gen: WorldGenType,
 
+    /// True once this world has genuine local player edits (block placement /
+    /// breaking / shape tools / console edits). Mirrors the persisted
+    /// `WorldMetadata::player_modified` flag and is flipped on by the
+    /// `save_dirty` / `save_all` / `unload_chunk` paths the first time a
+    /// locally-dirty chunk is actually persisted (network-received chunks have
+    /// `persistence_dirty = false`, so dirty chunks are by definition player
+    /// edits). Used together with `remote_client` to gate client-side saves.
+    pub player_modified: bool,
+    /// True when this `WorldSim` is a remote client streaming another host's
+    /// world. Set when the client applies the server's seed via
+    /// `set_world_seed`. Remote clients suppress local saves until
+    /// `player_modified` is true so a cached/downloaded server world does not
+    /// overwrite this player's own local save. Host and single-player leave
+    /// this `false`; saves then proceed unconditionally.
+    pub remote_client: bool,
+
     /// Picture library for storing user-created artwork.
     pub picture_library: PictureLibrary,
 }
@@ -134,12 +150,25 @@ impl WorldSim {
     }
 
     pub fn save_metadata(&self, measurement_markers: &[Vector3<i32>]) {
+        // STOR-004 client gate: a remote client that has not made local edits
+        // must NOT overwrite its own level.dat with the server's seed/world_gen
+        // (that would corrupt the local world's metadata for a different save).
+        // Once `player_modified` is flipped by save_dirty/save_all/unload_chunk,
+        // metadata saves proceed so the player's edits are recorded.
+        if self.remote_client && !self.player_modified {
+            log::debug!(
+                "[Storage] Remote client skipping metadata save (no local edits; \
+                 refusing to overwrite local level.dat)"
+            );
+            return;
+        }
+
         let player_pos = self.player.feet_pos(self.world_extent, self.texture_origin);
 
         let meta = storage::metadata::WorldMetadata {
             seed: self.seed,
             spawn_pos: [player_pos.x, player_pos.y, player_pos.z], // Legacy field, keeping updated
-            version: 1,
+            version: 2,
             time_of_day: self.time_of_day,
             day_cycle_paused: self.day_cycle_paused,
             world_gen: self.world_gen,
@@ -147,6 +176,7 @@ impl WorldSim {
                 .iter()
                 .map(|v| [v.x, v.y, v.z])
                 .collect(),
+            player_modified: self.player_modified,
         };
 
         if let Err(e) = meta.save(self.world_dir.join("level.dat")) {
@@ -161,6 +191,10 @@ impl WorldSim {
                 let serialized = storage::format::SerializedChunk::from(&*chunk);
                 self.storage.save_chunk(*pos, serialized);
                 chunk.persistence_dirty = false;
+                // Dirty chunks are exactly local player edits (network-received
+                // chunks have persistence_dirty = false), so persisting one
+                // means this world is now player-modified. STOR-004.
+                self.player_modified = true;
                 saved_count += 1;
                 if saved_count >= limit {
                     break;
@@ -185,6 +219,11 @@ impl WorldSim {
             if chunk.persistence_dirty {
                 let serialized = storage::format::SerializedChunk::from(&chunk);
                 self.storage.save_chunk(pos, serialized);
+                // Same STOR-004 invariant as save_dirty: a dirty chunk being
+                // persisted on unload is a local player edit, so the world is
+                // now player-modified. Without this the flag would never flip
+                // for edits in chunks unloaded at the view-distance boundary.
+                self.player_modified = true;
             }
             true
         } else {
@@ -203,10 +242,27 @@ impl WorldSim {
                 let serialized = storage::format::SerializedChunk::from(&*chunk);
                 self.storage.save_chunk(*pos, serialized);
                 chunk.persistence_dirty = false;
+                // Same STOR-004 invariant as save_dirty: persisting a dirty
+                // chunk means this world is now player-modified.
+                self.player_modified = true;
                 saved_count += 1;
             }
         }
         log::debug!("[Storage] Saved {} chunks to disk", saved_count);
+
+        // STOR-004 client gate: the dirty-chunk flush above always runs (no
+        // data loss for player edits), but a remote client that has not made
+        // local edits must not overwrite its own world's fluids/stencils/
+        // models/metadata with state streamed from the server. Once any dirty
+        // chunk was persisted this tick, `player_modified` is true and the
+        // remaining state is written too.
+        if self.remote_client && !self.player_modified {
+            log::debug!(
+                "[Storage] Remote client skipping save_all sidecar/metadata writes \
+                 (no local edits; refusing to overwrite local world state)"
+            );
+            return;
+        }
 
         // Save fluid sources (water/lava with is_source=true)
         let fluid_sources = storage::fluid_sources::FluidSources {
@@ -269,6 +325,12 @@ impl WorldSim {
         // Update seed and world_gen
         self.seed = seed;
         self.world_gen = world_gen;
+
+        // Swapping in a fresh server world means no local edits survive — reset
+        // the STOR-004 flag so client-side saves stay gated until the player
+        // edits this new world. The caller (client seed-apply path) sets
+        // `remote_client = true` separately to arm the gate.
+        self.player_modified = false;
 
         // Clear the current world - we're loading a new world from the server
         let chunk_count = self.world.chunk_count();

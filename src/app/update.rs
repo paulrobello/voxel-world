@@ -444,7 +444,11 @@ impl App {
                 // Clear the chunk sync state so we request fresh chunks
                 self.multiplayer.chunk_sync.clear_received();
 
-                // Update world seed and clear local world
+                // Update world seed and clear local world. This also resets
+                // `sim.player_modified`; arming `remote_client` here arms the
+                // STOR-004 client-save gate so the downloaded server world does
+                // not overwrite this player's own local save until they edit it.
+                self.sim.remote_client = true;
                 self.sim.set_world_seed(seed, world_gen);
 
                 log::debug!("[Client] World reset complete, ready to load server's world");
