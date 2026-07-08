@@ -16,7 +16,9 @@
 
 use crate::chunk::WaterType;
 use crate::constants::ORTHO_DIRS;
-use crate::fluid::is_within_radius_sq;
+use crate::fluid::{
+    FluidCell, NeighborMasses, PendingDelta, distribute_y_buckets, is_within_radius_sq,
+};
 use nalgebra::Vector3;
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
@@ -89,27 +91,6 @@ impl WaterSimStats {
             self.last_tick_duration.as_secs_f64() * 1_000_000.0 / self.last_cells_processed as f64
         }
     }
-}
-
-/// Cached neighbor masses for a cell to avoid repeated HashMap lookups.
-/// All masses include pending changes from earlier in the tick.
-#[derive(Debug, Clone, Copy, Default)]
-struct NeighborMasses {
-    below: f32,
-    above: f32,
-    pos_x: f32,
-    neg_x: f32,
-    pos_z: f32,
-    neg_z: f32,
-    /// Whether below position is out of bounds (drains to void)
-    below_void: bool,
-    /// Solid state for each neighbor (true = blocked)
-    below_solid: bool,
-    above_solid: bool,
-    pos_x_solid: bool,
-    neg_x_solid: bool,
-    pos_z_solid: bool,
-    neg_z_solid: bool,
 }
 
 /// A single water cell with mass and properties.
@@ -207,6 +188,22 @@ impl WaterCell {
         const LERP_SPEED: f32 = 10.0;
         let t = (LERP_SPEED * delta_time).min(1.0);
         self.display_mass = self.display_mass + (self.mass - self.display_mass) * t;
+    }
+}
+
+impl FluidCell for WaterCell {
+    #[inline]
+    fn mass(&self) -> f32 {
+        self.mass
+    }
+}
+
+/// Pending water changes carry `(mass_delta, water_type)`; only the delta is
+/// mass-relevant for the shared effective-mass computation.
+impl PendingDelta for (f32, WaterType) {
+    #[inline]
+    fn delta(&self) -> f32 {
+        self.0
     }
 }
 
@@ -401,16 +398,13 @@ impl WaterGrid {
     where
         W: Fn(Vector3<i32>) -> bool,
     {
-        let base = self.cells.get(&pos).map(|c| c.mass).unwrap_or_else(|| {
-            // No grid cell - check if world has water block
-            if has_world_water(pos) { MAX_MASS } else { 0.0 }
-        });
-        let (pending, _) = self
-            .pending_changes
-            .get(&pos)
-            .copied()
-            .unwrap_or((0.0, WaterType::Ocean));
-        (base + pending).max(0.0)
+        crate::fluid::effective_mass(
+            &self.cells,
+            &self.pending_changes,
+            pos,
+            has_world_water,
+            MAX_MASS,
+        )
     }
 
     /// Caches all neighbor masses for a position in a single pass.
@@ -428,60 +422,15 @@ impl WaterGrid {
         B: Fn(Vector3<i32>) -> bool,
         W: Fn(Vector3<i32>) -> bool,
     {
-        let below = pos + Vector3::new(0, -1, 0);
-        let above = pos + Vector3::new(0, 1, 0);
-        let pos_x = pos + Vector3::new(1, 0, 0);
-        let neg_x = pos + Vector3::new(-1, 0, 0);
-        let pos_z = pos + Vector3::new(0, 0, 1);
-        let neg_z = pos + Vector3::new(0, 0, -1);
-
-        let below_void = is_out_of_bounds(below);
-        let below_solid = !below_void && is_solid(below);
-        let above_solid = is_solid(above);
-        let pos_x_solid = is_solid(pos_x);
-        let neg_x_solid = is_solid(neg_x);
-        let pos_z_solid = is_solid(pos_z);
-        let neg_z_solid = is_solid(neg_z);
-
-        NeighborMasses {
-            below: if below_void || below_solid {
-                0.0
-            } else {
-                self.get_effective_mass(below, has_world_water)
-            },
-            above: if above_solid {
-                0.0
-            } else {
-                self.get_effective_mass(above, has_world_water)
-            },
-            pos_x: if pos_x_solid {
-                0.0
-            } else {
-                self.get_effective_mass(pos_x, has_world_water)
-            },
-            neg_x: if neg_x_solid {
-                0.0
-            } else {
-                self.get_effective_mass(neg_x, has_world_water)
-            },
-            pos_z: if pos_z_solid {
-                0.0
-            } else {
-                self.get_effective_mass(pos_z, has_world_water)
-            },
-            neg_z: if neg_z_solid {
-                0.0
-            } else {
-                self.get_effective_mass(neg_z, has_world_water)
-            },
-            below_void,
-            below_solid,
-            above_solid,
-            pos_x_solid,
-            neg_x_solid,
-            pos_z_solid,
-            neg_z_solid,
-        }
+        crate::fluid::cache_neighbor_masses(
+            &self.cells,
+            &self.pending_changes,
+            pos,
+            is_solid,
+            is_out_of_bounds,
+            has_world_water,
+            MAX_MASS,
+        )
     }
 
     /// Gets a water cell at a position (None if no water).
@@ -623,130 +572,12 @@ impl WaterGrid {
         B: Fn(Vector3<i32>) -> bool,
         W: Fn(Vector3<i32>) -> bool,
     {
-        let mut result = FlowResult::default();
-
-        let cell = match self.cells.get(&pos) {
-            Some(c) if c.has_water() => c,
-            _ => return result,
-        };
-
-        let mass = cell.mass;
-        let mut remaining = mass;
-
-        // Positions
-        let below = pos + Vector3::new(0, -1, 0);
-        let above = pos + Vector3::new(0, 1, 0);
-        let neighbor_positions = [
-            pos + Vector3::new(1, 0, 0),
-            pos + Vector3::new(-1, 0, 0),
-            pos + Vector3::new(0, 0, 1),
-            pos + Vector3::new(0, 0, -1),
-        ];
-        let mut neighbor_mass = [0.0f32; 4];
-        let mut neighbor_open = [false; 4];
-
-        // 1. Flow DOWN (gravity) - highest priority
-        // Special case: if below is out of bounds, water drains into void
-        if is_out_of_bounds(below) {
-            // Drain all water into the void - no damping needed
-            result.down = remaining;
-            remaining = 0.0;
-        } else if !is_solid(below) {
-            // Use effective mass to see pending changes from earlier this tick
-            let below_mass = self.get_effective_mass(below, has_world_water);
-            let space_below = (MAX_MASS + MAX_COMPRESS) - below_mass;
-            if space_below > MIN_MASS {
-                // Gravity always wins - water falls without damping when there's space
-                // Only apply damping when filling into existing water (to prevent oscillation)
-                let flow = if below_mass < MIN_MASS {
-                    // Falling into air/empty - transfer all mass that fits
-                    remaining.min(space_below)
-                } else {
-                    // Filling into existing water - apply damping
-                    remaining.min(space_below) * FLOW_DAMPING
-                };
-                if flow > MIN_MASS {
-                    result.down = flow;
-                    remaining -= flow;
-                }
-            }
-        }
-
-        // 2. Flow HORIZONTAL (equalization)
-        if remaining > MIN_FLOW {
-            let flow_refs: [&mut f32; 4] = [
-                &mut result.pos_x,
-                &mut result.neg_x,
-                &mut result.pos_z,
-                &mut result.neg_z,
-            ];
-
-            let mut lower_count = 0;
-            let mut total_mass = remaining;
-
-            for i in 0..4 {
-                let neighbor_pos = neighbor_positions[i];
-                if !is_solid(neighbor_pos) {
-                    let m = self.get_effective_mass(neighbor_pos, has_world_water);
-                    if m < remaining {
-                        neighbor_mass[i] = m;
-                        neighbor_open[i] = true;
-                        total_mass += m;
-                        lower_count += 1;
-                    }
-                }
-            }
-
-            if lower_count > 0 {
-                let avg_mass = total_mass / (lower_count + 1) as f32;
-
-                // Adjust flow rate based on water type
-                let flow_rate = match cell.water_type {
-                    WaterType::River => FLOW_DAMPING * 1.5,
-                    WaterType::Swamp => FLOW_DAMPING * 0.3,
-                    WaterType::Lake => FLOW_DAMPING * 0.7,
-                    _ => FLOW_DAMPING,
-                }
-                .min(1.0);
-
-                for i in 0..4 {
-                    if neighbor_open[i]
-                        && neighbor_mass[i] < remaining
-                        && neighbor_mass[i] < avg_mass
-                    {
-                        let mut flow = (avg_mass - neighbor_mass[i]) * flow_rate;
-
-                        // Keep a minimum trickle to avoid stuck thin layers
-                        if flow < MIN_FLOW && remaining > MIN_FLOW * 2.0 {
-                            flow = MIN_FLOW;
-                        }
-
-                        if flow >= MIN_FLOW && remaining > flow {
-                            *flow_refs[i] = flow;
-                            remaining -= flow;
-                        }
-                    }
-                }
-            }
-        }
-
-        // 3. Flow UP - only under pressure (mass > MAX_MASS)
-        // Water only rises when compressed beyond its normal capacity.
-        // This prevents water from "climbing" out of containers and creating
-        // circulation loops where water exits, falls, rises back up, and re-enters.
-        if !is_solid(above) && remaining > MAX_MASS {
-            let above_mass = self.get_effective_mass(above, has_world_water);
-            let excess = remaining - MAX_MASS;
-            let space_above = MAX_MASS - above_mass;
-            if space_above > MIN_FLOW {
-                let flow = excess.min(space_above) * FLOW_DAMPING;
-                if flow > MIN_FLOW {
-                    result.up = flow;
-                }
-            }
-        }
-
-        result
+        // FLU-001: delegate to the cached (production) path. This used to be a
+        // full second copy of the flow algorithm, so unit tests exercised a
+        // path the tick loop never calls. Now they run the real one.
+        let neighbors =
+            self.cache_neighbor_masses(pos, &is_solid, &is_out_of_bounds, has_world_water);
+        self.calculate_flow_cached(pos, &neighbors)
     }
 
     /// Optimized flow calculation using pre-cached neighbor masses.
@@ -952,24 +783,9 @@ impl WaterGrid {
         // can see via get_effective_mass() and flow into during the same tick.
         let radius_sq = self.simulation_radius * self.simulation_radius;
 
-        // Reuse Y-layer buckets (indices 0-511)
-        for bucket in self.y_buckets.iter_mut() {
-            bucket.clear();
-        }
-
-        // Distribute active cells into Y buckets (O(n))
-        for &pos in &self.active {
-            let dx = pos.x as f32 - player_pos.x;
-            let dy = pos.y as f32 - player_pos.y;
-            let dz = pos.z as f32 - player_pos.z;
-            let dist_sq = dx * dx + dy * dy + dz * dz;
-
-            if dist_sq <= radius_sq {
-                // Clamp Y to valid bucket range (0-511)
-                let y_index = (pos.y.max(0) as usize).min(Y_BUCKET_COUNT - 1);
-                self.y_buckets[y_index].push(pos);
-            }
-        }
+        // OPTIMIZATION: Y-layer bucket sort (O(n) instead of O(n log n)).
+        // Shared with lava (FLU-001) so both sims bucketize identically.
+        distribute_y_buckets(&self.active, player_pos, radius_sq, &mut self.y_buckets);
 
         if let Some(start) = sort_start {
             self.stats.last_sort_duration = start.elapsed();
@@ -1520,12 +1336,8 @@ impl WaterGrid {
                     world.invalidate_minimap_cache(pos.x, pos.z);
                 }
                 (Some(BlockType::Lava), true) => {
-                    // Water flows into lava - creates cobblestone
-                    self.cells.remove(&pos);
-                    self.active.remove(&pos);
-                    lava_grid.on_block_placed(pos);
-                    world.set_block(pos, BlockType::Cobblestone);
-                    world.invalidate_minimap_cache(pos.x, pos.z);
+                    // Water flows into lava - creates cobblestone (shared reaction)
+                    crate::fluid_interactions::form_cobblestone(world, self, lava_grid, pos);
                 }
                 (Some(BlockType::Model), true) => {
                     // Set waterlogged = true
@@ -1586,6 +1398,12 @@ impl WaterGrid {
                             .unwrap_or(false);
 
                     if neighbor_is_lava && self.has_water(pos) {
+                        // Water is at `pos`, lava is at `neighbor`: form cobblestone
+                        // at the lava position, consuming only the lava cell. This is
+                        // the single-fluid-removal variant, so it does NOT use
+                        // fluid_interactions::form_cobblestone (which removes both
+                        // fluids at one position) and can't anyway — the loop holds
+                        // an immutable borrow of `self.lava_check_buffer`.
                         lava_grid.set_lava(neighbor, 0.0, false); // Removes the lava cell
                         world.set_block(neighbor, BlockType::Cobblestone);
                         world.invalidate_minimap_cache(neighbor.x, neighbor.z);

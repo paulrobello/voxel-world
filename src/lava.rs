@@ -7,7 +7,10 @@
 
 use crate::chunk::BlockType;
 use crate::constants::ORTHO_DIRS;
-use crate::fluid::is_within_radius_sq;
+use crate::fluid::{
+    FluidCell, NeighborMasses, PendingDelta, cache_neighbor_masses, distribute_y_buckets,
+    is_within_radius_sq,
+};
 use nalgebra::Vector3;
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
@@ -34,6 +37,10 @@ pub const DEFAULT_SIMULATION_RADIUS: f32 = 48.0;
 /// Lava is slower than water, so use a longer interval.
 /// 100ms = 10 ticks/second
 pub const DEFAULT_TICK_INTERVAL_MS: u64 = 100;
+
+/// Number of Y-layer buckets for the bucket sort (covers world Y 0-511).
+/// Shared shape with water (FLU-001).
+const Y_BUCKET_COUNT: usize = 512;
 
 /// A single lava cell with mass and properties.
 #[derive(Debug, Clone, Copy)]
@@ -98,6 +105,20 @@ impl LavaCell {
     }
 }
 
+impl FluidCell for LavaCell {
+    #[inline]
+    fn mass(&self) -> f32 {
+        self.mass
+    }
+}
+
+impl PendingDelta for f32 {
+    #[inline]
+    fn delta(&self) -> f32 {
+        *self
+    }
+}
+
 /// Flow result from calculating lava movement.
 #[derive(Debug, Clone, Default)]
 pub struct FlowResult {
@@ -150,6 +171,8 @@ pub struct LavaGrid {
     last_tick: Instant,
     /// Buffer for collecting sync updates (reused to avoid allocations)
     sync_updates_buffer: Vec<LavaCellSyncUpdate>,
+    /// Reusable Y-layer buckets to avoid per-tick allocations (FLU-001).
+    y_buckets: [Vec<Vector3<i32>>; Y_BUCKET_COUNT],
 }
 
 impl Default for LavaGrid {
@@ -170,6 +193,7 @@ impl LavaGrid {
             tick_interval_ms: DEFAULT_TICK_INTERVAL_MS,
             last_tick: Instant::now(),
             sync_updates_buffer: Vec::with_capacity(64),
+            y_buckets: std::array::from_fn(|_| Vec::new()),
         }
     }
 
@@ -187,24 +211,6 @@ impl LavaGrid {
     #[allow(dead_code)] // reason: fluid simulation API — kept for future use
     pub fn get_mass(&self, pos: Vector3<i32>) -> f32 {
         self.cells.get(&pos).map(|c| c.mass).unwrap_or(0.0)
-    }
-
-    /// Gets the effective lava mass including pending changes from this tick.
-    ///
-    /// The `has_world_lava` closure should return true if the world has a Lava
-    /// block at the position (even if there's no grid cell). This ensures Lava
-    /// blocks placed by terrain/fill commands are treated as full lava.
-    #[inline]
-    fn get_effective_mass<W>(&self, pos: Vector3<i32>, has_world_lava: &W) -> f32
-    where
-        W: Fn(Vector3<i32>) -> bool,
-    {
-        let base = self.cells.get(&pos).map(|c| c.mass).unwrap_or_else(|| {
-            // No grid cell - check if world has lava block
-            if has_world_lava(pos) { MAX_MASS } else { 0.0 }
-        });
-        let pending = self.pending_changes.get(&pos).copied().unwrap_or(0.0);
-        (base + pending).max(0.0)
     }
 
     #[inline]
@@ -299,23 +305,13 @@ impl LavaGrid {
         self.activate_neighbors(pos);
     }
 
-    /// Calculates lava flow - similar to water but no upward pressure flow.
-    ///
-    /// The `has_world_lava` closure should return true if the world has a Lava block
-    /// at the position, even if there's no grid cell. This is critical for proper flow
-    /// when lava was placed via terrain generation or fill commands.
-    pub fn calculate_flow<F, B, W>(
-        &self,
-        pos: Vector3<i32>,
-        is_solid: F,
-        is_out_of_bounds: B,
-        has_world_lava: &W,
-    ) -> FlowResult
-    where
-        F: Fn(Vector3<i32>) -> bool,
-        B: Fn(Vector3<i32>) -> bool,
-        W: Fn(Vector3<i32>) -> bool,
-    {
+    /// Lava flow from pre-cached neighbor masses (shared `NeighborMasses`).
+    /// Like water's cached path but: no compression, no upward pressure flow,
+    /// horizontal spread only over a solid floor, and full void-drain.
+    /// FLU-001: void-drain used to be damped (`remaining * FLOW_DAMPING`) so
+    /// lava lingered at the world bottom; it now drains fully like water.
+    #[inline]
+    fn calculate_flow_cached(&self, pos: Vector3<i32>, neighbors: &NeighborMasses) -> FlowResult {
         let mut result = FlowResult::default();
 
         let cell = match self.cells.get(&pos) {
@@ -323,25 +319,14 @@ impl LavaGrid {
             _ => return result,
         };
 
-        let mass = cell.mass;
-        let mut remaining = mass;
+        let mut remaining = cell.mass;
 
-        let below = pos + Vector3::new(0, -1, 0);
-        let neighbors = [
-            (pos + Vector3::new(1, 0, 0), &mut result.pos_x),
-            (pos + Vector3::new(-1, 0, 0), &mut result.neg_x),
-            (pos + Vector3::new(0, 0, 1), &mut result.pos_z),
-            (pos + Vector3::new(0, 0, -1), &mut result.neg_z),
-        ];
-
-        // 1. Flow DOWN (gravity) - highest priority
-        if is_out_of_bounds(below) {
-            result.down = remaining * FLOW_DAMPING;
-            remaining -= result.down;
-        } else if !is_solid(below) {
-            // Use effective mass to see pending changes from earlier this tick
-            let below_mass = self.get_effective_mass(below, has_world_lava);
-            let space_below = MAX_MASS - below_mass;
+        // 1. Flow DOWN (gravity) - highest priority. Full drain into the void.
+        if neighbors.below_void {
+            result.down = remaining;
+            remaining = 0.0;
+        } else if !neighbors.below_solid {
+            let space_below = MAX_MASS - neighbors.below;
             if space_below > MIN_FLOW {
                 let flow = remaining.min(space_below) * FLOW_DAMPING;
                 if flow > MIN_FLOW {
@@ -351,29 +336,31 @@ impl LavaGrid {
             }
         }
 
-        // 2. Flow HORIZONTAL (equalization) - only if supported by solid below
-        // Lava spreads more slowly horizontally
-        if remaining > MIN_FLOW && is_solid(below) {
-            // Use effective mass to see pending changes from earlier this tick
-            let mut lower_neighbors: Vec<(Vector3<i32>, f32, &mut f32)> = Vec::with_capacity(4);
+        // 2. Flow HORIZONTAL - only over a solid floor (lava viscosity).
+        if remaining > MIN_FLOW && neighbors.below_solid {
+            let horizontal = [
+                (!neighbors.pos_x_solid, neighbors.pos_x, &mut result.pos_x),
+                (!neighbors.neg_x_solid, neighbors.neg_x, &mut result.neg_x),
+                (!neighbors.pos_z_solid, neighbors.pos_z, &mut result.pos_z),
+                (!neighbors.neg_z_solid, neighbors.neg_z, &mut result.neg_z),
+            ];
 
-            for (neighbor_pos, flow_ref) in neighbors {
-                if !is_solid(neighbor_pos) {
-                    let neighbor_mass = self.get_effective_mass(neighbor_pos, has_world_lava);
-                    if neighbor_mass < remaining {
-                        lower_neighbors.push((neighbor_pos, neighbor_mass, flow_ref));
-                    }
+            let mut total_mass = remaining;
+            let mut neighbor_count = 1usize;
+            let mut lower_count = 0usize;
+            for (can_flow, m, _) in &horizontal {
+                if *can_flow && *m < remaining {
+                    total_mass += *m;
+                    neighbor_count += 1;
+                    lower_count += 1;
                 }
             }
 
-            if !lower_neighbors.is_empty() {
-                let total_mass: f32 =
-                    remaining + lower_neighbors.iter().map(|(_, m, _)| *m).sum::<f32>();
-                let avg_mass = total_mass / (lower_neighbors.len() + 1) as f32;
-
-                for (_, neighbor_mass, flow_ref) in lower_neighbors {
-                    if neighbor_mass < avg_mass {
-                        let flow = (avg_mass - neighbor_mass) * FLOW_DAMPING;
+            if lower_count > 0 {
+                let avg_mass = total_mass / neighbor_count as f32;
+                for (can_flow, m, flow_ref) in horizontal {
+                    if can_flow && m < remaining && m < avg_mass {
+                        let flow = (avg_mass - m) * FLOW_DAMPING;
                         if flow > MIN_FLOW && remaining > flow {
                             *flow_ref = flow;
                             remaining -= flow;
@@ -384,7 +371,6 @@ impl LavaGrid {
         }
 
         // No upward flow for lava (unlike water)
-
         result
     }
 
@@ -452,39 +438,13 @@ impl LavaGrid {
         // Prune far-away tracked cells
         self.prune_far_sets(player_pos);
 
-        // Filter and sort active cells by distance to player
+        // OPTIMIZATION (FLU-001): Y-layer bucket sort (O(n) instead of O(n log n)),
+        // shared with water via fluid::distribute_y_buckets. Bottom-first ordering
+        // is critical for draining: lower cells must flow out first so their
+        // pending_changes create space that upper cells can flow into this tick.
         let radius_sq = self.simulation_radius * self.simulation_radius;
-        let mut active_list: Vec<_> = self
-            .active
-            .iter()
-            .copied()
-            .filter_map(|pos| {
-                let dx = pos.x as f32 - player_pos.x;
-                let dy = pos.y as f32 - player_pos.y;
-                let dz = pos.z as f32 - player_pos.z;
-                let dist_sq = dx * dx + dy * dy + dz * dz;
-                if dist_sq <= radius_sq {
-                    Some((pos, dist_sq))
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        // Sort primarily by Y coordinate (lowest first), then by distance.
-        // Bottom-first processing is CRITICAL for draining: lower cells must
-        // flow out first so their pending_changes create space that upper cells
-        // can see via get_effective_mass() and flow into during the same tick.
-        // Distance is secondary tiebreaker to prioritize lava near the player.
-        active_list.sort_by(|(pos_a, dist_a), (pos_b, dist_b)| {
-            pos_a.y.cmp(&pos_b.y).then_with(|| {
-                dist_a
-                    .partial_cmp(dist_b)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
-        });
-
-        let active_list: Vec<_> = active_list.into_iter().map(|(pos, _)| pos).collect();
+        distribute_y_buckets(&self.active, player_pos, radius_sq, &mut self.y_buckets);
+        let active_list: Vec<Vector3<i32>> = self.y_buckets.iter().flatten().copied().collect();
 
         let process_count = active_list.len().min(self.max_updates_per_frame);
         let mut deactivate = Vec::new();
@@ -507,7 +467,16 @@ impl LavaGrid {
                 }
             }
 
-            let flow = self.calculate_flow(pos, &is_solid, &is_out_of_bounds, &has_world_lava);
+            let neighbors = cache_neighbor_masses(
+                &self.cells,
+                &self.pending_changes,
+                pos,
+                &is_solid,
+                &is_out_of_bounds,
+                &has_world_lava,
+                MAX_MASS,
+            );
+            let flow = self.calculate_flow_cached(pos, &neighbors);
 
             if flow.has_flow() {
                 let total_out = flow.total_outflow();
@@ -515,7 +484,7 @@ impl LavaGrid {
                 changed_positions.push(pos);
 
                 let below = pos + Vector3::new(0, -1, 0);
-                if flow.down > MIN_FLOW && !is_out_of_bounds(below) {
+                if flow.down > MIN_FLOW && !neighbors.below_void {
                     *self.pending_changes.entry(below).or_insert(0.0) += flow.down;
                     changed_positions.push(below);
                 }
@@ -645,6 +614,9 @@ impl LavaGrid {
         self.pending_changes.clear();
         self.dirty_positions.clear();
         self.sync_updates_buffer.clear();
+        for bucket in self.y_buckets.iter_mut() {
+            bucket.clear();
+        }
     }
 
     /// Processes lava flow simulation.
@@ -727,12 +699,8 @@ impl LavaGrid {
 
         // Handle water-lava interactions first (create cobblestone)
         for pos in water_contacts {
-            // Lava touching water creates cobblestone
-            self.cells.remove(&pos);
-            self.active.remove(&pos);
-            water_grid.on_block_placed(pos);
-            world.set_block(pos, BlockType::Cobblestone);
-            world.invalidate_minimap_cache(pos.x, pos.z);
+            // Lava touching water creates cobblestone (shared reaction)
+            crate::fluid_interactions::form_cobblestone(world, water_grid, self, pos);
         }
 
         // Update world blocks for changed lava cells
@@ -754,12 +722,8 @@ impl LavaGrid {
                     world.invalidate_minimap_cache(pos.x, pos.z);
                 }
                 (Some(BlockType::Water), true) => {
-                    // Lava flows into water - creates cobblestone
-                    self.cells.remove(&pos);
-                    self.active.remove(&pos);
-                    water_grid.on_block_placed(pos);
-                    world.set_block(pos, BlockType::Cobblestone);
-                    world.invalidate_minimap_cache(pos.x, pos.z);
+                    // Lava flows into water - creates cobblestone (shared reaction)
+                    crate::fluid_interactions::form_cobblestone(world, water_grid, self, pos);
                 }
                 _ => {}
             }
@@ -856,7 +820,17 @@ mod tests {
 
         grid.set_lava(pos, 1.0, false);
 
-        let flow = grid.calculate_flow(pos, floor_solid, never_out_of_bounds, &no_world_lava);
+        // Exercise the production (cached) path directly, same as the tick loop.
+        let neighbors = cache_neighbor_masses(
+            &grid.cells,
+            &grid.pending_changes,
+            pos,
+            &floor_solid,
+            &never_out_of_bounds,
+            &no_world_lava,
+            MAX_MASS,
+        );
+        let flow = grid.calculate_flow_cached(pos, &neighbors);
         assert!(flow.down > 0.0, "Lava should flow down");
     }
 

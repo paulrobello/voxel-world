@@ -50,6 +50,7 @@ mod constants;
 mod editor;
 mod falling_block;
 mod fluid;
+mod fluid_interactions;
 mod gpu;
 mod gpu_error;
 mod hot_reload;
