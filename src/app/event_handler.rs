@@ -47,15 +47,16 @@ impl ApplicationHandler for App {
             (window_extent[0] as f32 * self.ui.settings.render_scale) as u32,
             (window_extent[1] as f32 * self.ui.settings.render_scale) as u32,
         ];
-        let (render_image, render_set, resample_image, resample_set) = get_images_and_sets(
-            self.graphics.memory_allocator.clone(),
-            self.graphics.descriptor_set_allocator.clone(),
-            &self.graphics.render_pipeline,
-            &self.graphics.resample_pipeline,
-            render_extent,
-            window_extent,
-            None, // Multiplayer texture array will be wired in Task 12
-        );
+        let (render_image, render_set, frame_uniform_buffer, resample_image, resample_set) =
+            get_images_and_sets(
+                self.graphics.memory_allocator.clone(),
+                self.graphics.descriptor_set_allocator.clone(),
+                &self.graphics.render_pipeline,
+                &self.graphics.resample_pipeline,
+                render_extent,
+                window_extent,
+                None, // Multiplayer texture array will be wired in Task 12
+            );
 
         // Create distance buffer for two-pass beam optimization
         let (distance_image, distance_set) = get_distance_image_and_set(
@@ -103,6 +104,7 @@ impl ApplicationHandler for App {
 
             render_image,
             render_set,
+            frame_uniform_buffer,
             resample_image,
             resample_set,
 

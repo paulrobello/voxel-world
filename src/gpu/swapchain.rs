@@ -8,7 +8,7 @@ use super::*;
 use std::sync::Arc;
 
 use vulkano::{
-    buffer::{Buffer, BufferCreateInfo, BufferUsage},
+    buffer::{Buffer, BufferCreateInfo, BufferUsage, Subbuffer},
     command_buffer::{
         AutoCommandBufferBuilder, ClearColorImageInfo, CommandBufferUsage,
         allocator::StandardCommandBufferAllocator,
@@ -119,6 +119,11 @@ pub fn get_resample_image(
     (image, image_view)
 }
 
+// REN-001: returns the per-frame uniform buffer alongside the images/sets it
+// always returned. A 5-tuple trips clippy::type_complexity, but every call site
+// names each element positionally (matching `get_distance_image_and_set`), so a
+// dedicated return struct would be inconsistent with the sibling factories here.
+#[allow(clippy::type_complexity)]
 pub fn get_images_and_sets(
     memory_allocator: Arc<StandardMemoryAllocator>,
     descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
@@ -130,11 +135,17 @@ pub fn get_images_and_sets(
 ) -> (
     Arc<Image>,
     Arc<DescriptorSet>,
+    Subbuffer<PushConstants>,
     Arc<Image>,
     Arc<DescriptorSet>,
 ) {
     let (render_image, render_image_view) =
         get_render_image(memory_allocator.clone(), render_extent);
+
+    // REN-001: per-frame uniform buffer holding PushConstants, bound at set 0 /
+    // binding 1 alongside the render target image (binding 0). Returned so the
+    // caller can rewrite its contents each frame.
+    let frame_uniform_buffer = make_uniform_buffer::<PushConstants>(&memory_allocator);
 
     // Create render set with optional multiplayer texture array at binding 10
     let render_set = if let Some((texture_view, sampler, _count)) = multiplayer_texture_array {
@@ -144,6 +155,7 @@ pub fn get_images_and_sets(
             0,
             [
                 WriteDescriptorSet::image_view(0, render_image_view.clone()),
+                WriteDescriptorSet::buffer(1, frame_uniform_buffer.clone()),
                 WriteDescriptorSet::image_view_sampler(10, texture_view, sampler),
             ],
         )
@@ -152,7 +164,10 @@ pub fn get_images_and_sets(
             &descriptor_set_allocator,
             render_pipeline,
             0,
-            [WriteDescriptorSet::image_view(0, render_image_view.clone())],
+            [
+                WriteDescriptorSet::image_view(0, render_image_view.clone()),
+                WriteDescriptorSet::buffer(1, frame_uniform_buffer.clone()),
+            ],
         )
     };
 
@@ -168,7 +183,13 @@ pub fn get_images_and_sets(
         ],
     );
 
-    (render_image, render_set, resample_image, resample_set)
+    (
+        render_image,
+        render_set,
+        frame_uniform_buffer,
+        resample_image,
+        resample_set,
+    )
 }
 
 /// Creates a distance buffer for two-pass beam optimization.

@@ -39,8 +39,13 @@ const float EMISSION_STRENGTH_CRYSTAL = 0.7;
 // Numeric constants
 const float FLT_MAX = 3.4028235e+38;
 
-// Push constants
-layout(push_constant) uniform PushConstants {
+// Per-frame uniforms (REN-001): was a push-constant block, but the struct grew
+// past the 128-byte push-constant minimum guarantee, so it now lives in a
+// host-coherent uniform buffer rewritten every frame by the CPU. Set 0 also
+// holds the render target image at binding 0; this block occupies binding 1.
+// The instance is still named `pc`, so existing `pc.field` references are
+// unchanged. Layout is identical to the old push-constant block (both std140).
+layout(set = 0, binding = 1) uniform PushConstants {
     mat4 pixelToRay;             // Camera pixel-to-ray transform (inverse projection * view)
     uint texture_size_x;         // 3D block texture width in voxels (chunks * CHUNK_SIZE)
     uint texture_size_y;         // 3D block texture height in voxels

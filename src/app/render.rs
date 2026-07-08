@@ -174,7 +174,7 @@ impl App {
                 (window_extent[0] as f32 * self.ui.settings.render_scale) as u32,
                 (window_extent[1] as f32 * self.ui.settings.render_scale) as u32,
             ];
-            let (ri, rs, resi, ress) = get_images_and_sets(
+            let (ri, rs, fub, resi, ress) = get_images_and_sets(
                 self.graphics.memory_allocator.clone(),
                 self.graphics.descriptor_set_allocator.clone(),
                 &self.graphics.render_pipeline,
@@ -192,6 +192,7 @@ impl App {
             let rcx = self.graphics.rcx.as_mut().unwrap();
             rcx.render_image = ri;
             rcx.render_set = rs;
+            rcx.frame_uniform_buffer = fub;
             rcx.resample_image = resi;
             rcx.resample_set = ress;
             rcx.distance_image = di;
@@ -389,7 +390,7 @@ impl App {
             .map(|i| ImageView::new(i.clone(), ImageViewCreateInfo::from_image(i)).unwrap())
             .collect();
 
-        let (ri, rs, resi, ress) = get_images_and_sets(
+        let (ri, rs, fub, resi, ress) = get_images_and_sets(
             self.graphics.memory_allocator.clone(),
             self.graphics.descriptor_set_allocator.clone(),
             &self.graphics.render_pipeline,
@@ -410,6 +411,7 @@ impl App {
         rcx.image_views = new_image_views;
         rcx.render_image = ri;
         rcx.render_set = rs;
+        rcx.frame_uniform_buffer = fub;
         rcx.resample_image = resi;
         rcx.resample_set = ress;
         rcx.distance_image = di;
@@ -1594,14 +1596,26 @@ impl App {
         // (Two-pass beam optimization was tested but added overhead without benefit
         // since empty chunk skip already makes rays very fast)
 
+        // REN-001: push the per-frame uniforms via the uniform buffer bound at
+        // set 0 / binding 1 instead of a push-constant block. A failed write
+        // leaves last frame's uniforms in place (the buffer is persistent), so
+        // treat it as best-effort like the other per-frame buffer writes.
+        match self
+            .graphics
+            .rcx
+            .as_ref()
+            .unwrap()
+            .frame_uniform_buffer
+            .write()
+        {
+            Ok(mut write) => *write = push_constants,
+            Err(e) => log::warn!(
+                "[GPU] frame_uniform_buffer write failed; reusing last frame's uniforms: {e:?}"
+            ),
+        }
+
         builder
             .bind_pipeline_compute(self.graphics.render_pipeline.clone())
-            .unwrap()
-            .push_constants(
-                self.graphics.render_pipeline.layout().clone(),
-                0,
-                push_constants,
-            )
             .unwrap()
             .bind_descriptor_sets(
                 PipelineBindPoint::Compute,

@@ -54,15 +54,16 @@ pub fn run(_args: &Args, event_loop: &EventLoop<()>) -> Result<(), Box<dyn Error
     let render_extent = [ICON_SIZE, ICON_SIZE];
     let window_extent = render_extent;
 
-    let (render_image, render_set, _resample_image, _resample_set) = get_images_and_sets(
-        memory_allocator.clone(),
-        descriptor_set_allocator.clone(),
-        &render_pipeline,
-        &resample_pipeline,
-        render_extent,
-        window_extent,
-        None, // No multiplayer textures needed for sprite generation
-    );
+    let (render_image, render_set, frame_uniform_buffer, _resample_image, _resample_set) =
+        get_images_and_sets(
+            memory_allocator.clone(),
+            descriptor_set_allocator.clone(),
+            &render_pipeline,
+            &resample_pipeline,
+            render_extent,
+            window_extent,
+            None, // No multiplayer textures needed for sprite generation
+        );
 
     let (distance_image, distance_set) = get_distance_image_and_set(
         memory_allocator.clone(),
@@ -218,6 +219,7 @@ pub fn run(_args: &Args, event_loop: &EventLoop<()>) -> Result<(), Box<dyn Error
             &render_pipeline,
             &render_image,
             &render_set,
+            &frame_uniform_buffer,
             &distance_image,
             &distance_set,
             &voxel_image,
@@ -247,6 +249,7 @@ pub fn run(_args: &Args, event_loop: &EventLoop<()>) -> Result<(), Box<dyn Error
             &render_pipeline,
             &render_image,
             &render_set,
+            &frame_uniform_buffer,
             &distance_image,
             &distance_set,
             &voxel_image,
@@ -276,6 +279,7 @@ pub fn run(_args: &Args, event_loop: &EventLoop<()>) -> Result<(), Box<dyn Error
             &render_pipeline,
             &render_image,
             &render_set,
+            &frame_uniform_buffer,
             &distance_image,
             &distance_set,
             &voxel_image,
@@ -308,6 +312,7 @@ pub fn run(_args: &Args, event_loop: &EventLoop<()>) -> Result<(), Box<dyn Error
             &render_pipeline,
             &render_image,
             &render_set,
+            &frame_uniform_buffer,
             &distance_image,
             &distance_set,
             &voxel_image,
@@ -435,6 +440,9 @@ fn render_icon(
     render_pipeline: &HotReloadComputePipeline,
     render_image: &Arc<Image>,
     render_set: &Arc<DescriptorSet>,
+    // REN-001: per-frame uniform buffer (set 0, binding 1) the CPU rewrites per
+    // sprite instead of pushing constants.
+    frame_uniform_buffer: &vulkano::buffer::Subbuffer<PushConstants>,
     distance_image: &Arc<Image>,
     distance_set: &Arc<DescriptorSet>,
     voxel_image: &Arc<Image>,
@@ -642,6 +650,13 @@ fn render_icon(
         ..Default::default()
     };
 
+    // REN-001: write the per-frame uniforms into the uniform buffer bound at
+    // set 0 / binding 1 (was a push-constant block).
+    match frame_uniform_buffer.write() {
+        Ok(mut write) => *write = push_constants,
+        Err(e) => log::warn!("[sprite] frame_uniform_buffer write failed: {e:?}"),
+    }
+
     // Render
     {
         let pipeline = Arc::clone(render_pipeline);
@@ -653,8 +668,6 @@ fn render_icon(
 
         builder
             .bind_pipeline_compute(pipeline.clone())
-            .unwrap()
-            .push_constants(pipeline.layout().clone(), 0, push_constants)
             .unwrap()
             .bind_descriptor_sets(
                 vulkano::pipeline::PipelineBindPoint::Compute,

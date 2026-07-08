@@ -98,6 +98,29 @@ pub(crate) fn make_coherent_storage_buffer<T: BufferContents>(
     .expect("Failed to allocate coherent GPU storage buffer")
 }
 
+/// REN-001: allocates a host-accessible **uniform** buffer for a single `T`.
+/// Used for the per-frame `PushConstants` data, which the CPU rewrites every
+/// frame via `buffer.write()` and the compute shader reads (set 0, binding 1).
+/// `PREFER_HOST | HOST_RANDOM_ACCESS` mirrors the coherent storage-buffer
+/// helper: host-local memory tuned for frequent CPU rewrites.
+pub(crate) fn make_uniform_buffer<T: BufferContents>(
+    memory_allocator: &Arc<StandardMemoryAllocator>,
+) -> Subbuffer<T> {
+    Buffer::new_sized::<T>(
+        memory_allocator.clone(),
+        BufferCreateInfo {
+            usage: BufferUsage::UNIFORM_BUFFER,
+            ..Default::default()
+        },
+        AllocationCreateInfo {
+            memory_type_filter: MemoryTypeFilter::PREFER_HOST
+                | MemoryTypeFilter::HOST_RANDOM_ACCESS,
+            ..Default::default()
+        },
+    )
+    .expect("Failed to allocate uniform buffer")
+}
+
 /// Helper to create a descriptor set for a given pipeline set index.
 pub(crate) fn make_set(
     descriptor_set_allocator: &Arc<StandardDescriptorSetAllocator>,
@@ -122,6 +145,9 @@ pub struct RenderContext {
 
     pub render_image: Arc<Image>,
     pub render_set: Arc<DescriptorSet>,
+    /// REN-001: per-frame uniform buffer holding `PushConstants`, bound at
+    /// set 0 / binding 1 and rewritten by the CPU each frame.
+    pub frame_uniform_buffer: Subbuffer<PushConstants>,
     pub resample_image: Arc<Image>,
     pub resample_set: Arc<DescriptorSet>,
 
@@ -263,6 +289,12 @@ pub struct PushConstants {
     /// runs (pulse depends on hit.x/hit.z) but the time mul is done once per frame.
     pub lava_time_phase: f32,
 }
+
+// REN-001: `PushConstants` is uploaded each frame as a uniform buffer (set 0,
+// binding 1) rather than a push-constant block, so it is no longer bound by the
+// 128-byte push-constant minimum. Vulkan guarantees `maxUniformBufferRange >=
+// 16384`; assert the layout stays well under that as a guard against bloat.
+const _: () = assert!(std::mem::size_of::<PushConstants>() <= 16384);
 
 /// "All features off" baseline for `PushConstants`.
 ///
