@@ -20,6 +20,11 @@ pub struct App {
     /// Fence from the previous frame — waited on at the start of the next frame
     /// to enable CPU/GPU pipelining (CPU prepares frame N+1 while GPU renders frame N).
     pub previous_frame_fence: Option<Box<dyn GpuFuture>>,
+    /// STOR-M05: exclusive advisory lock on `<world_dir>/.lock`, held for the app
+    /// lifetime to prevent a second instance from opening the same world. `None` on
+    /// paths that don't open a world (e.g. sprite generation). Drop to release.
+    #[allow(dead_code)]
+    pub world_lock: Option<std::fs::File>,
 }
 
 impl App {

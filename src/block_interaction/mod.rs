@@ -457,49 +457,54 @@ impl<'a> BlockInteractionContext<'a> {
                     .lava_grid
                     .activate_adjacent_terrain_lava(&self.sim.world, target);
 
-                // Queue physics checks (frame-distributed to prevent FPS spikes)
-                let player_pos = self
-                    .sim
-                    .player
-                    .feet_pos(self.sim.world_extent, self.sim.texture_origin)
-                    .cast::<f32>();
+                // Queue physics checks (frame-distributed to prevent FPS spikes).
+                // PHY-M02: pure clients must not enqueue — the queue is only
+                // processed on the host/single-player (see app/update.rs), so
+                // client-side enqueues would grow `BlockUpdateQueue` unbounded.
+                if !self.multiplayer.is_client() {
+                    let player_pos = self
+                        .sim
+                        .player
+                        .feet_pos(self.sim.world_extent, self.sim.texture_origin)
+                        .cast::<f32>();
 
-                // Queue gravity check for block above
-                self.sim.block_updates.enqueue(
-                    target + Vector3::new(0, 1, 0),
-                    BlockUpdateType::Gravity,
-                    player_pos,
-                );
+                    // Queue gravity check for block above
+                    self.sim.block_updates.enqueue(
+                        target + Vector3::new(0, 1, 0),
+                        BlockUpdateType::Gravity,
+                        player_pos,
+                    );
 
-                // Queue ground support check for model block above (fences, torches, gates)
-                self.sim.block_updates.enqueue(
-                    target + Vector3::new(0, 1, 0),
-                    BlockUpdateType::ModelGroundSupport,
-                    player_pos,
-                );
+                    // Queue ground support check for model block above (fences, torches, gates)
+                    self.sim.block_updates.enqueue(
+                        target + Vector3::new(0, 1, 0),
+                        BlockUpdateType::ModelGroundSupport,
+                        player_pos,
+                    );
 
-                // Queue tree support checks for all nearby logs
-                if block_type.is_log() {
-                    self.sim.block_updates.enqueue_neighbors(
+                    // Queue tree support checks for all nearby logs
+                    if block_type.is_log() {
+                        self.sim.block_updates.enqueue_neighbors(
+                            target,
+                            BlockUpdateType::TreeSupport,
+                            player_pos,
+                        );
+                    }
+                    self.sim.block_updates.enqueue_radius(
                         target,
+                        3,
                         BlockUpdateType::TreeSupport,
                         player_pos,
                     );
-                }
-                self.sim.block_updates.enqueue_radius(
-                    target,
-                    3,
-                    BlockUpdateType::TreeSupport,
-                    player_pos,
-                );
 
-                // Queue orphaned leaves checks
-                self.sim.block_updates.enqueue_radius(
-                    target,
-                    4,
-                    BlockUpdateType::OrphanedLeaves,
-                    player_pos,
-                );
+                    // Queue orphaned leaves checks
+                    self.sim.block_updates.enqueue_radius(
+                        target,
+                        4,
+                        BlockUpdateType::OrphanedLeaves,
+                        player_pos,
+                    );
+                }
             }
 
             // Reset for next block
@@ -1105,5 +1110,55 @@ mod tests {
         assert!(should_place_inverted_stair(0, 0.5));
         // Just below boundary
         assert!(!should_place_inverted_stair(0, 0.4999));
+    }
+
+    // PHY-M02: pure clients must not enqueue physics checks — the queue is only
+    // processed on the host/single-player (app/update.rs), so client enqueues
+    // would grow `BlockUpdateQueue` unbounded. This locks the gate contract that
+    // `update_block_breaking` relies on: `is_client()` closes the gate.
+    #[test]
+    fn pure_client_does_not_enqueue_physics_checks() {
+        use crate::app_state::MultiplayerState;
+        use crate::block_update::{BlockUpdateQueue, BlockUpdateType};
+        use crate::config::GameMode;
+
+        let player_pos = nalgebra::Vector3::<f32>::new(0.0, 0.0, 0.0);
+        let target = nalgebra::Vector3::<i32>::new(0, 0, 0);
+
+        // Host / single-player: gate open -> physics checks are enqueued.
+        let mp_host = MultiplayerState::new();
+        assert!(!mp_host.is_client(), "host/sp gate should be open");
+        let mut queue_host = BlockUpdateQueue::new(64);
+        if !mp_host.is_client() {
+            queue_host.enqueue(
+                target + Vector3::new(0, 1, 0),
+                BlockUpdateType::Gravity,
+                player_pos,
+            );
+            queue_host.enqueue_radius(target, 3, BlockUpdateType::TreeSupport, player_pos);
+        }
+        assert!(
+            queue_host.pending_count() > 0,
+            "host/sp should enqueue physics checks"
+        );
+
+        // Pure client: gate closed -> queue stays empty (no unbounded growth).
+        let mut mp_client = MultiplayerState::new();
+        mp_client.mode = GameMode::Client;
+        assert!(mp_client.is_client(), "client gate should be closed");
+        let mut queue_client = BlockUpdateQueue::new(64);
+        if !mp_client.is_client() {
+            queue_client.enqueue(
+                target + Vector3::new(0, 1, 0),
+                BlockUpdateType::Gravity,
+                player_pos,
+            );
+            queue_client.enqueue_radius(target, 3, BlockUpdateType::TreeSupport, player_pos);
+        }
+        assert_eq!(
+            queue_client.pending_count(),
+            0,
+            "pure client must not enqueue server-owned physics checks"
+        );
     }
 }

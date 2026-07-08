@@ -641,6 +641,123 @@ pub struct PushConstants {
     pub lava_time_phase: f32,
 }
 
+/// "All features off" baseline for `PushConstants`.
+///
+/// Coordinate fields use the shader's inactive sentinels (`-1` for block coords,
+/// `-1000` for cutaway chunks, `-10000` for measurement markers); counts and
+/// enable flags are `0`. Secondary construction sites (sprite generation, etc.)
+/// override only the fields they care about via `PushConstants { ..Default::default() }`,
+/// so adding a field to the struct no longer forces every site to be edited.
+impl Default for PushConstants {
+    fn default() -> Self {
+        Self {
+            pixel_to_ray: Matrix4::identity(),
+            texture_size_x: 0,
+            texture_size_y: 0,
+            texture_size_z: 0,
+            render_mode: 0,
+            show_chunk_boundaries: 0,
+            player_in_water: 0,
+            time_of_day: 0.0,
+            animation_time: 0.0,
+            cloud_speed: 0.0,
+            cloud_coverage: 0.0,
+            cloud_color_r: 0.0,
+            cloud_color_g: 0.0,
+            cloud_color_b: 0.0,
+            clouds_enabled: 0,
+            break_block_x: -1,
+            break_block_y: -1,
+            break_block_z: -1,
+            break_progress: 0.0,
+            particle_count: 0,
+            preview_block_x: -1,
+            preview_block_y: -1,
+            preview_block_z: -1,
+            preview_block_type: 0,
+            light_count: 0,
+            ambient_light: 0.0,
+            fog_density: 0.0,
+            fog_start: 0.0,
+            fog_overlay_scale: 0.0,
+            target_block_x: -1,
+            target_block_y: -1,
+            target_block_z: -1,
+            max_ray_steps: 0,
+            shadow_max_steps: 0,
+            texture_origin_x: 0,
+            texture_origin_y: 0,
+            texture_origin_z: 0,
+            enable_ao: 0,
+            enable_shadows: 0,
+            enable_model_shadows: 0,
+            enable_point_lights: 0,
+            enable_tinted_shadows: 0,
+            transparent_background: 0,
+            pass_mode: 0,
+            lod_ao_distance: 0.0,
+            lod_shadow_distance: 0.0,
+            lod_point_light_distance: 0.0,
+            lod_model_distance: 0.0,
+            falling_block_count: 0,
+            show_water_sources: 0,
+            water_source_count: 0,
+            template_block_count: 0,
+            template_preview_min_x: -1,
+            template_preview_min_y: -1,
+            template_preview_min_z: -1,
+            template_preview_max_x: -1,
+            template_preview_max_y: -1,
+            template_preview_max_z: -1,
+            _padding: [0; 12],
+            camera_pos: [0.0; 4],
+            selection_pos1_x: -1,
+            selection_pos1_y: -1,
+            selection_pos1_z: -1,
+            selection_pos2_x: -1,
+            selection_pos2_y: -1,
+            selection_pos2_z: -1,
+            hide_ground_cover: 0,
+            cutaway_enabled: 0,
+            cutaway_chunk_x: -1000,
+            cutaway_chunk_y: -1000,
+            cutaway_chunk_z: -1000,
+            cutaway_player_chunk_x: -1000,
+            cutaway_player_chunk_z: -1000,
+            measurement_marker_count: 0,
+            measurement_marker_0_x: -10000,
+            measurement_marker_0_y: -10000,
+            measurement_marker_0_z: -10000,
+            measurement_marker_1_x: -10000,
+            measurement_marker_1_y: -10000,
+            measurement_marker_1_z: -10000,
+            measurement_marker_2_x: -10000,
+            measurement_marker_2_y: -10000,
+            measurement_marker_2_z: -10000,
+            measurement_marker_3_x: -10000,
+            measurement_marker_3_y: -10000,
+            measurement_marker_3_z: -10000,
+            stencil_block_count: 0,
+            stencil_opacity: 0.0,
+            stencil_render_mode: 0,
+            laser_color_r: 0.0,
+            laser_color_g: 0.0,
+            laser_color_b: 0.0,
+            sky_zenith_r: 0.0,
+            sky_zenith_g: 0.0,
+            sky_zenith_b: 0.0,
+            sky_horizon_r: 0.0,
+            sky_horizon_g: 0.0,
+            sky_horizon_b: 0.0,
+            selected_picture_id: 0,
+            remote_player_count: 0,
+            custom_texture_count: 0,
+            mushroom_pulse: 0.0,
+            lava_time_phase: 0.0,
+        }
+    }
+}
+
 pub fn get_swapchain_images(
     device: &Arc<Device>,
     surface: &Arc<Surface>,
@@ -3460,4 +3577,40 @@ pub fn save_screenshot(
     img.save(path).expect("Failed to save screenshot");
 
     log::debug!("[SCREENSHOT] Saved to {}", path);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PushConstants;
+
+    // REN-M06: sprite_gen builds its push constants as `PushConstants { ..Default::default() }`,
+    // so the Default impl is the contract that "feature off" sentinels must keep working without
+    // sprite_gen having to name every field. Pin the sentinels the shader treats as "inactive".
+    #[test]
+    fn default_push_constants_uses_inactive_sentinels() {
+        let d = PushConstants::default();
+        // Block coordinates default to -1 ("no block").
+        assert_eq!(d.break_block_x, -1);
+        assert_eq!(d.preview_block_x, -1);
+        assert_eq!(d.target_block_x, -1);
+        assert_eq!(d.template_preview_min_x, -1);
+        assert_eq!(d.selection_pos1_x, -1);
+        assert_eq!(d.selection_pos2_z, -1);
+        // Cutaway chunks default to -1000 ("no cutaway").
+        assert_eq!(d.cutaway_chunk_x, -1000);
+        assert_eq!(d.cutaway_player_chunk_x, -1000);
+        // Measurement markers default to -10000 ("no marker").
+        assert_eq!(d.measurement_marker_0_x, -10000);
+        assert_eq!(d.measurement_marker_3_z, -10000);
+        assert_eq!(d.measurement_marker_count, 0);
+        // Counts / enable flags default to 0.
+        assert_eq!(d.clouds_enabled, 0);
+        assert_eq!(d.enable_ao, 0);
+        assert_eq!(d.light_count, 0);
+        assert_eq!(d.stencil_block_count, 0);
+        assert_eq!(d.falling_block_count, 0);
+        // Padding and camera_pos default to zero.
+        assert_eq!(d._padding, [0u8; 12]);
+        assert_eq!(d.camera_pos, [0.0f32; 4]);
+    }
 }

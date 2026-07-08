@@ -914,13 +914,12 @@ impl MultiplayerState {
                 };
 
                 if reach_ok {
-                    if let Some(ref mut server) = self.server {
-                        server.broadcast_block_changes_except(msg, client_id);
-                        log::debug!(
-                            "[Server] Broadcasted BlocksChanged to all clients except originator"
-                        );
-                    }
-                    #[cfg(feature = "threaded-server")]
+                    // Threaded-server path borrows `msg.changes` (immutably) and must
+                    // run before the inline-server path moves `msg` into
+                    // `broadcast_block_changes_except`. The two branches are mutually
+                    // exclusive (`self.server` vs `self.server_thread`), so reordering
+                    // is invisible at runtime — it only satisfies the borrow checker
+                    // under `--features threaded-server`.
                     #[cfg(feature = "threaded-server")]
                     if let Some(ref server_thread) = self.server_thread {
                         // No bulk-broadcast command exists for the threaded
@@ -936,6 +935,12 @@ impl MultiplayerState {
                                     },
                                 ));
                         }
+                    }
+                    if let Some(ref mut server) = self.server {
+                        server.broadcast_block_changes_except(msg, client_id);
+                        log::debug!(
+                            "[Server] Broadcasted BlocksChanged to all clients except originator"
+                        );
                     }
                 } else {
                     log::warn!(

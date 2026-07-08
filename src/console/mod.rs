@@ -174,6 +174,10 @@ pub fn build_blocks_changed_batches(
 pub struct PendingCommand {
     /// The original command string.
     pub command: String,
+    /// CON-M04: player position captured when the confirmation prompt was built,
+    /// so `~`-relative coordinates resolve to the same absolute block on confirm
+    /// as what the player saw — even if the player moved between prompt and confirm.
+    pub player_pos: Vector3<i32>,
 }
 
 /// Pending teleport coordinates.
@@ -276,6 +280,12 @@ pub struct ConsoleState {
     pub output: Vec<ConsoleEntry>,
     /// Command pending confirmation.
     pub pending_confirm: Option<PendingCommand>,
+    /// CON-M04: player_pos used for the most recent `parse_and_execute` call.
+    /// Captured so `handle_result` can stash it on `PendingCommand` when a
+    /// command requests confirmation — the confirm-time re-execution then uses
+    /// that captured pos instead of the live one, so `~`-relative coordinates
+    /// resolve identically at prompt and confirm time.
+    last_parse_player_pos: Vector3<i32>,
     /// Whether the text input should request focus.
     pub request_focus: bool,
     /// Pending teleport to be handled by game loop.
@@ -352,6 +362,7 @@ impl ConsoleState {
             saved_input: String::new(),
             output: Vec::new(),
             pending_confirm: None,
+            last_parse_player_pos: Vector3::zeros(),
             request_focus: false,
             pending_teleport: None,
             raycast_hit: None,
@@ -1036,11 +1047,14 @@ impl ConsoleState {
         if let Some(pending) = self.pending_confirm.take() {
             let response = input.to_lowercase();
             if response == "y" || response == "yes" {
-                // Re-execute the original command with confirmation bypass
+                // CON-M04: re-execute with the player_pos captured when the prompt
+                // was built, NOT the live one — otherwise `~`-relative coordinates
+                // would re-resolve against a moved position and execute something
+                // different from what the player confirmed.
                 self.execute_confirmed(
                     &pending.command,
                     world,
-                    player_pos,
+                    pending.player_pos,
                     template_selection,
                     template_library,
                     stencil_library,
@@ -1124,7 +1138,10 @@ impl ConsoleState {
             CommandResult::NeedsConfirmation { message, command } => {
                 self.warning(&message);
                 self.info("Type 'y' or 'yes' to confirm, anything else to cancel.");
-                self.pending_confirm = Some(PendingCommand { command });
+                self.pending_confirm = Some(PendingCommand {
+                    command,
+                    player_pos: self.last_parse_player_pos,
+                });
             }
             CommandResult::Teleport { x, y, z } => {
                 self.success(format!("Teleporting to ({:.1}, {:.1}, {:.1})", x, y, z));
@@ -1275,6 +1292,10 @@ impl ConsoleState {
         confirmed: bool,
         author: &str,
     ) -> CommandResult {
+        // CON-M04: capture the player_pos used for `~` resolution so that if this
+        // parse returns NeedsConfirmation, handle_result can stash it on
+        // PendingCommand and the confirm-time re-execution resolves `~` identically.
+        self.last_parse_player_pos = player_pos;
         let parts: Vec<&str> = input.split_whitespace().collect();
         if parts.is_empty() {
             return CommandResult::Error("Empty command".to_string());
@@ -1566,5 +1587,57 @@ mod tests {
     fn test_build_blocks_changed_batches_empty() {
         let batches = build_blocks_changed_batches(Vec::new());
         assert!(batches.is_empty());
+    }
+
+    // CON-M04: a confirmed command must resolve `~`-relative coordinates against
+    // the player position captured when the prompt was built, not the live one at
+    // confirm time. Uses `tp` (lightest `~`-using command) and asserts the
+    // resulting `pending_teleport` matches the prompt-time position.
+    #[test]
+    fn confirm_uses_captured_player_pos_not_live() {
+        use crate::lava::LavaGrid;
+        use crate::pictures::PictureLibrary;
+        use crate::stencils::StencilLibrary;
+        use crate::templates::{TemplateLibrary, TemplateSelection};
+        use crate::terrain_gen::TerrainGenerator;
+        use crate::water::WaterGrid;
+        use crate::world::World;
+
+        let mut console = ConsoleState::new();
+        // Simulate the state after a confirm prompt was shown: the player was at
+        // (10, 64, 20) when the prompt was built, and the command uses `~`.
+        let prompt_pos = Vector3::new(10, 64, 20);
+        console.pending_confirm = Some(PendingCommand {
+            command: "tp ~ ~ ~10".to_string(),
+            player_pos: prompt_pos,
+        });
+
+        let mut world = World::new();
+        let mut water = WaterGrid::new();
+        let mut lava = LavaGrid::new();
+        let mut sel = TemplateSelection::default();
+        let tmpl = TemplateLibrary::new("");
+        let stencils = StencilLibrary::new("");
+        let pics = PictureLibrary::new();
+        let terrain = TerrainGenerator::new(0);
+        // Player moved between prompt and confirm — live pos is far away.
+        let live_pos = Vector3::new(999, 888, 777);
+
+        console.execute(
+            "y", &mut world, live_pos, &mut sel, &tmpl, &stencils, &mut water, &mut lava, &pics,
+            &terrain, "test",
+        );
+
+        // `tp ~ ~ ~10` resolves to (10, 64, 20+10=30). With the bug (live pos),
+        // z would be 777+10=787 instead of 30.
+        let tp = console
+            .pending_teleport
+            .expect("confirming should execute the queued tp command");
+        assert_eq!(tp.x, 10.5, "x must come from prompt_pos, not live pos");
+        assert_eq!(tp.y, 64.0, "y must come from prompt_pos, not live pos");
+        assert_eq!(
+            tp.z, 30.5,
+            "z must be prompt_pos.z + 10 (+0.5 centering), not live pos (would be 787.5)"
+        );
     }
 }

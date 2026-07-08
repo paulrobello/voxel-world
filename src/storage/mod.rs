@@ -108,6 +108,27 @@ impl TryFrom<SerializedChunk> for Chunk {
             ));
         }
 
+        // STOR-M04: sparse metadata indices come from a save file and feed directly into
+        // `Chunk::index_to_coords`, which only `debug_assert!`s the bound — a corrupt index
+        // (>= CHUNK_VOLUME) panics in release builds inside the loader thread. Validate every
+        // sparse list here so a corrupt save surfaces as a graceful `Err` instead.
+        let max_index = CHUNK_VOLUME as u16;
+        for (kind, idx) in serialized
+            .metadata
+            .iter()
+            .map(|m| ("metadata", m.index))
+            .chain(serialized.tinted.iter().map(|m| ("tinted", m.index)))
+            .chain(serialized.painted.iter().map(|m| ("painted", m.index)))
+            .chain(serialized.frames.iter().map(|m| ("frames", m.index)))
+        {
+            if idx >= max_index {
+                return Err(format!(
+                    "Corrupt chunk: {} sparse index {} out of range (>= {})",
+                    kind, idx, max_index
+                ));
+            }
+        }
+
         let mut chunk = Chunk::new();
         // Set blocks
         for (idx, &block_byte) in serialized.block_data.iter().enumerate() {
@@ -200,5 +221,43 @@ mod tests {
                 blend_mode: 0,
             })
         );
+    }
+
+    // STOR-M04: a corrupt save with an out-of-range sparse index must surface as a
+    // graceful Err, not a release-build panic inside `Chunk::index_to_coords`.
+    #[test]
+    fn corrupt_sparse_index_is_rejected_not_panicked() {
+        let mut chunk = Chunk::new();
+        chunk.set_model_block(1, 1, 1, 10, 0, false);
+
+        let mut serialized = SerializedChunk::from(&chunk);
+        // Corrupt the metadata index to point past CHUNK_VOLUME (32_768).
+        serialized.metadata[0].index = CHUNK_VOLUME as u16;
+
+        match Chunk::try_from(serialized) {
+            Err(msg) => assert!(
+                msg.contains("out of range"),
+                "error message should mention range, got: {msg}"
+            ),
+            Ok(_) => panic!("out-of-range sparse index must be rejected, not accepted"),
+        }
+    }
+
+    // STOR-M04: same guard must cover the tinted / painted / frames sparse lists.
+    #[test]
+    fn corrupt_tinted_index_is_rejected() {
+        let mut chunk = Chunk::new();
+        chunk.set_tinted_glass_block(2, 3, 4, 7);
+
+        let mut serialized = SerializedChunk::from(&chunk);
+        serialized.tinted[0].index = (CHUNK_VOLUME as u16).saturating_add(1);
+
+        match Chunk::try_from(serialized) {
+            Err(msg) => assert!(
+                msg.contains("tinted sparse index"),
+                "error message should mention the tinted list, got: {msg}"
+            ),
+            Ok(_) => panic!("out-of-range tinted index must be rejected"),
+        }
     }
 }

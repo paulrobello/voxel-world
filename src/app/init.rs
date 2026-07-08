@@ -113,6 +113,18 @@ impl App {
             std::fs::create_dir_all(&world_dir).expect("Failed to create world directory");
         }
 
+        // STOR-M05: acquire an exclusive cross-process advisory lock on
+        // `<world_dir>/.lock` before touching any region files. Two simultaneous
+        // instances on the same world corrupt region files; the lock is held for
+        // the app lifetime (stored on `App`) and released on drop at shutdown.
+        let world_lock = match acquire_world_lock(&world_dir) {
+            Ok(file) => Some(file),
+            Err(msg) => {
+                eprintln!("{msg}");
+                process::exit(1);
+            }
+        };
+
         let metadata_path = world_dir.join("level.dat");
         let mut seed = args.seed.unwrap_or(314159);
         let mut initial_time_of_day = DEFAULT_TIME_OF_DAY;
@@ -785,6 +797,66 @@ impl App {
             prefs,
             multiplayer,
             previous_frame_fence: None,
+            world_lock,
         }
+    }
+}
+
+/// STOR-M05: acquires an exclusive cross-process advisory lock on
+/// `<world_dir>/.lock`. Returns the locked `File` (drop to release), or an
+/// error string suitable for showing the user when the lock is already held.
+///
+/// Factored out of `App::new` so the second-lock-fails contract can be tested
+/// without constructing the whole `App`.
+fn acquire_world_lock(world_dir: &std::path::Path) -> Result<std::fs::File, String> {
+    let lock_path = world_dir.join(".lock");
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(false)
+        .open(&lock_path)
+        .map_err(|e| format!("Failed to open world lock {}: {}", lock_path.display(), e))?;
+    // `std::fs::File::try_lock` (stabilized in Rust 1.96) acquires an exclusive
+    // advisory lock; fails immediately if another process holds it. The lock is
+    // released when the `File` is dropped.
+    file.try_lock().map_err(|_| {
+        format!(
+            "World '{}' is already open in another instance (lock held on {}). \
+             Close the other instance and try again.",
+            world_dir.display(),
+            lock_path.display()
+        )
+    })?;
+    Ok(file)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::acquire_world_lock;
+
+    // STOR-M05: a second instance must not be able to lock the same world dir.
+    // The first lock is held on a separate File (open file description), so a
+    // second open + try_lock_exclusive in the same process must fail.
+    #[test]
+    fn second_lock_on_same_world_fails() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let _first = acquire_world_lock(dir.path()).expect("first lock should succeed");
+        match acquire_world_lock(dir.path()) {
+            Err(msg) => assert!(
+                msg.contains("already open"),
+                "error should mention already-open, got: {msg}"
+            ),
+            Ok(_second) => panic!("second lock on the same world dir must fail"),
+        }
+    }
+
+    #[test]
+    fn lock_releases_on_drop() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        {
+            let _first = acquire_world_lock(dir.path()).expect("first lock should succeed");
+        }
+        // After the first guard drops, re-locking must succeed.
+        let _second = acquire_world_lock(dir.path()).expect("re-lock after drop should succeed");
     }
 }

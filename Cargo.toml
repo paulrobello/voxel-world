@@ -12,7 +12,9 @@ threaded-server = []
 name = "voxel-world"
 version = "0.2.0"
 edition = "2024"
-rust-version = "1.94.1"
+rust-version = "1.96"
+# STOR-M05: bumped from 1.94.1 — `std::fs::File::try_lock` (used for the
+# cross-process world lock in src/app/init.rs) stabilized in Rust 1.96.
 description = "GPU-accelerated voxel sandbox using Vulkan compute shaders for real-time ray marching"
 license = "MIT"
 repository = "https://github.com/paulrobello/voxel-world"
