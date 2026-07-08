@@ -34,10 +34,8 @@ nalgebra = { version = "0.35.0", features = ["bytemuck"] }
 bytemuck = { version = "1.25.0", features = ["derive"] }
 
 notify = "8.2.0"
-ply-rs = "0.1.3"
 
 image = "0.25.10"
-crossterm = "0.29.0"
 noise = "0.9.0"
 clap = { version = "4.6.1", features = ["derive"] }
 rayon = "1.12.0"
@@ -57,12 +55,11 @@ rfd = "0.17.2"
 renet = "2.0"
 renet_netcode = "2.0"
 lz4_flex = "0.13"
-tokio = { version = "1.52.3", features = ["rt-multi-thread", "net", "sync", "time", "macros"] }
 log = "0.4.33"
 env_logger = "0.11.10"
 png = "0.18.1"
 rand = "0.10"
-socket2 = "0.6.4"
+socket2 = { version = "0.6.4", features = ["all"] }
 
 # Force minimum version to fix RUSTSEC-2026-0007 (integer overflow in bytes <1.11.1)
 bytes = "1.12.0"
@@ -70,7 +67,6 @@ bytes = "1.12.0"
 # macOS cursor handling (winit's set_cursor_visible crashes)
 [target.'cfg(target_os = "macos")'.dependencies]
 core-graphics = "0.25.0"
-objc2 = "0.6.4"
 objc2-app-kit = { version = "0.3.2", features = ["NSCursor"] }
 
 # Apple Silicon hardware metrics (CPU/GPU frequency, power, temperature) for the
