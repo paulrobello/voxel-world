@@ -20,6 +20,8 @@ make new-normal     # Reset and create normal world (seed 314159)
 
 The Makefile sets `DYLD_LIBRARY_PATH` and `VK_ICD_FILENAMES` for macOS MoltenVK — run the binary via `make` or replicate those env vars when invoking `./target/release/voxel-world` directly.
 
+**Don't launch the game from inside tmux.** On macOS, keyboard and mouse events route to the tmux pane instead of the game window, so pointer lock / clicking / keys all fail (the window never becomes key and the focus-click that drives pointer lock never fires). Run `make run` from a normal terminal tab. tmux `set -g mouse on` makes it worse.
+
 ### Multiplayer
 
 ```bash
