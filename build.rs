@@ -5,12 +5,19 @@
 /// change, so the generated file is always fresh before the main compile begins.
 ///
 /// Sources read:
-/// - `src/chunk.rs` — BlockType enum, TINT_PALETTE const, CHUNK_SIZE
+/// - `src/chunk.rs` — BlockType enum, WaterType enum, TINT_PALETTE const, CHUNK_SIZE
 /// - `src/constants.rs` — ATLAS_TILE_COUNT, WORLD_CHUNKS_Y, LOADED_CHUNKS_X/Z
 /// - `src/render_mode.rs` — RenderMode enum
 /// - `src/svt.rs` — BRICK_SIZE
+/// - `src/sub_voxel/types.rs` — LightMode enum, CRYSTAL_MODEL_ID, FIRST_CUSTOM_MODEL_ID
 ///
 /// Output: `shaders/generated_constants.glsl`
+///
+/// **Fail-loud contract:** every constant below is required. If a parser can't
+/// locate its source-of-truth declaration (e.g. an enum was renamed, a const was
+/// deleted), `main()` panics naming the constant and the file it expected to find
+/// it in. We never silently emit a stale or empty value — that is how GLSL/Rust
+/// drift sneaks in.
 use std::fmt::Write as FmtWrite;
 use std::fs;
 use std::path::Path;
@@ -21,31 +28,91 @@ fn main() {
     println!("cargo:rerun-if-changed=src/constants.rs");
     println!("cargo:rerun-if-changed=src/render_mode.rs");
     println!("cargo:rerun-if-changed=src/svt.rs");
+    println!("cargo:rerun-if-changed=src/sub_voxel/types.rs");
 
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
     let root = Path::new(&manifest_dir);
 
-    let chunk_src = fs::read_to_string(root.join("src/chunk.rs"))
-        .expect("build.rs: failed to read src/chunk.rs");
-    let constants_src = fs::read_to_string(root.join("src/constants.rs"))
-        .expect("build.rs: failed to read src/constants.rs");
-    let render_mode_src = fs::read_to_string(root.join("src/render_mode.rs"))
-        .expect("build.rs: failed to read src/render_mode.rs");
-    let svt_src =
-        fs::read_to_string(root.join("src/svt.rs")).expect("build.rs: failed to read src/svt.rs");
+    let chunk_src = read_src(root, "src/chunk.rs");
+    let constants_src = read_src(root, "src/constants.rs");
+    let render_mode_src = read_src(root, "src/render_mode.rs");
+    let svt_src = read_src(root, "src/svt.rs");
+    let types_src = read_src(root, "src/sub_voxel/types.rs");
 
-    let block_variants = parse_block_type_variants(&chunk_src);
-    let atlas_tile_count = parse_atlas_tile_count(&constants_src);
-    let render_mode_variants = parse_render_mode_variants(&render_mode_src);
-    let chunk_size = parse_usize_const(&chunk_src, "CHUNK_SIZE").unwrap_or(32);
-    let brick_size = parse_usize_const(&svt_src, "BRICK_SIZE").unwrap_or(8);
-    let world_chunks_y = parse_usize_const(&constants_src, "WORLD_CHUNKS_Y").unwrap_or(16);
-    let loaded_chunks_x = parse_usize_const(&constants_src, "LOADED_CHUNKS_X").unwrap_or(16);
-    let loaded_chunks_z = parse_usize_const(&constants_src, "LOADED_CHUNKS_Z").unwrap_or(16);
+    // Every parse below is required: a None / empty result panics with a label
+    // the next dev can act on, rather than emitting a silent default.
+    let block_variants = require_variants(
+        parse_enum_variants(&chunk_src, "BlockType"),
+        "BlockType",
+        "src/chunk.rs",
+    );
+    let water_variants = require_variants(
+        parse_enum_variants(&chunk_src, "WaterType"),
+        "WaterType",
+        "src/chunk.rs",
+    );
+    let render_mode_variants = require_variants(
+        parse_enum_variants(&render_mode_src, "RenderMode"),
+        "RenderMode",
+        "src/render_mode.rs",
+    );
+    let light_mode_variants = require_variants(
+        parse_enum_variants(&types_src, "LightMode"),
+        "LightMode",
+        "src/sub_voxel/types.rs",
+    );
+
+    let atlas_tile_count = require_const(
+        parse_u32_const(&constants_src, "ATLAS_TILE_COUNT"),
+        "ATLAS_TILE_COUNT",
+        "src/constants.rs",
+    );
+    let chunk_size = require_const(
+        parse_usize_const(&chunk_src, "CHUNK_SIZE"),
+        "CHUNK_SIZE",
+        "src/chunk.rs",
+    );
+    let brick_size = require_const(
+        parse_usize_const(&svt_src, "BRICK_SIZE"),
+        "BRICK_SIZE",
+        "src/svt.rs",
+    );
+    let world_chunks_y = require_const(
+        parse_usize_const(&constants_src, "WORLD_CHUNKS_Y"),
+        "WORLD_CHUNKS_Y",
+        "src/constants.rs",
+    );
+    let loaded_chunks_x = require_const(
+        parse_usize_const(&constants_src, "LOADED_CHUNKS_X"),
+        "LOADED_CHUNKS_X",
+        "src/constants.rs",
+    );
+    let loaded_chunks_z = require_const(
+        parse_usize_const(&constants_src, "LOADED_CHUNKS_Z"),
+        "LOADED_CHUNKS_Z",
+        "src/constants.rs",
+    );
+    let crystal_model_id = require_const(
+        parse_usize_const(&types_src, "CRYSTAL_MODEL_ID"),
+        "CRYSTAL_MODEL_ID",
+        "src/sub_voxel/types.rs",
+    );
+    let first_custom_model_id = require_const(
+        parse_usize_const(&types_src, "FIRST_CUSTOM_MODEL_ID"),
+        "FIRST_CUSTOM_MODEL_ID",
+        "src/sub_voxel/types.rs",
+    );
     let tint_palette = parse_tint_palette(&chunk_src);
+    if tint_palette.is_empty() {
+        panic!(
+            "build.rs: could not parse TINT_PALETTE from src/chunk.rs — expected `pub const TINT_PALETTE:` with a non-empty array"
+        );
+    }
 
     let glsl = generate_glsl(
         &block_variants,
+        &water_variants,
+        &light_mode_variants,
         atlas_tile_count,
         &render_mode_variants,
         chunk_size,
@@ -53,6 +120,8 @@ fn main() {
         loaded_chunks_x,
         world_chunks_y,
         loaded_chunks_z,
+        crystal_model_id,
+        first_custom_model_id,
         &tint_palette,
     );
 
@@ -65,29 +134,59 @@ fn main() {
     }
 }
 
+/// Read a source file relative to the crate root, panicking with the path on failure.
+fn read_src(root: &Path, rel: &str) -> String {
+    fs::read_to_string(root.join(rel))
+        .unwrap_or_else(|e| panic!("build.rs: failed to read {rel}: {e}"))
+}
+
+/// Assert a parsed enum yielded at least one variant, else name what's missing.
+fn require_variants(
+    variants: Vec<(String, u64)>,
+    enum_name: &str,
+    file: &str,
+) -> Vec<(String, u64)> {
+    if variants.is_empty() {
+        panic!(
+            "build.rs: could not parse any variants from `{enum_name}` in {file} \
+             — has the enum been renamed, or do its variants no longer carry explicit `= <int>` discriminants?"
+        );
+    }
+    variants
+}
+
+/// Unwrap a required parsed constant, naming it and its expected file on miss.
+fn require_const<T>(opt: Option<T>, name: &str, file: &str) -> T {
+    opt.unwrap_or_else(|| {
+        panic!(
+            "build.rs: required constant `{name}` not found in {file} \
+             — has it been renamed, deleted, or had its type changed?"
+        )
+    })
+}
+
 // ---------------------------------------------------------------------------
 // Parsers
 // ---------------------------------------------------------------------------
 
-/// Parse `BlockType` enum variants with explicit discriminants from `src/chunk.rs`.
+/// Parse variants of a C-style enum with explicit integer discriminants.
 ///
-/// Recognises lines of the form:
-///   `VariantName = <integer>,` (with optional doc comments before them).
+/// Recognises lines of the form `VariantName = <integer>,` inside the body of
+/// `pub enum <enum_name> { ... }`. Returns `(variant_name, discriminant)` pairs
+/// in declaration order. Returns an empty vec when the enum declaration itself
+/// is missing — the caller decides whether that is fatal (see `require_variants`).
 ///
-/// Returns a `Vec<(variant_name: String, discriminant: u8)>` in declaration order.
-fn parse_block_type_variants(src: &str) -> Vec<(String, u8)> {
-    let mut variants: Vec<(String, u8)> = Vec::new();
-
-    // Find the BlockType enum body.
-    let enum_start = match src.find("pub enum BlockType {") {
+/// Used for `BlockType`, `WaterType`, `RenderMode`, and `LightMode`, which all
+/// share the `#[repr(uN)]` + explicit-discriminant layout.
+fn parse_enum_variants(src: &str, enum_name: &str) -> Vec<(String, u64)> {
+    let needle = format!("pub enum {enum_name} {{");
+    let enum_start = match src.find(&needle) {
         Some(pos) => pos,
-        None => {
-            eprintln!("build.rs: WARNING – could not find `pub enum BlockType` in chunk.rs");
-            return variants;
-        }
+        None => return Vec::new(),
     };
 
     let body = extract_brace_body(&src[enum_start..]);
+    let mut variants: Vec<(String, u64)> = Vec::new();
 
     for line in body.lines() {
         let trimmed = line.trim();
@@ -112,15 +211,13 @@ fn parse_block_type_variants(src: &str) -> Vec<(String, u8)> {
         if let Some(eq_pos) = without_comma.find('=') {
             let variant_name = without_comma[..eq_pos].trim().to_string();
             let discriminant_str = without_comma[eq_pos + 1..].trim();
-            if let Ok(discriminant) = discriminant_str.parse::<u8>() {
-                // Sanity-check: variant name must start with an uppercase letter.
-                if variant_name
+            if let Ok(discriminant) = discriminant_str.parse::<u64>()
+                && variant_name
                     .chars()
                     .next()
                     .is_some_and(|c| c.is_uppercase())
-                {
-                    variants.push((variant_name, discriminant));
-                }
+            {
+                variants.push((variant_name, discriminant));
             }
         }
     }
@@ -150,7 +247,8 @@ fn extract_brace_body(src: &str) -> &str {
 
 /// Generic `pub const NAME: usize = <N>` / `const NAME: usize = <N>` /
 /// `pub const NAME: i32 = <N>` parser. Returns `None` when the constant is
-/// not found or the RHS isn't a plain non-negative integer literal.
+/// not found or the RHS isn't a plain non-negative integer literal. Inline
+/// `//` trailing comments are stripped so `= 16; // blah` parses correctly.
 fn parse_usize_const(src: &str, name: &str) -> Option<usize> {
     for line in src.lines() {
         let trimmed = line.trim();
@@ -159,8 +257,17 @@ fn parse_usize_const(src: &str, name: &str) -> Option<usize> {
         if !(trimmed.starts_with(&with_pub) || trimmed.starts_with(&without_pub)) {
             continue;
         }
-        let eq_pos = trimmed.find('=')?;
-        let rhs = trimmed[eq_pos + 1..].trim().trim_end_matches(';').trim();
+        // Strip a trailing `// ...` comment before pulling off the `;`.
+        let without_comment = if let Some(pos) = trimmed.find("//") {
+            trimmed[..pos].trim()
+        } else {
+            trimmed
+        };
+        let eq_pos = without_comment.find('=')?;
+        let rhs = without_comment[eq_pos + 1..]
+            .trim()
+            .trim_end_matches(';')
+            .trim();
         if let Ok(n) = rhs.parse::<i64>()
             && n >= 0
         {
@@ -223,71 +330,19 @@ fn parse_tint_palette(src: &str) -> Vec<(f32, f32, f32)> {
     out
 }
 
-/// Extract `ATLAS_TILE_COUNT: usize = <N>` from `src/constants.rs`.
-fn parse_atlas_tile_count(src: &str) -> u32 {
-    for line in src.lines() {
-        let trimmed = line.trim();
-        // Match: `pub const ATLAS_TILE_COUNT: usize = 45;`
-        if (trimmed.starts_with("pub const ATLAS_TILE_COUNT:")
-            || trimmed.starts_with("const ATLAS_TILE_COUNT:"))
-            && let Some(eq_pos) = trimmed.find('=')
-        {
-            let rhs = trimmed[eq_pos + 1..].trim().trim_end_matches(';').trim();
-            if let Ok(n) = rhs.parse::<u32>() {
-                return n;
-            }
-        }
+/// Extract `<NAME>: <int-type> = <N>` from a Rust source as a `u32`.
+///
+/// Matches `pub const NAME:` or `const NAME:` regardless of the integer type
+/// annotation (u8/u16/u32/usize/i32/etc.) and parses the RHS literal. Returns
+/// `None` when the declaration is absent or the RHS isn't a plain non-negative
+/// integer literal — `main()` treats that as fatal for required constants.
+fn parse_u32_const(src: &str, name: &str) -> Option<u32> {
+    let parsed = parse_usize_const(src, name)?;
+    if parsed <= u32::MAX as usize {
+        Some(parsed as u32)
+    } else {
+        None
     }
-    eprintln!("build.rs: WARNING – ATLAS_TILE_COUNT not found in constants.rs; defaulting to 45");
-    45
-}
-
-/// Parse `RenderMode` enum variants with explicit discriminants from `src/render_mode.rs`.
-fn parse_render_mode_variants(src: &str) -> Vec<(String, u32)> {
-    let mut variants: Vec<(String, u32)> = Vec::new();
-
-    let enum_start = match src.find("pub enum RenderMode {") {
-        Some(pos) => pos,
-        None => {
-            eprintln!("build.rs: WARNING – could not find `pub enum RenderMode` in render_mode.rs");
-            return variants;
-        }
-    };
-
-    let body = extract_brace_body(&src[enum_start..]);
-
-    for line in body.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty()
-            || trimmed.starts_with("//")
-            || trimmed.starts_with('#')
-            || trimmed.starts_with("/*")
-        {
-            continue;
-        }
-
-        let without_comment = if let Some(pos) = trimmed.find("//") {
-            trimmed[..pos].trim()
-        } else {
-            trimmed
-        };
-        let without_comma = without_comment.trim_end_matches(',').trim();
-
-        if let Some(eq_pos) = without_comma.find('=') {
-            let variant_name = without_comma[..eq_pos].trim().to_string();
-            let discriminant_str = without_comma[eq_pos + 1..].trim();
-            if let Ok(discriminant) = discriminant_str.parse::<u32>()
-                && variant_name
-                    .chars()
-                    .next()
-                    .is_some_and(|c| c.is_uppercase())
-            {
-                variants.push((variant_name, discriminant));
-            }
-        }
-    }
-
-    variants
 }
 
 // ---------------------------------------------------------------------------
@@ -323,14 +378,18 @@ fn pascal_to_screaming_snake(name: &str) -> String {
 
 #[allow(clippy::too_many_arguments)]
 fn generate_glsl(
-    block_variants: &[(String, u8)],
+    block_variants: &[(String, u64)],
+    water_variants: &[(String, u64)],
+    light_mode_variants: &[(String, u64)],
     atlas_tile_count: u32,
-    render_mode_variants: &[(String, u32)],
+    render_mode_variants: &[(String, u64)],
     chunk_size: usize,
     brick_size: usize,
     chunks_x: usize,
     chunks_y: usize,
     chunks_z: usize,
+    crystal_model_id: usize,
+    first_custom_model_id: usize,
     tint_palette: &[(f32, f32, f32)],
 ) -> String {
     let mut out = String::new();
@@ -338,9 +397,10 @@ fn generate_glsl(
     writeln!(out, "// AUTO-GENERATED by build.rs — DO NOT EDIT MANUALLY").unwrap();
     writeln!(
         out,
-        "// Source of truth: src/chunk.rs, src/constants.rs, src/render_mode.rs, src/svt.rs"
+        "// Source of truth: src/chunk.rs, src/constants.rs, src/render_mode.rs, src/svt.rs,"
     )
     .unwrap();
+    writeln!(out, "//                     src/sub_voxel/types.rs").unwrap();
     writeln!(out).unwrap();
 
     // --- BlockType constants ---
@@ -353,6 +413,44 @@ fn generate_glsl(
         let glsl_name = pascal_to_screaming_snake(name);
         writeln!(out, "#define BLOCK_{glsl_name} {disc}u").unwrap();
     }
+    writeln!(out).unwrap();
+
+    // --- WaterType constants ---
+    writeln!(
+        out,
+        "// Water types (generated from src/chunk.rs WaterType enum)"
+    )
+    .unwrap();
+    for (name, disc) in water_variants {
+        let glsl_name = pascal_to_screaming_snake(name);
+        writeln!(out, "#define WATER_TYPE_{glsl_name} {disc}u").unwrap();
+    }
+    writeln!(out).unwrap();
+
+    // --- LightMode constants ---
+    writeln!(
+        out,
+        "// Light animation modes (generated from src/sub_voxel/types.rs LightMode enum)"
+    )
+    .unwrap();
+    for (name, disc) in light_mode_variants {
+        let glsl_name = pascal_to_screaming_snake(name);
+        writeln!(out, "#define LIGHT_MODE_{glsl_name} {disc}u").unwrap();
+    }
+    writeln!(out).unwrap();
+
+    // --- Sub-voxel model ID constants ---
+    writeln!(
+        out,
+        "// Sub-voxel model IDs (generated from src/sub_voxel/types.rs)"
+    )
+    .unwrap();
+    writeln!(out, "#define CRYSTAL_MODEL_ID {crystal_model_id}u").unwrap();
+    writeln!(
+        out,
+        "#define FIRST_CUSTOM_MODEL_ID {first_custom_model_id}u"
+    )
+    .unwrap();
     writeln!(out).unwrap();
 
     // --- ATLAS_TILE_COUNT ---
@@ -383,6 +481,8 @@ fn generate_glsl(
     writeln!(out).unwrap();
 
     // --- TINT_PALETTE (32 colors) ---
+    // `main()` rejects an empty palette before reaching here, so this branch
+    // is about output shape, not optionality.
     if !tint_palette.is_empty() {
         writeln!(
             out,
@@ -445,7 +545,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_block_type_variants() {
+    fn test_parse_enum_variants_block_type() {
         let sample = r#"
 pub enum BlockType {
     #[default]
@@ -456,7 +556,7 @@ pub enum BlockType {
     GlowMushroom = 21,
 }
 "#;
-        let variants = parse_block_type_variants(sample);
+        let variants = parse_enum_variants(sample, "BlockType");
         assert_eq!(variants.len(), 4);
         assert_eq!(variants[0], ("Air".to_string(), 0));
         assert_eq!(variants[1], ("Stone".to_string(), 1));
@@ -465,9 +565,21 @@ pub enum BlockType {
     }
 
     #[test]
-    fn test_parse_atlas_tile_count() {
-        let sample = "pub const ATLAS_TILE_COUNT: usize = 45;\n";
-        assert_eq!(parse_atlas_tile_count(sample), 45);
+    fn test_parse_enum_variants_missing_enum_is_empty() {
+        // When the enum declaration is absent the parser returns an empty vec;
+        // `require_variants` is what escalates that to a panic in `main()`.
+        let sample = "pub enum SomethingElse { A = 0 }";
+        assert!(parse_enum_variants(sample, "BlockType").is_empty());
+    }
+
+    #[test]
+    fn test_parse_u32_const() {
+        // Works across integer type annotations (usize / u32 / u8 / i32).
+        let src = "pub const ATLAS_TILE_COUNT: usize = 45;\n";
+        assert_eq!(parse_u32_const(src, "ATLAS_TILE_COUNT"), Some(45));
+        let src = "pub const CRYSTAL_MODEL_ID: u8 = 99;\n";
+        assert_eq!(parse_u32_const(src, "CRYSTAL_MODEL_ID"), Some(99));
+        assert_eq!(parse_u32_const(src, "NOT_THERE"), None);
     }
 
     #[test]
@@ -500,7 +612,7 @@ pub const TINT_PALETTE: [[f32; 3]; 3] = [
     }
 
     #[test]
-    fn test_parse_render_mode_variants() {
+    fn test_parse_enum_variants_render_mode() {
         let sample = r#"
 pub enum RenderMode {
     Coord = 0,
@@ -509,10 +621,65 @@ pub enum RenderMode {
     Textured = 2,
 }
 "#;
-        let variants = parse_render_mode_variants(sample);
+        let variants = parse_enum_variants(sample, "RenderMode");
         assert_eq!(variants.len(), 3);
         assert_eq!(variants[0], ("Coord".to_string(), 0));
         assert_eq!(variants[1], ("Steps".to_string(), 1));
         assert_eq!(variants[2], ("Textured".to_string(), 2));
+    }
+
+    /// Round-trip: every variant the parser extracts must appear in the
+    /// generated GLSL with the same discriminant. This is the local mirror of
+    /// the cross-check that `tests/build_codegen.rs` runs against the live
+    /// source files; together they catch both parser drift and generator drift.
+    #[test]
+    fn test_generate_glsl_round_trip() {
+        let blocks = vec![
+            ("Air".to_string(), 0),
+            ("Stone".to_string(), 1),
+            ("GlowMushroom".to_string(), 21),
+        ];
+        let waters = vec![
+            ("Ocean".to_string(), 0),
+            ("Lake".to_string(), 1),
+            ("River".to_string(), 2),
+            ("Swamp".to_string(), 3),
+            ("Spring".to_string(), 4),
+        ];
+        let lights = vec![("Steady".to_string(), 0), ("Arc".to_string(), 9)];
+        let modes = vec![("Textured".to_string(), 2)];
+
+        let glsl = generate_glsl(
+            &blocks,
+            &waters,
+            &lights,
+            45,
+            &modes,
+            32,
+            8,
+            16,
+            16,
+            16,
+            99,
+            176,
+            &[(1.0, 0.0, 0.0)],
+        );
+
+        // Block defines
+        assert!(glsl.contains("#define BLOCK_AIR 0u"));
+        assert!(glsl.contains("#define BLOCK_STONE 1u"));
+        assert!(glsl.contains("#define BLOCK_GLOW_MUSHROOM 21u"));
+        // Water defines
+        assert!(glsl.contains("#define WATER_TYPE_OCEAN 0u"));
+        assert!(glsl.contains("#define WATER_TYPE_SPRING 4u"));
+        // Light defines
+        assert!(glsl.contains("#define LIGHT_MODE_STEADY 0u"));
+        assert!(glsl.contains("#define LIGHT_MODE_ARC 9u"));
+        // Model IDs
+        assert!(glsl.contains("#define CRYSTAL_MODEL_ID 99u"));
+        assert!(glsl.contains("#define FIRST_CUSTOM_MODEL_ID 176u"));
+        // Sanity: ensure no stray `const uint` collision with the #define form.
+        assert!(!glsl.contains("const uint WATER_TYPE"));
+        assert!(!glsl.contains("const uint LIGHT_MODE"));
     }
 }

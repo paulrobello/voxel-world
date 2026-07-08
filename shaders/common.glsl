@@ -16,15 +16,9 @@
 #define BRICK_DEBUG  RENDER_MODE_BRICK_DEBUG
 #define SHADOW_DEBUG RENDER_MODE_SHADOW_DEBUG
 
-// Sub-voxel model IDs (must match Rust ModelRegistry IDs)
-const uint CRYSTAL_MODEL_ID = 99u;
-
-// Water types (must match Rust WaterType enum)
-const uint WATER_TYPE_OCEAN = 0u;
-const uint WATER_TYPE_LAKE = 1u;
-const uint WATER_TYPE_RIVER = 2u;
-const uint WATER_TYPE_SWAMP = 3u;
-const uint WATER_TYPE_SPRING = 4u;
+// CRYSTAL_MODEL_ID, WATER_TYPE_*, and LIGHT_MODE_* now come from
+// `generated_constants.glsl` (included above) — edit the Rust-side source of
+// truth instead (see build.rs for the parse map).
 
 // Emission colors for emissive blocks (RGB)
 const vec3 EMISSION_LAVA = vec3(1.0, 0.4, 0.1);        // Orange-red
@@ -272,17 +266,8 @@ const uint MODEL_FLAG_IS_LIGHT_SOURCE = 1u << 3;
 const uint MODEL_FLAG_IS_GROUND_COVER = 1u << 8;
 // palette_id is in bits 16-23: (flags >> 16) & 0xFF (shared palette atlas indirection)
 
-// Light modes (must match Rust LightMode enum)
-const uint LIGHT_MODE_STEADY = 0u;
-const uint LIGHT_MODE_PULSE = 1u;
-const uint LIGHT_MODE_FLICKER = 2u;
-const uint LIGHT_MODE_CANDLE = 3u;
-const uint LIGHT_MODE_STROBE = 4u;
-const uint LIGHT_MODE_BREATHE = 5u;
-const uint LIGHT_MODE_SPARKLE = 6u;
-const uint LIGHT_MODE_WAVE = 7u;
-const uint LIGHT_MODE_WARMUP = 8u;
-const uint LIGHT_MODE_ARC = 9u;
+// Light modes (LIGHT_MODE_*) come from `generated_constants.glsl` (included
+// above) — edit src/sub_voxel/types.rs and rebuild.
 
 const float SUB_VOXEL_LOD_DISTANCE = 32.0;
 const float SUB_VOXEL_MIN_DISTANCE = 0.4;
