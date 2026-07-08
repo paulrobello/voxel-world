@@ -230,9 +230,10 @@ impl<'a> BlockInteractionContext<'a> {
 
         let target = target_block.unwrap();
 
-        // Get the block type to determine break time
+        // Get the block type to determine break time (position-aware: bedrock is
+        // only indestructible at bedrock height, so player-placed bedrock breaks).
         let block_type = self.sim.world.get_block(target).unwrap_or(BlockType::Air);
-        let break_time = block_type.break_time();
+        let break_time = block_type.break_time_at(target.y);
 
         // Can't break air or water
         if break_time <= 0.0 {

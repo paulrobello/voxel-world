@@ -783,6 +783,21 @@ impl BlockType {
         }
     }
 
+    /// Break time for a block of this type at world height `y`.
+    ///
+    /// Most blocks have a position-independent break time (see [`break_time`]).
+    /// Bedrock is the exception: it is indestructible only at bedrock height
+    /// (y == 0, where world generation places the floor — see `terrain_gen.rs`);
+    /// bedrock a player places elsewhere breaks like the hardest stone.
+    pub fn break_time_at(self, y: i32) -> f32 {
+        if matches!(self, BlockType::Bedrock) && y != 0 {
+            // Placed bedrock: hardest breakable tier (matches Deepslate/Iron).
+            1.2
+        } else {
+            self.break_time()
+        }
+    }
+
     /// Returns true if this block type uses sub-voxel model rendering.
     #[inline]
     #[allow(dead_code)] // reason: BlockType API — kept for completeness / future use
@@ -1705,6 +1720,27 @@ mod tests {
         let chunk = Chunk::new();
         assert!(chunk.is_empty());
         assert!(chunk.dirty);
+    }
+
+    #[test]
+    fn bedrock_breakable_only_at_bedrock_height() {
+        // World-gen bedrock at the floor (y == 0) stays indestructible.
+        assert_eq!(BlockType::Bedrock.break_time_at(0), 0.0);
+        // Player-placed bedrock anywhere above the floor is breakable.
+        assert!(BlockType::Bedrock.break_time_at(1) > 0.0);
+        assert!(BlockType::Bedrock.break_time_at(64) > 0.0);
+        // Non-bedrock blocks are unaffected by height.
+        assert_eq!(
+            BlockType::Stone.break_time_at(0),
+            BlockType::Stone.break_time()
+        );
+        assert_eq!(
+            BlockType::Stone.break_time_at(50),
+            BlockType::Stone.break_time()
+        );
+        // Air/fluids remain unbreakable regardless of height.
+        assert_eq!(BlockType::Air.break_time_at(0), 0.0);
+        assert_eq!(BlockType::Water.break_time_at(10), 0.0);
     }
 
     #[test]
