@@ -7,8 +7,6 @@
 //! - Allows placing/removing voxels with mouse clicks
 //! - Supports undo/redo for all editing operations
 
-#![allow(dead_code)] // WIP: Full integration pending
-
 pub mod rasterizer;
 pub mod ui;
 
@@ -129,6 +127,7 @@ pub enum EditorTool {
     #[default]
     Pencil,
     Eraser,
+    #[allow(dead_code)] // reason: WIP editor — not yet fully integrated
     Fill,
     Eyedropper,
     /// Place a filled cube shape.
@@ -173,6 +172,7 @@ pub struct EditorState {
     pub orbit_yaw: f32,
 
     /// Orbit camera pitch angle (radians).
+    #[allow(dead_code)] // reason: WIP editor — not yet fully integrated
     pub orbit_pitch: f32,
 
     /// Distance from center to camera.
@@ -302,6 +302,7 @@ impl EditorState {
     }
 
     /// Resets the scratch pad to a new empty model.
+    #[allow(dead_code)] // reason: WIP editor — not yet fully integrated
     pub fn new_model(&mut self, name: &str) {
         self.new_model_with_resolution(name, ModelResolution::Medium);
     }
@@ -401,6 +402,7 @@ impl EditorState {
     }
 
     /// Calculates the orbit camera position.
+    #[allow(dead_code)] // reason: WIP editor — not yet fully integrated
     pub fn camera_position(&self) -> Vector3<f32> {
         let center = Vector3::new(
             SUB_VOXEL_CENTER_F32,
@@ -423,6 +425,7 @@ impl EditorState {
     }
 
     /// Gets the camera look-at target (center of model).
+    #[allow(dead_code)] // reason: WIP editor — not yet fully integrated
     pub fn camera_target(&self) -> Vector3<f32> {
         Vector3::new(
             SUB_VOXEL_CENTER_F32,
@@ -432,6 +435,7 @@ impl EditorState {
     }
 
     /// Updates orbit camera based on mouse drag.
+    #[allow(dead_code)] // reason: WIP editor — not yet fully integrated
     pub fn update_orbit(&mut self, mouse_pos: [f32; 2], sensitivity: f32) {
         if let Some(last_pos) = self.last_mouse_pos {
             let dx = mouse_pos[0] - last_pos[0];
@@ -452,6 +456,7 @@ impl EditorState {
     /// Performs a ray-voxel intersection test against the sub-voxel grid.
     ///
     /// Returns (voxel_pos, face_normal) if a solid voxel was hit.
+    #[allow(dead_code)] // reason: WIP editor — not yet fully integrated
     pub fn raycast_voxel(
         &self,
         origin: Vector3<f32>,

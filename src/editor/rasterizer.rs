@@ -50,6 +50,7 @@ impl Rasterizer {
     }
 
     /// Resizes the rasterizer if dimensions changed.
+    #[allow(dead_code)] // reason: WIP editor — not yet fully integrated
     pub fn resize(&mut self, width: usize, height: usize) {
         if width != self.width || height != self.height {
             self.width = width;

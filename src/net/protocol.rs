@@ -4,7 +4,6 @@
 //! All messages use postcard for serialization for speed and compactness.
 
 // Allow unused code until networking is integrated into the game
-#![allow(dead_code)]
 
 use crate::chunk::{BlockModelData, BlockPaintData, BlockType, WaterType};
 use serde::{Deserialize, Serialize};
@@ -19,30 +18,41 @@ use serde::{Deserialize, Serialize};
 pub struct InputActions(u16);
 
 impl InputActions {
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub const NONE: u16 = 0;
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub const JUMP: u16 = 1 << 0;
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub const SPRINT: u16 = 1 << 1;
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub const SNEAK: u16 = 1 << 2;
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub const PLACE_BLOCK: u16 = 1 << 3;
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub const BREAK_BLOCK: u16 = 1 << 4;
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub const USE_ITEM: u16 = 1 << 5;
 
     pub fn new(bits: u16) -> Self {
         Self(bits)
     }
 
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn bits(self) -> u16 {
         self.0
     }
 
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn contains(self, flag: u16) -> bool {
         (self.0 & flag) != 0
     }
 
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn insert(&mut self, flag: u16) {
         self.0 |= flag;
     }
 
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn remove(&mut self, flag: u16) {
         self.0 &= !flag;
     }

@@ -4,7 +4,6 @@
 //! and applying remote changes from the server.
 
 // Allow unused code until networking is integrated into the game
-#![allow(dead_code)]
 
 use std::collections::{HashMap, VecDeque};
 
@@ -16,23 +15,29 @@ use crate::net::protocol::{
 const MAX_PENDING_CHANGES: usize = 1024;
 
 /// Area of Interest radius for block updates (in blocks).
+#[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
 const AOI_RADIUS: i32 = 64;
 
 /// How long a `recent_changes` entry stays relevant for replay to a newly
 /// connected player. Beyond this age the change is assumed to already be
 /// reflected in the chunk data the server will send the joiner.
 /// 60 s in microseconds.
+#[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
 const RECENT_CHANGE_TTL_US: u64 = 60 * 1_000_000;
 
 /// Manages block synchronization between client and server.
 pub struct BlockSyncManager {
     /// Pending block changes to send to server (client-side).
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pending_changes: VecDeque<BlockChange>,
     /// Recent block changes for replay on new clients (server-side).
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     recent_changes: VecDeque<([i32; 3], BlockData, u64)>, // position, block, timestamp
     /// Player positions for AoI calculations (server-side).
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     player_positions: HashMap<PlayerId, [f32; 3]>,
     /// Whether we're running as server.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     is_server: bool,
     /// Monotonic count of pending-queue drops since startup (client-side).
     /// Drops mean the client queued more block edits than the server could drain;
@@ -44,10 +49,13 @@ pub struct BlockSyncManager {
 #[derive(Debug, Clone)]
 pub enum BlockChange {
     /// Place a block.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     Place(PlaceBlock),
     /// Break a block.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     Break(BreakBlock),
     /// Bulk operation.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     Bulk(BulkOperation),
 }
 
@@ -68,6 +76,7 @@ impl BlockSyncManager {
     /// Returns the number of elements dropped by this call. Called after every
     /// queue_* push so a burst of edits can't silently lose any beyond the first
     /// without leaving a trail.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     fn trim_pending(&mut self) -> usize {
         let mut dropped = 0;
         while self.pending_changes.len() > MAX_PENDING_CHANGES {
@@ -92,11 +101,13 @@ impl BlockSyncManager {
     /// Returns the total number of pending block-change drops since startup.
     /// A non-zero value means the client is queueing edits faster than the
     /// server can drain them and is losing the oldest entries.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn dropped_changes(&self) -> u64 {
         self.dropped_changes
     }
 
     /// Returns the current pending-queue depth.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn pending_depth(&self) -> usize {
         self.pending_changes.len()
     }
@@ -106,6 +117,7 @@ impl BlockSyncManager {
     // ========================================================================
 
     /// Queues a block placement for synchronization (client-side).
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn queue_place(&mut self, position: [i32; 3], block: BlockData) {
         if self.is_server {
             return;
@@ -117,6 +129,7 @@ impl BlockSyncManager {
     }
 
     /// Queues a block break for synchronization (client-side).
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn queue_break(&mut self, position: [i32; 3]) {
         if self.is_server {
             return;
@@ -128,6 +141,7 @@ impl BlockSyncManager {
     }
 
     /// Queues a bulk operation for synchronization (client-side).
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn queue_bulk(&mut self, operation: BulkOperation) {
         if self.is_server {
             return;
@@ -138,11 +152,13 @@ impl BlockSyncManager {
     }
 
     /// Returns pending changes and clears the queue.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn take_pending_changes(&mut self) -> VecDeque<BlockChange> {
         std::mem::take(&mut self.pending_changes)
     }
 
     /// Returns true if there are pending changes.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn has_pending_changes(&self) -> bool {
         !self.pending_changes.is_empty()
     }
@@ -152,11 +168,13 @@ impl BlockSyncManager {
     // ========================================================================
 
     /// Updates a player's position for AoI calculations (server-side).
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn update_player_position(&mut self, player_id: PlayerId, position: [f32; 3]) {
         self.player_positions.insert(player_id, position);
     }
 
     /// Removes a player from AoI tracking (server-side).
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn remove_player(&mut self, player_id: PlayerId) {
         self.player_positions.remove(&player_id);
     }
@@ -167,6 +185,7 @@ impl BlockSyncManager {
     /// Entries older than `RECENT_CHANGE_TTL_US` are expired the next time
     /// history is queried, so a new client joining minutes later doesn't
     /// receive an avalanche of stale state.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn record_change(&mut self, position: [i32; 3], block: BlockData, timestamp: u64) {
         if !self.is_server {
             return;
@@ -182,6 +201,7 @@ impl BlockSyncManager {
     }
 
     /// Returns players that should receive a block update based on AoI.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn get_players_in_range(&self, position: [i32; 3]) -> Vec<PlayerId> {
         let mut result = Vec::new();
 
@@ -203,6 +223,7 @@ impl BlockSyncManager {
     /// Filters by distance from player's spawn position and drops entries
     /// older than `RECENT_CHANGE_TTL_US` so joiners don't receive stale
     /// history that's already been superseded.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn get_recent_changes_for_player(
         &self,
         spawn_position: [f32; 3],
@@ -234,6 +255,7 @@ impl BlockSyncManager {
 
     /// Removes entries older than `RECENT_CHANGE_TTL_US`. Safe to call each
     /// tick — cheap because recent_changes is bounded at 1000.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn expire_recent_changes(&mut self, now_us: u64) {
         while let Some((_, _, ts)) = self.recent_changes.front() {
             if now_us.saturating_sub(*ts) > RECENT_CHANGE_TTL_US {
@@ -245,6 +267,7 @@ impl BlockSyncManager {
     }
 
     /// Clears recent change history (e.g., on world change).
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn clear_history(&mut self) {
         self.recent_changes.clear();
     }

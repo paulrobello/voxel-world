@@ -3,7 +3,6 @@
 //! Provides a RenetServer wrapper with voxel-world specific functionality.
 
 // Allow unused code until networking is integrated into the game
-#![allow(dead_code)]
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -42,6 +41,7 @@ pub struct GameServer {
     /// This client should not be broadcast to other clients.
     host_client_id: Option<u64>,
     /// Server start time.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     start_time: Instant,
     /// Last tick time.
     last_tick: Instant,
@@ -153,6 +153,7 @@ pub struct PlayerInfo {
     /// Assigned player ID.
     pub player_id: PlayerId,
     /// Client ID in renet.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub client_id: u64,
     /// Player name.
     pub name: String,
@@ -167,6 +168,7 @@ pub struct PlayerInfo {
     /// Last processed input sequence.
     pub last_sequence: u32,
     /// Connection time.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub connected_at: Instant,
 }
 
@@ -259,12 +261,14 @@ impl GameServer {
 
     /// Returns a snapshot of live bandwidth counters. Cloned so callers can
     /// diff across frames without holding a borrow on the server.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn net_stats(&self) -> NetStats {
         self.net_stats.clone()
     }
 
     /// Resets every runtime bandwidth counter to zero. Useful for benchmarks
     /// and for the debug HUD "reset" button.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn reset_net_stats(&mut self) {
         self.net_stats = NetStats::default();
     }
@@ -340,6 +344,7 @@ impl GameServer {
     /// Lazily prunes per-client chunk send timestamps older than the resend
     /// window. Safe to call periodically (e.g. once per second) from the game
     /// loop.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn purge_stale_chunk_history(&mut self) {
         let cutoff = Instant::now();
         for per_client in self.recently_sent_chunks.values_mut() {
@@ -352,6 +357,7 @@ impl GameServer {
     /// Returns the cumulative count of encode failures in broadcast/send paths.
     /// Used by the debug HUD (and tests) to surface silent serialization bugs
     /// that would otherwise go unnoticed.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn encode_failures(&self) -> u64 {
         self.encode_failures
     }
@@ -438,6 +444,7 @@ impl GameServer {
     }
 
     /// Sets the world directory for loading models and textures.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn set_world_dir(&mut self, path: std::path::PathBuf, max_textures: u8) {
         self.world_dir = Some(path.clone());
 
@@ -854,6 +861,7 @@ impl GameServer {
     /// Broadcasts a tree fall event to all clients.
     /// Used for server-authoritative multi-block tree fall sync.
     /// This is more bandwidth-efficient than sending individual FallingBlockSpawned messages.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn broadcast_tree_fell(&mut self, tree_fell: TreeFell) {
         let msg = ServerMessage::TreeFell(tree_fell);
         self.broadcast_encoded(1, "TreeFell", &msg);
@@ -1139,11 +1147,13 @@ impl GameServer {
     }
 
     /// Gets picture data by ID.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn get_picture(&self, picture_id: u16) -> Option<Vec<u8>> {
         self.picture_manager.as_ref()?.get_picture(picture_id)
     }
 
     /// Gets picture name by ID.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn get_picture_name(&self, picture_id: u16) -> Option<String> {
         self.picture_manager
             .as_ref()?
@@ -1163,6 +1173,7 @@ impl GameServer {
     }
 
     /// Broadcasts a picture frame assignment to all clients.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn broadcast_frame_picture_set(&mut self, position: [i32; 3], picture_id: Option<u16>) {
         use crate::net::protocol::FramePictureSet;
         let msg = ServerMessage::FramePictureSet(FramePictureSet {
@@ -1239,6 +1250,7 @@ impl GameServer {
 
     /// Broadcasts a template load to all clients.
     /// Used for multiplayer template synchronization when a player loads a template.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn broadcast_template_loaded(
         &mut self,
         template_id: u64,
@@ -1259,6 +1271,7 @@ impl GameServer {
     }
 
     /// Broadcasts a template removal to all clients.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn broadcast_template_removed(&mut self, template_id: u64) {
         use crate::net::protocol::TemplateRemoved;
         let msg = ServerMessage::TemplateRemoved(TemplateRemoved { template_id });
@@ -1348,6 +1361,7 @@ impl GameServer {
     }
 
     /// Returns connected player count.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn player_count(&self) -> usize {
         self.players.len()
     }
@@ -1367,11 +1381,13 @@ impl GameServer {
     }
 
     /// Returns server uptime.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn uptime(&self) -> Duration {
         self.start_time.elapsed()
     }
 
     /// Returns the number of messages waiting to be sent.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn has_pending_messages(&self) -> bool {
         // Check if there are any connected clients
         !self.server.clients_id().is_empty()

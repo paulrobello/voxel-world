@@ -8,7 +8,6 @@
 //! - Frame models: 9 frame sizes from 1×1 to 3×3 blocks
 
 // WIP: Full integration pending - re-exports will be used when UI is implemented
-#![allow(dead_code)]
 #![allow(unused_imports)]
 
 pub mod atlas;

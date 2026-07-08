@@ -4,7 +4,6 @@
 //! and player synchronization.
 
 // Networking integration is incomplete — some fields/methods are prepared for future use.
-#![allow(dead_code)]
 
 use std::collections::VecDeque;
 use std::net::SocketAddr;
@@ -27,6 +26,7 @@ use nalgebra::Vector3;
 #[cfg(feature = "threaded-server")]
 const USE_THREADED_SERVER: bool = true;
 #[cfg(not(feature = "threaded-server"))]
+#[allow(dead_code)] // reason: multiplayer state — kept for future wire-up
 const USE_THREADED_SERVER: bool = false;
 
 /// Maximum chat messages to keep in history.
@@ -40,6 +40,7 @@ pub struct ChatEntry {
     /// Message content.
     pub message: String,
     /// Timestamp when message was received.
+    #[allow(dead_code)] // reason: multiplayer state — kept for future wire-up
     pub timestamp: Instant,
 }
 
@@ -79,6 +80,7 @@ pub enum NetworkEvent {
     /// A falling block landed (client-side).
     FallingBlockLanded(crate::net::protocol::FallingBlockLanded),
     /// A whole tree fell (client-side).
+    #[allow(dead_code)] // reason: multiplayer state — kept for future wire-up
     TreeFell(crate::net::protocol::TreeFell),
     /// A picture frame block had its picture changed (client-side).
     FramePictureSet(crate::net::protocol::FramePictureSet),
@@ -143,6 +145,7 @@ pub struct MultiplayerState {
     /// Chunk sync manager.
     pub chunk_sync: ChunkSyncManager,
     /// Block sync manager for block changes.
+    #[allow(dead_code)] // reason: multiplayer state — kept for future wire-up
     pub block_sync: BlockSyncManager,
     /// Block validator for server-side validation (anti-cheat).
     block_validator: crate::net::block_sync::BlockValidator,
@@ -184,6 +187,7 @@ pub struct MultiplayerState {
     /// — a previous implementation created a fresh `FallingBlockSync` every
     /// call, which meant two resends of the same tree produced overlapping
     /// IDs and broke client-side spawn/land correlation.
+    #[allow(dead_code)] // reason: multiplayer state — kept for future wire-up
     tree_fall_sync: crate::net::tree_fall_sync::TreeFallSync,
     /// Per-chunk memoization of compressed chunk bytes. Keyed on position;
     /// each entry stores the `mutation_epoch` it was computed against so a
@@ -526,6 +530,7 @@ impl MultiplayerState {
 
     /// Returns remote player data for 3D name label rendering.
     /// Each tuple contains (name, position [x, y, z], color_index).
+    #[allow(dead_code)] // reason: multiplayer state — kept for future wire-up
     pub fn get_remote_players_for_labels(&self) -> Vec<(String, [f32; 3], usize)> {
         self.remote_players
             .iter()
@@ -548,6 +553,7 @@ impl MultiplayerState {
     }
 
     /// Returns the server name (if hosting).
+    #[allow(dead_code)] // reason: multiplayer state — kept for future wire-up
     pub fn get_server_name(&self) -> &str {
         &self.server_name
     }
@@ -568,6 +574,7 @@ impl MultiplayerState {
     }
 
     /// Returns the local player's display name.
+    #[allow(dead_code)] // reason: multiplayer state — kept for future wire-up
     pub fn get_local_player_name(&self) -> &str {
         &self.local_player_name
     }
@@ -598,6 +605,7 @@ impl MultiplayerState {
     }
 
     /// Returns whether the chat overlay should be visible.
+    #[allow(dead_code)] // reason: multiplayer state — kept for future wire-up
     pub fn is_chat_visible(&self) -> bool {
         self.chat_display_timer.is_some()
     }
@@ -1833,6 +1841,7 @@ impl MultiplayerState {
 
     /// Takes pending block changes and clears the queue.
     /// Call this from the game loop to apply changes to the world.
+    #[allow(dead_code)] // reason: multiplayer state — kept for future wire-up
     pub fn take_pending_block_changes(&mut self) -> Vec<crate::net::protocol::BlockChanged> {
         Self::drain_variant(&mut self.events, |e| match e {
             NetworkEvent::BlockChanged(change) => Some(change.clone()),
@@ -1885,11 +1894,13 @@ impl MultiplayerState {
     }
 
     /// Returns the local player ID (if connected).
+    #[allow(dead_code)] // reason: multiplayer state — kept for future wire-up
     pub fn local_player_id(&self) -> Option<u64> {
         self.client.as_ref().and_then(|c| c.player_id())
     }
 
     /// Returns the world seed (if received from server).
+    #[allow(dead_code)] // reason: multiplayer state — kept for future wire-up
     pub fn world_seed(&self) -> Option<u32> {
         self.client.as_ref().and_then(|c| c.world_seed())
     }
@@ -1935,6 +1946,7 @@ impl MultiplayerState {
     }
 
     /// Returns the number of pending chunks.
+    #[allow(dead_code)] // reason: multiplayer state — kept for future wire-up
     pub fn pending_chunk_count(&self) -> usize {
         self.events
             .iter()
@@ -1961,6 +1973,7 @@ impl MultiplayerState {
     /// Marks a locally-generated chunk as complete (received and applied to world).
     /// This should be called when a chunk that was requested via ChunkGenerateLocal
     /// is successfully generated and inserted into the world.
+    #[allow(dead_code)] // reason: multiplayer state — kept for future wire-up
     pub fn mark_local_chunk_complete(&mut self, position: [i32; 3]) {
         self.chunk_sync.try_complete_local_generation(position);
     }
@@ -2068,6 +2081,7 @@ impl MultiplayerState {
     }
 
     /// Returns the current pending-bulk queue depth. Useful for the debug HUD.
+    #[allow(dead_code)] // reason: multiplayer state — kept for future wire-up
     pub fn pending_bulk_depth(&self) -> usize {
         self.pending_bulk_blocks.len()
     }
@@ -2238,6 +2252,7 @@ impl MultiplayerState {
     }
 
     /// Requests a custom texture if not cached.
+    #[allow(dead_code)] // reason: multiplayer state — kept for future wire-up
     pub fn request_texture_if_needed(&mut self, slot: u8) {
         if self.texture_cache.request_if_needed(slot)
             && let Some(ref mut client) = self.client
@@ -2381,12 +2396,14 @@ impl MultiplayerState {
     }
 
     /// Returns water sync optimizer statistics for debugging.
+    #[allow(dead_code)] // reason: multiplayer state — kept for future wire-up
     pub fn water_sync_stats(&self) -> &crate::net::water_sync::WaterSyncStats {
         self.water_sync_optimizer.stats()
     }
 
     /// Prunes distant cached water states to prevent memory growth.
     /// Call this periodically (e.g., every 30 seconds).
+    #[allow(dead_code)] // reason: multiplayer state — kept for future wire-up
     pub fn prune_water_sync_cache(&mut self) {
         let player_positions = self.get_all_player_positions();
         self.water_sync_optimizer
@@ -2394,12 +2411,14 @@ impl MultiplayerState {
     }
 
     /// Returns lava sync optimizer statistics for debugging.
+    #[allow(dead_code)] // reason: multiplayer state — kept for future wire-up
     pub fn lava_sync_stats(&self) -> &crate::net::lava_sync::LavaSyncStats {
         self.lava_sync_optimizer.stats()
     }
 
     /// Prunes distant cached lava states to prevent memory growth.
     /// Call this periodically (e.g., every 30 seconds).
+    #[allow(dead_code)] // reason: multiplayer state — kept for future wire-up
     pub fn prune_lava_sync_cache(&mut self) {
         let player_positions = self.get_all_player_positions();
         self.lava_sync_optimizer
@@ -2527,6 +2546,7 @@ impl MultiplayerState {
     ///
     /// # Returns
     /// A vector of entity IDs assigned to each falling block, in the same order as input.
+    #[allow(dead_code)] // reason: multiplayer state — kept for future wire-up
     pub fn broadcast_tree_fell(
         &mut self,
         blocks: Vec<(nalgebra::Vector3<i32>, crate::chunk::BlockType)>,
@@ -2554,6 +2574,7 @@ impl MultiplayerState {
 
     /// Takes all pending tree fall events and clears the queue.
     /// Call this from the game loop to spawn falling blocks in the client simulation.
+    #[allow(dead_code)] // reason: multiplayer state — kept for future wire-up
     pub fn take_pending_tree_falls(&mut self) -> Vec<crate::net::protocol::TreeFell> {
         Self::drain_variant(&mut self.events, |e| match e {
             NetworkEvent::TreeFell(tree_fell) => Some(tree_fell.clone()),
@@ -2562,6 +2583,7 @@ impl MultiplayerState {
     }
 
     /// Returns true if there are pending tree fall events to apply.
+    #[allow(dead_code)] // reason: multiplayer state — kept for future wire-up
     pub fn has_pending_tree_falls(&self) -> bool {
         self.events
             .iter()
@@ -2573,6 +2595,7 @@ impl MultiplayerState {
     ///
     /// # Arguments
     /// * `lands` - List of (entity_id, position, block_type) tuples
+    #[allow(dead_code)] // reason: multiplayer state — kept for future wire-up
     pub fn broadcast_falling_block_lands_batch(
         &mut self,
         lands: Vec<(u32, [i32; 3], crate::chunk::BlockType)>,
@@ -2602,6 +2625,7 @@ impl MultiplayerState {
     }
 
     /// Returns true if there's a pending day cycle pause change.
+    #[allow(dead_code)] // reason: multiplayer state — kept for future wire-up
     pub fn has_pending_day_cycle_pause(&self) -> bool {
         self.pending_day_cycle_pause.is_some()
     }
@@ -2613,6 +2637,7 @@ impl MultiplayerState {
     }
 
     /// Returns true if there's a pending time update.
+    #[allow(dead_code)] // reason: multiplayer state — kept for future wire-up
     pub fn has_pending_time_update(&self) -> bool {
         self.pending_time_update.is_some()
     }
@@ -2636,6 +2661,7 @@ impl MultiplayerState {
     }
 
     /// Returns true if there's a pending spawn position update.
+    #[allow(dead_code)] // reason: multiplayer state — kept for future wire-up
     pub fn has_pending_spawn_position(&self) -> bool {
         self.pending_spawn_position.is_some()
     }
@@ -2665,6 +2691,7 @@ impl MultiplayerState {
     /// Adds a picture to the server's picture store and broadcasts to all clients.
     /// Call this from the game loop when hosting after taking pending uploads.
     /// Returns the assigned picture ID, or None on failure.
+    #[allow(dead_code)] // reason: multiplayer state — kept for future wire-up
     pub fn add_picture_and_broadcast(&mut self, name: &str, png_data: &[u8]) -> Option<u16> {
         // Add picture to server's picture manager
         let picture_id = if let Some(ref mut server) = self.server {
@@ -2693,6 +2720,7 @@ impl MultiplayerState {
     /// # Arguments
     /// * `position` - World position of the picture frame block
     /// * `picture_id` - ID of the picture to display, or None to clear the frame
+    #[allow(dead_code)] // reason: multiplayer state — kept for future wire-up
     pub fn broadcast_frame_picture_set(&mut self, position: [i32; 3], picture_id: Option<u16>) {
         if let Some(ref mut server) = self.server {
             server.broadcast_frame_picture_set(position, picture_id);
@@ -2767,6 +2795,7 @@ impl MultiplayerState {
     /// * `template_id` - Unique ID for the template
     /// * `name` - Template name
     /// * `template_data` - Compressed VxtFile bytes
+    #[allow(dead_code)] // reason: multiplayer state — kept for future wire-up
     pub fn broadcast_template_loaded(
         &mut self,
         template_id: u64,
@@ -2779,6 +2808,7 @@ impl MultiplayerState {
     }
 
     /// Broadcasts a template removal to all clients (server-side, when hosting).
+    #[allow(dead_code)] // reason: multiplayer state — kept for future wire-up
     pub fn broadcast_template_removed(&mut self, template_id: u64) {
         if let Some(ref mut server) = self.server {
             server.broadcast_template_removed(template_id);
@@ -2795,6 +2825,7 @@ impl MultiplayerState {
     }
 
     /// Returns true if there are pending stencil loads to apply.
+    #[allow(dead_code)] // reason: multiplayer state — kept for future wire-up
     pub fn has_pending_stencil_loads(&self) -> bool {
         self.events
             .iter()
@@ -2812,6 +2843,7 @@ impl MultiplayerState {
     }
 
     /// Returns true if there are pending stencil transform updates to apply.
+    #[allow(dead_code)] // reason: multiplayer state — kept for future wire-up
     pub fn has_pending_stencil_transforms(&self) -> bool {
         self.events
             .iter()
@@ -2827,6 +2859,7 @@ impl MultiplayerState {
     }
 
     /// Returns true if there are pending stencil removals to apply.
+    #[allow(dead_code)] // reason: multiplayer state — kept for future wire-up
     pub fn has_pending_stencil_removals(&self) -> bool {
         self.events
             .iter()
@@ -2900,6 +2933,7 @@ impl MultiplayerState {
     }
 
     /// Broadcasts a player name change to all clients (server-side, when hosting).
+    #[allow(dead_code)] // reason: multiplayer state — kept for future wire-up
     pub fn broadcast_player_name_changed(
         &mut self,
         player_id: u64,

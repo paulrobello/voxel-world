@@ -6,6 +6,7 @@ use nalgebra::vector;
 
 impl World {
     /// Creates a simple test world with a flat terrain.
+    #[allow(dead_code)] // reason: world API — kept for future use
     pub fn create_flat_world(size: i32, height: i32) -> Self {
         let mut world = Self::new();
 
@@ -52,6 +53,7 @@ impl World {
     }
 
     /// Creates a world from a single chunk (for testing/compatibility).
+    #[allow(dead_code)] // reason: world API — kept for future use
     pub fn from_single_chunk(chunk: Chunk) -> Self {
         let mut world = Self::new();
         world.insert_chunk(vector![0, 0, 0], chunk);

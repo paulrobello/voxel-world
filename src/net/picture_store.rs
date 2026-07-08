@@ -5,7 +5,6 @@
 //! unique IDs by the server.
 
 // These types will be used by multiplayer integration
-#![allow(dead_code)]
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -17,9 +16,11 @@ use std::path::PathBuf;
 pub const MAX_PICTURE_ID: u16 = u16::MAX;
 
 /// Default maximum picture size (in bytes, 1MB default).
+#[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
 pub const DEFAULT_MAX_PICTURE_SIZE: usize = 1024 * 1024;
 
 /// Maximum pictures per server (configurable).
+#[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
 pub const DEFAULT_MAX_PICTURES: u16 = 1024;
 
 /// Maximum accepted picture name length (bytes). Prevents metadata.json from
@@ -55,6 +56,7 @@ pub struct PictureManager {
     /// In-memory reference counts. Populated by the game as it discovers
     /// blocks that embed a picture_id (paint_data, picture frames, etc.).
     /// Not persisted — rebuilt on startup from world state.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     ref_counts: HashMap<u16, u32>,
     /// In-memory content-hash → picture_id index for dedup on upload.
     /// Rebuilt on startup by `init()` scanning the on-disk PNGs; a 64-bit
@@ -65,6 +67,7 @@ pub struct PictureManager {
 
 impl PictureManager {
     /// Creates a new picture manager.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn new(base_path: PathBuf, max_pictures: u16) -> Self {
         Self {
             base_path,
@@ -90,6 +93,7 @@ impl PictureManager {
     /// Rebuilds the content-hash index by reading every stored PNG. Called
     /// from `init()` after metadata load so uploads that match an
     /// already-persisted picture dedup correctly across restarts.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     fn rebuild_content_hash_index(&mut self) {
         self.content_hash_index.clear();
         for (&id, _name) in self.metadata.pictures.iter() {
@@ -102,12 +106,14 @@ impl PictureManager {
     }
 
     /// Sets the maximum picture size.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn with_max_size(mut self, max_size: usize) -> Self {
         self.max_size = max_size;
         self
     }
 
     /// Initializes the picture directory and loads existing metadata.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn init(&mut self) -> io::Result<()> {
         fs::create_dir_all(&self.base_path)?;
         self.load_metadata()?;
@@ -240,6 +246,7 @@ impl PictureManager {
     }
 
     /// Gets picture PNG data by ID.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn get_picture(&self, picture_id: u16) -> Option<Vec<u8>> {
         if picture_id == 0 || !self.metadata.pictures.contains_key(&picture_id) {
             return None;
@@ -251,11 +258,13 @@ impl PictureManager {
     }
 
     /// Gets picture name by ID.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn get_picture_name(&self, picture_id: u16) -> Option<&str> {
         self.metadata.pictures.get(&picture_id).map(|s| s.as_str())
     }
 
     /// Lists all pictures with IDs and names.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn list_pictures(&self) -> Vec<(u16, String)> {
         let mut pictures: Vec<_> = self
             .metadata
@@ -274,6 +283,7 @@ impl PictureManager {
     /// rejected while `reference_count(picture_id) > 0` to avoid orphaned
     /// paint_data. Use [`force_remove_picture`] for admin / wipe flows that
     /// explicitly want to drop the picture regardless.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn remove_picture(&mut self, picture_id: u16) -> Result<(), String> {
         let count = self.reference_count(picture_id);
         if count > 0 {
@@ -326,6 +336,7 @@ impl PictureManager {
     /// Records one additional block-level reference to `picture_id`.
     /// Called by the game when a block that embeds a picture is placed / loaded.
     /// No-op for picture_id == 0 (the "no picture" sentinel).
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn add_reference(&mut self, picture_id: u16) {
         if picture_id == 0 {
             return;
@@ -335,6 +346,7 @@ impl PictureManager {
 
     /// Removes one block-level reference to `picture_id`.
     /// Saturates at zero and cleans up the map entry once unused.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn remove_reference(&mut self, picture_id: u16) {
         if picture_id == 0 {
             return;
@@ -354,16 +366,19 @@ impl PictureManager {
 
     /// Clears all reference counts. Call before rescanning world state so the
     /// game can repopulate them from scratch on load.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn clear_references(&mut self) {
         self.ref_counts.clear();
     }
 
     /// Returns the number of stored pictures.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn picture_count(&self) -> usize {
         self.metadata.pictures.len()
     }
 
     /// Returns the maximum number of pictures.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn max_pictures(&self) -> u16 {
         self.max_pictures
     }
@@ -377,6 +392,7 @@ impl PictureManager {
 ///
 /// Stores pictures received from the server for use in picture frames.
 /// Pictures are cached in memory and can be requested on demand.
+#[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
 pub struct PictureCache {
     /// Cached picture PNG data (id → data).
     pictures: HashMap<u16, Vec<u8>>,
@@ -394,6 +410,7 @@ impl Default for PictureCache {
 
 impl PictureCache {
     /// Creates a new picture cache.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn new() -> Self {
         Self {
             pictures: HashMap::new(),
@@ -404,11 +421,13 @@ impl PictureCache {
 
     /// Checks if we have a picture cached.
     /// Returns false for picture_id 0 (which means "no picture").
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn has_picture(&self, picture_id: u16) -> bool {
         picture_id != 0 && self.pictures.contains_key(&picture_id)
     }
 
     /// Gets cached picture data.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn get_picture(&self, picture_id: u16) -> Option<&[u8]> {
         if picture_id == 0 {
             return None; // No picture
@@ -417,16 +436,19 @@ impl PictureCache {
     }
 
     /// Gets picture name by ID.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn get_name(&self, picture_id: u16) -> Option<&str> {
         self.names.get(&picture_id).map(|s| s.as_str())
     }
 
     /// Checks if a request is pending for this picture.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn is_pending(&self, picture_id: u16) -> bool {
         self.pending_requests.contains(&picture_id)
     }
 
     /// Marks a picture as needed (returns true if request should be sent).
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn request_if_needed(&mut self, picture_id: u16) -> bool {
         if picture_id == 0 {
             return false; // No picture
@@ -442,6 +464,7 @@ impl PictureCache {
     }
 
     /// Stores received picture data.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn store_picture(&mut self, picture_id: u16, name: String, data: Vec<u8>) {
         if picture_id == 0 {
             return; // Invalid ID
@@ -457,6 +480,7 @@ impl PictureCache {
     }
 
     /// Registers picture metadata (without data).
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn register_metadata(&mut self, picture_id: u16, name: String) {
         if picture_id == 0 {
             return;
@@ -465,6 +489,7 @@ impl PictureCache {
     }
 
     /// Clears all cached pictures.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn clear(&mut self) {
         self.pictures.clear();
         self.names.clear();
@@ -472,6 +497,7 @@ impl PictureCache {
     }
 
     /// Returns all cached picture IDs.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn cached_ids(&self) -> Vec<u16> {
         self.pictures.keys().copied().collect()
     }

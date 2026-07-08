@@ -17,6 +17,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub const MAX_PICTURE_SIZE: u16 = 128;
 
 /// Maximum number of pictures that can be loaded on GPU at once.
+#[allow(dead_code)] // reason: WIP picture system — not yet integrated
 pub const MAX_GPU_PICTURES: usize = 64;
 
 /// A single picture stored in the library.
@@ -60,6 +61,7 @@ impl Picture {
     }
 
     /// Creates a new picture filled with a solid color.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn filled(name: impl Into<String>, width: u16, height: u16, rgba: [u8; 4]) -> Self {
         let mut picture = Self::new(name, width, height);
         for chunk in picture.pixels.chunks_exact_mut(4) {
@@ -70,6 +72,7 @@ impl Picture {
 
     /// Returns the number of pixels in this picture.
     #[inline]
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn pixel_count(&self) -> usize {
         self.width as usize * self.height as usize
     }
@@ -78,6 +81,7 @@ impl Picture {
     ///
     /// Returns `None` if coordinates are out of bounds.
     #[inline]
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn get_pixel(&self, x: u16, y: u16) -> Option<[u8; 4]> {
         if x >= self.width || y >= self.height {
             return None;
@@ -105,6 +109,7 @@ impl Picture {
     }
 
     /// Fills a rectangular region with a color.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn fill_rect(&mut self, x: u16, y: u16, w: u16, h: u16, rgba: [u8; 4]) {
         let x1 = x.min(self.width);
         let y1 = y.min(self.height);
@@ -121,17 +126,20 @@ impl Picture {
     }
 
     /// Clears the entire picture to transparent.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn clear(&mut self) {
         self.pixels.fill(0);
         self.modified = current_timestamp();
     }
 
     /// Returns a copy of the pixel data suitable for GPU upload.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn gpu_data(&self) -> &[u8] {
         &self.pixels
     }
 
     /// Draws a line using Bresenham's algorithm.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn draw_line(&mut self, x0: i32, y0: i32, x1: i32, y1: i32, rgba: [u8; 4]) {
         let dx = (x1 - x0).abs();
         let dy = -(y1 - y0).abs();
@@ -171,6 +179,7 @@ impl Picture {
     }
 
     /// Draws a rectangle outline.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn draw_rect(&mut self, x: i32, y: i32, w: i32, h: i32, rgba: [u8; 4]) {
         self.draw_line(x, y, x + w - 1, y, rgba);
         self.draw_line(x + w - 1, y, x + w - 1, y + h - 1, rgba);
@@ -179,6 +188,7 @@ impl Picture {
     }
 
     /// Draws a circle outline using midpoint algorithm.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn draw_circle(&mut self, cx: i32, cy: i32, radius: i32, rgba: [u8; 4]) {
         let mut x = radius;
         let mut y = 0;
@@ -207,6 +217,7 @@ impl Picture {
     }
 
     /// Draws a filled circle.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn fill_circle(&mut self, cx: i32, cy: i32, radius: i32, rgba: [u8; 4]) {
         for y in -radius..=radius {
             for x in -radius..=radius {
@@ -219,6 +230,7 @@ impl Picture {
     }
 
     /// Flood fills connected pixels of the same color starting from (x, y).
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn flood_fill(&mut self, start_x: u16, start_y: u16, new_color: [u8; 4]) {
         let Some(target_color) = self.get_pixel(start_x, start_y) else {
             return;
@@ -275,6 +287,7 @@ impl Picture {
     /// Creates a thumbnail of this picture for UI display.
     ///
     /// Returns a downscaled RGBA buffer at the specified max dimension.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn thumbnail(&self, max_size: u16) -> (u16, u16, Vec<u8>) {
         let scale = if self.width >= self.height {
             max_size as f32 / self.width as f32
@@ -415,6 +428,7 @@ impl PictureLibrary {
     }
 
     /// Gets a mutable reference to a picture by ID.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn get_mut(&mut self, id: u32) -> Option<&mut Picture> {
         self.pictures.get_mut(&id)
     }
@@ -425,6 +439,7 @@ impl PictureLibrary {
     }
 
     /// Returns an iterator over all picture IDs.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn ids(&self) -> impl Iterator<Item = u32> + '_ {
         self.pictures.keys().copied()
     }
@@ -435,11 +450,13 @@ impl PictureLibrary {
     }
 
     /// Returns true if the library is empty.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn is_empty(&self) -> bool {
         self.pictures.is_empty()
     }
 
     /// Finds pictures by name (case-insensitive substring match).
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn find_by_name(&self, query: &str) -> Vec<&Picture> {
         let query_lower = query.to_lowercase();
         self.pictures
@@ -449,6 +466,7 @@ impl PictureLibrary {
     }
 
     /// Returns pictures sorted by modification time (most recent first).
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn recent(&self) -> Vec<&Picture> {
         let mut pics: Vec<_> = self.pictures.values().collect();
         pics.sort_by_key(|b| std::cmp::Reverse(b.modified));
@@ -458,6 +476,7 @@ impl PictureLibrary {
     /// Creates a new picture with the given dimensions and adds it to the library.
     ///
     /// Returns the picture ID.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn create(&mut self, name: impl Into<String>, width: u16, height: u16) -> u32 {
         let picture = Picture::new(name, width, height);
         self.add(picture)
@@ -466,6 +485,7 @@ impl PictureLibrary {
     /// Duplicates an existing picture.
     ///
     /// Returns the new picture ID, or `None` if the source doesn't exist.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn duplicate(&mut self, id: u32) -> Option<u32> {
         let source = self.pictures.get(&id)?;
         let mut copy = source.clone();

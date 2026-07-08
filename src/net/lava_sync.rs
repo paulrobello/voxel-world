@@ -27,7 +27,6 @@
 //! ```
 
 // Allow dead code since these methods are public API intended for future use
-#![allow(dead_code)]
 
 use crate::lava::LavaCellSyncUpdate;
 use crate::net::fluid_sync::{FluidCell, FluidSyncOptimizer, FluidSyncStats};
@@ -36,6 +35,7 @@ use nalgebra::Vector3;
 
 // Re-export stats type under the lava-specific name so existing callers
 // do not need to change their import paths.
+#[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
 pub type LavaSyncStats = FluidSyncStats;
 
 impl FluidCell for LavaCellSyncUpdate {

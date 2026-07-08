@@ -27,10 +27,10 @@
 //! ```
 
 // Allow dead code since these methods are public API intended for future use
-#![allow(dead_code)]
 
 /// Statistics for monitoring day cycle sync.
 #[derive(Debug, Clone, Default)]
+#[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
 pub struct DayCycleSyncStats {
     /// Total pause state changes broadcast.
     pub pause_broadcasts: u64,
@@ -41,6 +41,7 @@ pub struct DayCycleSyncStats {
 /// Tracks day cycle state for server-authoritative sync.
 ///
 /// The server uses this to track and broadcast day cycle changes.
+#[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
 pub struct DayCycleSync {
     /// Current pause state.
     pub paused: bool,
@@ -60,6 +61,7 @@ impl DayCycleSync {
     /// Creates a new day cycle sync tracker with a morning default. Prefer
     /// [`with_initial_state`] when you have the actual world-save state in
     /// hand — the bare `new()` only makes sense before metadata is loaded.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn new() -> Self {
         Self {
             paused: false,
@@ -71,6 +73,7 @@ impl DayCycleSync {
     /// Creates a tracker seeded from persisted world metadata so a host
     /// restart doesn't snap remote clients back to the 0.25 default. Use this
     /// at server startup with the values loaded from `level.dat`.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn with_initial_state(paused: bool, time_of_day: f32) -> Self {
         Self {
             paused,
@@ -87,6 +90,7 @@ impl DayCycleSync {
     /// `time_of_day`, which made every per-tick call to `set_paused` emit a
     /// broadcast. The time value is still captured and carried with the next
     /// real pause change, but it no longer drives the "changed" signal.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn set_paused(&mut self, paused: bool, time_of_day: f32) -> bool {
         self.time_of_day = time_of_day;
         if self.paused != paused {
@@ -99,6 +103,7 @@ impl DayCycleSync {
     }
 
     /// Applies a received pause state from the server (client-side).
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn apply_from_server(&mut self, paused: bool, time_of_day: f32) {
         self.paused = paused;
         self.time_of_day = time_of_day;
@@ -106,6 +111,7 @@ impl DayCycleSync {
     }
 
     /// Returns statistics for monitoring.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn stats(&self) -> &DayCycleSyncStats {
         &self.stats
     }

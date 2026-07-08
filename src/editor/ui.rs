@@ -724,6 +724,7 @@ pub enum EditorAction {
     ModelLoaded,
     ModelDeleted,
     /// Place the edited model in the world and close the editor.
+    #[allow(dead_code)] // reason: WIP editor — not yet fully integrated
     PlaceInWorld,
     /// Create a door pair with the specified models.
     DoorPairCreated {

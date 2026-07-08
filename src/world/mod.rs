@@ -3,8 +3,6 @@
 //! The World struct manages a collection of chunks and provides
 //! methods for accessing and modifying blocks at world coordinates.
 
-#![allow(dead_code)]
-
 use nalgebra::Vector3;
 
 /// A position in chunk coordinates (each unit = one chunk).

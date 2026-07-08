@@ -3,7 +3,6 @@
 //! Provides server-side texture pool management and client-side caching.
 
 // These types will be used by subsequent integration tasks
-#![allow(dead_code)]
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -12,6 +11,7 @@ use std::io::{self, BufReader, BufWriter};
 use std::path::PathBuf;
 
 /// Maximum custom texture slots (configurable, default 32).
+#[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
 pub const DEFAULT_MAX_TEXTURE_SLOTS: u8 = 32;
 
 /// PNG image dimensions for custom textures.
@@ -50,11 +50,13 @@ pub struct TextureSlotManager {
     next_free: u8,
     /// In-memory reference counts per slot. Not persisted — the game rebuilds
     /// these on startup from world state (same approach as PictureManager).
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     ref_counts: HashMap<u8, u32>,
 }
 
 impl TextureSlotManager {
     /// Creates a new texture slot manager.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn new(base_path: PathBuf, max_slots: u8) -> Self {
         Self {
             base_path,
@@ -69,11 +71,13 @@ impl TextureSlotManager {
     }
 
     /// Records one additional block-level reference to `slot`.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn add_reference(&mut self, slot: u8) {
         *self.ref_counts.entry(slot).or_insert(0) += 1;
     }
 
     /// Removes one block-level reference to `slot` (saturates at 0).
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn remove_reference(&mut self, slot: u8) {
         if let Some(c) = self.ref_counts.get_mut(&slot) {
             *c = c.saturating_sub(1);
@@ -84,11 +88,13 @@ impl TextureSlotManager {
     }
 
     /// Returns the current reference count for `slot`.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn reference_count(&self, slot: u8) -> u32 {
         self.ref_counts.get(&slot).copied().unwrap_or(0)
     }
 
     /// Clears all reference counts. Call before rescanning world state.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn clear_references(&mut self) {
         self.ref_counts.clear();
     }
@@ -231,6 +237,7 @@ impl TextureSlotManager {
     }
 
     /// Lists all slots with names.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn list_slots(&self) -> Vec<(u8, String)> {
         let mut slots: Vec<_> = self
             .metadata
@@ -247,6 +254,7 @@ impl TextureSlotManager {
     /// Callers that want to force-remove a slot should use
     /// [`force_remove_texture`] — this variant is safe by default so admin
     /// mistakes don't orphan `paint_data` pointing at a deleted slot.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn remove_texture(&mut self, slot: u8) -> Result<(), String> {
         let count = self.reference_count(slot);
         if count > 0 {
@@ -288,6 +296,7 @@ impl TextureSlotManager {
     }
 
     /// Returns the number of used slots.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn used_slots(&self) -> usize {
         self.metadata.slots.len()
     }
@@ -300,6 +309,7 @@ impl TextureSlotManager {
 /// Client-side cache for custom textures.
 pub struct CustomTextureCache {
     /// Maximum slots (received from server on connect).
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     max_slots: u8,
     /// Cached texture PNG data (slot → data).
     textures: HashMap<u8, Vec<u8>>,
@@ -321,31 +331,37 @@ impl CustomTextureCache {
     }
 
     /// Returns the maximum number of slots.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn max_slots(&self) -> u8 {
         self.max_slots
     }
 
     /// Checks if we have a texture cached.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn has_texture(&self, slot: u8) -> bool {
         self.textures.contains_key(&slot)
     }
 
     /// Gets cached texture data.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn get_texture(&self, slot: u8) -> Option<&[u8]> {
         self.textures.get(&slot).map(|v| v.as_slice())
     }
 
     /// Returns all cached texture data as a map.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn all_textures(&self) -> &HashMap<u8, Vec<u8>> {
         &self.textures
     }
 
     /// Checks if a request is pending for this slot.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn is_pending(&self, slot: u8) -> bool {
         self.pending_requests.contains(&slot)
     }
 
     /// Marks a texture as needed (returns true if request should be sent).
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn request_if_needed(&mut self, slot: u8) -> bool {
         if slot >= self.max_slots {
             return false;
@@ -367,6 +383,7 @@ impl CustomTextureCache {
     }
 
     /// Clears all cached textures.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn clear(&mut self) {
         self.textures.clear();
         self.pending_requests.clear();

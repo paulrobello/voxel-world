@@ -38,7 +38,6 @@
 //! ```
 
 // Allow dead code since these methods are public API intended for future use
-#![allow(dead_code)]
 
 use crate::chunk::BlockType;
 use crate::net::falling_block_sync::ClientFallingBlockSystem;
@@ -51,11 +50,13 @@ use nalgebra::Vector3;
 /// broadcasting of multi-block tree falls.
 pub struct TreeFallSync {
     /// Next available entity ID.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     next_entity_id: FallingBlockId,
 }
 
 /// Statistics for monitoring tree fall sync.
 #[derive(Debug, Clone, Default)]
+#[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
 pub struct TreeFallSyncStats {
     /// Total tree fall events broadcast.
     pub trees_felled: u64,
@@ -78,6 +79,7 @@ impl Default for TreeFallSync {
 /// u32 + position [i32;3] + block_type u8 + postcard framing), so 80 blocks
 /// ≈ 1440 bytes + enum tag + length-prefix overhead. Trees larger than this
 /// are split into multiple `TreeFell` messages by [`build_tree_fell_batched`].
+#[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
 pub const MAX_TREE_FELL_BLOCKS_PER_MSG: usize = 80;
 
 impl TreeFallSync {
@@ -87,6 +89,7 @@ impl TreeFallSync {
     }
 
     /// Allocates the next unique entity ID.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn next_entity_id(&mut self) -> FallingBlockId {
         let id = self.next_entity_id;
         self.next_entity_id = self.next_entity_id.wrapping_add(1);
@@ -103,6 +106,7 @@ impl TreeFallSync {
     /// **NOTE:** Callers handling real trees should use
     /// [`build_tree_fell_batched`] which splits oversized trees across
     /// multiple messages so a single packet never exceeds the MTU budget.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn build_tree_fell(&mut self, blocks: Vec<(Vector3<i32>, BlockType)>) -> TreeFell {
         if blocks.len() > MAX_TREE_FELL_BLOCKS_PER_MSG {
             log::warn!(
@@ -134,6 +138,7 @@ impl TreeFallSync {
     /// The input is split into chunks of at most `MAX_TREE_FELL_BLOCKS_PER_MSG`
     /// blocks so each message fits comfortably inside a typical 1500-byte MTU
     /// even on the worst-case serialized form.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn build_tree_fell_batched(
         &mut self,
         blocks: Vec<(Vector3<i32>, BlockType)>,
@@ -150,6 +155,7 @@ impl TreeFallSync {
     }
 
     /// Returns statistics for monitoring.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn stats(&self) -> TreeFallSyncStats {
         TreeFallSyncStats {
             trees_felled: 0,
@@ -159,6 +165,7 @@ impl TreeFallSync {
     }
 
     /// Resets entity ID counter (for testing).
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn reset(&mut self) {
         self.next_entity_id = 1;
     }
@@ -167,6 +174,7 @@ impl TreeFallSync {
 /// Client-side tree fall handler.
 ///
 /// Converts TreeFell messages into individual falling block spawns.
+#[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
 pub struct ClientTreeFallHandler {
     /// Statistics for debugging.
     stats: TreeFallSyncStats,
@@ -180,6 +188,7 @@ impl Default for ClientTreeFallHandler {
 
 impl ClientTreeFallHandler {
     /// Creates a new client tree fall handler.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn new() -> Self {
         Self {
             stats: TreeFallSyncStats::default(),
@@ -189,6 +198,7 @@ impl ClientTreeFallHandler {
     /// Converts a TreeFell message into FallingBlockSpawned messages.
     ///
     /// Returns spawn messages ready to be passed to ClientFallingBlockSystem.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn tree_fell_to_spawns(tree_fell: &TreeFell) -> Vec<FallingBlockSpawned> {
         tree_fell
             .blocks
@@ -209,6 +219,7 @@ impl ClientTreeFallHandler {
     /// Applies a TreeFell to the client falling block system.
     ///
     /// Spawns all blocks in the tree as falling entities.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn apply_tree_fell(
         &mut self,
         tree_fell: &TreeFell,
@@ -224,11 +235,13 @@ impl ClientTreeFallHandler {
     }
 
     /// Returns statistics for debugging.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn stats(&self) -> &TreeFallSyncStats {
         &self.stats
     }
 
     /// Resets statistics.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn reset_stats(&mut self) {
         self.stats = TreeFallSyncStats::default();
     }
@@ -238,6 +251,7 @@ impl ClientTreeFallHandler {
 ///
 /// This is a simplified version for testing. The actual game uses
 /// world queries to find connected blocks.
+#[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
 pub fn detect_tree_blocks(
     _root_pos: Vector3<i32>,
     _is_log: impl Fn(BlockType) -> bool,

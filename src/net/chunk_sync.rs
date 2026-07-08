@@ -4,7 +4,6 @@
 //! Prioritizes chunks closest to the player in their look direction.
 
 // Allow unused code until networking is integrated into the game
-#![allow(dead_code)]
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Instant;
@@ -52,6 +51,7 @@ pub struct ChunkRequest {
     /// Priority level.
     pub priority: ChunkPriority,
     /// When this request was made.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub requested_at: Instant,
     /// Whether this request has been sent to the server.
     pub sent: bool,
@@ -62,6 +62,7 @@ pub struct ChunkSyncManager {
     /// Maximum chunks to request per batch.
     max_batch_size: usize,
     /// Maximum chunks to have in-flight at once.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     max_in_flight: usize,
     /// Currently requested chunks (position -> request info).
     pending_requests: HashMap<[i32; 3], ChunkRequest>,
@@ -200,6 +201,7 @@ impl ChunkSyncManager {
     }
 
     /// Cancels chunk requests.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn cancel_requests(&mut self, positions: &[[i32; 3]]) {
         for pos in positions {
             self.pending_requests.remove(pos);
@@ -222,6 +224,7 @@ impl ChunkSyncManager {
 
     /// Marks a locally-generated chunk as complete and received.
     /// Call this after the chunk_loader has finished generating the chunk.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn mark_local_generation_complete(&mut self, position: [i32; 3]) {
         self.pending_local_generation.remove(&position);
         self.received_chunks.insert(position);
@@ -248,16 +251,19 @@ impl ChunkSyncManager {
     }
 
     /// Returns the number of pending local generation chunks.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn pending_local_count(&self) -> usize {
         self.pending_local_generation.len()
     }
 
     /// Returns the number of pending requests.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn pending_count(&self) -> usize {
         self.pending_requests.len()
     }
 
     /// Returns the number of received chunks.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn received_count(&self) -> usize {
         self.received_chunks.len()
     }
@@ -386,6 +392,7 @@ fn normalize(v: [f32; 3]) -> [f32; 3] {
 #[derive(Debug, Clone)]
 pub struct SerializedChunk {
     /// Chunk position.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub position: [i32; 3],
     /// Version number for delta compression.
     pub version: u32,

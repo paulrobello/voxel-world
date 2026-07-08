@@ -3,8 +3,6 @@
 //! This module defines the VxmFile format for sharing models between worlds
 //! and users, plus a LibraryManager for managing the user_models directory.
 
-#![allow(dead_code)] // WIP: Editor integration pending
-
 use crate::sub_voxel::{
     Color, LightBlocking, LightMode, ModelResolution, PALETTE_SIZE, SimpleDoorPair, SubVoxelModel,
 };
@@ -348,6 +346,7 @@ impl WorldModelStore {
     }
 
     /// Gets a model by ID. Returns None if ID is out of range.
+    #[allow(dead_code)] // reason: WIP — editor integration pending
     pub fn get_model(&self, id: u8) -> Option<SubVoxelModel> {
         if id < self.first_custom_id {
             return None;
@@ -394,6 +393,7 @@ impl WorldModelStore {
     }
 
     /// Returns true if there are no custom models.
+    #[allow(dead_code)] // reason: WIP — editor integration pending
     pub fn is_empty(&self) -> bool {
         self.models.is_empty()
     }
@@ -418,6 +418,7 @@ impl DoorPairStore {
     }
 
     /// Adds a door pair to the store. Returns the assigned ID.
+    #[allow(dead_code)] // reason: WIP — editor integration pending
     pub fn add_door_pair(&mut self, mut door_pair: SimpleDoorPair) -> u16 {
         let id = self.door_pairs.len() as u16;
         door_pair.id = id;
@@ -431,6 +432,7 @@ impl DoorPairStore {
     }
 
     /// Saves the store to door_pairs.dat in the given world directory.
+    #[allow(dead_code)] // reason: WIP — editor integration pending
     pub fn save(&self, world_dir: &std::path::Path) -> io::Result<()> {
         let path = world_dir.join("door_pairs.dat");
         let bytes = postcard::to_stdvec(self).map_err(io::Error::other)?;
@@ -455,11 +457,13 @@ impl DoorPairStore {
     }
 
     /// Returns the number of door pairs.
+    #[allow(dead_code)] // reason: WIP — editor integration pending
     pub fn len(&self) -> usize {
         self.door_pairs.len()
     }
 
     /// Returns true if there are no door pairs.
+    #[allow(dead_code)] // reason: WIP — editor integration pending
     pub fn is_empty(&self) -> bool {
         self.door_pairs.is_empty()
     }

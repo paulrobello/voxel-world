@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 //! Chunk data structure for voxel storage.
 //!
 //! Each chunk is a 32³ grid of blocks. Blocks are stored as u8 values
@@ -606,6 +604,7 @@ impl BlockType {
     /// Returns the emission color for emissive blocks (RGB, 0-1 range).
     /// Returns None if the block doesn't emit light.
     #[inline]
+    #[allow(dead_code)] // reason: BlockType API — kept for completeness / future use
     pub fn emission_color(self) -> Option<[f32; 3]> {
         self.light_properties().map(|(color, _)| color)
     }
@@ -613,6 +612,7 @@ impl BlockType {
     /// Returns the emission strength for emissive blocks (0-1 range).
     /// Returns 0.0 if the block doesn't emit light.
     #[inline]
+    #[allow(dead_code)] // reason: BlockType API — kept for completeness / future use
     pub fn emission_strength(self) -> f32 {
         self.light_properties()
             .map(|(_, strength)| strength)
@@ -785,6 +785,7 @@ impl BlockType {
 
     /// Returns true if this block type uses sub-voxel model rendering.
     #[inline]
+    #[allow(dead_code)] // reason: BlockType API — kept for completeness / future use
     pub fn is_model(self) -> bool {
         matches!(self, BlockType::Model)
     }
@@ -971,6 +972,7 @@ impl Chunk {
     }
 
     /// Creates a chunk filled with a single block type.
+    #[allow(dead_code)] // reason: BlockType API — kept for completeness / future use
     pub fn filled(block_type: BlockType) -> Self {
         let is_empty = block_type == BlockType::Air;
         let is_solid = block_type.is_solid();
@@ -1091,6 +1093,7 @@ impl Chunk {
     /// won't be auto-saved to disk unless the player makes actual modifications.
     /// This prevents newly generated chunks with tree overflow from triggering saves.
     #[inline]
+    #[allow(dead_code)] // reason: BlockType API — kept for completeness / future use
     pub fn set_block_generated(&mut self, x: usize, y: usize, z: usize, block: BlockType) {
         self.set_block_internal(x, y, z, block, false);
     }
@@ -1264,6 +1267,7 @@ impl Chunk {
     /// Sets the model data for a block at the given local coordinates.
     /// The block should already be of type Model.
     #[inline]
+    #[allow(dead_code)] // reason: BlockType API — kept for completeness / future use
     pub fn set_model_data(&mut self, x: usize, y: usize, z: usize, data: BlockModelData) {
         let idx = Self::index(x, y, z);
         self.metadata.insert(idx, BlockMetadata::Model(data));
@@ -1474,6 +1478,7 @@ impl Chunk {
 
     /// Checks if a block is solid at the given local coordinates.
     #[inline]
+    #[allow(dead_code)] // reason: BlockType API — kept for completeness / future use
     pub fn is_solid(&self, x: usize, y: usize, z: usize) -> bool {
         self.get_block(x, y, z).is_solid()
     }
@@ -1496,6 +1501,7 @@ impl Chunk {
     }
 
     /// Returns a pooled Vec<u8> containing block bytes, reusing the provided buffer if large enough.
+    #[allow(dead_code)] // reason: BlockType API — kept for completeness / future use
     pub fn write_block_bytes_into(&self, out: &mut Vec<u8>) {
         out.clear();
         if out.capacity() < CHUNK_VOLUME {
@@ -1613,6 +1619,7 @@ impl Chunk {
     }
 
     /// Returns the number of non-air blocks in the chunk.
+    #[allow(dead_code)] // reason: BlockType API — kept for completeness / future use
     pub fn block_count(&self) -> usize {
         self.blocks.iter().filter(|&&b| b != BlockType::Air).count()
     }
@@ -1625,6 +1632,7 @@ impl Chunk {
 
     /// Clones the chunk's block storage into a new boxed array.
     /// Useful for off-thread processing without borrowing the chunk.
+    #[allow(dead_code)] // reason: BlockType API — kept for completeness / future use
     pub fn clone_blocks(&self) -> Box<[BlockType; CHUNK_VOLUME]> {
         self.blocks.clone()
     }
@@ -1642,6 +1650,7 @@ impl Chunk {
 
     /// Returns true if the chunk is completely solid (no air/transparent blocks).
     /// Uses cached value if available, otherwise recomputes.
+    #[allow(dead_code)] // reason: BlockType API — kept for completeness / future use
     pub fn is_fully_solid(&self) -> bool {
         if self.metadata_dirty {
             self.blocks.iter().all(|&b| b.is_solid())
@@ -1663,6 +1672,7 @@ impl Chunk {
     /// Returns the cached is_empty flag directly (for GPU upload).
     /// Call update_metadata() first to ensure accuracy.
     #[inline]
+    #[allow(dead_code)] // reason: BlockType API — kept for completeness / future use
     pub fn cached_is_empty(&self) -> bool {
         self.cached_is_empty
     }
@@ -1670,6 +1680,7 @@ impl Chunk {
     /// Returns the cached is_fully_solid flag directly (for GPU upload).
     /// Call update_metadata() first to ensure accuracy.
     #[inline]
+    #[allow(dead_code)] // reason: BlockType API — kept for completeness / future use
     pub fn cached_is_fully_solid(&self) -> bool {
         self.cached_is_fully_solid
     }

@@ -6,9 +6,11 @@
 use super::library::{MAX_PICTURE_SIZE, Picture};
 
 /// Maximum undo history entries.
+#[allow(dead_code)] // reason: WIP picture system — not yet integrated
 const MAX_UNDO_HISTORY: usize = 50;
 
 /// Default palette colors (32 colors).
+#[allow(dead_code)] // reason: WIP picture system — not yet integrated
 pub const DEFAULT_PALETTE: [[u8; 4]; 32] = [
     [0, 0, 0, 255],       // 0: Black
     [255, 255, 255, 255], // 1: White
@@ -46,6 +48,7 @@ pub const DEFAULT_PALETTE: [[u8; 4]; 32] = [
 
 /// Drawing tools available in the picture editor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[allow(dead_code)] // reason: WIP picture system — not yet integrated
 pub enum PictureEditorTool {
     /// Draw with the selected color.
     #[default]
@@ -66,6 +69,7 @@ pub enum PictureEditorTool {
 
 impl PictureEditorTool {
     /// Returns all available tools.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub const fn all() -> [Self; 7] {
         [
             Self::Pencil,
@@ -79,6 +83,7 @@ impl PictureEditorTool {
     }
 
     /// Returns the display name of this tool.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub const fn name(&self) -> &'static str {
         match self {
             Self::Pencil => "Pencil",
@@ -92,6 +97,7 @@ impl PictureEditorTool {
     }
 
     /// Returns the keyboard shortcut for this tool.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub const fn shortcut(&self) -> &'static str {
         match self {
             Self::Pencil => "P",
@@ -105,6 +111,7 @@ impl PictureEditorTool {
     }
 
     /// Returns true if this tool uses two-point input (click-drag).
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub const fn is_two_point(&self) -> bool {
         matches!(self, Self::Line | Self::Rectangle | Self::Circle)
     }
@@ -112,11 +119,13 @@ impl PictureEditorTool {
 
 /// Undo entry containing a snapshot of the picture pixels.
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // reason: WIP picture system — not yet integrated
 struct UndoEntry {
     pixels: Vec<u8>,
 }
 
 /// State for the picture editor.
+#[allow(dead_code)] // reason: WIP picture system — not yet integrated
 pub struct PictureEditor {
     /// Whether the editor is currently active.
     pub active: bool,
@@ -214,6 +223,7 @@ impl std::fmt::Debug for PictureEditor {
 
 /// Imported image data before final crop/scale.
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // reason: WIP picture system — not yet integrated
 pub struct ImportedImage {
     pub width: u32,
     pub height: u32,
@@ -228,6 +238,7 @@ impl Default for PictureEditor {
 
 impl PictureEditor {
     /// Creates a new picture editor.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn new() -> Self {
         Self {
             active: false,
@@ -262,6 +273,7 @@ impl PictureEditor {
     }
 
     /// Opens the editor with a new blank picture.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn open_new(&mut self, name: &str, width: u16, height: u16) {
         self.picture = Some(Picture::new(name, width, height));
         self.picture_id = None;
@@ -272,6 +284,7 @@ impl PictureEditor {
     }
 
     /// Opens the editor with an existing picture.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn open_existing(&mut self, id: u32, picture: Picture) {
         self.picture = Some(picture);
         self.picture_id = Some(id);
@@ -282,6 +295,7 @@ impl PictureEditor {
     }
 
     /// Closes the editor.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn close(&mut self) {
         self.active = false;
         self.picture = None;
@@ -304,6 +318,7 @@ impl PictureEditor {
     }
 
     /// Saves current state to undo stack.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     fn save_undo(&mut self) {
         let Some(ref picture) = self.picture else {
             return;
@@ -323,6 +338,7 @@ impl PictureEditor {
     }
 
     /// Performs undo operation.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn undo(&mut self) -> bool {
         let Some(ref mut picture) = self.picture else {
             return false;
@@ -342,6 +358,7 @@ impl PictureEditor {
     }
 
     /// Performs redo operation.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn redo(&mut self) -> bool {
         let Some(ref mut picture) = self.picture else {
             return false;
@@ -361,16 +378,19 @@ impl PictureEditor {
     }
 
     /// Returns true if undo is available.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn can_undo(&self) -> bool {
         !self.undo_stack.is_empty()
     }
 
     /// Returns true if redo is available.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn can_redo(&self) -> bool {
         !self.redo_stack.is_empty()
     }
 
     /// Begins a drawing stroke.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     fn begin_stroke_if_needed(&mut self) {
         if !self.stroke_active {
             self.save_undo();
@@ -379,11 +399,13 @@ impl PictureEditor {
     }
 
     /// Ends a drawing stroke.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn end_stroke(&mut self) {
         self.stroke_active = false;
     }
 
     /// Selects a color from the palette.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn select_palette_color(&mut self, idx: usize) {
         if idx < 32 {
             self.color = DEFAULT_PALETTE[idx];
@@ -392,6 +414,7 @@ impl PictureEditor {
     }
 
     /// Sets a custom RGB color.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn set_custom_color(&mut self, r: u8, g: u8, b: u8) {
         self.custom_rgb = [r, g, b];
         self.color = [r, g, b, 255];
@@ -399,6 +422,7 @@ impl PictureEditor {
     }
 
     /// Applies the current tool at the given canvas coordinates.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn apply_tool(&mut self, x: i32, y: i32) {
         // Read values we need before borrowing picture
         let tool = self.tool;
@@ -450,6 +474,7 @@ impl PictureEditor {
     }
 
     /// Handles mouse click at canvas coordinates.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn on_click(&mut self, x: i32, y: i32) {
         if self.tool.is_two_point() {
             if self.first_point.is_none() {
@@ -468,6 +493,7 @@ impl PictureEditor {
     }
 
     /// Handles mouse drag at canvas coordinates.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn on_drag(&mut self, x: i32, y: i32) {
         let tool = self.tool;
         let color = self.color;
@@ -526,6 +552,7 @@ impl PictureEditor {
     }
 
     /// Handles mouse release.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn on_release(&mut self) {
         self.end_stroke();
         self.last_drag_pos = None;
@@ -576,11 +603,13 @@ impl PictureEditor {
     }
 
     /// Cancels the current two-point operation.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn cancel_shape(&mut self) {
         self.first_point = None;
     }
 
     /// Converts screen coordinates to canvas coordinates.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn screen_to_canvas(
         &self,
         screen_x: f32,
@@ -593,21 +622,25 @@ impl PictureEditor {
     }
 
     /// Zooms in.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn zoom_in(&mut self) {
         self.zoom = (self.zoom * 1.5).min(32.0);
     }
 
     /// Zooms out.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn zoom_out(&mut self) {
         self.zoom = (self.zoom / 1.5).max(0.5);
     }
 
     /// Sets zoom level directly.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn set_zoom(&mut self, zoom: f32) {
         self.zoom = zoom.clamp(0.5, 32.0);
     }
 
     /// Handles zoom with mouse wheel.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn zoom_at(&mut self, delta: f32, screen_pos: [f32; 2], canvas_origin: [f32; 2]) {
         let old_zoom = self.zoom;
         if delta > 0.0 {
@@ -627,12 +660,14 @@ impl PictureEditor {
     }
 
     /// Updates pan offset during drag.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn pan(&mut self, dx: f32, dy: f32) {
         self.pan_offset[0] += dx;
         self.pan_offset[1] += dy;
     }
 
     /// Clears the picture to transparent.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn clear_picture(&mut self) {
         if self.picture.is_some() {
             self.save_undo();
@@ -644,16 +679,19 @@ impl PictureEditor {
     }
 
     /// Returns the picture dimensions.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn dimensions(&self) -> Option<(u16, u16)> {
         self.picture.as_ref().map(|p| (p.width, p.height))
     }
 
     /// Gets the current picture's pixel data for rendering.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn get_pixels(&self) -> Option<&[u8]> {
         self.picture.as_ref().map(|p| p.pixels.as_slice())
     }
 
     /// Loads an image from file for import.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn load_import(&mut self, path: &str) -> Result<(), String> {
         let img = image::open(path).map_err(|e| format!("Failed to load image: {e}"))?;
         let rgba = img.to_rgba8();
@@ -677,6 +715,7 @@ impl PictureEditor {
     }
 
     /// Completes the import with current crop settings.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn complete_import(&mut self, name: &str) -> Option<Picture> {
         let import = self.import_data.take()?;
         let (cx, cy, cw, ch) = self.crop_rect;
@@ -713,17 +752,20 @@ impl PictureEditor {
     }
 
     /// Returns true if there's an active two-point operation preview.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn has_shape_preview(&self) -> bool {
         self.tool.is_two_point() && self.first_point.is_some()
     }
 
     /// Gets the first point for shape preview.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn get_first_point(&self) -> Option<(i32, i32)> {
         self.first_point
     }
 }
 
 /// Draws a brush stroke at the given position.
+#[allow(dead_code)] // reason: WIP picture system — not yet integrated
 fn draw_brush(picture: &mut Picture, x: i32, y: i32, color: [u8; 4], brush_size: u8) {
     let half = brush_size as i32 / 2;
     for dy in -half..=(half + (brush_size as i32 % 2) - 1) {

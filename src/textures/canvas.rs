@@ -4,8 +4,6 @@
 //! mirror modes for symmetric patterns, and undo/redo support.
 //! Supports variable canvas sizes up to 128×128 pixels.
 
-#![allow(dead_code)] // Public API methods may not all be used yet
-
 use std::collections::VecDeque;
 
 /// Maximum number of undo states to keep.
@@ -49,12 +47,14 @@ impl CanvasSize {
 
     /// Returns true if this is a square canvas.
     #[must_use]
+    #[allow(dead_code)] // reason: WIP texture generator — not yet integrated
     pub const fn is_square(&self) -> bool {
         self.width == self.height
     }
 
     /// Returns the aspect ratio (width / height).
     #[must_use]
+    #[allow(dead_code)] // reason: WIP texture generator — not yet integrated
     pub const fn aspect_ratio(&self) -> f32 {
         self.width as f32 / self.height as f32
     }
@@ -125,6 +125,7 @@ impl CanvasSize {
 
     /// Returns a display name for this size.
     #[must_use]
+    #[allow(dead_code)] // reason: WIP texture generator — not yet integrated
     pub const fn display_name(&self) -> [u8; 7] {
         // Format: "WWxHH" as bytes (e.g., [b'6', b'4', b'x', b'6', b'4', 0, 0])
         // For simplicity, we'll use a runtime method instead
@@ -217,6 +218,7 @@ impl PaintTool {
     }
 
     /// Returns true if this tool uses shape preview during drag.
+    #[allow(dead_code)] // reason: WIP texture generator — not yet integrated
     pub const fn uses_preview(&self) -> bool {
         matches!(
             *self,
@@ -557,12 +559,14 @@ impl CanvasState {
 
     /// Returns the canvas width.
     #[must_use]
+    #[allow(dead_code)] // reason: WIP texture generator — not yet integrated
     pub const fn width(&self) -> u16 {
         self.size.width
     }
 
     /// Returns the canvas height.
     #[must_use]
+    #[allow(dead_code)] // reason: WIP texture generator — not yet integrated
     pub const fn height(&self) -> u16 {
         self.size.height
     }
@@ -1038,6 +1042,7 @@ impl CanvasState {
 
     /// Draws the text cursor indicator at the current cursor position.
     /// Returns true if the cursor was drawn (within canvas bounds).
+    #[allow(dead_code)] // reason: WIP texture generator — not yet integrated
     pub fn draw_text_cursor(&mut self) -> bool {
         let Some((cx, cy)) = self.text_cursor else {
             return false;

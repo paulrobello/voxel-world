@@ -1,7 +1,6 @@
 //! Player synchronization with client-side prediction and server reconciliation.
 
 // Allow unused code until networking is integrated into the game
-#![allow(dead_code)]
 
 use std::collections::VecDeque;
 
@@ -25,6 +24,7 @@ pub struct PredictionState {
     /// Current local sequence number.
     current_sequence: u32,
     /// Whether prediction is currently enabled.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     prediction_enabled: bool,
 }
 
@@ -145,26 +145,31 @@ impl PredictionState {
     }
 
     /// Returns the current sequence number.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn current_sequence(&self) -> u32 {
         self.current_sequence
     }
 
     /// Returns the last server-acknowledged sequence.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn last_server_sequence(&self) -> u32 {
         self.last_server_sequence
     }
 
     /// Enables or disables prediction.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn set_prediction_enabled(&mut self, enabled: bool) {
         self.prediction_enabled = enabled;
     }
 
     /// Returns whether prediction is enabled.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn is_prediction_enabled(&self) -> bool {
         self.prediction_enabled
     }
 
     /// Clears all prediction state (e.g., on teleport).
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn clear(&mut self) {
         self.input_buffer.clear();
         self.predicted_positions.clear();
@@ -332,6 +337,7 @@ impl RemotePlayer {
     }
 
     /// Sets the interpolation delay.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn set_interpolation_delay(&mut self, delay: f64) {
         self.interpolation_delay = delay;
     }

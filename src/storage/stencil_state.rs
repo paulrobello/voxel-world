@@ -2,8 +2,6 @@
 //!
 //! Saves active stencil placements so they persist across world reloads.
 
-#![allow(dead_code)] // Will be used when stencils are fully integrated
-
 use crate::stencils::{PlacedStencil, StencilManager, StencilRenderMode};
 use serde::{Deserialize, Serialize};
 use std::fs::File;

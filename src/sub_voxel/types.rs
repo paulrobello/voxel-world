@@ -59,6 +59,7 @@ impl ModelResolution {
 
     /// Returns the bounds with epsilon for ray intersection.
     #[inline]
+    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
     pub const fn bounds_f32(&self) -> f32 {
         self.size() as f32 + 0.001
     }
@@ -81,6 +82,7 @@ impl ModelResolution {
 
     /// Creates resolution from size value (8, 16, or 32).
     /// Returns Medium if invalid size.
+    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
     pub const fn from_size(size: usize) -> Self {
         match size {
             8 => ModelResolution::Low,
@@ -91,6 +93,7 @@ impl ModelResolution {
 
     /// Creates resolution from tier index (0, 1, or 2).
     /// Returns Medium if invalid tier.
+    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
     pub const fn from_tier(tier: usize) -> Self {
         match tier {
             0 => ModelResolution::Low,
@@ -100,6 +103,7 @@ impl ModelResolution {
     }
 
     /// Returns all resolution variants.
+    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
     pub const fn all() -> [ModelResolution; 3] {
         [
             ModelResolution::Low,
@@ -109,6 +113,7 @@ impl ModelResolution {
     }
 
     /// Returns display name for UI.
+    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
     pub const fn display_name(&self) -> &'static str {
         match *self {
             ModelResolution::Low => "Low (8³)",
@@ -123,21 +128,27 @@ impl ModelResolution {
 // =============================================================================
 
 /// Default resolution of sub-voxel models (backward compatibility).
+#[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
 pub const SUB_VOXEL_SIZE: usize = 16;
 
 /// Total voxels per model at default resolution (backward compatibility).
+#[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
 pub const SUB_VOXEL_VOLUME: usize = SUB_VOXEL_SIZE * SUB_VOXEL_SIZE * SUB_VOXEL_SIZE;
 
 /// Center coordinate at default resolution (backward compatibility).
+#[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
 pub const SUB_VOXEL_CENTER: usize = SUB_VOXEL_SIZE / 2;
 
 /// Maximum valid coordinate at default resolution (backward compatibility).
+#[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
 pub const SUB_VOXEL_MAX: usize = SUB_VOXEL_SIZE - 1;
 
 /// Center as f32 at default resolution (backward compatibility).
+#[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
 pub const SUB_VOXEL_CENTER_F32: f32 = SUB_VOXEL_SIZE as f32 / 2.0;
 
 /// Grid bounds at default resolution (backward compatibility).
+#[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
 pub const SUB_VOXEL_BOUNDS_F32: f32 = SUB_VOXEL_SIZE as f32 + 0.001;
 
 /// Maximum unique models in registry.
@@ -156,6 +167,7 @@ pub const NUM_RESOLUTION_TIERS: usize = 3;
 /// - IDs 135-150: Vertical glass panes (16 connection variants)
 /// - IDs 151-159: Reserved placeholders
 /// - IDs 160-175: Picture frames (16 edge mask variants)
+#[allow(dead_code)] // reason: parsed by build.rs codegen at build time; not visible to rustc reachability
 pub const CRYSTAL_MODEL_ID: u8 = 99;
 pub const FIRST_CUSTOM_MODEL_ID: u8 = 176;
 
@@ -238,6 +250,7 @@ pub enum LightMode {
 
 impl LightMode {
     /// Returns all available light modes.
+    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
     pub const fn all() -> [LightMode; 10] {
         [
             LightMode::Steady,
@@ -254,6 +267,7 @@ impl LightMode {
     }
 
     /// Returns display name for UI.
+    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
     pub const fn display_name(&self) -> &'static str {
         match *self {
             LightMode::Steady => "Steady",
@@ -270,6 +284,7 @@ impl LightMode {
     }
 
     /// Returns a brief description for tooltips.
+    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
     pub const fn description(&self) -> &'static str {
         match *self {
             LightMode::Steady => "Constant brightness",
@@ -286,6 +301,7 @@ impl LightMode {
     }
 
     /// Returns the animation speed multiplier for this mode.
+    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
     pub const fn speed(&self) -> f32 {
         match *self {
             LightMode::Steady => 0.0,
@@ -302,6 +318,7 @@ impl LightMode {
     }
 
     /// Returns the intensity range (min, max) for this mode.
+    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
     pub const fn intensity_range(&self) -> (f32, f32) {
         match *self {
             LightMode::Steady => (1.0, 1.0),
@@ -364,6 +381,7 @@ pub struct SimpleDoorPair {
 
 impl SimpleDoorPair {
     /// Creates a new door pair with the given models.
+    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
     pub fn new(
         name: impl Into<String>,
         lower_closed: u8,
@@ -382,6 +400,7 @@ impl SimpleDoorPair {
     }
 
     /// Returns true if the given model ID is part of this door pair.
+    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
     pub fn contains_model(&self, model_id: u8) -> bool {
         model_id == self.lower_closed
             || model_id == self.upper_closed
@@ -395,6 +414,7 @@ impl SimpleDoorPair {
     }
 
     /// Returns true if the given model ID represents the open state.
+    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
     pub fn is_open(&self, model_id: u8) -> bool {
         model_id == self.lower_open || model_id == self.upper_open
     }
@@ -415,6 +435,7 @@ impl SimpleDoorPair {
     }
 
     /// Returns the other half of the door (upper <-> lower), in the same state.
+    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
     pub fn other_half(&self, model_id: u8) -> u8 {
         if model_id == self.lower_closed {
             self.upper_closed

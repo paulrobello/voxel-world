@@ -13,19 +13,22 @@
 //! - **State snapshots**: Periodic verification of world state consistency
 
 // Allow dead code since these methods are public API intended for future use
-#![allow(dead_code)]
 
 /// Simulated game time tick (50ms = 20 TPS).
+#[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
 const TICK_DELTA: f32 = 0.05;
 
 /// Number of ticks to simulate (6000 ticks = 5 minutes at 20 TPS).
+#[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
 const EXTENDED_GAMEPLAY_TICKS: usize = 6000;
 
 /// Snapshot interval for state verification (every 600 ticks = 30 seconds).
+#[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
 const SNAPSHOT_INTERVAL: usize = 600;
 
 /// Snapshot of game state for comparison.
 #[derive(Debug, Clone, Default)]
+#[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
 pub struct GameStateSnapshot {
     /// Tick number when snapshot was taken.
     pub tick: usize,
@@ -43,6 +46,7 @@ pub struct GameStateSnapshot {
 
 /// Compares two state snapshots and returns differences.
 /// Only compares fields that are actively synchronized in multiplayer.
+#[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
 pub fn compare_sync_snapshots(
     expected: &GameStateSnapshot,
     actual: &GameStateSnapshot,

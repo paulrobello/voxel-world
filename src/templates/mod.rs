@@ -1,5 +1,4 @@
 // Templates are a work-in-progress feature — not all public API is used yet.
-#![allow(dead_code)]
 
 //! Template library system for saving and loading world region templates.
 
@@ -181,11 +180,13 @@ impl TemplateLibrary {
     }
 
     /// Checks if a thumbnail exists for a template.
+    #[allow(dead_code)] // reason: WIP template system — not yet integrated
     pub fn has_thumbnail(&self, name: &str) -> bool {
         self.get_thumbnail_path(name).exists()
     }
 
     /// Gets the path to the template file.
+    #[allow(dead_code)] // reason: WIP template system — not yet integrated
     pub fn get_template_path(&self, name: &str) -> PathBuf {
         // Sanitize filename
         let safe_name: String = name

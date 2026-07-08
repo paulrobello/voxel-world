@@ -40,6 +40,7 @@ impl TemplateSelection {
     }
 
     /// Checks if a complete selection exists (both corners set).
+    #[allow(dead_code)] // reason: WIP template system — not yet integrated
     pub fn is_complete(&self) -> bool {
         self.pos1.is_some() && self.pos2.is_some()
     }
@@ -95,6 +96,7 @@ impl TemplateSelection {
     }
 
     /// Checks if a position is within the current selection bounds.
+    #[allow(dead_code)] // reason: WIP template system — not yet integrated
     pub fn contains(&self, pos: Vector3<i32>) -> bool {
         if let Some((min, max)) = self.bounds() {
             pos.x >= min.x
@@ -119,6 +121,7 @@ impl TemplateSelection {
     }
 
     /// Returns a formatted string describing the selection.
+    #[allow(dead_code)] // reason: WIP template system — not yet integrated
     pub fn format_info(&self) -> String {
         if let Some((min, max)) = self.bounds() {
             let (w, h, d) = self.dimensions().unwrap();

@@ -11,21 +11,24 @@
 //! - **Verify against target**: Ensure < 100 KB/s per client
 
 // Allow dead code since these methods are public API intended for future use
-#![allow(dead_code)]
 
 use std::collections::HashMap;
 
 /// Target bandwidth: 100 KB/s per client.
+#[allow(dead_code)] // reason: benchmark infrastructure — kept for future perf testing
 const TARGET_BANDWIDTH_KB_S: f32 = 100.0;
 
 /// Simulated game time tick (50ms = 20 TPS).
+#[allow(dead_code)] // reason: benchmark infrastructure — kept for future perf testing
 const TICK_DELTA: f32 = 0.05;
 
 /// Number of ticks to simulate (10 seconds = 200 ticks at 20 TPS).
+#[allow(dead_code)] // reason: benchmark infrastructure — kept for future perf testing
 const TEST_DURATION_TICKS: usize = 200;
 
 /// Bandwidth statistics for a test run.
 #[derive(Debug, Clone, Default)]
+#[allow(dead_code)] // reason: benchmark infrastructure — kept for future perf testing
 pub struct BandwidthStats {
     /// Total bytes sent from server to client.
     pub server_to_client_bytes: usize,

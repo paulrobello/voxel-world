@@ -21,9 +21,11 @@ pub const FRAME_MODEL_ID_BASE: u8 = 160;
 pub const LAST_FRAME_ID: u8 = 175;
 
 /// Alias for references (standalone frame with all edges).
+#[allow(dead_code)] // reason: WIP frame model system — kept for future integration
 pub const FRAME_1X1_ID: u8 = FRAME_MODEL_ID_BASE;
 
 /// First frame model ID.
+#[allow(dead_code)] // reason: WIP frame model system — kept for future integration
 pub const FIRST_FRAME_ID: u8 = 160;
 
 /// Maximum frame dimension (in blocks) supported by auto-sizing.
@@ -33,9 +35,11 @@ pub const MAX_FRAME_DIM: u8 = 3;
 const FRAME_WOOD: Color = Color::rgb(101, 67, 33);
 
 /// Frame wood highlight color (lighter brown for inner edge).
+#[allow(dead_code)] // reason: WIP frame model system — kept for future integration
 const FRAME_WOOD_LIGHT: Color = Color::rgb(139, 90, 43);
 
 /// Frame wood shadow color (darker for outer edge).
+#[allow(dead_code)] // reason: WIP frame model system — kept for future integration
 const FRAME_WOOD_DARK: Color = Color::rgb(71, 47, 23);
 
 /// Picture area color (magenta - replaced by shader with picture texture).
@@ -43,10 +47,12 @@ const FRAME_WOOD_DARK: Color = Color::rgb(71, 47, 23);
 const PICTURE_AREA: Color = Color::rgb(255, 0, 255);
 
 /// Frame border width in voxels.
+#[allow(dead_code)] // reason: WIP frame model system — kept for future integration
 const BORDER_WIDTH: usize = 1;
 
 /// Returns true if this model ID is a picture frame (160-175).
 #[inline]
+#[allow(dead_code)] // reason: used by #[cfg(test)] test_is_frame_model; dead in non-test builds
 pub const fn is_frame_model(model_id: u8) -> bool {
     model_id >= FRAME_MODEL_ID_BASE && model_id <= LAST_FRAME_ID
 }
@@ -54,6 +60,7 @@ pub const fn is_frame_model(model_id: u8) -> bool {
 /// Extracts the edge_mask from a frame model ID.
 /// Returns None if not a frame model.
 #[inline]
+#[allow(dead_code)] // reason: WIP frame model system — kept for future integration
 pub const fn frame_model_id_to_edge_mask(model_id: u8) -> Option<u8> {
     if is_frame_model(model_id) {
         Some(model_id - FRAME_MODEL_ID_BASE)

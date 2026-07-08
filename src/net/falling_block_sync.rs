@@ -47,7 +47,6 @@
 //! ```
 
 // Allow dead code since these methods are public API intended for future use
-#![allow(dead_code)]
 
 use crate::chunk::BlockType;
 use crate::constants::TEXTURE_SIZE_Y;
@@ -62,6 +61,7 @@ use std::collections::HashMap;
 /// 1. Assign unique entity IDs to falling blocks
 /// 2. Track which blocks are currently falling
 /// 3. Generate spawn/land messages for clients
+#[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
 pub struct FallingBlockSync {
     /// Next available entity ID.
     next_entity_id: FallingBlockId,
@@ -79,6 +79,7 @@ pub struct FallingBlockSync {
 
 /// Server-side tracking of a falling block entity.
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
 pub struct FallingBlockEntity {
     /// Block type (Sand, Gravel, etc.).
     pub block_type: BlockType,
@@ -92,6 +93,7 @@ pub struct FallingBlockEntity {
 
 /// Statistics for monitoring falling block sync.
 #[derive(Debug, Clone, Default)]
+#[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
 pub struct FallingBlockSyncStats {
     /// Total spawn messages sent.
     pub spawns_sent: u64,
@@ -109,6 +111,7 @@ impl Default for FallingBlockSync {
 
 impl FallingBlockSync {
     /// Creates a new falling block sync tracker.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn new() -> Self {
         Self {
             next_entity_id: 1, // 0 is reserved/invalid
@@ -120,6 +123,7 @@ impl FallingBlockSync {
     }
 
     /// Allocates the next unique entity ID.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn next_entity_id(&mut self) -> FallingBlockId {
         let id = self.next_entity_id;
         self.next_entity_id = self.next_entity_id.wrapping_add(1);
@@ -132,6 +136,7 @@ impl FallingBlockSync {
     /// Registers a newly spawned falling block and returns the spawn message.
     ///
     /// Call this when a block loses support and starts falling.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn register_spawn(
         &mut self,
         grid_position: Vector3<i32>,
@@ -183,6 +188,7 @@ impl FallingBlockSync {
     /// This should be called on the server each tick to simulate physics.
     /// Returns spawn messages for any new blocks that started falling,
     /// and land messages for blocks that finished falling.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn update(
         &mut self,
         delta_time: f32,
@@ -219,16 +225,19 @@ impl FallingBlockSync {
     }
 
     /// Removes a tracked entity (called when block lands).
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn remove_entity(&mut self, entity_id: FallingBlockId) -> Option<FallingBlockEntity> {
         self.active_entities.remove(&entity_id)
     }
 
     /// Returns the number of active falling block entities.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn active_count(&self) -> usize {
         self.active_entities.len()
     }
 
     /// Returns statistics for monitoring.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn stats(&self) -> FallingBlockSyncStats {
         FallingBlockSyncStats {
             spawns_sent: self.spawns_sent,
@@ -239,11 +248,13 @@ impl FallingBlockSync {
 
     /// Returns the running count of duplicate spawn registrations. A non-zero
     /// value indicates an upstream ID collision bug.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn duplicate_spawns(&self) -> u64 {
         self.duplicate_spawns
     }
 
     /// Clears all tracked entities.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn clear(&mut self) {
         self.active_entities.clear();
     }
@@ -254,6 +265,7 @@ impl FallingBlockSync {
 /// This system only renders falling blocks - all physics is handled
 /// by the server. Blocks are spawned from network messages and
 /// removed when the server sends a land message.
+#[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
 pub struct ClientFallingBlockSystem {
     /// Active falling blocks being rendered.
     blocks: Vec<ClientFallingBlock>,
@@ -265,6 +277,7 @@ pub struct ClientFallingBlockSystem {
 
 /// A falling block on the client side.
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
 pub struct ClientFallingBlock {
     /// Entity ID from server.
     pub entity_id: FallingBlockId,
@@ -288,6 +301,7 @@ impl Default for ClientFallingBlockSystem {
 
 impl ClientFallingBlockSystem {
     /// Creates a new client-side falling block system.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn new() -> Self {
         Self {
             blocks: Vec::with_capacity(64),
@@ -297,6 +311,7 @@ impl ClientFallingBlockSystem {
     }
 
     /// Spawns a falling block from a server message.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn spawn_from_network(&mut self, spawn: &FallingBlockSpawned) {
         let block = ClientFallingBlock {
             entity_id: spawn.entity_id,
@@ -317,6 +332,7 @@ impl ClientFallingBlockSystem {
     /// Handles a landing message from the server.
     ///
     /// Returns the landed block info so the client can place the block in the world.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn handle_landed(&mut self, land: &FallingBlockLanded) -> Option<LandedBlock> {
         let entity_id = land.entity_id;
 
@@ -350,6 +366,7 @@ impl ClientFallingBlockSystem {
     /// for smooth rendering between network updates. Uses the same `GRAVITY`
     /// constant as the server `FallingBlock::update` so client and server
     /// predictions can't drift out of step if the simulation ever changes.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn update(&mut self, delta_time: f32) {
         for block in &mut self.blocks {
             block.velocity.y -= crate::falling_block::GRAVITY * delta_time;
@@ -359,11 +376,13 @@ impl ClientFallingBlockSystem {
     }
 
     /// Returns the number of active falling blocks.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn count(&self) -> usize {
         self.blocks.len()
     }
 
     /// Gets GPU-ready falling block data for rendering.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn gpu_data(&mut self) -> Vec<crate::falling_block::GpuFallingBlock> {
         if self.gpu_data_dirty {
             self.gpu_data_cache = self
@@ -385,6 +404,7 @@ impl ClientFallingBlockSystem {
     }
 
     /// Clears all falling blocks.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn clear(&mut self) {
         self.blocks.clear();
         self.gpu_data_dirty = true;

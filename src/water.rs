@@ -14,8 +14,6 @@
 //! - **Lazy Pruning**: Only prune when active set exceeds threshold
 //! - **Reusable Buffers**: Avoid per-tick allocations for working vectors
 
-#![allow(dead_code)]
-
 use crate::chunk::WaterType;
 use crate::constants::ORTHO_DIRS;
 use nalgebra::Vector3;
@@ -159,6 +157,7 @@ impl Default for WaterCell {
 
 impl WaterCell {
     /// Creates a new water cell with the given mass and type.
+    #[allow(dead_code)] // reason: fluid simulation API — kept for future use
     pub fn new(mass: f32, water_type: WaterType) -> Self {
         Self {
             mass,
@@ -170,6 +169,7 @@ impl WaterCell {
     }
 
     /// Creates a source cell (infinite water).
+    #[allow(dead_code)] // reason: fluid simulation API — kept for future use
     pub fn source(water_type: WaterType) -> Self {
         Self {
             mass: MAX_MASS,
@@ -188,6 +188,7 @@ impl WaterCell {
 
     /// Returns true if this cell is full (can't accept more water without pressure).
     #[inline]
+    #[allow(dead_code)] // reason: fluid simulation API — kept for future use
     pub fn is_full(&self) -> bool {
         self.mass >= MAX_MASS
     }
@@ -201,6 +202,7 @@ impl WaterCell {
     /// Returns the visual water height (0.0 to 1.0) for rendering.
     /// Uses display_mass for smooth transitions.
     #[inline]
+    #[allow(dead_code)] // reason: fluid simulation API — kept for future use
     pub fn visual_height(&self) -> f32 {
         self.display_mass.clamp(0.0, 1.0)
     }
@@ -391,6 +393,7 @@ impl WaterGrid {
 
     /// Gets the water mass at a position (0.0 if no water).
     #[inline]
+    #[allow(dead_code)] // reason: fluid simulation API — kept for future use
     pub fn get_mass(&self, pos: Vector3<i32>) -> f32 {
         self.cells.get(&pos).map(|c| c.mass).unwrap_or(0.0)
     }
@@ -491,6 +494,7 @@ impl WaterGrid {
 
     /// Gets a water cell at a position (None if no water).
     #[inline]
+    #[allow(dead_code)] // reason: fluid simulation API — kept for future use
     pub fn get_cell(&self, pos: Vector3<i32>) -> Option<&WaterCell> {
         self.cells.get(&pos)
     }
@@ -529,6 +533,7 @@ impl WaterGrid {
     }
 
     /// Adds water at a position (creates cell if needed).
+    #[allow(dead_code)] // reason: fluid simulation API — kept for future use
     pub fn add_water(&mut self, pos: Vector3<i32>, amount: f32, water_type: WaterType) {
         if amount <= 0.0 {
             return;
@@ -1238,6 +1243,7 @@ impl WaterGrid {
 
     /// Debug: Get detailed info about water cells near a position.
     /// Returns a vector of (position, mass, is_active, stable_ticks) for cells within radius.
+    #[allow(dead_code)] // reason: fluid simulation API — kept for future use
     pub fn debug_sample_cells(
         &self,
         center: Vector3<i32>,

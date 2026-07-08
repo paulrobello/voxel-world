@@ -5,8 +5,6 @@
 //! - No upward pressure flow
 //! - Interacts with water to create cobblestone
 
-#![allow(dead_code)]
-
 use crate::chunk::BlockType;
 use crate::constants::ORTHO_DIRS;
 use nalgebra::Vector3;
@@ -79,6 +77,7 @@ impl LavaCell {
     }
 
     /// Creates a source cell (infinite lava).
+    #[allow(dead_code)] // reason: fluid simulation API — kept for future use
     pub fn source() -> Self {
         Self {
             mass: MAX_MASS,
@@ -95,6 +94,7 @@ impl LavaCell {
 
     /// Returns true if this cell is full.
     #[inline]
+    #[allow(dead_code)] // reason: fluid simulation API — kept for future use
     pub fn is_full(&self) -> bool {
         self.mass >= MAX_MASS
     }
@@ -192,6 +192,7 @@ impl LavaGrid {
     }
 
     #[inline]
+    #[allow(dead_code)] // reason: fluid simulation API — kept for future use
     pub fn get_mass(&self, pos: Vector3<i32>) -> f32 {
         self.cells.get(&pos).map(|c| c.mass).unwrap_or(0.0)
     }
@@ -220,12 +221,14 @@ impl LavaGrid {
     }
 
     #[inline]
+    #[allow(dead_code)] // reason: fluid simulation API — kept for future use
     pub fn is_source(&self, pos: Vector3<i32>) -> bool {
         self.cells.get(&pos).map(|c| c.is_source).unwrap_or(false)
     }
 
     /// Gets the lava cell at a position, if it exists.
     #[inline]
+    #[allow(dead_code)] // reason: fluid simulation API — kept for future use
     pub fn get_cell(&self, pos: Vector3<i32>) -> Option<&LavaCell> {
         self.cells.get(&pos)
     }
@@ -243,6 +246,7 @@ impl LavaGrid {
         }
     }
 
+    #[allow(dead_code)] // reason: fluid simulation API — kept for future use
     pub fn add_lava(&mut self, pos: Vector3<i32>, amount: f32) {
         if amount <= 0.0 {
             return;
@@ -619,6 +623,7 @@ impl LavaGrid {
     }
 
     /// Forces ALL lava cells to become active (for debugging stuck lava).
+    #[allow(dead_code)] // reason: fluid simulation API — kept for future use
     pub fn force_all_active(&mut self) -> usize {
         let count = self.cells.len();
         for pos in self.cells.keys().cloned().collect::<Vec<_>>() {

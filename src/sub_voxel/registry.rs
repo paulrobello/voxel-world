@@ -153,6 +153,7 @@ impl PaletteTable {
         self.entries.get(palette_id as usize)
     }
 
+    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
     fn len(&self) -> usize {
         self.entries.len()
     }
@@ -421,11 +422,13 @@ impl ModelRegistry {
     }
 
     /// Gets a model by name.
+    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
     pub fn get_by_name(&self, name: &str) -> Option<&SubVoxelModel> {
         self.name_to_id.get(name).and_then(|&id| self.get(id))
     }
 
     /// Gets model ID by name.
+    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
     pub fn get_id(&self, name: &str) -> Option<u8> {
         self.name_to_id.get(name).copied()
     }
@@ -436,11 +439,13 @@ impl ModelRegistry {
     }
 
     /// Returns true if registry is empty.
+    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
     pub fn is_empty(&self) -> bool {
         self.models.is_empty()
     }
 
     /// Checks if a model ID is a custom (user-created) model.
+    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
     pub fn is_custom_model(model_id: u8) -> bool {
         model_id >= FIRST_CUSTOM_MODEL_ID
     }
@@ -597,6 +602,7 @@ impl ModelRegistry {
     }
 
     /// Returns the palette_id bound to a model.
+    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
     pub fn model_palette_id(&self, model_id: u8) -> Option<u8> {
         self.model_palette_ids.get(model_id as usize).copied()
     }
@@ -608,11 +614,13 @@ impl ModelRegistry {
     }
 
     /// Returns true if a specific tier needs GPU update.
+    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
     pub fn is_tier_dirty(&self, tier: usize) -> bool {
         tier < NUM_RESOLUTION_TIERS && self.tier_dirty[tier]
     }
 
     /// Returns true if any tier needs GPU update.
+    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
     pub fn is_any_tier_dirty(&self) -> bool {
         self.tier_dirty.iter().any(|&d| d)
     }
@@ -626,6 +634,7 @@ impl ModelRegistry {
     }
 
     /// Clears a specific tier's dirty flag.
+    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
     pub fn clear_tier_dirty(&mut self, tier: usize) {
         if tier < NUM_RESOLUTION_TIERS {
             self.tier_dirty[tier] = false;
@@ -633,6 +642,7 @@ impl ModelRegistry {
     }
 
     /// Clears all tier dirty flags.
+    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
     pub fn clear_all_tier_dirty(&mut self) {
         self.tier_dirty = [false; NUM_RESOLUTION_TIERS];
     }
@@ -688,142 +698,6 @@ impl ModelRegistry {
                 }
             }
         }
-        data
-    }
-
-    /// Pack all models into a single 16³ atlas using inline resampling.
-    /// Models with different resolutions are resampled on-the-fly during packing.
-    pub fn pack_voxels_for_gpu(&self) -> Vec<u8> {
-        const SUB_VOXEL_SIZE: usize = 16; // Target atlas resolution
-        const ATLAS_WIDTH: usize = 16 * SUB_VOXEL_SIZE;
-        const ATLAS_HEIGHT: usize = SUB_VOXEL_SIZE;
-        const ATLAS_DEPTH: usize = 16 * SUB_VOXEL_SIZE;
-        let mut data = vec![0u8; ATLAS_WIDTH * ATLAS_HEIGHT * ATLAS_DEPTH];
-
-        log::debug!("[DEBUG] Packing {} models for GPU atlas", self.models.len());
-
-        for (model_id, model) in self.models.iter().enumerate() {
-            let model_x = model_id % 16;
-            let model_z = model_id / 16;
-            let model_res = model.resolution.size();
-
-            // Count source voxels for debugging (especially for 32³ models)
-            let source_non_zero_count = if model_res == 32 {
-                model.voxels.iter().filter(|&&v| v != 0).count()
-            } else {
-                0
-            };
-
-            // Copy voxels with inline resampling if necessary
-            let mut non_zero_count = 0;
-            for ly in 0..SUB_VOXEL_SIZE {
-                for lz in 0..SUB_VOXEL_SIZE {
-                    for lx in 0..SUB_VOXEL_SIZE {
-                        let voxel = if model_res > SUB_VOXEL_SIZE {
-                            // Downsampling: use max pooling to preserve all voxels
-                            // Check all voxels in the source region and pick first non-zero
-                            let scale = model_res / SUB_VOXEL_SIZE;
-                            let base_x = lx * scale;
-                            let base_y = ly * scale;
-                            let base_z = lz * scale;
-
-                            let mut result = 0u8;
-                            'outer: for oz in 0..scale {
-                                for oy in 0..scale {
-                                    for ox in 0..scale {
-                                        let src_x = base_x + ox;
-                                        let src_y = base_y + oy;
-                                        let src_z = base_z + oz;
-                                        let src_idx = src_x
-                                            + src_y * model_res
-                                            + src_z * model_res * model_res;
-
-                                        if src_idx < model.voxels.len() {
-                                            let v = model.voxels[src_idx];
-                                            if v != 0 {
-                                                result = v;
-                                                break 'outer;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            result
-                        } else {
-                            // Upsampling or same size: nearest neighbor
-                            let src_x = lx * model_res / SUB_VOXEL_SIZE;
-                            let src_y = ly * model_res / SUB_VOXEL_SIZE;
-                            let src_z = lz * model_res / SUB_VOXEL_SIZE;
-                            let src_idx = src_x + src_y * model_res + src_z * model_res * model_res;
-
-                            if src_idx < model.voxels.len() {
-                                model.voxels[src_idx]
-                            } else {
-                                0
-                            }
-                        };
-
-                        if voxel != 0 {
-                            non_zero_count += 1;
-                        }
-
-                        let atlas_x = model_x * SUB_VOXEL_SIZE + lx;
-                        let atlas_y = ly;
-                        let atlas_z = model_z * SUB_VOXEL_SIZE + lz;
-                        let dst_idx =
-                            atlas_x + atlas_y * ATLAS_WIDTH + atlas_z * ATLAS_WIDTH * ATLAS_HEIGHT;
-
-                        data[dst_idx] = voxel;
-                    }
-                }
-            }
-
-            // Debug output for 32³ models
-            if model_res == 32 && source_non_zero_count > 0 {
-                let loss_pct = if source_non_zero_count > 0 {
-                    100.0 * (1.0 - (non_zero_count as f32 / source_non_zero_count as f32))
-                } else {
-                    0.0
-                };
-                log::debug!(
-                    "[DEBUG] Model ID {} (32³→16³): {} source voxels → {} packed voxels ({:.1}% loss)",
-                    model_id,
-                    source_non_zero_count,
-                    non_zero_count,
-                    loss_pct
-                );
-            }
-
-            if model_id == 1 {
-                log::debug!(
-                    "[DEBUG] Model ID 1 (torch): packed {} non-zero voxels from {:?} resolution (inline resampling)",
-                    non_zero_count,
-                    model.resolution
-                );
-
-                // Sample a few voxels from torch in the atlas to verify placement
-                // Torch is model_id=1, so model_x=1, model_z=0
-                // Torch stick at (3,3,3) in 8³ → (6,6,6) in 16³
-                // Atlas position: (22, 6, 6)
-                let atlas_x = 22;
-                let atlas_y = 6;
-                let atlas_z = 6;
-                let sample_idx =
-                    atlas_x + atlas_y * ATLAS_WIDTH + atlas_z * ATLAS_WIDTH * ATLAS_HEIGHT;
-                if sample_idx < data.len() {
-                    log::debug!(
-                        "[DEBUG]   Sample atlas voxel at ({},{},{}): {}",
-                        atlas_x,
-                        atlas_y,
-                        atlas_z,
-                        data[sample_idx]
-                    );
-                }
-            }
-        }
-
-        log::debug!("[DEBUG] Total atlas size: {} bytes", data.len());
-        log::debug!("[DEBUG] >>> USING FIXED INLINE RESAMPLING CODE <<<");
         data
     }
 
@@ -1005,6 +879,7 @@ impl ModelRegistry {
 
     /// Gets the connection mask from a fence model ID.
     /// Returns None if not a fence model.
+    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
     pub fn fence_connections(model_id: u8) -> Option<u8> {
         if Self::is_fence_model(model_id) {
             Some(model_id - 4)
@@ -1026,6 +901,7 @@ impl ModelRegistry {
     }
 
     /// Checks if a model ID is a closed gate (IDs 20-23).
+    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
     pub fn is_gate_closed_model(model_id: u8) -> bool {
         (20..24).contains(&model_id)
     }
@@ -1042,6 +918,7 @@ impl ModelRegistry {
 
     /// Gets the connection mask from a gate model ID.
     /// Returns None if not a gate model.
+    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
     pub fn gate_connections(model_id: u8) -> Option<u8> {
         if Self::is_gate_model(model_id) {
             Some((model_id - 20) & 0x03)
@@ -1056,6 +933,7 @@ impl ModelRegistry {
     }
 
     /// Gets the model ID for a ladder.
+    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
     pub fn ladder_model_id() -> u8 {
         29
     }
@@ -1066,6 +944,7 @@ impl ModelRegistry {
     }
 
     /// Returns the model ID for the upside-down stairs.
+    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
     pub fn stairs_inverted_model_id() -> u8 {
         30
     }
@@ -1157,6 +1036,7 @@ impl ModelRegistry {
     /// - `is_upper`: true for upper half, false for lower half
     /// - `hinge_left`: true for left hinge, false for right hinge
     /// - `is_open`: true for open, false for closed
+    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
     pub fn door_model_id(is_upper: bool, hinge_left: bool, is_open: bool) -> u8 {
         Self::door_model_id_with_base(39, is_upper, hinge_left, is_open)
     }
@@ -1190,6 +1070,7 @@ impl ModelRegistry {
     }
 
     /// Checks if a door model has left hinge.
+    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
     pub fn is_door_hinge_left(model_id: u8) -> bool {
         if let Some(base) = Self::door_type_base(model_id) {
             let offset = model_id - base;
@@ -1212,6 +1093,7 @@ impl ModelRegistry {
     }
 
     /// Returns the corresponding upper or lower door half model.
+    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
     pub fn door_other_half(model_id: u8) -> u8 {
         if !Self::is_door_model(model_id) {
             return model_id;
@@ -1254,6 +1136,7 @@ impl ModelRegistry {
     }
 
     /// Checks if a trapdoor is ceiling-attached.
+    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
     pub fn is_trapdoor_ceiling(model_id: u8) -> bool {
         matches!(model_id, 48 | 50)
     }
@@ -1286,6 +1169,7 @@ impl ModelRegistry {
     }
 
     /// Gets the connection mask from a window model ID.
+    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
     pub fn window_connections(model_id: u8) -> Option<u8> {
         if Self::is_window_model(model_id) {
             Some(model_id - 51)
@@ -1295,6 +1179,7 @@ impl ModelRegistry {
     }
 
     /// Checks if a model is a window or fence (connectable thin blocks).
+    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
     pub fn is_window_connectable(model_id: u8) -> bool {
         Self::is_window_model(model_id)
     }
@@ -1340,6 +1225,7 @@ impl ModelRegistry {
 
     /// Gets the connection mask from a horizontal glass pane model ID.
     /// Returns None if not a horizontal glass pane model.
+    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
     pub fn horizontal_glass_pane_connections(model_id: u8) -> Option<u8> {
         if Self::is_horizontal_glass_pane_model(model_id) {
             Some(model_id - 119)
@@ -1350,6 +1236,7 @@ impl ModelRegistry {
 
     /// Gets the connection mask from a vertical glass pane model ID.
     /// Returns None if not a vertical glass pane model.
+    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
     pub fn vertical_glass_pane_connections(model_id: u8) -> Option<u8> {
         if Self::is_vertical_glass_pane_model(model_id) {
             Some(model_id - 135)
@@ -1401,6 +1288,7 @@ impl ModelRegistry {
     }
 
     /// Gets a custom door pair by name.
+    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
     pub fn get_door_pair_by_name(&self, name: &str) -> Option<&SimpleDoorPair> {
         self.custom_door_pairs.iter().find(|dp| dp.name == name)
     }
@@ -1423,12 +1311,14 @@ impl ModelRegistry {
     }
 
     /// Returns the number of registered custom door pairs.
+    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
     pub fn door_pair_count(&self) -> usize {
         self.custom_door_pairs.len()
     }
 
     /// Removes a custom door pair by ID.
     /// Returns the removed door pair, or None if not found.
+    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
     pub fn remove_door_pair(&mut self, id: u16) -> Option<SimpleDoorPair> {
         if id as usize >= self.custom_door_pairs.len() {
             return None;
@@ -1477,6 +1367,7 @@ impl ModelRegistry {
 
     /// Returns the other half of a custom door model.
     /// Returns the original model_id if not part of a custom door.
+    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
     pub fn custom_door_other_half(&self, model_id: u8) -> u8 {
         if let Some(door_pair) = self.get_door_pair_for_model(model_id) {
             door_pair.other_half(model_id)
@@ -1495,6 +1386,7 @@ impl ModelRegistry {
     }
 
     /// Checks if a custom door model is in the open state.
+    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
     pub fn is_custom_door_open(&self, model_id: u8) -> bool {
         if let Some(door_pair) = self.get_door_pair_for_model(model_id) {
             door_pair.is_open(model_id)
@@ -1529,6 +1421,7 @@ impl ModelRegistry {
     }
 
     /// Returns the frame model ID for a given size (all valid sizes map to 160).
+    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
     pub fn frame_model_id(width: u8, height: u8) -> Option<u8> {
         match (width, height) {
             (1..=3, 1..=3) => Some(160),
@@ -1601,6 +1494,7 @@ impl ModelRegistry {
     }
 
     /// Gets custom door pairs data for persistence.
+    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
     pub fn get_custom_door_pairs(&self) -> &[SimpleDoorPair] {
         &self.custom_door_pairs
     }

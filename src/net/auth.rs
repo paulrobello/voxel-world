@@ -4,7 +4,6 @@
 //! server and client.
 
 // Allow unused code until networking is integrated into the game
-#![allow(dead_code)]
 
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -79,6 +78,7 @@ impl ServerAuth {
     }
 
     /// Creates server auth with a specific private key.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn with_key(address: SocketAddr, private_key: [u8; 32]) -> Self {
         Self {
             private_key,
@@ -101,6 +101,7 @@ impl ServerAuth {
     /// Deprecated alias retained for backwards compatibility. Forwards to
     /// [`generate_random_key`] — the old fixed-byte implementation is gone.
     #[deprecated(note = "Use generate_random_key() — dev_key was a hardcoded shared secret")]
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn generate_dev_key() -> [u8; 32] {
         Self::generate_random_key()
     }
@@ -133,6 +134,7 @@ impl ServerAuth {
     /// Creates a NetcodeServerTransport in Secure mode bound to this auth's
     /// per-session `private_key`. Clients must supply the matching key (shared
     /// out-of-band) to pass the netcode handshake.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn create_secure_transport(&self) -> Result<NetcodeServerTransport, String> {
         let server_config = ServerConfig {
             current_time: Duration::ZERO,
@@ -168,6 +170,7 @@ impl ServerAuth {
     }
 
     /// Returns the server address.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn address(&self) -> SocketAddr {
         self.address
     }
@@ -227,6 +230,7 @@ impl ClientAuth {
     }
 
     /// Creates authentication for localhost server.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn localhost() -> Self {
         Self::new(
             SocketAddr::from(([127, 0, 0, 1], DEFAULT_PORT)),
@@ -268,6 +272,7 @@ impl ClientAuth {
     }
 
     /// Returns the server address.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn server_address(&self) -> SocketAddr {
         self.server_address
     }
@@ -289,6 +294,7 @@ fn generate_client_id() -> u64 {
 /// path is not cryptographically authenticated. Any future Secure-mode
 /// localhost path must pair explicitly via `ClientAuth::new()` with the
 /// server's `pairing_code`.
+#[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
 fn generate_local_key() -> [u8; 32] {
     [0u8; 32]
 }
@@ -373,11 +379,13 @@ impl ConnectionTracker {
     }
 
     /// Returns time connected (if connected).
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn connected_duration(&self) -> Option<std::time::Duration> {
         self.connected_at.map(|t| t.elapsed())
     }
 
     /// Returns connection attempt duration.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn connecting_duration(&self) -> Option<std::time::Duration> {
         self.connect_start.map(|t| t.elapsed())
     }
@@ -394,6 +402,7 @@ impl ConnectionTracker {
     }
 
     /// Returns disconnect reason (if any).
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn disconnect_reason(&self) -> Option<&str> {
         self.disconnect_reason.as_deref()
     }

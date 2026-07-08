@@ -1,5 +1,4 @@
 //! Custom texture generation and storage.
-#![allow(dead_code)] // Many helpers will be used once texture generator is fully integrated
 
 use super::patterns::TexturePattern;
 use crate::user_prefs::get_data_dir;
@@ -61,16 +60,19 @@ impl TextureColor {
         g: 255,
         b: 0,
     };
+    #[allow(dead_code)] // reason: WIP texture generator — not yet integrated
     pub const CYAN: Self = Self {
         r: 0,
         g: 255,
         b: 255,
     };
+    #[allow(dead_code)] // reason: WIP texture generator — not yet integrated
     pub const MAGENTA: Self = Self {
         r: 255,
         g: 0,
         b: 255,
     };
+    #[allow(dead_code)] // reason: WIP texture generator — not yet integrated
     pub const GRAY: Self = Self {
         r: 128,
         g: 128,
@@ -81,6 +83,7 @@ impl TextureColor {
         g: 136,
         b: 136,
     };
+    #[allow(dead_code)] // reason: WIP texture generator — not yet integrated
     pub const DIRT: Self = Self {
         r: 134,
         g: 96,
@@ -98,6 +101,7 @@ impl TextureColor {
     }
 
     /// Creates a color from a hex value (0xRRGGBB).
+    #[allow(dead_code)] // reason: WIP texture generator — not yet integrated
     pub const fn from_hex(hex: u32) -> Self {
         Self {
             r: ((hex >> 16) & 0xFF) as u8,
@@ -107,11 +111,13 @@ impl TextureColor {
     }
 
     /// Converts to [r, g, b] array.
+    #[allow(dead_code)] // reason: WIP texture generator — not yet integrated
     pub const fn to_array(self) -> [u8; 3] {
         [self.r, self.g, self.b]
     }
 
     /// Converts to [r, g, b, a] array with full opacity.
+    #[allow(dead_code)] // reason: WIP texture generator — not yet integrated
     pub const fn to_rgba(self) -> [u8; 4] {
         [self.r, self.g, self.b, 255]
     }
@@ -175,6 +181,7 @@ impl Default for CustomTexture {
 
 impl CustomTexture {
     /// Creates a new custom texture with the given parameters.
+    #[allow(dead_code)] // reason: WIP texture generator — not yet integrated
     pub fn new(
         name: impl Into<String>,
         pattern: TexturePattern,
@@ -251,6 +258,7 @@ impl CustomTexture {
     }
 
     /// Returns the pixel data as a slice.
+    #[allow(dead_code)] // reason: WIP texture generator — not yet integrated
     pub fn pixel_data(&self) -> &[u8] {
         &self.pixels
     }
@@ -320,15 +328,18 @@ impl CustomTexture {
 }
 
 /// Texture generation utility functions.
+#[allow(dead_code)] // reason: WIP texture generator — not yet integrated
 pub struct TextureGenerator;
 
 impl TextureGenerator {
     /// Creates a solid color texture.
+    #[allow(dead_code)] // reason: WIP texture generator — not yet integrated
     pub fn solid(name: &str, color: TextureColor) -> CustomTexture {
         CustomTexture::new(name, TexturePattern::Solid, color, color)
     }
 
     /// Creates a horizontal stripe texture.
+    #[allow(dead_code)] // reason: WIP texture generator — not yet integrated
     pub fn h_stripes(
         name: &str,
         color1: TextureColor,
@@ -342,6 +353,7 @@ impl TextureGenerator {
     }
 
     /// Creates a vertical stripe texture.
+    #[allow(dead_code)] // reason: WIP texture generator — not yet integrated
     pub fn v_stripes(
         name: &str,
         color1: TextureColor,
@@ -355,6 +367,7 @@ impl TextureGenerator {
     }
 
     /// Creates a checkerboard texture.
+    #[allow(dead_code)] // reason: WIP texture generator — not yet integrated
     pub fn checkerboard(
         name: &str,
         color1: TextureColor,
@@ -368,6 +381,7 @@ impl TextureGenerator {
     }
 
     /// Creates a brick pattern texture.
+    #[allow(dead_code)] // reason: WIP texture generator — not yet integrated
     pub fn brick(
         name: &str,
         brick_color: TextureColor,
@@ -381,6 +395,7 @@ impl TextureGenerator {
     }
 
     /// Creates a noise texture.
+    #[allow(dead_code)] // reason: WIP texture generator — not yet integrated
     pub fn noise(
         name: &str,
         color1: TextureColor,
@@ -550,6 +565,7 @@ impl TextureLibrary {
     }
 
     /// Gets a mutable texture by slot ID.
+    #[allow(dead_code)] // reason: WIP texture generator — not yet integrated
     pub fn get_mut(&mut self, slot: u8) -> Option<&mut CustomTexture> {
         self.textures.iter_mut().find(|t| t.id == slot)
     }
@@ -560,12 +576,14 @@ impl TextureLibrary {
     }
 
     /// Iterates mutably over all textures.
+    #[allow(dead_code)] // reason: WIP texture generator — not yet integrated
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut CustomTexture> {
         self.textures.iter_mut()
     }
 
     /// Returns combined pixel data for GPU upload (16 textures × 64×64 RGBA).
     /// Empty slots are filled with transparent pixels.
+    #[allow(dead_code)] // reason: WIP texture generator — not yet integrated
     pub fn combined_pixel_data(&self) -> Vec<u8> {
         let slot_size = (TEXTURE_SIZE * TEXTURE_SIZE * 4) as usize;
         let total_size = MAX_CUSTOM_TEXTURES * slot_size;

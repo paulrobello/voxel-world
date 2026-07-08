@@ -36,6 +36,7 @@ impl PaintPreset {
     }
 
     /// Creates a new preset with multiple paint configs.
+    #[allow(dead_code)] // reason: WIP paint system — not yet integrated
     pub fn with_configs(
         name: impl Into<String>,
         configs: Vec<PaintConfig>,
@@ -156,11 +157,13 @@ impl PaintPresetLibrary {
     }
 
     /// Returns the number of presets.
+    #[allow(dead_code)] // reason: WIP paint system — not yet integrated
     pub fn len(&self) -> usize {
         self.presets.len()
     }
 
     /// Returns true if the library is empty.
+    #[allow(dead_code)] // reason: WIP paint system — not yet integrated
     pub fn is_empty(&self) -> bool {
         self.presets.is_empty()
     }
@@ -220,6 +223,7 @@ impl PaintPresetLibrary {
     }
 
     /// Updates a preset at the given index.
+    #[allow(dead_code)] // reason: WIP paint system — not yet integrated
     pub fn update(&mut self, index: usize, preset: PaintPreset) -> bool {
         if index >= self.presets.len() {
             return false;
@@ -245,6 +249,7 @@ impl PaintPresetLibrary {
     }
 
     /// Gets the currently selected preset.
+    #[allow(dead_code)] // reason: WIP paint system — not yet integrated
     pub fn selected_preset(&self) -> Option<&PaintPreset> {
         self.selected.and_then(|i| self.presets.get(i))
     }

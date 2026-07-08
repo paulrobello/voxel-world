@@ -314,6 +314,7 @@ impl VxtFile {
     }
 
     /// Gets the block type at a position, or Air if not set.
+    #[allow(dead_code)] // reason: WIP template system — not yet integrated
     pub fn get_block(&self, x: u8, y: u8, z: u8) -> BlockType {
         self.blocks
             .iter()
@@ -477,6 +478,7 @@ impl TemplateBuilder {
     }
 
     /// Adds tags to the template.
+    #[allow(dead_code)] // reason: WIP template system — not yet integrated
     pub fn add_tags(&mut self, tags: Vec<String>) {
         self.template.tags = tags;
     }

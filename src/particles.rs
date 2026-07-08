@@ -2,8 +2,6 @@
 //!
 //! Handles particle spawning, physics simulation, and data preparation for GPU rendering.
 
-#![allow(dead_code)]
-
 use bytemuck::{Pod, Zeroable};
 use nalgebra::Vector3;
 
@@ -211,6 +209,7 @@ impl ParticleSystem {
     }
 
     /// Returns the number of active particles.
+    #[allow(dead_code)] // reason: particle system API — kept for future use
     pub fn count(&self) -> usize {
         self.particles.len()
     }
@@ -275,6 +274,7 @@ impl ParticleSystem {
     }
 
     /// Spawns water splash particles.
+    #[allow(dead_code)] // reason: particle system API — kept for future use
     pub fn spawn_water_splash(&mut self, position: Vector3<f32>) {
         use std::f32::consts::PI;
 
@@ -309,6 +309,7 @@ impl ParticleSystem {
     }
 
     /// Spawns dust/walking particles.
+    #[allow(dead_code)] // reason: particle system API — kept for future use
     pub fn spawn_dust(&mut self, position: Vector3<f32>, color: Vector3<f32>) {
         let seed = position.x * 11.1 + position.z * 7.7;
 

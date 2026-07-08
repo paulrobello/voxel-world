@@ -169,6 +169,7 @@ impl World {
     /// Drains the dirty chunks queue.
     ///
     /// Returns all chunk positions that need GPU re-upload.
+    #[allow(dead_code)] // reason: world API — kept for future use
     pub fn drain_dirty_chunks(&mut self) -> Vec<ChunkPos> {
         self.dirty_set.clear();
         std::mem::take(&mut self.dirty_chunks)
@@ -210,6 +211,7 @@ impl World {
     }
 
     /// Returns all dirty chunk positions without draining.
+    #[allow(dead_code)] // reason: world API — kept for future use
     pub fn dirty_chunks(&self) -> &[ChunkPos] {
         &self.dirty_chunks
     }
@@ -220,6 +222,7 @@ impl World {
     }
 
     /// Marks all loaded chunks as dirty for GPU upload.
+    #[allow(dead_code)] // reason: world API — kept for future use
     pub fn mark_all_dirty(&mut self) {
         let positions: Vec<_> = self.chunks.keys().copied().collect();
         self.requeue_dirty(&positions);
@@ -453,6 +456,7 @@ impl World {
     }
 
     /// Sets the custom_data for an existing model block at world coordinates.
+    #[allow(dead_code)] // reason: world API — kept for future use
     pub fn set_model_custom_data(&mut self, world_pos: WorldPos, custom_data: u32) {
         let chunk_pos = Self::world_to_chunk(world_pos);
         let (lx, ly, lz) = Self::world_to_local(world_pos);
@@ -596,6 +600,7 @@ impl World {
     }
 
     /// Checks if a block is solid at world coordinates.
+    #[allow(dead_code)] // reason: world API — kept for future use
     pub fn is_solid(&self, world_pos: WorldPos) -> bool {
         self.get_block(world_pos)
             .map(|b| b.is_solid())

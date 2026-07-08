@@ -8,6 +8,7 @@ use std::collections::HashMap;
 
 /// A slot in the picture atlas.
 #[derive(Debug, Clone, Default)]
+#[allow(dead_code)] // reason: WIP picture system — not yet integrated
 struct AtlasSlot {
     /// Picture ID loaded in this slot (0 = empty).
     picture_id: u32,
@@ -20,6 +21,7 @@ struct AtlasSlot {
 /// The atlas stores up to MAX_GPU_PICTURES pictures in a texture array.
 /// Each slot can hold a picture up to MAX_PICTURE_SIZE × MAX_PICTURE_SIZE.
 /// Pictures are loaded on-demand and evicted using LRU when full.
+#[allow(dead_code)] // reason: WIP picture system — not yet integrated
 pub struct PictureAtlas {
     /// Atlas slots (picture data).
     slots: Vec<AtlasSlot>,
@@ -50,6 +52,7 @@ impl Default for PictureAtlas {
 
 impl PictureAtlas {
     /// Creates a new empty picture atlas.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn new() -> Self {
         let slot_size = MAX_PICTURE_SIZE as usize * MAX_PICTURE_SIZE as usize * 4;
         let total_size = MAX_GPU_PICTURES * slot_size;
@@ -65,22 +68,26 @@ impl PictureAtlas {
     }
 
     /// Advances the frame counter for LRU tracking.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn new_frame(&mut self) {
         self.current_frame += 1;
     }
 
     /// Clears the dirty flags after GPU upload.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn clear_dirty(&mut self) {
         self.dirty = false;
         self.dirty_slots.clear();
     }
 
     /// Returns true if the atlas needs GPU update.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn is_dirty(&self) -> bool {
         self.dirty
     }
 
     /// Returns the slots that need GPU upload.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn dirty_slots(&self) -> &[usize] {
         &self.dirty_slots
     }
@@ -88,6 +95,7 @@ impl PictureAtlas {
     /// Gets the slot index for a picture, loading it if necessary.
     ///
     /// Returns None if the picture doesn't exist in the library.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn get_or_load(&mut self, picture_id: u32, library: &PictureLibrary) -> Option<usize> {
         // Check if already loaded
         if let Some(&slot) = self.picture_to_slot.get(&picture_id) {
@@ -172,6 +180,7 @@ impl PictureAtlas {
     }
 
     /// Evicts a picture from the atlas (when deleted from library).
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn evict(&mut self, picture_id: u32) {
         if let Some(slot) = self.picture_to_slot.remove(&picture_id) {
             self.slots[slot].picture_id = 0;
@@ -190,6 +199,7 @@ impl PictureAtlas {
     }
 
     /// Reloads a picture if it's currently in the atlas (after edits).
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn reload(&mut self, picture_id: u32, library: &PictureLibrary) {
         if let Some(&slot) = self.picture_to_slot.get(&picture_id)
             && let Some(picture) = library.get(picture_id)
@@ -205,11 +215,13 @@ impl PictureAtlas {
     /// Format: 64 slots arranged vertically, each 128×128 pixels.
     /// Total dimensions: 128 × (128 × 64) = 128 × 8192 pixels.
     /// Note: GPU atlas uses horizontal layout (8192×128), this is CPU-side storage.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn get_data(&self) -> &[u8] {
         &self.data
     }
 
     /// Returns the data for a single slot.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn get_slot_data(&self, slot: usize) -> Option<&[u8]> {
         if slot >= MAX_GPU_PICTURES {
             return None;
@@ -220,6 +232,7 @@ impl PictureAtlas {
     }
 
     /// Returns the atlas dimensions for GPU texture creation.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn dimensions() -> (u32, u32) {
         // Atlas is 128 pixels wide, 128 × 64 = 8192 pixels tall (CPU storage)
         // GPU uses horizontal layout: 8192 × 128
@@ -231,6 +244,7 @@ impl PictureAtlas {
 
     /// Returns the UV coordinates for a picture slot.
     /// Returns (u_min, v_min, u_max, v_max) in 0.0-1.0 range.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn slot_uv(slot: usize) -> Option<(f32, f32, f32, f32)> {
         if slot >= MAX_GPU_PICTURES {
             return None;
@@ -242,6 +256,7 @@ impl PictureAtlas {
     }
 
     /// Returns the number of pictures currently loaded in the atlas.
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub fn loaded_count(&self) -> usize {
         self.picture_to_slot.len()
     }

@@ -7,7 +7,6 @@
 //! - **Events** (Server → Main): ClientConnected, ClientMessage, etc.
 
 // Allow unused code until threaded server mode is fully tested and enabled
-#![allow(dead_code)]
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -23,6 +22,7 @@ use super::protocol::{BlockChanged, ChunkData, ClientMessage, DoorToggled};
 
 /// Commands sent from the main thread to the server thread.
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // reason: threaded-server feature — pre-existing broken (QA-006), kept for future repair
 pub enum ServerCommand {
     /// Send chunk data to a specific client.
     SendChunk { client_id: u64, chunk: ChunkData },
@@ -73,6 +73,7 @@ pub enum ServerCommand {
 
 /// Events sent from the server thread to the main thread.
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // reason: threaded-server feature — pre-existing broken (QA-006), kept for future repair
 pub enum ServerThreadEvent {
     /// A new client has connected.
     ClientConnected { client_id: u64 },
@@ -88,6 +89,7 @@ pub enum ServerThreadEvent {
 }
 
 /// Wrapper that runs the game server in a dedicated thread.
+#[allow(dead_code)] // reason: threaded-server feature — pre-existing broken (QA-006), kept for future repair
 pub struct ServerThread {
     /// Sender for commands to the server thread.
     command_sender: Sender<ServerCommand>,
@@ -108,6 +110,7 @@ impl ServerThread {
     /// * `address` - The address to bind the server to
     /// * `world_seed` - The world seed to send to connecting clients
     /// * `world_gen` - The world generation type
+    #[allow(dead_code)] // reason: threaded-server feature — pre-existing broken (QA-006), kept for future repair
     pub fn spawn(address: SocketAddr, world_seed: u32, world_gen: u8) -> Result<Self, String> {
         // Create channels for bidirectional communication
         let (command_sender, command_receiver) = crossbeam_channel::bounded(256);
@@ -274,6 +277,7 @@ impl ServerThread {
     /// game loop. Queue-full returns an error *and* is logged at `warn` level
     /// so the operator can see the stall before commands start being dropped
     /// silently.
+    #[allow(dead_code)] // reason: threaded-server feature — pre-existing broken (QA-006), kept for future repair
     pub fn send_command(&self, command: ServerCommand) -> Result<(), String> {
         match self.command_sender.try_send(command) {
             Ok(()) => Ok(()),
@@ -288,11 +292,13 @@ impl ServerThread {
     }
 
     /// Tries to receive an event from the server thread (non-blocking).
+    #[allow(dead_code)] // reason: threaded-server feature — pre-existing broken (QA-006), kept for future repair
     pub fn try_recv_event(&self) -> Option<ServerThreadEvent> {
         self.event_receiver.try_recv().ok()
     }
 
     /// Receives all pending events from the server thread.
+    #[allow(dead_code)] // reason: threaded-server feature — pre-existing broken (QA-006), kept for future repair
     pub fn recv_events(&self) -> Vec<ServerThreadEvent> {
         let mut events = Vec::new();
         while let Ok(event) = self.event_receiver.try_recv() {
@@ -302,11 +308,13 @@ impl ServerThread {
     }
 
     /// Returns the server address.
+    #[allow(dead_code)] // reason: threaded-server feature — pre-existing broken (QA-006), kept for future repair
     pub fn address(&self) -> SocketAddr {
         self.address
     }
 
     /// Checks if the server thread is still running.
+    #[allow(dead_code)] // reason: threaded-server feature — pre-existing broken (QA-006), kept for future repair
     pub fn is_running(&self) -> bool {
         self.running.load(Ordering::Acquire)
     }

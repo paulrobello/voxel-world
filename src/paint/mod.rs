@@ -9,7 +9,6 @@
 //! The shader applies HSV and blend mode transformations at render time.
 
 // TODO: Fully integrate paint panel UI with the palette window
-#![allow(dead_code)]
 
 pub mod presets;
 pub mod system;

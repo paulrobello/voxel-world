@@ -18,11 +18,13 @@ impl World {
     }
 
     /// Gets the minimap height cache.
+    #[allow(dead_code)] // reason: world API — kept for future use
     pub fn minimap_height_cache(&self) -> &HashMap<(i32, i32), (BlockType, i32)> {
         &self.minimap_height_cache
     }
 
     /// Gets a mutable reference to the minimap height cache.
+    #[allow(dead_code)] // reason: world API — kept for future use
     pub fn minimap_height_cache_mut(&mut self) -> &mut HashMap<(i32, i32), (BlockType, i32)> {
         &mut self.minimap_height_cache
     }

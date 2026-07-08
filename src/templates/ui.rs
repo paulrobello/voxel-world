@@ -19,6 +19,7 @@ pub struct TemplateUi {
     pub edit_tags: String,
 
     /// Currently selected template in the browser (for info display).
+    #[allow(dead_code)] // reason: WIP template system — not yet integrated
     pub selected_template: Option<String>,
 
     /// Cached template infos for display.
@@ -118,6 +119,7 @@ pub enum TemplateBrowserAction {
     /// User clicked "Save Template" button.
     OpenSaveDialog,
     /// User confirmed save with name and tags.
+    #[allow(dead_code)] // reason: WIP template system — not yet integrated
     SaveTemplate { name: String, tags: Vec<String> },
     /// User clicked load button for a template.
     LoadTemplate(String),

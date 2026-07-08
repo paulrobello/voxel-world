@@ -11,6 +11,7 @@ pub struct TemplatePlacement {
     /// Rotation (0-3 for 0°/90°/180°/270° around Y-axis).
     pub rotation: u8,
     /// Whether in preview mode (ghost blocks) or actively placing.
+    #[allow(dead_code)] // reason: WIP template system — not yet integrated
     pub preview_mode: bool,
     /// Placement progress for frame-distributed placement.
     pub placement_progress: usize,
@@ -38,6 +39,7 @@ impl TemplatePlacement {
     }
 
     /// Rotates the template 90° counter-clockwise around Y-axis.
+    #[allow(dead_code)] // reason: WIP template system — not yet integrated
     pub fn rotate_90_ccw(&mut self) {
         self.rotation = if self.rotation == 0 {
             3
@@ -47,6 +49,7 @@ impl TemplatePlacement {
     }
 
     /// Sets a specific rotation (0-3).
+    #[allow(dead_code)] // reason: WIP template system — not yet integrated
     pub fn set_rotation(&mut self, rotation: u8) {
         self.rotation = rotation % 4;
     }
@@ -162,6 +165,7 @@ impl TemplatePlacement {
     }
 
     /// Calculates completion percentage (0-100).
+    #[allow(dead_code)] // reason: WIP template system — not yet integrated
     pub fn completion_percentage(&self) -> u32 {
         if self.total_blocks == 0 {
             return 100;
@@ -210,6 +214,7 @@ impl TemplatePlacement {
 
     /// Returns an iterator over all blocks that need to be placed.
     /// Yields (world_pos, block_type) tuples.
+    #[allow(dead_code)] // reason: WIP template system — not yet integrated
     pub fn iter_blocks(&self) -> impl Iterator<Item = (Vector3<i32>, u8)> + '_ {
         self.template.blocks.iter().map(move |block| {
             let world_pos = self.get_world_position(block.x, block.y, block.z);
@@ -383,6 +388,7 @@ impl TemplatePlacement {
 
 /// Frame-distributed template placer.
 /// Places blocks in batches to prevent freezing on large templates.
+#[allow(dead_code)] // reason: WIP template system — not yet integrated
 pub struct FrameDistributedPlacer {
     /// Batch size (blocks per frame).
     pub batch_size: usize,
@@ -390,23 +396,27 @@ pub struct FrameDistributedPlacer {
 
 impl FrameDistributedPlacer {
     /// Creates a new placer with the default batch size (1000 blocks/frame).
+    #[allow(dead_code)] // reason: WIP template system — not yet integrated
     pub fn new() -> Self {
         Self { batch_size: 1000 }
     }
 
     /// Creates a placer with a custom batch size.
+    #[allow(dead_code)] // reason: WIP template system — not yet integrated
     pub fn with_batch_size(batch_size: usize) -> Self {
         Self { batch_size }
     }
 
     /// Checks if a template requires frame-distributed placement.
     /// Returns true if the template has more than batch_size blocks.
+    #[allow(dead_code)] // reason: WIP template system — not yet integrated
     pub fn requires_distribution(&self, template: &VxtFile) -> bool {
         template.block_count() > self.batch_size
     }
 
     /// Gets the current batch of blocks to place this frame.
     /// Returns a slice of block indices [start..end] for this batch.
+    #[allow(dead_code)] // reason: WIP template system — not yet integrated
     pub fn get_batch_range(&self, placement: &TemplatePlacement) -> (usize, usize) {
         let start = placement.placement_progress;
         let end = (start + self.batch_size).min(placement.total_blocks);

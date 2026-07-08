@@ -22,7 +22,6 @@
 //! ```
 
 // Allow dead code since these methods are public API intended for future use
-#![allow(dead_code)]
 
 use nalgebra::Vector3;
 use std::collections::HashMap;
@@ -237,6 +236,7 @@ impl<T: FluidCell> FluidSyncOptimizer<T> {
     }
 
     /// Returns time remaining until the next broadcast is allowed.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn time_until_next_broadcast(&self) -> Duration {
         let elapsed = self.last_broadcast.elapsed().as_millis() as u64;
         if elapsed >= MIN_BROADCAST_INTERVAL_MS {
@@ -338,33 +338,39 @@ impl<T: FluidCell> FluidSyncOptimizer<T> {
     }
 
     /// Returns the number of pending updates waiting to be broadcast.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn pending_count(&self) -> usize {
         self.pending_updates.len()
     }
 
     /// Returns true if there are pending updates to send.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn has_pending_updates(&self) -> bool {
         !self.pending_updates.is_empty()
     }
 
     /// Returns optimization statistics for debugging.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn stats(&self) -> &FluidSyncStats {
         &self.stats
     }
 
     /// Resets optimization statistics.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn reset_stats(&mut self) {
         self.stats = FluidSyncStats::default();
     }
 
     /// Clears all pending updates and cached state.
     /// Call this when changing worlds or resetting simulation.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn clear(&mut self) {
         self.last_known_states.clear();
         self.pending_updates.clear();
     }
 
     /// Removes a cell from tracking (e.g. when a cell is permanently destroyed).
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn remove_cell(&mut self, position: Vector3<i32>) {
         let key = (position.x, position.y, position.z);
         self.last_known_states.remove(&key);
@@ -378,6 +384,7 @@ impl<T: FluidCell> FluidSyncOptimizer<T> {
     /// `SYNC_RADIUS` so cells near the boundary are retained across short
     /// player movements — otherwise a player pacing across the 1× line would
     /// repeatedly drop and re-cache the same cells every tick.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn prune_distant_states(&mut self, player_positions: &[[f32; 3]]) {
         // If no players are connected there is nobody to sync to, so drop the
         // entire cache rather than leaking indefinitely on a long-running

@@ -134,6 +134,7 @@ impl SubVoxelModel {
     /// Returns a mutable view of the 32-slot emission array, allocating the backing
     /// box on first call if the model was previously all-zero.
     #[inline]
+    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
     fn palette_emission_mut_array(&mut self) -> &mut [f32; PALETTE_SIZE] {
         self.palette_emission
             .get_or_insert_with(|| Box::new([0.0; PALETTE_SIZE]))
@@ -142,6 +143,7 @@ impl SubVoxelModel {
 
     /// Sets the emission intensity for a palette slot.
     /// Emission makes the color glow and emit light (0.0 = none, 1.0 = full).
+    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
     pub fn set_palette_emission(&mut self, palette_idx: usize, emission: f32) {
         if palette_idx < PALETTE_SIZE {
             let clamped = emission.clamp(0.0, 1.0);
@@ -162,6 +164,7 @@ impl SubVoxelModel {
     }
 
     /// Gets the emission intensity for a palette slot.
+    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
     pub fn get_palette_emission(&self, palette_idx: usize) -> f32 {
         if palette_idx < PALETTE_SIZE {
             self.palette_emission_slice()[palette_idx]
@@ -171,6 +174,7 @@ impl SubVoxelModel {
     }
 
     /// Configures this model as a light source.
+    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
     pub fn set_light_source(
         &mut self,
         enabled: bool,
@@ -185,16 +189,19 @@ impl SubVoxelModel {
     }
 
     /// Enables this model as a simple steady light source.
+    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
     pub fn enable_light(&mut self, radius: f32, intensity: f32) {
         self.set_light_source(true, LightMode::Steady, radius, intensity);
     }
 
     /// Enables this model as a flickering light source (torch/fire-like).
+    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
     pub fn enable_flickering_light(&mut self, radius: f32, intensity: f32) {
         self.set_light_source(true, LightMode::Flicker, radius, intensity);
     }
 
     /// Returns true if this model has any emissive palette entries.
+    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
     pub fn has_palette_emission(&self) -> bool {
         self.palette_emission
             .as_deref()
@@ -203,6 +210,7 @@ impl SubVoxelModel {
 
     /// Returns the dominant emission color from the palette.
     /// Used for light source color when is_light_source is enabled.
+    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
     pub fn dominant_emission_color(&self) -> Option<Color> {
         let arr = self.palette_emission.as_deref()?;
         let mut max_emission = 0.0f32;
@@ -518,40 +526,6 @@ impl SubVoxelModel {
         }
 
         None
-    }
-
-    /// Packs palette colors for GPU upload (128 bytes = 32 × RGBA).
-    pub fn pack_palette(&self) -> Vec<u8> {
-        let mut data = Vec::with_capacity(PALETTE_SIZE * 4);
-        for color in &self.palette {
-            data.extend_from_slice(&color.to_array());
-        }
-        data
-    }
-
-    /// Packs palette emission values for GPU upload (32 floats = 128 bytes).
-    pub fn pack_palette_emission(&self) -> Vec<u8> {
-        let mut data = Vec::with_capacity(PALETTE_SIZE * 4);
-        for &emission in self.palette_emission_slice() {
-            data.extend_from_slice(&emission.to_le_bytes());
-        }
-        data
-    }
-
-    /// Packs combined palette data for GPU upload (RGBA + emission per slot).
-    /// Format: 32 entries × 5 bytes (R, G, B, A, emission_u8)
-    pub fn pack_palette_combined(&self) -> Vec<u8> {
-        let mut data = Vec::with_capacity(PALETTE_SIZE * 5);
-        for (color, &emission) in self
-            .palette
-            .iter()
-            .zip(self.palette_emission_slice().iter())
-        {
-            data.extend_from_slice(&color.to_array());
-            // Pack emission as u8 (0-255, scaled from 0.0-1.0)
-            data.push((emission * 255.0) as u8);
-        }
-        data
     }
 
     /// Upscales the model to a higher resolution by subdividing each voxel.

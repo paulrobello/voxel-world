@@ -52,6 +52,7 @@ impl BlendMode {
     }
 
     /// Converts from u8 value.
+    #[allow(dead_code)] // reason: WIP paint system — not yet integrated
     pub fn from_u8(value: u8) -> Self {
         match value {
             0 => BlendMode::Multiply,
@@ -106,6 +107,7 @@ impl HsvAdjustment {
 
     /// Packs the HSV adjustment into a u32 for GPU upload.
     /// Format: hue_shift (10 bits, signed) | sat_mult (11 bits) | val_mult (11 bits)
+    #[allow(dead_code)] // reason: WIP paint system — not yet integrated
     pub fn pack(&self) -> u32 {
         // Hue: -180..180 -> 0..1023 (10 bits)
         let hue_normalized = ((self.hue_shift + 180.0) / 360.0 * 1023.0) as u32;
@@ -120,6 +122,7 @@ impl HsvAdjustment {
     }
 
     /// Unpacks a u32 back into HSV adjustment values.
+    #[allow(dead_code)] // reason: WIP paint system — not yet integrated
     pub fn unpack(packed: u32) -> Self {
         let hue_normalized = (packed & 0x3FF) as f32;
         let sat_normalized = ((packed >> 10) & 0x7FF) as f32;
@@ -183,6 +186,7 @@ impl PaintConfig {
     }
 
     /// Returns true if this config uses only basic settings (identity HSV, multiply blend).
+    #[allow(dead_code)] // reason: WIP paint system — not yet integrated
     pub fn is_basic(&self) -> bool {
         self.hsv.is_identity() && self.blend_mode == BlendMode::Multiply
     }

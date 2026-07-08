@@ -1,5 +1,4 @@
 //! Texture generator UI panel with tabs for Generate, Paint, and Import.
-#![allow(dead_code)] // Will be integrated into main UI later
 
 use crate::textures::{
     CanvasSize, CanvasState, CustomTexture, ImportState, PaintTool, ResizeMode, SampleFilter,
@@ -34,10 +33,13 @@ pub struct TextureGeneratorState {
     /// Selected slot for editing (None = new texture).
     pub selected_slot: Option<u8>,
     /// Preview texture ID for egui.
+    #[allow(dead_code)] // reason: WIP texture generator UI — not yet integrated
     pub preview_texture_id: Option<egui::TextureId>,
     /// Color picker state for color1.
+    #[allow(dead_code)] // reason: WIP texture generator UI — not yet integrated
     pub color1_picker_open: bool,
     /// Color picker state for color2.
+    #[allow(dead_code)] // reason: WIP texture generator UI — not yet integrated
     pub color2_picker_open: bool,
     /// Flag indicating custom textures need GPU sync.
     pub needs_gpu_sync: bool,
@@ -1518,11 +1520,13 @@ impl TextureGeneratorUI {
 }
 
 /// Quick texture picker for selecting custom textures.
+#[allow(dead_code)] // reason: WIP texture generator UI — not yet integrated
 pub struct TexturePickerUI;
 
 impl TexturePickerUI {
     /// Draws a texture picker dropdown.
     /// Returns Some(slot) if a texture was selected.
+    #[allow(dead_code)] // reason: WIP texture generator UI — not yet integrated
     pub fn draw(
         ui: &mut egui::Ui,
         library: &TextureLibrary,

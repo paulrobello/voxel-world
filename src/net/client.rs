@@ -3,7 +3,6 @@
 //! Provides a RenetClient wrapper with voxel-world specific functionality.
 
 // Allow unused code until networking is integrated into the game
-#![allow(dead_code)]
 
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -44,6 +43,7 @@ pub struct RemotePlayerInfo {
     /// Player ID.
     pub player_id: u64,
     /// Player name.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub name: String,
     /// Current position.
     pub position: [f32; 3],
@@ -102,6 +102,7 @@ impl GameClient {
     }
 
     /// Creates a client for localhost connection.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn localhost() -> Result<Self, String> {
         let auth = ClientAuth::localhost();
         let transport = auth.create_transport()?;
@@ -286,6 +287,7 @@ impl GameClient {
     }
 
     /// Requests chunks from the server.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn request_chunks(&mut self, positions: Vec<[i32; 3]>) {
         let msg = ClientMessage::RequestChunks(crate::net::protocol::RequestChunks { positions });
 
@@ -295,6 +297,7 @@ impl GameClient {
     }
 
     /// Sends a console command to the server.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn send_command(&mut self, command: String) {
         let msg = ClientMessage::ConsoleCommand(crate::net::protocol::ConsoleCommand { command });
 
@@ -355,6 +358,7 @@ impl GameClient {
     }
 
     /// Sends a bulk operation to the server.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn send_bulk_operation(&mut self, operation: BulkOperation) {
         let msg = ClientMessage::BulkOperation(operation);
 
@@ -383,6 +387,7 @@ impl GameClient {
 
     /// Sends a texture request to the server.
     /// The server will respond with TextureData for the requested slot.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn send_texture_request(&mut self, slot: u8) {
         use crate::net::protocol::RequestTexture;
         let msg = ClientMessage::RequestTexture(RequestTexture { slot });
@@ -443,6 +448,7 @@ impl GameClient {
     }
 
     /// Returns connection state.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn connection_state(&self) -> ConnectionState {
         self.connection.state()
     }
@@ -458,21 +464,25 @@ impl GameClient {
     }
 
     /// Returns the world seed (if received).
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn world_seed(&self) -> Option<u32> {
         self.world_seed
     }
 
     /// Returns the world generation type.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn world_gen(&self) -> Option<u8> {
         self.world_gen
     }
 
     /// Returns remote players.
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn remote_players(&self) -> &[RemotePlayerInfo] {
         &self.remote_players
     }
 
     /// Returns disconnect reason (if any).
+    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn disconnect_reason(&self) -> Option<&str> {
         self.connection.disconnect_reason()
     }

@@ -10,6 +10,7 @@ pub struct PictureUi {
     pub browser_open: bool,
 
     /// Currently selected picture ID (for frame placement).
+    #[allow(dead_code)] // reason: WIP picture system — not yet integrated
     pub selected_picture_id: Option<u32>,
 
     /// Cached picture list for display.

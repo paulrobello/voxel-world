@@ -3,7 +3,6 @@
 //! Press Y to open the paint customization panel.
 //! Provides HSV adjustment, blend modes, and preset management.
 //! Supports both standard atlas textures and custom textures from the texture generator.
-#![allow(dead_code)] // Many features will be used once paint panel is fully integrated
 
 use crate::paint::{
     BlendMode, HsvAdjustment, PaintConfig, PaintPreset, PaintPresetLibrary, apply_blend_mode,
@@ -96,6 +95,7 @@ impl TextureAtlasData {
     }
 
     /// Checks if a custom texture slot has data.
+    #[allow(dead_code)] // reason: WIP paint panel — not yet fully integrated
     pub fn has_custom_texture(&self, slot: u8) -> bool {
         (slot as usize) < MAX_CUSTOM_TEXTURES && self.custom_textures[slot as usize].is_some()
     }
@@ -148,12 +148,14 @@ pub struct PaintPanelState {
     /// Current paint configuration being edited.
     pub current_config: PaintConfig,
     /// Whether the paint panel is expanded.
+    #[allow(dead_code)] // reason: WIP paint panel — not yet fully integrated
     pub expanded: bool,
     /// Paint preset library.
     pub presets: PaintPresetLibrary,
     /// New preset name input.
     pub new_preset_name: String,
     /// Whether to show the preset save dialog.
+    #[allow(dead_code)] // reason: WIP paint panel — not yet fully integrated
     pub show_save_dialog: bool,
     /// Cached preview pixels (64×64 RGBA = 16,384 bytes).
     pub preview_pixels: Vec<u8>,
@@ -195,6 +197,7 @@ impl PaintPanelState {
     }
 
     /// Updates the paint config from external sources (hotbar, etc.).
+    #[allow(dead_code)] // reason: WIP paint panel — not yet fully integrated
     pub fn set_texture_and_tint(&mut self, texture_idx: u8, tint_idx: u8) {
         self.current_config.texture_idx = texture_idx;
         self.current_config.tint_idx = tint_idx;
@@ -325,6 +328,7 @@ impl PaintPanelUI {
 
     /// Draws the paint panel within a parent UI.
     /// Returns true if the paint config was changed.
+    #[allow(dead_code)] // reason: WIP paint panel — not yet fully integrated
     pub fn draw(
         ui: &mut egui::Ui,
         state: &mut PaintPanelState,
@@ -343,6 +347,7 @@ impl PaintPanelUI {
     }
 
     /// Draws the full paint panel (when in a dedicated window).
+    #[allow(dead_code)] // reason: WIP paint panel — not yet fully integrated
     pub fn draw_full(
         ui: &mut egui::Ui,
         state: &mut PaintPanelState,
