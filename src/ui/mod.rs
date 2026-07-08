@@ -105,64 +105,45 @@ pub struct FluidStats {
     pub lava_active: usize,
 }
 
-/// Bundles HUD inputs to avoid an oversized render signature.
-pub struct HudInputs<'a> {
-    pub fps: u32,
-    pub chunk_stats: &'a ChunkStats,
-    pub fluid_stats: FluidStats,
-    pub player: &'a mut Player,
-    pub world: &'a mut crate::world::World,
-    pub terrain_generator: &'a TerrainGenerator,
-    pub cave_generator: &'a crate::cave_gen::CaveGenerator,
-    pub settings: &'a mut Settings,
-    pub render_mode: &'a mut RenderMode,
-    pub current_hit: &'a Option<RaycastHit>,
-    pub selected_block: BlockType,
+/// Hotbar state passed into the HUD renderer.
+pub struct HotbarInputs<'a> {
     pub hotbar_index: &'a mut usize,
     pub hotbar_blocks: &'a mut [BlockType; 9],
     pub hotbar_model_ids: &'a mut [u8; 9],
     pub hotbar_tint_indices: &'a mut [u8; 9],
     pub hotbar_paint_textures: &'a mut [u8; 9],
+}
+
+/// Palette UI state passed into the HUD renderer.
+pub struct PaletteInputs<'a> {
+    pub palette_open: &'a mut bool,
+    pub palette_tab: &'a mut PaletteTab,
+    pub palette_search: &'a mut String,
+    pub dragging_item: &'a mut Option<PaletteItem>,
+}
+
+/// Minimap UI state passed into the HUD renderer.
+pub struct MinimapInputs<'a> {
     pub minimap_image: Option<egui::ColorImage>,
-    pub atlas_texture_id: egui::TextureId,
-    pub sprite_icons: Option<&'a SpriteIcons>,
+    pub show_minimap: &'a mut bool,
+    pub minimap: &'a mut Minimap,
+    pub minimap_cached_image: &'a mut Option<egui::ColorImage>,
+}
+
+/// Camera/viewport state passed into the HUD renderer.
+pub struct CameraInputs {
     pub camera_yaw: f32,
     pub camera_pitch: f32,
     pub camera_position: Vector3<f64>,
     pub camera_fov: f64,
     pub screen_extent: [f64; 2],
-    pub player_world_pos: Vector3<f64>,
-    pub time_of_day: &'a mut f32,
-    pub day_cycle_paused: &'a mut bool,
-    pub atmosphere: &'a mut crate::atmosphere::AtmosphereSettings,
-    pub view_distance: &'a mut i32,
-    pub load_distance: &'a mut i32,
-    pub unload_distance: &'a mut i32,
-    pub block_updates: &'a mut BlockUpdateQueue,
-    pub show_minimap: &'a mut bool,
-    pub minimap: &'a mut Minimap,
-    pub minimap_cached_image: &'a mut Option<egui::ColorImage>,
-    pub palette_open: &'a mut bool,
-    pub palette_tab: &'a mut PaletteTab,
-    pub palette_search: &'a mut String,
-    pub dragging_item: &'a mut Option<PaletteItem>,
-    pub model_registry: &'a ModelRegistry,
-    pub editor: &'a mut EditorState,
-    pub console: &'a mut ConsoleState,
-    pub template_selection: &'a mut crate::templates::TemplateSelection,
-    pub template_library: &'a crate::templates::TemplateLibrary,
-    pub stencil_library: &'a crate::stencils::StencilLibrary,
-    pub stencil_manager: &'a mut crate::stencils::StencilManager,
-    pub water_grid: &'a mut crate::water::WaterGrid,
-    pub lava_grid: &'a mut crate::lava::LavaGrid,
-    pub picture_library: &'a crate::pictures::PictureLibrary,
-    pub active_placement: &'a mut Option<crate::templates::TemplatePlacement>,
-    pub active_stencil_placement: &'a mut Option<crate::stencils::StencilPlacementMode>,
-    pub rangefinder_active: bool,
-    pub flood_fill_active: bool,
-    pub measurement_markers: &'a mut Vec<Vector3<i32>>,
+}
+
+/// Shape tool state passed into the HUD renderer.
+pub struct ShapeToolInputs<'a> {
     pub tools_palette: &'a mut ToolsPaletteState,
     pub stencil_browser_open: bool,
+    pub has_selection: bool,
     pub sphere_tool: &'a mut crate::shape_tools::SphereToolState,
     pub cube_tool: &'a mut crate::shape_tools::CubeToolState,
     pub bridge_tool: &'a mut crate::shape_tools::BridgeToolState,
@@ -184,8 +165,10 @@ pub struct HudInputs<'a> {
     pub scatter_tool: &'a mut crate::shape_tools::ScatterToolState,
     pub hollow_tool: &'a mut crate::shape_tools::HollowToolState,
     pub terrain_brush: &'a mut crate::shape_tools::TerrainBrushState,
-    pub has_selection: bool,
-    // Multiplayer fields
+}
+
+/// Multiplayer overlay state passed into the HUD renderer.
+pub struct MultiplayerInputs<'a> {
     pub multiplayer_panel: &'a mut crate::ui::multiplayer::MultiplayerPanelState,
     pub game_mode: GameMode,
     pub is_connected: bool,
@@ -202,6 +185,55 @@ pub struct HudInputs<'a> {
     pub chat_history: &'a [multiplayer::ChatEntry],
     /// Time remaining to show chat overlay (None = hidden).
     pub chat_display_timer: Option<f32>,
+}
+
+/// Bundles HUD inputs to avoid an oversized render signature.
+///
+/// Cohesive field groups are factored into the sub-structs above (`HotbarInputs`,
+/// `PaletteInputs`, etc.); fields without a natural group remain direct.
+pub struct HudInputs<'a> {
+    pub fps: u32,
+    pub chunk_stats: &'a ChunkStats,
+    pub fluid_stats: FluidStats,
+    pub player: &'a mut Player,
+    pub world: &'a mut crate::world::World,
+    pub terrain_generator: &'a TerrainGenerator,
+    pub cave_generator: &'a crate::cave_gen::CaveGenerator,
+    pub settings: &'a mut Settings,
+    pub render_mode: &'a mut RenderMode,
+    pub current_hit: &'a Option<RaycastHit>,
+    pub selected_block: BlockType,
+    pub hotbar: HotbarInputs<'a>,
+    pub atlas_texture_id: egui::TextureId,
+    pub sprite_icons: Option<&'a SpriteIcons>,
+    pub camera: CameraInputs,
+    pub player_world_pos: Vector3<f64>,
+    pub time_of_day: &'a mut f32,
+    pub day_cycle_paused: &'a mut bool,
+    pub atmosphere: &'a mut crate::atmosphere::AtmosphereSettings,
+    pub view_distance: &'a mut i32,
+    pub load_distance: &'a mut i32,
+    pub unload_distance: &'a mut i32,
+    pub block_updates: &'a mut BlockUpdateQueue,
+    pub minimap: MinimapInputs<'a>,
+    pub palette: PaletteInputs<'a>,
+    pub model_registry: &'a ModelRegistry,
+    pub editor: &'a mut EditorState,
+    pub console: &'a mut ConsoleState,
+    pub template_selection: &'a mut crate::templates::TemplateSelection,
+    pub template_library: &'a crate::templates::TemplateLibrary,
+    pub stencil_library: &'a crate::stencils::StencilLibrary,
+    pub stencil_manager: &'a mut crate::stencils::StencilManager,
+    pub water_grid: &'a mut crate::water::WaterGrid,
+    pub lava_grid: &'a mut crate::lava::LavaGrid,
+    pub picture_library: &'a crate::pictures::PictureLibrary,
+    pub active_placement: &'a mut Option<crate::templates::TemplatePlacement>,
+    pub active_stencil_placement: &'a mut Option<crate::stencils::StencilPlacementMode>,
+    pub rangefinder_active: bool,
+    pub flood_fill_active: bool,
+    pub measurement_markers: &'a mut Vec<Vector3<i32>>,
+    pub shape_tools: ShapeToolInputs<'a>,
+    pub multiplayer: MultiplayerInputs<'a>,
     /// Author name used when saving templates and stencils (from UserPreferences).
     pub author: &'a str,
 }
@@ -226,19 +258,10 @@ impl HUDRenderer {
             render_mode,
             current_hit,
             selected_block,
-            hotbar_index,
-            hotbar_blocks,
-            hotbar_model_ids,
-            hotbar_tint_indices,
-            hotbar_paint_textures,
-            minimap_image,
+            hotbar,
             atlas_texture_id,
             sprite_icons,
-            camera_yaw,
-            camera_pitch,
-            camera_position,
-            camera_fov,
-            screen_extent,
+            camera,
             player_world_pos,
             time_of_day,
             day_cycle_paused,
@@ -247,13 +270,8 @@ impl HUDRenderer {
             load_distance,
             unload_distance,
             block_updates,
-            show_minimap,
             minimap,
-            minimap_cached_image,
-            palette_open,
-            palette_tab,
-            palette_search,
-            dragging_item,
+            palette,
             model_registry,
             editor,
             console,
@@ -269,8 +287,43 @@ impl HUDRenderer {
             rangefinder_active,
             flood_fill_active,
             measurement_markers,
+            shape_tools,
+            multiplayer,
+            author,
+        } = input;
+
+        // Decompose the grouped sub-structs so the body below can use the
+        // original field names without churn.
+        let HotbarInputs {
+            hotbar_index,
+            hotbar_blocks,
+            hotbar_model_ids,
+            hotbar_tint_indices,
+            hotbar_paint_textures,
+        } = hotbar;
+        let PaletteInputs {
+            palette_open,
+            palette_tab,
+            palette_search,
+            dragging_item,
+        } = palette;
+        let MinimapInputs {
+            minimap_image,
+            show_minimap,
+            minimap,
+            minimap_cached_image,
+        } = minimap;
+        let CameraInputs {
+            camera_yaw,
+            camera_pitch,
+            camera_position,
+            camera_fov,
+            screen_extent,
+        } = camera;
+        let ShapeToolInputs {
             tools_palette,
             stencil_browser_open,
+            has_selection,
             sphere_tool,
             cube_tool,
             bridge_tool,
@@ -292,7 +345,8 @@ impl HUDRenderer {
             scatter_tool,
             hollow_tool,
             terrain_brush,
-            has_selection,
+        } = shape_tools;
+        let MultiplayerInputs {
             multiplayer_panel,
             game_mode,
             is_connected,
@@ -305,8 +359,7 @@ impl HUDRenderer {
             remote_player_labels,
             chat_history,
             chat_display_timer,
-            author,
-        } = input;
+        } = multiplayer;
         let mut scale_changed = false;
         let mut editor_action = EditorAction::None;
         let mut tool_action = ToolAction::None;
