@@ -95,6 +95,12 @@ fn main() {
     )
     .init();
 
+    #[cfg(feature = "threaded-server")]
+    log::warn!(
+        "[Security] Built with --features threaded-server: anti-cheat validation is STUBBED. \
+         Do not run this build on an untrusted network."
+    );
+
     let event_loop = EventLoop::new().unwrap();
     let mut app = App::new(&event_loop);
 
