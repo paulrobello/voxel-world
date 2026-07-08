@@ -470,8 +470,12 @@ impl App {
                 .feet_pos(self.sim.world_extent, self.sim.texture_origin)
                 .map(|c| c.floor() as i32);
             let world = &self.sim.world;
-            let is_solid =
-                |pos: Vector3<i32>| world.get_block(pos).map(|b| b.is_solid()).unwrap_or(true);
+            let is_solid = |pos: Vector3<i32>| {
+                world
+                    .get_block(pos)
+                    .map(|b| b.stops_fluid())
+                    .unwrap_or(true)
+            };
             let is_out_of_bounds = |pos: Vector3<i32>| world.get_block(pos).is_none();
             let has_world_water = |pos: Vector3<i32>| {
                 world

@@ -605,13 +605,13 @@ impl<'a> BlockInteractionContext<'a> {
             .sim
             .world
             .get_block(place_pos + left_offset)
-            .map(|b| b.is_solid())
+            .map(|b| b.blocks_movement())
             .unwrap_or(false);
         let right_solid = self
             .sim
             .world
             .get_block(place_pos + right_offset)
-            .map(|b| b.is_solid())
+            .map(|b| b.blocks_movement())
             .unwrap_or(false);
 
         let hinge_left = !right_solid || left_solid;
@@ -820,7 +820,7 @@ impl<'a> BlockInteractionContext<'a> {
         } else {
             self.sim.world.set_block(place_pos, block_to_place);
 
-            if block_to_place.is_solid() {
+            if block_to_place.connects_to_fences() {
                 self.sim.world.update_fence_connections(place_pos);
                 self.sim.world.update_pane_connections(place_pos);
             }

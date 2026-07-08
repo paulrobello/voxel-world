@@ -199,7 +199,7 @@ impl FallingBlockSync {
             }
             world
                 .get_block(Vector3::new(x, y, z))
-                .is_some_and(|b| b.is_solid())
+                .is_some_and(|b| b.blocks_movement())
         });
 
         // Process landed blocks - generate land messages using the entity id

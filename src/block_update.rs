@@ -428,7 +428,7 @@ impl BlockUpdateQueue {
         {
             let below = pos - Vector3::new(0, 1, 0);
             let has_support = if let Some(block_below) = world.get_block(below) {
-                block_below.is_solid()
+                block_below.provides_support()
                     || (block_below == BlockType::Model
                         && world
                             .get_model_data(below)

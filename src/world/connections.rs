@@ -64,7 +64,7 @@ impl World {
                     }
                 }
                 // Solid blocks also connect to fences
-                b if b.is_solid() => true,
+                b if b.connects_to_fences() => true,
                 _ => false,
             }
         } else {
@@ -155,7 +155,7 @@ impl World {
                     }
                 }
                 // Solid blocks also connect to windows
-                b if b.is_solid() => true,
+                b if b.connects_to_fences() => true,
                 // Glass blocks connect too
                 BlockType::Glass | BlockType::TintedGlass => true,
                 _ => false,

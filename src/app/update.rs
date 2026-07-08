@@ -665,7 +665,7 @@ impl App {
             // Check if block is solid - world.get_block handles infinite X/Z
             world
                 .get_block(Vector3::new(x, y, z))
-                .is_some_and(|b| b.is_solid())
+                .is_some_and(|b| b.blocks_movement())
         });
 
         // Update falling blocks with world collision
@@ -701,7 +701,7 @@ impl App {
                     // Check if block is solid - world.get_block handles infinite X/Z
                     world
                         .get_block(Vector3::new(x, y, z))
-                        .is_some_and(|b| b.is_solid())
+                        .is_some_and(|b| b.blocks_movement())
                 });
                 landed.extend(step_landed);
             }

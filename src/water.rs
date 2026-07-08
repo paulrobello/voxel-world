@@ -1476,7 +1476,10 @@ impl WaterGrid {
             if pos.y < 0 || pos.y >= texture_height {
                 return true;
             }
-            world.get_block(pos).map(|b| b.is_solid()).unwrap_or(true)
+            world
+                .get_block(pos)
+                .map(|b| b.stops_fluid())
+                .unwrap_or(true)
         };
 
         let is_out_of_bounds = |pos: Vector3<i32>| -> bool { pos.y < 0 };

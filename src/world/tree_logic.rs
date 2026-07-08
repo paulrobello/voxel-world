@@ -162,7 +162,7 @@ impl World {
                 if let Some(below_block) = self.get_block(below_pos) {
                     // Supported if block below is solid and NOT part of the tree
                     // (leaves don't count as support either!)
-                    if below_block.is_solid() && !below_block.is_tree_part() {
+                    if below_block.provides_support() && !below_block.is_tree_part() {
                         return true;
                     }
                 }

@@ -691,7 +691,7 @@ impl LavaGrid {
             }
             world
                 .get_block(pos)
-                .map(|b| b.is_solid() && b != BlockType::Lava)
+                .map(|b| b.stops_fluid() && b != BlockType::Lava)
                 .unwrap_or(true)
         };
 

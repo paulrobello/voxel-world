@@ -25,7 +25,7 @@ pub fn generate_birch(
     // Check if there's solid ground below
     for check_y in (y.saturating_sub(2))..=y {
         if let Some(block) = get_block_safe(chunk, x, check_y, z) {
-            if !block.is_solid() {
+            if !block.is_buildable_ground() {
                 return;
             }
         } else {

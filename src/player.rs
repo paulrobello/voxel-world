@@ -689,7 +689,7 @@ impl Player {
                 for bz in min_z..=max_z {
                     let world_pos = Vector3::new(bx, by, bz);
                     if let Some(block_type) = world.get_block(world_pos) {
-                        if block_type.is_solid() {
+                        if block_type.blocks_movement() {
                             let block_min = Vector3::new(bx as f64, by as f64, bz as f64);
                             let block_max = block_min + Vector3::new(1.0, 1.0, 1.0);
                             if player_min.x < block_max.x

@@ -19,7 +19,7 @@ pub fn generate_dead_tree(
     // Check if there's solid ground below (ice counts as solid for snow biome trees)
     for check_y in (y.saturating_sub(2))..=y {
         if let Some(block) = get_block_safe(chunk, x, check_y, z) {
-            if !block.is_solid() && block != BlockType::Ice {
+            if !block.is_buildable_ground() && block != BlockType::Ice {
                 return;
             }
         } else {
@@ -197,7 +197,7 @@ pub fn generate_snow_pine(
     // Check if there's solid ground below (ice counts as solid for snow biome trees)
     for check_y in (y.saturating_sub(2))..=y {
         if let Some(block) = get_block_safe(chunk, x, check_y, z) {
-            if !block.is_solid() && block != BlockType::Ice {
+            if !block.is_buildable_ground() && block != BlockType::Ice {
                 return;
             }
         } else {

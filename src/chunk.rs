@@ -429,6 +429,11 @@ impl BlockType {
 
     /// Returns true if this block type is solid (not air, water, glass, or model blocks).
     /// Note: Model blocks may have sub-voxel collision, but are not solid at block level.
+    ///
+    /// This is the legacy catch-all predicate. Call sites with a specific role should
+    /// prefer one of `blocks_movement`, `stops_fluid`, `provides_support`,
+    /// `connects_to_fences`, or `is_buildable_ground` so the intent is explicit and
+    /// future block additions can diverge per-role without touching every call site.
     #[inline]
     pub fn is_solid(self) -> bool {
         !matches!(
@@ -441,6 +446,62 @@ impl BlockType {
                 | BlockType::Lava
                 | BlockType::Ice
         )
+    }
+
+    /// Returns true if this block stops entity movement (player, falling block,
+    /// particle) or a raycast used for placement/breaking.
+    ///
+    /// Role: collision. Fluids, air, glass, tinted glass, ice, and Model blocks
+    /// are passable; everything else stops movement. Truth table currently
+    /// matches `is_solid` (the audit's "glass should block movement" item is a
+    /// separate behavior change outside PHY-005's scope).
+    #[inline]
+    pub fn blocks_movement(self) -> bool {
+        self.is_solid()
+    }
+
+    /// Returns true if this block stops water/lava from flowing into its cell.
+    ///
+    /// Role: fluid-simulation barrier. Fluids flow through air, other fluids,
+    /// glass, tinted glass, ice, and Model blocks; everything else blocks flow.
+    /// Truth table currently matches `is_solid`.
+    #[inline]
+    pub fn stops_fluid(self) -> bool {
+        self.is_solid()
+    }
+
+    /// Returns true if this block can hold up an adjacent block above it.
+    ///
+    /// Role: structural support — used by Model ground-support checks
+    /// (`block_update`) and tree ground-support checks (`tree_logic`).
+    /// Fluids, air, glass, tinted glass, ice, and Model blocks do not provide
+    /// support; solids (including logs and leaves) do. Truth table currently
+    /// matches `is_solid`.
+    #[inline]
+    pub fn provides_support(self) -> bool {
+        self.is_solid()
+    }
+
+    /// Returns true if this block causes a fence, wall, or glass pane to render
+    /// a connection post against it.
+    ///
+    /// Role: fence/pane connection. Glass and tinted glass do NOT connect via
+    /// this predicate; `is_window_connectable` adds them separately for panes.
+    /// Truth table currently matches `is_solid`.
+    #[inline]
+    pub fn connects_to_fences(self) -> bool {
+        self.is_solid()
+    }
+
+    /// Returns true if this block counts as ground that a tree can root into
+    /// during world generation.
+    ///
+    /// Role: tree-generation ground detection. Snow-biome trees additionally
+    /// accept Ice, handled at the call site via an explicit `!= Ice` check.
+    /// Truth table currently matches `is_solid`.
+    #[inline]
+    pub fn is_buildable_ground(self) -> bool {
+        self.is_solid()
     }
 
     /// Returns true if this block can be targeted by raycast for breaking/interaction.
@@ -1828,5 +1889,214 @@ mod tests {
             0,
             "GlowStone -> Water via setter must decrement light_block_count"
         );
+    }
+
+    // ---- PHY-005: role-specific predicate truth tables ----
+    //
+    // Each predicate currently delegates to `is_solid`, so the truth tables
+    // match. These tests document each role's contract so a future block
+    // addition (or a deliberate per-role divergence) cannot silently change
+    // one role while leaving the others untouched.
+
+    /// Representative block set spanning every is_solid category:
+    /// passable (Air, Water, Lava, Glass, TintedGlass, Ice, Model),
+    /// solids (Stone, Dirt, Sand, Gravel, Mud), and tree parts that ARE
+    /// solid (Log, PineLog, Leaves, PineLeaves). PackedIce is solid; Ice is
+    /// not. Painted is solid.
+    fn role_test_set() -> &'static [(BlockType, bool)] {
+        &[
+            // --- passable (is_solid == false) ---
+            (BlockType::Air, false),
+            (BlockType::Water, false),
+            (BlockType::Lava, false),
+            (BlockType::Glass, false),
+            (BlockType::TintedGlass, false),
+            (BlockType::Ice, false),
+            (BlockType::Model, false),
+            // --- solid (is_solid == true) ---
+            (BlockType::Stone, true),
+            (BlockType::Dirt, true),
+            (BlockType::Grass, true),
+            (BlockType::Sand, true),
+            (BlockType::Gravel, true),
+            (BlockType::Mud, true),
+            (BlockType::PackedIce, true),
+            (BlockType::Painted, true),
+            // --- tree parts (solid per is_solid) ---
+            (BlockType::Log, true),
+            (BlockType::PineLog, true),
+            (BlockType::Leaves, true),
+            (BlockType::PineLeaves, true),
+        ]
+    }
+
+    #[test]
+    fn test_blocks_movement_truth_table() {
+        for &(block, expected) in role_test_set() {
+            assert_eq!(
+                block.blocks_movement(),
+                expected,
+                "blocks_movement({:?}) should be {}",
+                block,
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn test_stops_fluid_truth_table() {
+        for &(block, expected) in role_test_set() {
+            assert_eq!(
+                block.stops_fluid(),
+                expected,
+                "stops_fluid({:?}) should be {}",
+                block,
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn test_provides_support_truth_table() {
+        for &(block, expected) in role_test_set() {
+            assert_eq!(
+                block.provides_support(),
+                expected,
+                "provides_support({:?}) should be {}",
+                block,
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn test_connects_to_fences_truth_table() {
+        for &(block, expected) in role_test_set() {
+            assert_eq!(
+                block.connects_to_fences(),
+                expected,
+                "connects_to_fences({:?}) should be {}",
+                block,
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn test_is_buildable_ground_truth_table() {
+        for &(block, expected) in role_test_set() {
+            assert_eq!(
+                block.is_buildable_ground(),
+                expected,
+                "is_buildable_ground({:?}) should be {}",
+                block,
+                expected
+            );
+        }
+    }
+
+    // ---- Role-specific contract tests reflecting real call sites ----
+
+    #[test]
+    fn test_blocks_movement_falling_block_lands_on_stone_not_water() {
+        // Mirrors falling_block.rs collision: a falling block stops on stone
+        // but would keep falling through water (entities pass through fluids).
+        assert!(
+            BlockType::Stone.blocks_movement(),
+            "falling block must stop on Stone"
+        );
+        assert!(
+            !BlockType::Water.blocks_movement(),
+            "falling block must pass through Water"
+        );
+        assert!(
+            !BlockType::Air.blocks_movement(),
+            "falling block must fall through Air"
+        );
+    }
+
+    #[test]
+    fn test_stops_fluid_water_spreads_into_air_blocked_by_stone() {
+        // Mirrors water.rs calculate_flow: `!stops_fluid(below)` gates whether
+        // water flows down into a cell. Water spreads into Air, not into Stone.
+        assert!(!BlockType::Air.stops_fluid(), "water must flow into Air");
+        assert!(
+            BlockType::Stone.stops_fluid(),
+            "water must be blocked by Stone"
+        );
+        assert!(
+            !BlockType::Water.stops_fluid(),
+            "water must merge into Water (no self-block)"
+        );
+    }
+
+    #[test]
+    fn test_provides_support_model_and_tree_ground() {
+        // Mirrors block_update.rs Model ground-support check and
+        // tree_logic.rs `tree_has_ground_support`. A Model block above Stone
+        // has support; above Air it does not.
+        assert!(
+            BlockType::Stone.provides_support(),
+            "Stone must provide ground support"
+        );
+        assert!(
+            !BlockType::Air.provides_support(),
+            "Air must not provide ground support"
+        );
+        assert!(
+            !BlockType::Water.provides_support(),
+            "Water must not provide ground support"
+        );
+    }
+
+    #[test]
+    fn test_connects_to_fences_fence_attach_to_stone_not_air() {
+        // Mirrors connections.rs `is_fence_connectable`. A fence renders a
+        // connection post toward Stone but not toward Air or Glass.
+        assert!(
+            BlockType::Stone.connects_to_fences(),
+            "fence must connect to Stone"
+        );
+        assert!(
+            !BlockType::Air.connects_to_fences(),
+            "fence must not connect to Air"
+        );
+        assert!(
+            !BlockType::Glass.connects_to_fences(),
+            "fence must not connect to Glass (panes handle Glass separately)"
+        );
+    }
+
+    #[test]
+    fn test_is_buildable_ground_tree_roots_on_stone_not_air() {
+        // Mirrors world_gen/trees/oak.rs `!block.is_buildable_ground()` guard:
+        // a tree aborts placement if any block in the root column is non-solid.
+        assert!(
+            BlockType::Stone.is_buildable_ground(),
+            "tree must root on Stone"
+        );
+        assert!(
+            !BlockType::Air.is_buildable_ground(),
+            "tree must not root on Air"
+        );
+        assert!(
+            !BlockType::Water.is_buildable_ground(),
+            "tree must not root on Water"
+        );
+    }
+
+    #[test]
+    fn test_predicates_match_is_solid_for_role_test_set() {
+        // PHY-005 invariant: every repointed predicate currently has the same
+        // truth table as `is_solid`. If this test fails, a predicate diverged
+        // — confirm the divergence is intended and update the per-predicate
+        // truth-table test above, not this one.
+        for &(block, _) in role_test_set() {
+            assert_eq!(block.blocks_movement(), block.is_solid(), "{:?}", block);
+            assert_eq!(block.stops_fluid(), block.is_solid(), "{:?}", block);
+            assert_eq!(block.provides_support(), block.is_solid(), "{:?}", block);
+            assert_eq!(block.connects_to_fences(), block.is_solid(), "{:?}", block);
+            assert_eq!(block.is_buildable_ground(), block.is_solid(), "{:?}", block);
+        }
     }
 }
