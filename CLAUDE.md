@@ -352,6 +352,8 @@ Models support three resolutions (8³, 16³, 32³) with 32-color palettes and pe
 - 110-118: Additional vegetation (moss carpet, glow lichen, roots, fern, dead bush, seagrass, blue flower)
 - 119-134: Horizontal glass panes (16 connection variants)
 - 135-150: Vertical glass panes (16 connection variants, rotatable)
+- 151-159: Reserved (empty placeholder models named `reserved_<id>`, kept so frame IDs start at 160)
+- 160-175: Picture frames (16 edge-mask variants; `model_id = 160 + edge_mask`, bits: 0=left, 1=right, 2=bottom, 3=top; set=border present)
 - 176+: Custom user models
 
 **Adding built-in models:** Edit `src/sub_voxel/builtins/mod.rs`, call `create_*()` functions in `register_builtins()`.
