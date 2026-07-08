@@ -159,6 +159,13 @@ impl<'a> NetworkSyncContext<'a> {
                 }
             }
 
+            // Recompute neighborhood-derived state (fence/gate/window/pane
+            // connection bits and stair shapes) for this position and its
+            // horizontal neighbors — the host recomputes these after a local
+            // edit but only the raw block is broadcast, so receivers must
+            // re-derive them locally (SYNC-006).
+            self.sim.world.recompute_derived_state_at(pos);
+
             self.sim.world.invalidate_minimap_cache(pos.x, pos.z);
 
             if block_type == BlockType::Air || block_type == BlockType::Water {

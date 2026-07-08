@@ -889,3 +889,95 @@ fn test_floor_ceiling_stairs_dont_mix() {
         "Ceiling stair should stay straight when neighbor is floor stair"
     );
 }
+
+// ============================================================================
+// SYNC-006: receivers must recompute neighborhood-derived connection state
+// (fence/gate/window/pane connection bits, stair shapes) after each remotely
+// applied block change. The host only broadcasts the raw block, not the
+// derived state of the changed position's neighbors. These tests exercise
+// `World::recompute_derived_state_at`, which `apply_remote_block_changes`
+// calls after each block write — the same set of `update_*` calls the host
+// break path in `block_interaction/mod.rs` performs.
+// ============================================================================
+
+#[test]
+fn test_recompute_derived_state_connects_fence_run() {
+    // Fence connection bitmask: N=1, S=2, E=4, W=8. Model id = 4 + connections.
+    use crate::sub_voxel::ModelRegistry;
+
+    let mut world = World::new();
+
+    // Host places a lone fence at (0,0,0) — no neighbors, no connections.
+    let lone = ModelRegistry::fence_model_id(0);
+    world.set_model_block(vector![0, 0, 0], lone, 0, false);
+    world.recompute_derived_state_at(vector![0, 0, 0]);
+    assert_eq!(
+        world.get_model_data(vector![0, 0, 0]).unwrap().model_id,
+        lone,
+        "lone fence should have no connections"
+    );
+
+    // Host places an adjacent fence at (1,0,0). The host computes that fence's
+    // own connections (connects west) and broadcasts model id 4+W=8 -> 12, but
+    // it does NOT rebroadcast (0,0,0)'s now-stale model id. The receiver must
+    // re-derive (0,0,0)'s east connection locally.
+    let connected_west = ModelRegistry::fence_model_id(8); // W=8
+    world.set_model_block(vector![1, 0, 0], connected_west, 0, false);
+    world.recompute_derived_state_at(vector![1, 0, 0]);
+
+    // (0,0,0) should now reflect the east connection to (1,0,0).
+    let east = ModelRegistry::fence_model_id(4); // E=4
+    assert_eq!(
+        world.get_model_data(vector![0, 0, 0]).unwrap().model_id,
+        east,
+        "existing fence should pick up east connection after neighbor placed (SYNC-006)"
+    );
+    // The just-placed fence keeps the model id the host sent.
+    assert_eq!(
+        world.get_model_data(vector![1, 0, 0]).unwrap().model_id,
+        connected_west,
+        "newly applied fence keeps its host-computed model id"
+    );
+}
+
+#[test]
+fn test_recompute_derived_state_updates_when_neighbor_removed() {
+    use crate::sub_voxel::ModelRegistry;
+
+    let mut world = World::new();
+
+    // Build a two-fence run: (10,0,0) <-> (11,0,0).
+    world.set_model_block(
+        vector![10, 0, 0],
+        ModelRegistry::fence_model_id(0),
+        0,
+        false,
+    );
+    world.recompute_derived_state_at(vector![10, 0, 0]);
+    world.set_model_block(
+        vector![11, 0, 0],
+        ModelRegistry::fence_model_id(8), // host: connects west
+        0,
+        false,
+    );
+    world.recompute_derived_state_at(vector![11, 0, 0]);
+
+    let east = ModelRegistry::fence_model_id(4); // (10,0,0) connects east
+    assert_eq!(
+        world.get_model_data(vector![10, 0, 0]).unwrap().model_id,
+        east,
+        "fence should be connected after neighbor placed"
+    );
+
+    // Host removes the adjacent fence: broadcasts Air at (11,0,0). Receiver
+    // must drop (10,0,0)'s east connection.
+    world.set_block(vector![11, 0, 0], crate::chunk::BlockType::Air);
+    world.recompute_derived_state_at(vector![11, 0, 0]);
+
+    let lone = ModelRegistry::fence_model_id(0);
+    assert_eq!(
+        world.get_model_data(vector![10, 0, 0]).unwrap().model_id,
+        lone,
+        "fence should lose connection after neighbor removed (SYNC-006)"
+    );
+}

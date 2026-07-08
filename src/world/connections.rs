@@ -341,6 +341,22 @@ impl World {
         self.update_vertical_pane_connections(center_pos);
     }
 
+    /// Recomputes all neighborhood-derived block state for the given position
+    /// and its horizontal neighbors after a remote block change (SYNC-006).
+    ///
+    /// Each `update_*` call walks the 4 horizontal neighbors of `pos` (panes
+    /// also walk up/down) and re-derives connection bits / stair shapes from
+    /// the live world, so this covers `pos` plus every position the host
+    /// recomputes after a local edit. Mirrors the host-side break path in
+    /// `block_interaction/mod.rs`. Cheap to call unconditionally: the inner
+    /// helpers no-op for block types that carry no derived state.
+    pub fn recompute_derived_state_at(&mut self, pos: Vector3<i32>) {
+        self.update_fence_connections(pos);
+        self.update_window_connections(pos);
+        self.update_pane_connections(pos);
+        self.update_adjacent_stair_shapes(pos);
+    }
+
     // ========================================================================
     // PICTURE FRAME AUTO-SIZING
     // ========================================================================
