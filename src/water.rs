@@ -16,6 +16,7 @@
 
 use crate::chunk::WaterType;
 use crate::constants::ORTHO_DIRS;
+use crate::fluid::is_within_radius_sq;
 use nalgebra::Vector3;
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
@@ -57,15 +58,6 @@ const PRUNE_THRESHOLD: usize = 2048;
 /// Number of Y-layer buckets for bucket sort optimization.
 /// Covers Y coordinates 0-511 (world height).
 const Y_BUCKET_COUNT: usize = 512;
-
-/// Checks if a block position is within a squared radius of a player position.
-#[inline]
-fn is_within_radius_sq(pos: &Vector3<i32>, player_pos: &Vector3<f32>, radius_sq: f32) -> bool {
-    let dx = pos.x as f32 - player_pos.x;
-    let dy = pos.y as f32 - player_pos.y;
-    let dz = pos.z as f32 - player_pos.z;
-    dx * dx + dy * dy + dz * dz <= radius_sq
-}
 
 /// Profiling statistics for water simulation performance.
 #[derive(Debug, Clone, Default)]
@@ -1389,7 +1381,7 @@ impl WaterGrid {
             }
         }
         if !nearby_masses.is_empty() {
-            nearby_masses.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            nearby_masses.sort_by(|a, b| a.total_cmp(b)); // NaN-safe total ordering
             let min = nearby_masses.first().unwrap();
             let max = nearby_masses.last().unwrap();
             let sum: f32 = nearby_masses.iter().sum();

@@ -49,6 +49,7 @@ mod console;
 mod constants;
 mod editor;
 mod falling_block;
+mod fluid;
 mod gpu;
 mod gpu_error;
 mod hot_reload;

@@ -7,6 +7,7 @@
 
 use crate::chunk::BlockType;
 use crate::constants::ORTHO_DIRS;
+use crate::fluid::is_within_radius_sq;
 use nalgebra::Vector3;
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
@@ -33,15 +34,6 @@ pub const DEFAULT_SIMULATION_RADIUS: f32 = 48.0;
 /// Lava is slower than water, so use a longer interval.
 /// 100ms = 10 ticks/second
 pub const DEFAULT_TICK_INTERVAL_MS: u64 = 100;
-
-/// Checks if a block position is within a squared radius of a player position.
-#[inline]
-fn is_within_radius_sq(pos: &Vector3<i32>, player_pos: &Vector3<f32>, radius_sq: f32) -> bool {
-    let dx = pos.x as f32 - player_pos.x;
-    let dy = pos.y as f32 - player_pos.y;
-    let dz = pos.z as f32 - player_pos.z;
-    dx * dx + dy * dy + dz * dz <= radius_sq
-}
 
 /// A single lava cell with mass and properties.
 #[derive(Debug, Clone, Copy)]
