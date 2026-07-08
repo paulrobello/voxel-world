@@ -444,6 +444,22 @@ impl App {
                 // Clear the chunk sync state so we request fresh chunks
                 self.multiplayer.chunk_sync.clear_received();
 
+                // STOR-005: a pure client's saves go to a per-server cache dir
+                // so edits made on server A never collide with edits on server
+                // B. Done before `set_world_seed` (which rebuilds the chunk
+                // loader against `sim.world_dir`) so reconnect reads prior
+                // edits from the cache dir. Host loopback is excluded — its
+                // saves stay on the local world dir unchanged.
+                if self.multiplayer.is_client()
+                    && let Some(addr) = self.multiplayer.server_address
+                {
+                    let cache_dir = crate::user_prefs::remote_cache_dir_in(
+                        &crate::user_prefs::worlds_dir(),
+                        &addr.to_string(),
+                    );
+                    self.sim.enter_remote_client_mode(cache_dir);
+                }
+
                 // Update world seed and clear local world. This also resets
                 // `sim.player_modified`; arming `remote_client` here arms the
                 // STOR-004 client-save gate so the downloaded server world does

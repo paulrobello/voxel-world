@@ -312,6 +312,44 @@ impl WorldSim {
         self.save_metadata(measurement_markers);
     }
 
+    /// Redirects subsequent saves to a per-server cache directory (STOR-005).
+    ///
+    /// Called once when a pure client applies the server's seed. Swaps both
+    /// [`WorldSim::world_dir`] and [`WorldSim::storage`] so every save path
+    /// (`save_metadata` / `save_all` / `save_dirty` / `unload_chunk`) targets
+    /// the cache dir for this server. Must be called BEFORE
+    /// [`WorldSim::set_world_seed`]: that recreates the chunk loader against
+    /// `self.world_dir`, and we want local generation / reload on reconnect to
+    /// read from the cache dir, not the local world dir.
+    ///
+    /// On failure (cache dir cannot be created) the existing `world_dir` is
+    /// left intact so saves still land somewhere durable rather than being
+    /// silently dropped. Host and single-player never call this; their saves
+    /// stay on the local world dir byte-identical to pre-STOR-005.
+    pub fn enter_remote_client_mode(&mut self, cache_dir: PathBuf) {
+        if cache_dir == self.world_dir {
+            return;
+        }
+        if let Err(e) = std::fs::create_dir_all(&cache_dir) {
+            log::error!(
+                "[Storage] Failed to create remote client cache dir {}: {}; \
+                 saves will continue against the existing world dir",
+                cache_dir.display(),
+                e
+            );
+            return;
+        }
+        log::debug!(
+            "[Storage] Remote client redirecting saves to cache dir: {}",
+            cache_dir.display()
+        );
+        self.world_dir = cache_dir;
+        // Replace the storage worker so chunks are persisted to the cache dir's
+        // region/ subtree. The old worker is dropped (Shutdown + join) when this
+        // is the last Arc reference — no other code holds a clone.
+        self.storage = Arc::new(storage::worker::StorageSystem::new(self.world_dir.clone()));
+    }
+
     /// Updates the terrain generator and chunk loader with a new seed.
     /// Used when a client connects to a server and needs to use the server's world seed.
     /// Also clears the current world to start fresh with the server's world.

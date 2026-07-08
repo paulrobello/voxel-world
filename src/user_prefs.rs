@@ -87,6 +87,61 @@ pub fn profiles_dir() -> PathBuf {
     profiles_dir_in(&get_data_dir())
 }
 
+/// FNV-1a 32-bit offset basis and prime (used for short server-address hashes).
+const FNV1A_32_OFFSET_BASIS: u32 = 0x811c9dc5;
+const FNV1A_32_PRIME: u32 = 0x0100_0193;
+
+/// Computes the FNV-1a 32-bit hash of `s`. Deterministic and dependency-free.
+fn fnv1a_32(s: &str) -> u32 {
+    let mut hash = FNV1A_32_OFFSET_BASIS;
+    for byte in s.as_bytes() {
+        hash ^= *byte as u32;
+        hash = hash.wrapping_mul(FNV1A_32_PRIME);
+    }
+    hash
+}
+
+/// Replaces every character that is not filesystem-safe (`[A-Za-z0-9._-]`)
+/// with `_`, and truncates the result so very long addresses (e.g. IPv6
+/// literals) cannot produce oversized path components. The hash suffix
+/// added by [`remote_cache_dir_in`] disambiguates any collisions the
+/// sanitization could introduce.
+fn sanitize_server_addr(addr: &str) -> String {
+    const MAX_LEN: usize = 48;
+    addr.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .take(MAX_LEN)
+        .collect()
+}
+
+/// Returns the per-server cache directory a remote client uses for its own
+/// local saves (STOR-005). Lives under the worlds directory so each remote
+/// server's client-side edits stay isolated: connecting to server B never
+/// overwrites server A's cached edits.
+///
+/// Format: `<worlds_dir>/remote__<sanitized_addr>__<fnv1a_hex>`. The raw
+/// address is never used unsanitized (it contains `:` and possibly `/`),
+/// and the short FNV-1a hash suffix disambiguates addresses that sanitize
+/// to the same basename. Prefer [`remote_cache_dir_in`] in tests/library
+/// code; [`remote_cache_dir`] reads the global data directory.
+pub fn remote_cache_dir_in(worlds_dir: &Path, server_addr: &str) -> PathBuf {
+    let sanitized = sanitize_server_addr(server_addr);
+    let hash = fnv1a_32(server_addr);
+    worlds_dir.join(format!("remote__{sanitized}__{hash:08x}"))
+}
+
+/// Returns the per-server cache directory using the global worlds directory.
+#[allow(dead_code)] // Pair with `remote_cache_dir_in`; the `_in` form is preferred in callers.
+pub fn remote_cache_dir(server_addr: &str) -> PathBuf {
+    remote_cache_dir_in(&worlds_dir(), server_addr)
+}
+
 /// Player-specific data for a world (position, rotation).
 /// Stored per-user rather than per-world for co-op/networked support.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -370,6 +425,111 @@ mod tests {
         assert_eq!(user_templates_dir_in(&base), base.join("user_templates"));
         assert_eq!(user_stencils_dir_in(&base), base.join("user_stencils"));
         assert_eq!(profiles_dir_in(&base), base.join("profiles"));
+    }
+
+    /// FNV-1a 32-bit reference vectors — guards against a broken hash table or
+    /// accidental algorithm swap, since the hash suffix is the only collision
+    /// defense between two sanitized addresses.
+    #[test]
+    fn fnv1a_32_reference_vectors() {
+        assert_eq!(fnv1a_32(""), FNV1A_32_OFFSET_BASIS);
+        // Known FNV-1a 32-bit values from the reference test suite.
+        assert_eq!(fnv1a_32("a"), 0xe40c292c);
+        assert_eq!(fnv1a_32("foobar"), 0xbf9cf968);
+    }
+
+    /// Sanitizer must keep filesystem-safe chars (`[A-Za-z0-9._-]`) and replace
+    /// everything else (notably `:` from `host:port` and `[]/` from IPv6/path
+    /// forms) with `_`.
+    #[test]
+    fn sanitize_server_addr_replaces_unsafe_chars() {
+        assert_eq!(sanitize_server_addr("127.0.0.1:12345"), "127.0.0.1_12345");
+        assert_eq!(
+            sanitize_server_addr("example.com:25565"),
+            "example.com_25565"
+        );
+        // IPv6 bracketed form — brackets and extra colons become `_`.
+        // (`[` + `:` + `:` + `1` + `]` + `:` + `12345` → `___1__12345`.)
+        assert_eq!(sanitize_server_addr("[::1]:12345"), "___1__12345");
+        // Path separators are scrubbed.
+        assert_eq!(sanitize_server_addr("a/b\\c"), "a_b_c");
+        // Safe characters round-trip unchanged.
+        assert_eq!(sanitize_server_addr("Host-1.example_2"), "Host-1.example_2");
+    }
+
+    /// `remote_cache_dir_in` is deterministic (same address → same dir),
+    /// distinguishes different addresses, lives under the supplied worlds dir,
+    /// and its basename matches the filesystem-safe pattern
+    /// `remote__<safe>__<8-hex>` with no illegal characters.
+    #[test]
+    fn remote_cache_dir_is_deterministic_and_safe() {
+        let base = PathBuf::from("/tmp/test_worlds");
+        let a1 = remote_cache_dir_in(&base, "127.0.0.1:12345");
+        let a2 = remote_cache_dir_in(&base, "127.0.0.1:12345");
+        // Determinism: same address → identical path.
+        assert_eq!(a1, a2);
+        // Lives under the supplied worlds dir.
+        assert!(a1.starts_with(&base));
+
+        // Different addresses → different dirs (both sanitized form and hash).
+        let b = remote_cache_dir_in(&base, "127.0.0.1:54321");
+        assert_ne!(a1, b);
+        let c = remote_cache_dir_in(&base, "example.com:25565");
+        assert_ne!(a1, c);
+        assert_ne!(b, c);
+
+        // Basename matches `remote__<safe-chars>__<8 lowercase hex>`.
+        // Asserting the pattern (rather than a hardcoded string) keeps the test
+        // robust to FNV prime changes while still proving filesystem-safety.
+        let basename = a1
+            .file_name()
+            .and_then(|s| s.to_str())
+            .expect("basename must be valid UTF-8");
+        let chars = basename.chars();
+        assert!(basename.starts_with("remote__"));
+        // Validate each char against the safe set, then check the hash tail.
+        let tail = basename.trim_start_matches("remote__");
+        let hash_idx = tail
+            .rfind("__")
+            .expect("basename must contain a __<hash> suffix");
+        let (safe_part, hash_part) = (&tail[..hash_idx], &tail[hash_idx + 2..]);
+        assert!(
+            safe_part
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_'),
+            "sanitized portion must be filesystem-safe, got {safe_part}"
+        );
+        assert_eq!(
+            hash_part.len(),
+            8,
+            "hash suffix must be 8 hex chars, got {hash_part}"
+        );
+        assert!(
+            hash_part
+                .chars()
+                .all(|c| ('0'..='9').contains(&c) || ('a'..='f').contains(&c)),
+            "hash suffix must be lowercase hex, got {hash_part}"
+        );
+        let _ = chars;
+
+        // No raw colon or slash anywhere in the basename (the STOR-005 hazard).
+        assert!(!basename.contains(':'));
+        assert!(!basename.contains('/'));
+        assert!(!basename.contains('\\'));
+    }
+
+    /// Two addresses that sanitize to the same string still differ via the FNV
+    /// hash suffix — this is the collision defense the hash provides.
+    #[test]
+    fn remote_cache_dir_hash_disambiguates_sanitization_collisions() {
+        let base = PathBuf::from("/tmp/test_worlds");
+        // `:` and `;` both sanitize to `_`, but the raw addresses differ.
+        let x = remote_cache_dir_in(&base, "host:1234");
+        let y = remote_cache_dir_in(&base, "host;1234");
+        assert_ne!(
+            x, y,
+            "FNV hash suffix must distinguish addresses with the same sanitized form"
+        );
     }
 
     /// Test that `load_from` returns defaults when the file does not exist.
