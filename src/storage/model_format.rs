@@ -359,9 +359,8 @@ impl WorldModelStore {
     /// Saves the store to models.dat in the given world directory.
     pub fn save(&self, world_dir: &std::path::Path) -> io::Result<()> {
         let path = world_dir.join("models.dat");
-        let file = File::create(path)?;
-        let mut writer = BufWriter::new(file);
-        postcard::to_io(self, &mut writer).map_err(io::Error::other)?;
+        let bytes = postcard::to_stdvec(self).map_err(io::Error::other)?;
+        crate::storage::atomic::atomic_write_bytes(&path, &bytes)?;
         Ok(())
     }
 
@@ -434,9 +433,8 @@ impl DoorPairStore {
     /// Saves the store to door_pairs.dat in the given world directory.
     pub fn save(&self, world_dir: &std::path::Path) -> io::Result<()> {
         let path = world_dir.join("door_pairs.dat");
-        let file = File::create(path)?;
-        let mut writer = BufWriter::new(file);
-        postcard::to_io(self, &mut writer).map_err(io::Error::other)?;
+        let bytes = postcard::to_stdvec(self).map_err(io::Error::other)?;
+        crate::storage::atomic::atomic_write_bytes(&path, &bytes)?;
         Ok(())
     }
 
@@ -579,5 +577,30 @@ mod tests {
 
         let listed = manager.list_models().unwrap();
         assert_eq!(listed, vec!["Apple", "Mango", "Zebra"]);
+    }
+
+    #[test]
+    fn test_world_model_store_save_load_round_trip() {
+        // Exercises the atomic sidecar write path (STOR-006): save must produce
+        // models.dat with no leftover .tmp, and load must round-trip the data.
+        let dir = tempdir().unwrap();
+        let mut store = WorldModelStore::new(176);
+        let mut model = SubVoxelModel::new("custom_armchair");
+        model.set_voxel(0, 0, 0, 1);
+        model.palette[1] = Color::rgb(10, 20, 30);
+        store.add_model(&model, "tester");
+
+        store.save(dir.path()).unwrap();
+
+        // Atomic write must leave no temp file behind.
+        let tmp = dir.path().join("models.dat.tmp");
+        assert!(!tmp.exists(), "models.dat.tmp must not be left behind");
+
+        let loaded = WorldModelStore::load(dir.path()).unwrap().unwrap();
+        assert_eq!(loaded.models.len(), 1);
+        assert_eq!(loaded.first_custom_id, 176);
+        let restored = loaded.models[0].to_model();
+        assert_eq!(restored.name, "custom_armchair");
+        assert_eq!(restored.get_voxel(0, 0, 0), 1);
     }
 }

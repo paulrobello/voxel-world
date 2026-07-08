@@ -7,7 +7,7 @@
 use crate::stencils::{PlacedStencil, StencilManager, StencilRenderMode};
 use serde::{Deserialize, Serialize};
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::Read;
 use std::path::Path;
 
 /// Serialized stencil state data.
@@ -78,8 +78,8 @@ impl StencilState {
         let path = world_dir.as_ref().join(Self::FILE_NAME);
         let json = serde_json::to_string_pretty(self)
             .map_err(|e| format!("Failed to serialize stencil state: {}", e))?;
-        let mut file = File::create(&path).map_err(|e| e.to_string())?;
-        file.write_all(json.as_bytes()).map_err(|e| e.to_string())?;
+        crate::storage::atomic::atomic_write_bytes(&path, json.as_bytes())
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 

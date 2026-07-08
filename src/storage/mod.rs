@@ -1,3 +1,4 @@
+pub mod atomic;
 pub mod fluid_sources;
 pub mod format;
 pub mod metadata;

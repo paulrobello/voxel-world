@@ -1,7 +1,7 @@
 use crate::config::WorldGenType;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::Read;
 use std::path::Path;
 
 /// Default time of day for backwards compatibility (14:00 / 2pm).
@@ -33,8 +33,8 @@ impl WorldMetadata {
     pub fn save<P: AsRef<Path>>(&self, path: P) -> Result<(), String> {
         let json = serde_json::to_string_pretty(self)
             .map_err(|e| format!("Failed to serialize metadata: {}", e))?;
-        let mut file = File::create(path).map_err(|e| e.to_string())?;
-        file.write_all(json.as_bytes()).map_err(|e| e.to_string())?;
+        crate::storage::atomic::atomic_write_bytes(path.as_ref(), json.as_bytes())
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
