@@ -217,6 +217,22 @@ impl ModelRegistry {
 
         // Register built-in models
         builtins::register_builtins(&mut registry);
+
+        // MDL-003: guard against builtin add/remove/reorder. IDs are assigned
+        // sequentially in `register_builtins`, so any drift shifts every anchor
+        // after it (torch=1, crystal=99, fence base=4, door base=39, glass panes
+        // 119/135, frames 160-175) and silently corrupts saved chunks + the
+        // shader-side ID mappings. `debug_assert!` so release builds stay cheap;
+        // the `builtin_model_anchor_ids_are_stable` test enforces this in CI.
+        debug_assert_eq!(
+            registry.models.len(),
+            FIRST_CUSTOM_MODEL_ID as usize,
+            "builtin model count drift: expected {} builtins, got {}; \
+             register_builtins added/removed/reordered an entry",
+            FIRST_CUSTOM_MODEL_ID,
+            registry.models.len(),
+        );
+
         registry
     }
 
@@ -1638,6 +1654,144 @@ mod tests {
             initial_count,
             "re-registering identical palette should not allocate a new slot",
         );
+    }
+
+    /// MDL-003: builtin model-ID stability guard.
+    ///
+    /// Builtin model IDs are assigned imperatively by `register_builtins` calling
+    /// `register()` in sequence, so any reordering, addition, or removal shifts
+    /// every ID after it. Saved chunks, GLSL/shader code, and multiplayer sync all
+    /// reference specific IDs (torch=1, crystal=99, fence base=4, first door=39,
+    /// glass panes at 119/135, frames at 160-175). This test pins the canonical
+    /// anchor layout so drift fails CI instead of silently corrupting saved worlds.
+    ///
+    /// To add a new builtin WITHOUT shifting these anchors, replace one of the
+    /// reserved placeholders (IDs 151-159) or extend a connection-mask family and
+    /// update both this table and CLAUDE.md in the same change.
+    #[test]
+    fn builtin_model_anchor_ids_are_stable() {
+        let reg = ModelRegistry::new();
+
+        // Total builtin count: builtins must fill exactly 0..FIRST_CUSTOM_MODEL_ID.
+        assert_eq!(
+            reg.len(),
+            FIRST_CUSTOM_MODEL_ID as usize,
+            "builtin count drift: expected {} builtins, got {}",
+            FIRST_CUSTOM_MODEL_ID,
+            reg.len(),
+        );
+
+        // Pin canonical anchor names to their expected IDs. Each row is
+        // (expected_id, expected_name). If a row fails, a builtin was inserted,
+        // removed, or reordered at or before that ID — investigate the cause
+        // before updating this table, because saved chunks reference these IDs
+        // directly and a silent shift would corrupt every existing world.
+        const BUILTIN_MODEL_ANCHORS: &[(u8, &str)] = &[
+            (0, "empty"),
+            (1, "torch"),
+            (2, "slab_bottom"),
+            (3, "slab_top"),
+            (4, "fence_0"),
+            (19, "fence_15"),
+            (20, "gate_closed_0"),
+            (27, "gate_open_3"),
+            (28, "stairs_north"),
+            (29, "ladder"),
+            (38, "stairs_outer_right_inverted"),
+            (39, "door_lower_closed_left"),
+            (47, "trapdoor_floor_closed"),
+            (50, "trapdoor_ceiling_open"),
+            (51, "window_0"),
+            (67, "windowed_door_lower_closed_left"),
+            (75, "paneled_door_lower_closed_left"),
+            (83, "fancy_door_lower_closed_left"),
+            (91, "glass_door_lower_closed_left"),
+            (99, "crystal"),
+            (100, "tall_grass"),
+            (105, "mushroom_red"),
+            (106, "stalactite"),
+            (109, "ice_stalagmite"),
+            (110, "moss_carpet"),
+            (118, "flower_blue"),
+            (119, "glass_pane_horizontal_0"),
+            (134, "glass_pane_horizontal_15"),
+            (135, "glass_pane_vertical_0"),
+            (150, "glass_pane_vertical_15"),
+            (151, "reserved_151"),
+            (159, "reserved_159"),
+            (160, "frame_edge_mask_0"),
+            (175, "frame_edge_mask_15"),
+        ];
+
+        for &(id, expected_name) in BUILTIN_MODEL_ANCHORS {
+            let model = reg.get(id).unwrap_or_else(|| {
+                panic!(
+                    "builtin anchor id {} missing from registry (len={})",
+                    id,
+                    reg.len()
+                )
+            });
+            assert_eq!(
+                model.name, expected_name,
+                "builtin anchor id {} name drift: expected {:?}, got {:?}",
+                id, expected_name, model.name,
+            );
+            // Cross-check the name -> id lookup agrees with the slot's id.
+            assert_eq!(
+                reg.get_id(expected_name),
+                Some(id),
+                "builtin anchor name {:?} should resolve to id {}, got {:?}",
+                expected_name,
+                id,
+                reg.get_id(expected_name),
+            );
+        }
+
+        // Every id in 0..FIRST_CUSTOM_MODEL_ID must be an occupied builtin slot
+        // and must NOT be classified as custom.
+        for id in 0..FIRST_CUSTOM_MODEL_ID {
+            assert!(
+                reg.get(id).is_some(),
+                "builtin slot id {} must be occupied",
+                id
+            );
+            assert!(
+                !ModelRegistry::is_custom_model(id),
+                "builtin id {} must not be classified as custom",
+                id,
+            );
+        }
+    }
+
+    /// MDL-003: custom registrations must start at `FIRST_CUSTOM_MODEL_ID` and not
+    /// collide with the builtin range. Catches a builtin under-count that would let
+    /// a custom model land on a builtin slot (or vice versa).
+    #[test]
+    fn custom_models_start_at_first_custom_id() {
+        let mut reg = ModelRegistry::new();
+        // Sanity: registry is exactly full of builtins before any custom add.
+        assert_eq!(reg.len(), FIRST_CUSTOM_MODEL_ID as usize);
+
+        let model =
+            SubVoxelModel::with_resolution_and_name(ModelResolution::Low, "test_custom_anchor_one");
+        let id = reg.register(model).expect("register first custom model");
+        assert_eq!(
+            id, FIRST_CUSTOM_MODEL_ID,
+            "first custom model must get FIRST_CUSTOM_MODEL_ID, got {}",
+            id,
+        );
+        assert!(
+            ModelRegistry::is_custom_model(id),
+            "id {} must be classified as custom",
+            id,
+        );
+        assert!(reg.get(id).is_some(), "custom model id {} must resolve", id);
+
+        // The next custom model continues immediately after, with no gap.
+        let model2 =
+            SubVoxelModel::with_resolution_and_name(ModelResolution::Low, "test_custom_anchor_two");
+        let id2 = reg.register(model2).expect("register second custom model");
+        assert_eq!(id2, FIRST_CUSTOM_MODEL_ID + 1);
     }
 
     /// MDL-001 acceptance test: custom-model IDs survive library churn across a
