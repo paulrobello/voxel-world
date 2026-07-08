@@ -578,6 +578,37 @@ impl App {
             // Broadcast removal to all clients if hosting
             self.multiplayer.broadcast_stencil_removed(id);
         }
+
+        // Handle pending stencil opacity change from console (/stencil opacity <0.3-0.8>).
+        // global_opacity is local view state (not per-stencil), so no multiplayer broadcast.
+        if let Some(opacity) = self.ui.console.pending_stencil_opacity.take() {
+            self.ui.stencil_manager.set_global_opacity(opacity);
+        }
+
+        // Handle pending stencil render mode change from console (/stencil mode <wireframe|solid>).
+        if let Some(mode) = self.ui.console.pending_stencil_render_mode.take() {
+            let new_mode = match mode {
+                0 => crate::stencils::StencilRenderMode::Wireframe,
+                _ => crate::stencils::StencilRenderMode::Solid,
+            };
+            self.ui.stencil_manager.set_render_mode(new_mode);
+        }
+
+        // Handle pending stencil active listing from console (/stencil active).
+        if self.ui.console.pending_stencil_list {
+            let active = self.ui.stencil_manager.list_active();
+            if active.is_empty() {
+                self.ui.console.info("No active stencils.");
+            } else {
+                self.ui
+                    .console
+                    .info(format!("Active stencils ({}):", active.len()));
+                for (id, name) in active {
+                    self.ui.console.info(format!("  [{}] {}", id, name));
+                }
+            }
+            self.ui.console.pending_stencil_list = false;
+        }
     }
 
     /// Applies pending stencil events received from the multiplayer server

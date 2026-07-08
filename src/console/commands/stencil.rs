@@ -312,3 +312,125 @@ fn stencil_from_template(
         Err(e) => CommandResult::Error(format!("Failed to save stencil: {}", e)),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! Tests for the /stencil subcommands whose effects are wired through
+    //! typed `CommandResult` variants (CON-003): `opacity`, `mode`, and
+    //! `active`. These subcommands early-return without touching `World`
+    //! or the libraries, so stubs are sufficient.
+    use super::*;
+    use crate::console::CommandResult;
+    use crate::templates::TemplateSelection;
+    use crate::world::World;
+
+    fn libs() -> (StencilLibrary, TemplateLibrary) {
+        // Path is only stored; no I/O happens until save. Unique per-process
+        // so parallel test runs never collide.
+        let dir =
+            std::env::temp_dir().join(format!("voxel-world-stencil-test-{}", std::process::id()));
+        (StencilLibrary::new(dir.clone()), TemplateLibrary::new(dir))
+    }
+
+    fn run(args: &[&str]) -> CommandResult {
+        let (stencil_lib, template_lib) = libs();
+        stencil(
+            args,
+            &TemplateSelection::new(),
+            &World::new(),
+            &stencil_lib,
+            &template_lib,
+            false,
+            "tester",
+        )
+    }
+
+    #[test]
+    fn test_stencil_opacity_valid_value() {
+        // CON-003: /stencil opacity must emit SetStencilOpacity so the
+        // render.rs drain can apply it to StencilManager.global_opacity.
+        match run(&["opacity", "0.5"]) {
+            CommandResult::SetStencilOpacity(v) => assert_eq!(v, 0.5),
+            _ => panic!("expected SetStencilOpacity(0.5)"),
+        }
+    }
+
+    #[test]
+    fn test_stencil_opacity_below_range_errors() {
+        assert!(matches!(run(&["opacity", "0.2"]), CommandResult::Error(_)));
+    }
+
+    #[test]
+    fn test_stencil_opacity_above_range_errors() {
+        assert!(matches!(run(&["opacity", "0.9"]), CommandResult::Error(_)));
+    }
+
+    #[test]
+    fn test_stencil_opacity_non_numeric_errors() {
+        assert!(matches!(run(&["opacity", "foo"]), CommandResult::Error(_)));
+    }
+
+    #[test]
+    fn test_stencil_opacity_missing_arg_errors() {
+        assert!(matches!(run(&["opacity"]), CommandResult::Error(_)));
+    }
+
+    #[test]
+    fn test_stencil_mode_wireframe_emits_zero() {
+        // CON-003: 0 = wireframe, drained into StencilRenderMode::Wireframe.
+        match run(&["mode", "wireframe"]) {
+            CommandResult::SetStencilRenderMode(m) => assert_eq!(m, 0),
+            _ => panic!("expected SetStencilRenderMode(0)"),
+        }
+    }
+
+    #[test]
+    fn test_stencil_mode_wire_alias() {
+        match run(&["mode", "wire"]) {
+            CommandResult::SetStencilRenderMode(m) => assert_eq!(m, 0),
+            _ => panic!("expected SetStencilRenderMode(0) for 'wire'"),
+        }
+    }
+
+    #[test]
+    fn test_stencil_mode_solid_emits_one() {
+        match run(&["mode", "solid"]) {
+            CommandResult::SetStencilRenderMode(m) => assert_eq!(m, 1),
+            _ => panic!("expected SetStencilRenderMode(1)"),
+        }
+    }
+
+    #[test]
+    fn test_stencil_mode_invalid_errors() {
+        assert!(matches!(
+            run(&["mode", "frobnicate"]),
+            CommandResult::Error(_)
+        ));
+    }
+
+    #[test]
+    fn test_stencil_mode_missing_arg_errors() {
+        assert!(matches!(run(&["mode"]), CommandResult::Error(_)));
+    }
+
+    #[test]
+    fn test_stencil_active_emits_list_marker() {
+        // CON-003: /stencil active must emit ListActiveStencils so the
+        // render.rs drain can read StencilManager.list_active() and print it.
+        assert!(matches!(
+            run(&["active"]),
+            CommandResult::ListActiveStencils
+        ));
+    }
+
+    #[test]
+    fn test_stencil_no_subcommand_errors() {
+        // Bare `/stencil` should guide the user, not silently no-op.
+        assert!(matches!(run(&[]), CommandResult::Error(_)));
+    }
+
+    #[test]
+    fn test_stencil_unknown_subcommand_errors() {
+        assert!(matches!(run(&["frobnicate"]), CommandResult::Error(_)));
+    }
+}
