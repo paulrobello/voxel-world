@@ -118,6 +118,27 @@ fn compile_to_spirv(
     )
 }
 
+/// REN-003: SPIR-V that `build.rs` pre-compiled and embedded via
+/// `include_bytes!`, keyed by shader file name. Returns `None` for shaders
+/// `build.rs` didn't pre-compile, so the caller can fall back to a runtime
+/// `shaderc` compile (see `HotReloadComputePipeline::new`).
+fn embedded_spirv_words(path: &Path) -> Option<Vec<u32>> {
+    let bytes: &[u8] = match path.file_name()?.to_str()? {
+        "traverse.comp" => include_bytes!(concat!(env!("OUT_DIR"), "/traverse.comp.spv")),
+        "resample.comp" => include_bytes!(concat!(env!("OUT_DIR"), "/resample.comp.spv")),
+        _ => return None,
+    };
+    // SPIR-V is a u32 word stream; the embedded bytes are `u8` with no alignment
+    // guarantee, so read native-endian words explicitly. (Build host == run host,
+    // matching `shaderc`'s native-endian build-time output.)
+    Some(
+        bytes
+            .chunks_exact(4)
+            .map(|c| u32::from_ne_bytes([c[0], c[1], c[2], c[3]]))
+            .collect(),
+    )
+}
+
 fn get_pipeline(shader_module: Arc<ShaderModule>) -> Arc<ComputePipeline> {
     let device = shader_module.device().clone();
     let entry_point = shader_module.entry_point("main").unwrap();
@@ -184,10 +205,19 @@ impl HotReloadComputePipeline {
             }
         }
 
-        let artifact = compile_to_spirv(path, shaderc::ShaderKind::Compute, "main").unwrap();
-
-        let shader_module = unsafe {
-            ShaderModule::new(device, ShaderModuleCreateInfo::new(artifact.as_binary())).unwrap()
+        let shader_module = if let Some(words) = embedded_spirv_words(path) {
+            // REN-003: load build-time-compiled SPIR-V embedded via
+            // `include_bytes!` (skips the runtime `shaderc` compile on the hot
+            // path). The `.comp` source is still watched and recompiled by
+            // `maybe_reload` for dev hot-reload.
+            unsafe { ShaderModule::new(device, ShaderModuleCreateInfo::new(&words)).unwrap() }
+        } else {
+            // Fallback for any shader `build.rs` didn't pre-compile.
+            let artifact = compile_to_spirv(path, shaderc::ShaderKind::Compute, "main").unwrap();
+            unsafe {
+                ShaderModule::new(device, ShaderModuleCreateInfo::new(artifact.as_binary()))
+                    .unwrap()
+            }
         };
 
         let pipeline = get_pipeline(shader_module);

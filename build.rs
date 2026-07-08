@@ -132,6 +132,105 @@ fn main() {
         fs::write(&out_path, &glsl)
             .expect("build.rs: failed to write shaders/generated_constants.glsl");
     }
+
+    // REN-003: pre-compile the compute shaders to SPIR-V at build time so the
+    // binary can embed them via include_bytes! (faster startup; the .comp source
+    // stays a dev-only hot-reload override). Mirrors src/hot_reload.rs.
+    println!("cargo:rerun-if-changed=build.rs");
+    let out_dir = std::env::var("OUT_DIR").expect("build.rs: OUT_DIR not set");
+    compile_shader_to_out_dir(
+        root,
+        std::path::Path::new(&out_dir),
+        "shaders/traverse.comp",
+    );
+    compile_shader_to_out_dir(
+        root,
+        std::path::Path::new(&out_dir),
+        "shaders/resample.comp",
+    );
+}
+
+// ---------------------------------------------------------------------------
+// REN-003: build-time SPIR-V compilation (mirrors src/hot_reload.rs)
+// ---------------------------------------------------------------------------
+
+/// Maximum #include nesting depth — matches `src/hot_reload.rs`.
+const SHADER_MAX_INCLUDE_DEPTH: usize = 16;
+
+/// Hand-rolled `#include` preprocessor — mirrors
+/// `src/hot_reload.rs::preprocess_shader`. Expands `#include "..."` relative to
+/// the including file, with cycle/depth guards. Kept in sync with the runtime
+/// version so the build-time SPIR-V matches what hot-reload would produce.
+fn preprocess_shader_build(path: &Path) -> String {
+    fn inner(
+        path: &Path,
+        visited: &mut std::collections::HashSet<std::path::PathBuf>,
+        depth: usize,
+    ) -> String {
+        if depth > SHADER_MAX_INCLUDE_DEPTH {
+            return String::new();
+        }
+        let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+        if !visited.insert(canonical.clone()) {
+            return String::new();
+        }
+        let source = fs::read_to_string(path)
+            .unwrap_or_else(|e| panic!("build.rs: failed to read shader {path:?}: {e}"));
+        let mut result = String::new();
+        for line in source.lines() {
+            let trimmed = line.trim();
+            if let Some(rest) = trimmed.strip_prefix("#include \"")
+                && let Some(inc) = rest.strip_suffix("\"")
+            {
+                let mut inc_path = path.parent().unwrap().to_path_buf();
+                inc_path.push(inc);
+                result.push_str(&inner(&inc_path, visited, depth + 1));
+                result.push('\n');
+                continue;
+            }
+            result.push_str(line);
+            result.push('\n');
+        }
+        visited.remove(&canonical);
+        result
+    }
+    inner(path, &mut std::collections::HashSet::new(), 0)
+}
+
+/// Preprocess + compile a single compute shader to SPIR-V and write it to
+/// `OUT_DIR/<name>.spv`. Panics on compile failure so the build fails loudly
+/// rather than shipping a stale/missing shader.
+fn compile_shader_to_out_dir(root: &Path, out_dir: &Path, shader_rel: &str) {
+    let path = root.join(shader_rel);
+    let source = preprocess_shader_build(&path);
+    let compiler = shaderc::Compiler::new().expect("build.rs: shaderc::Compiler::new()");
+    let mut options =
+        shaderc::CompileOptions::new().expect("build.rs: shaderc::CompileOptions::new()");
+    options.set_optimization_level(shaderc::OptimizationLevel::Performance);
+    options.add_macro_definition("EP", Some("main"));
+    let artifact = compiler
+        .compile_into_spirv(
+            &source,
+            shaderc::ShaderKind::Compute,
+            path.to_str().unwrap(),
+            "main",
+            Some(&options),
+        )
+        .unwrap_or_else(|e| panic!("build.rs: failed to compile {shader_rel}: {e}"));
+    let spv_name = format!(
+        "{}.spv",
+        path.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("shader")
+    );
+    let spv_path = out_dir.join(&spv_name);
+    // SPIR-V is a u32 stream; reinterpret as bytes for writing (no bytemuck in build-deps).
+    let words = artifact.as_binary();
+    let bytes: &[u8] =
+        unsafe { std::slice::from_raw_parts(words.as_ptr() as *const u8, words.len() * 4) };
+    fs::write(&spv_path, bytes)
+        .unwrap_or_else(|e| panic!("build.rs: failed to write {spv_path:?}: {e}"));
+    println!("cargo:rerun-if-changed={}", path.display());
 }
 
 /// Read a source file relative to the crate root, panicking with the path on failure.
