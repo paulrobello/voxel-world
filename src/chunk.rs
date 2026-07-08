@@ -10,8 +10,6 @@
 
 use std::cell::{Cell, Ref, RefCell};
 use std::collections::HashMap;
-use std::sync::Arc;
-use vulkano::image::view::ImageView;
 
 /// Size of a chunk in each dimension (32³ = 32,768 blocks per chunk).
 pub const CHUNK_SIZE: usize = 32;
@@ -856,9 +854,6 @@ pub struct Chunk {
     /// the chunk state they represent is still the same bytes.
     mutation_epoch: u64,
 
-    /// Cached GPU texture for this chunk (if uploaded).
-    pub gpu_texture: Option<Arc<ImageView>>,
-
     /// Cached: true if all blocks are air (for ray skip optimization).
     cached_is_empty: bool,
 
@@ -867,19 +862,6 @@ pub struct Chunk {
 
     /// Whether cached_is_empty/cached_is_fully_solid need recalculation.
     metadata_dirty: bool,
-
-    /// Cached SVT brick mask (64-bit mask for 4x4x4 bricks).
-    cached_brick_mask: u64,
-
-    /// Cached SVT brick distances (64 bytes, one per brick).
-    cached_brick_distances: [u8; 64],
-
-    /// Whether the cached SVT data needs recalculation.
-    svt_dirty: bool,
-
-    /// Bitmask of which bricks have changed (for incremental SVT updates).
-    /// Each bit corresponds to one of the 64 bricks in the chunk.
-    dirty_bricks: u64,
 }
 
 impl Default for Chunk {
@@ -904,14 +886,9 @@ impl Chunk {
             dirty: true,
             persistence_dirty: true,
             mutation_epoch: 0,
-            gpu_texture: None,
             cached_is_empty: true,
             cached_is_fully_solid: false,
             metadata_dirty: false,
-            cached_brick_mask: 0,
-            cached_brick_distances: [255; 64], // 255 = max distance (all air)
-            svt_dirty: false,                  // Empty chunk has valid SVT (mask=0)
-            dirty_bricks: 0,
         }
     }
 
@@ -941,12 +918,6 @@ impl Chunk {
         } else {
             0
         };
-        // For a filled chunk, all bricks are either empty (air) or solid
-        let (brick_mask, brick_distances) = if is_empty {
-            (0u64, [255u8; 64]) // All empty, max distance
-        } else {
-            (u64::MAX, [0u8; 64]) // All solid, zero distance
-        };
         Self {
             blocks: Box::new([block_type; CHUNK_VOLUME]),
             metadata: HashMap::with_capacity(32),
@@ -960,14 +931,9 @@ impl Chunk {
             dirty: true,
             persistence_dirty: true,
             mutation_epoch: 0,
-            gpu_texture: None,
             cached_is_empty: is_empty,
             cached_is_fully_solid: is_solid,
             metadata_dirty: false,
-            cached_brick_mask: brick_mask,
-            cached_brick_distances: brick_distances,
-            svt_dirty: false, // Filled chunk has valid SVT
-            dirty_bricks: 0,
         }
     }
 
@@ -1023,14 +989,9 @@ impl Chunk {
             dirty: true,
             persistence_dirty: false, // Network chunks are not locally modified
             mutation_epoch: 0,
-            gpu_texture: None,
             cached_is_empty: is_empty,
             cached_is_fully_solid: is_solid,
             metadata_dirty: false,
-            cached_brick_mask: 0,
-            cached_brick_distances: [255; 64],
-            svt_dirty: true,        // Need to compute SVT
-            dirty_bricks: u64::MAX, // All bricks are potentially dirty
         }
     }
 
@@ -1108,15 +1069,6 @@ impl Chunk {
             }
             self.metadata_dirty = true;
 
-            // Track which brick is dirty for incremental SVT updates
-            // Brick size is 8, chunk has 4x4x4 bricks
-            let brick_x = x / 8;
-            let brick_y = y / 8;
-            let brick_z = z / 8;
-            let brick_idx = brick_x + brick_y * 4 + brick_z * 16;
-            self.dirty_bricks |= 1u64 << brick_idx;
-            self.svt_dirty = true;
-
             // Drop any metadata whose variant no longer matches the new block type.
             // Each block has at most one metadata entry, so a single lookup + variant
             // check replaces four separate HashMap removals.
@@ -1133,6 +1085,45 @@ impl Chunk {
         }
     }
 
+    /// Single funnel for every typed metadata setter (QA-002).
+    ///
+    /// Replaces the block at (`x`,`y`,`z`) with `block` and attaches `metadata`
+    /// to it. Routing every setter through here — instead of each one writing
+    /// `self.blocks[idx]` directly — keeps `light_block_count` and
+    /// `mutation_epoch` consistent regardless of which setter the caller used.
+    ///
+    /// The block-type change goes through [`set_block_internal`], which compares
+    /// the old vs new block and adjusts `light_block_count` (decrement if the
+    /// old block was emissive, increment if the new one is). This is what fixes
+    /// the drift where overwriting a `GlowStone` with a `Crystal` via
+    /// `set_crystal_block` used to leave the count inflated, forcing
+    /// `collect_torch_lights` into a permanent full-chunk scan.
+    ///
+    /// `set_block_internal` early-returns when `old == block`, so for the
+    /// same-block case (e.g. re-painting an existing painted block) the dirty
+    /// flags and `mutation_epoch` bump are applied here — the metadata bytes
+    /// genuinely changed and downstream caches must invalidate.
+    #[inline]
+    fn set_block_with_metadata(
+        &mut self,
+        x: usize,
+        y: usize,
+        z: usize,
+        block: BlockType,
+        metadata: BlockMetadata,
+    ) {
+        let idx = Self::index(x, y, z);
+        let unchanged = self.blocks[idx] == block;
+        self.set_block_internal(x, y, z, block, true);
+        self.metadata.insert(idx, metadata);
+        self.model_metadata_dirty.set(true);
+        if unchanged {
+            self.dirty = true;
+            self.metadata_dirty = true;
+            self.mark_mutated();
+        }
+    }
+
     /// Sets a model block with its metadata at the given local coordinates.
     #[inline]
     pub fn set_model_block(
@@ -1144,10 +1135,11 @@ impl Chunk {
         rotation: u8,
         waterlogged: bool,
     ) {
-        let idx = Self::index(x, y, z);
-        self.blocks[idx] = BlockType::Model;
-        self.metadata.insert(
-            idx,
+        self.set_block_with_metadata(
+            x,
+            y,
+            z,
+            BlockType::Model,
             BlockMetadata::Model(BlockModelData {
                 model_id,
                 rotation,
@@ -1155,10 +1147,6 @@ impl Chunk {
                 custom_data: 0,
             }),
         );
-        self.dirty = true;
-        self.mark_mutated();
-        self.metadata_dirty = true;
-        self.model_metadata_dirty.set(true);
     }
 
     /// Sets a model block with custom data (for frames, etc.).
@@ -1173,10 +1161,11 @@ impl Chunk {
         waterlogged: bool,
         custom_data: u32,
     ) {
-        let idx = Self::index(x, y, z);
-        self.blocks[idx] = BlockType::Model;
-        self.metadata.insert(
-            idx,
+        self.set_block_with_metadata(
+            x,
+            y,
+            z,
+            BlockType::Model,
             BlockMetadata::Model(BlockModelData {
                 model_id,
                 rotation,
@@ -1184,10 +1173,6 @@ impl Chunk {
                 custom_data,
             }),
         );
-        self.dirty = true;
-        self.mark_mutated();
-        self.metadata_dirty = true;
-        self.model_metadata_dirty.set(true);
         self.custom_data_dirty.set(true);
     }
 
@@ -1285,33 +1270,26 @@ impl Chunk {
     /// Sets a tinted glass block with its color index at the given local coordinates.
     #[inline]
     pub fn set_tinted_glass_block(&mut self, x: usize, y: usize, z: usize, tint_index: u8) {
-        let idx = Self::index(x, y, z);
-        self.blocks[idx] = BlockType::TintedGlass;
-        self.metadata
-            .insert(idx, BlockMetadata::Tint(tint_index & 0x1F)); // Clamp to 0-31
-        self.dirty = true;
-        self.mark_mutated();
-        self.metadata_dirty = true;
-        self.model_metadata_dirty.set(true);
+        self.set_block_with_metadata(
+            x,
+            y,
+            z,
+            BlockType::TintedGlass,
+            BlockMetadata::Tint(tint_index & 0x1F), // Clamp to 0-31
+        );
     }
 
     /// Sets a crystal block with its color index at the given local coordinates.
     /// Crystal blocks are emissive and use the tint palette for color variation.
     #[inline]
     pub fn set_crystal_block(&mut self, x: usize, y: usize, z: usize, tint_index: u8) {
-        let idx = Self::index(x, y, z);
-        let old = self.blocks[idx];
-        // Update light block count
-        if !old.is_light_source() {
-            self.light_block_count += 1;
-        }
-        self.blocks[idx] = BlockType::Crystal;
-        self.metadata
-            .insert(idx, BlockMetadata::Tint(tint_index & 0x1F)); // Clamp to 0-31
-        self.dirty = true;
-        self.mark_mutated();
-        self.metadata_dirty = true;
-        self.model_metadata_dirty.set(true);
+        self.set_block_with_metadata(
+            x,
+            y,
+            z,
+            BlockType::Crystal,
+            BlockMetadata::Tint(tint_index & 0x1F), // Clamp to 0-31
+        );
     }
 
     /// Sets a painted block with its texture + tint metadata at the given local coordinates.
@@ -1339,16 +1317,13 @@ impl Chunk {
         tint_idx: u8,
         blend_mode: u8,
     ) {
-        let idx = Self::index(x, y, z);
-        self.blocks[idx] = BlockType::Painted;
-        self.metadata.insert(
-            idx,
+        self.set_block_with_metadata(
+            x,
+            y,
+            z,
+            BlockType::Painted,
             BlockMetadata::Painted(BlockPaintData::new(texture_idx, tint_idx, blend_mode)),
         );
-        self.dirty = true;
-        self.mark_mutated();
-        self.metadata_dirty = true;
-        self.model_metadata_dirty.set(true);
     }
 
     /// Gets the tint color index for a tinted glass or crystal block at the given local coordinates.
@@ -1375,13 +1350,7 @@ impl Chunk {
     /// Sets a water block with its type at the given local coordinates.
     #[inline]
     pub fn set_water_block(&mut self, x: usize, y: usize, z: usize, water_type: WaterType) {
-        let idx = Self::index(x, y, z);
-        self.blocks[idx] = BlockType::Water;
-        self.metadata.insert(idx, BlockMetadata::Water(water_type));
-        self.dirty = true;
-        self.mark_mutated();
-        self.metadata_dirty = true;
-        self.model_metadata_dirty.set(true);
+        self.set_block_with_metadata(x, y, z, BlockType::Water, BlockMetadata::Water(water_type));
     }
 
     /// Gets the water type for a block at the given local coordinates.
@@ -1446,31 +1415,6 @@ impl Chunk {
     #[inline]
     pub fn is_solid(&self, x: usize, y: usize, z: usize) -> bool {
         self.get_block(x, y, z).is_solid()
-    }
-
-    /// Converts the chunk to bit-packed format.
-    ///
-    /// LEGACY: This method is currently unused. The actual GPU acceleration structure
-    /// is built using the `svt` module (Sparse Voxel Tree), which generates a
-    /// 64-bit brick mask (split into two u32s) per chunk, not this u128 format.
-    pub fn to_bit_packed(&self) -> Vec<u128> {
-        let packed_size = CHUNK_VOLUME / 128;
-        let mut packed = vec![0u128; packed_size];
-
-        for z in 0..CHUNK_SIZE {
-            for y in 0..CHUNK_SIZE {
-                for x in 0..CHUNK_SIZE {
-                    if self.get_block(x, y, z).is_solid() {
-                        // Match the bit layout from voxelize.rs
-                        let texel = (x + ((y + (z / 8) * CHUNK_SIZE) / 4) * CHUNK_SIZE) / 4;
-                        let bit = (x % 4) * 32 + (y % 4) + (z % 8) * 4;
-                        packed[texel] |= 1u128 << bit;
-                    }
-                }
-            }
-        }
-
-        packed
     }
 
     /// Converts the chunk to a format that includes block type information.
@@ -1678,185 +1622,6 @@ impl Chunk {
     pub fn mark_clean(&mut self) {
         self.dirty = false;
     }
-
-    /// Returns the cached SVT brick mask (64-bit mask for 4x4x4 bricks).
-    /// Call `update_svt()` first if you need current data.
-    #[inline]
-    pub fn cached_brick_mask(&self) -> u64 {
-        self.cached_brick_mask
-    }
-
-    /// Returns a reference to the cached SVT brick distances (64 bytes).
-    /// Call `update_svt()` first if you need current data.
-    #[inline]
-    pub fn cached_brick_distances(&self) -> &[u8; 64] {
-        &self.cached_brick_distances
-    }
-
-    /// Returns true if the SVT cache needs to be updated.
-    #[inline]
-    pub fn is_svt_dirty(&self) -> bool {
-        self.svt_dirty
-    }
-
-    /// Updates the cached SVT data (brick mask and distances).
-    /// Only recomputes bricks that have changed since the last update.
-    pub fn update_svt(&mut self) {
-        if !self.svt_dirty {
-            return;
-        }
-
-        // If all 64 bricks are dirty (e.g., newly loaded chunk), do a full rebuild
-        if self.dirty_bricks == u64::MAX {
-            self.rebuild_svt_full();
-        } else {
-            self.update_svt_incremental();
-        }
-
-        self.dirty_bricks = 0;
-        self.svt_dirty = false;
-    }
-
-    /// Full SVT rebuild — single pass over blocks array instead of nested brick loops.
-    fn rebuild_svt_full(&mut self) {
-        let mut brick_has_solid = [false; 64];
-
-        // Single pass over the flat blocks array
-        for (idx, &block) in self.blocks.iter().enumerate() {
-            if block != BlockType::Air {
-                let x: usize = idx % CHUNK_SIZE;
-                let y: usize = (idx / CHUNK_SIZE) % CHUNK_SIZE;
-                let z: usize = idx / (CHUNK_SIZE * CHUNK_SIZE);
-                let bx: usize = x / 8;
-                let by: usize = y / 8;
-                let bz: usize = z / 8;
-                let brick_idx: usize = bx + by * 4 + bz * 16;
-                brick_has_solid[brick_idx] = true;
-            }
-        }
-
-        let mut brick_mask: u64 = 0;
-        for (i, &solid) in brick_has_solid.iter().enumerate() {
-            if solid {
-                brick_mask |= 1u64 << i;
-            }
-        }
-
-        self.cached_brick_mask = brick_mask;
-        self.cached_brick_distances = Self::calculate_brick_distances(&brick_has_solid);
-    }
-
-    /// Incremental SVT update - only recomputes dirty bricks.
-    fn update_svt_incremental(&mut self) {
-        let dirty = self.dirty_bricks;
-        let mut brick_mask = self.cached_brick_mask;
-        let mut brick_has_solid = [false; 64];
-
-        // Initialize brick_has_solid from current mask
-        for (i, solid) in brick_has_solid.iter_mut().enumerate() {
-            *solid = (brick_mask & (1u64 << i)) != 0;
-        }
-
-        // Update only dirty bricks
-        for (brick_idx, solid) in brick_has_solid.iter_mut().enumerate() {
-            if (dirty & (1u64 << brick_idx)) == 0 {
-                continue;
-            }
-
-            let bx = brick_idx % 4;
-            let by = (brick_idx / 4) % 4;
-            let bz = brick_idx / 16;
-            let mut has_solid = false;
-
-            // Check all 512 voxels in this brick
-            'brick: for vz in 0..8 {
-                for vy in 0..8 {
-                    for vx in 0..8 {
-                        let world_x = bx * 8 + vx;
-                        let world_y = by * 8 + vy;
-                        let world_z = bz * 8 + vz;
-                        let block = self.get_block(world_x, world_y, world_z);
-                        if block != BlockType::Air {
-                            has_solid = true;
-                            break 'brick;
-                        }
-                    }
-                }
-            }
-
-            // Update mask bit
-            if has_solid {
-                brick_mask |= 1u64 << brick_idx;
-            } else {
-                brick_mask &= !(1u64 << brick_idx);
-            }
-            *solid = has_solid;
-        }
-
-        self.cached_brick_mask = brick_mask;
-        // Recalculate distances (unfortunately still needs all bricks for propagation)
-        self.cached_brick_distances = Self::calculate_brick_distances(&brick_has_solid);
-    }
-
-    /// Calculates Manhattan distance from each brick to nearest solid brick using BFS.
-    fn calculate_brick_distances(has_solid: &[bool; 64]) -> [u8; 64] {
-        use std::collections::VecDeque;
-
-        let mut distances = [7u8; 64]; // max useful distance (4x4x4 grid, max Manhattan = 9)
-        let mut queue: VecDeque<usize> = VecDeque::new();
-
-        // Seed BFS with all solid bricks
-        for (i, &solid) in has_solid.iter().enumerate() {
-            if solid {
-                distances[i] = 0;
-                queue.push_back(i);
-            }
-        }
-
-        // BFS propagation through 6-connected neighbors
-        while let Some(idx) = queue.pop_front() {
-            let bx: usize = idx % 4;
-            let by: usize = (idx / 4) % 4;
-            let bz: usize = idx / 16;
-            let new_dist: u8 = distances[idx] + 1;
-            if new_dist > 4 {
-                continue;
-            }
-            for (dx, dy, dz) in [
-                (1i32, 0i32, 0i32),
-                (-1, 0, 0),
-                (0, 1, 0),
-                (0, -1, 0),
-                (0, 0, 1),
-                (0, 0, -1),
-            ] {
-                let nx: i32 = bx as i32 + dx;
-                let ny: i32 = by as i32 + dy;
-                let nz: i32 = bz as i32 + dz;
-                if (0..4).contains(&nx) && (0..4).contains(&ny) && (0..4).contains(&nz) {
-                    let ni: usize = nx as usize + ny as usize * 4 + nz as usize * 16;
-                    if distances[ni] > new_dist {
-                        distances[ni] = new_dist;
-                        queue.push_back(ni);
-                    }
-                }
-            }
-        }
-
-        distances
-    }
-
-    /// Marks the entire SVT as dirty (e.g., for newly loaded chunks).
-    pub fn mark_svt_fully_dirty(&mut self) {
-        self.dirty_bricks = u64::MAX;
-        self.svt_dirty = true;
-    }
-
-    /// Clears SVT dirty state (e.g., after upload with external SVT calculation).
-    pub fn clear_svt_dirty(&mut self) {
-        self.dirty_bricks = 0;
-        self.svt_dirty = false;
-    }
 }
 
 #[cfg(test)]
@@ -1906,20 +1671,6 @@ mod tests {
         chunk.set_block(5, 10, 15, BlockType::Stone);
         assert_eq!(chunk.get_block(5, 10, 15), BlockType::Stone);
         assert_eq!(chunk.get_block(0, 0, 0), BlockType::Air);
-    }
-
-    #[test]
-    fn test_chunk_bit_packed() {
-        let mut chunk = Chunk::new();
-        chunk.set_block(0, 0, 0, BlockType::Stone);
-        chunk.set_block(1, 0, 0, BlockType::Dirt);
-
-        let packed = chunk.to_bit_packed();
-        assert!(!packed.is_empty());
-
-        // First two bits should be set
-        assert!(packed[0] & 1 != 0); // (0,0,0)
-        assert!(packed[0] & (1 << 32) != 0); // (1,0,0) - x % 4 = 1, so bit 32
     }
 
     #[test]
@@ -1979,5 +1730,103 @@ mod tests {
         // added variants; this test catches drift in the count constants.
         assert_eq!(NUM_BLOCK_TYPES, NUM_BLOCK_TYPES_ID_MAX as usize + 1);
         assert_eq!(NUM_BLOCK_TYPES_ID_MAX, BlockType::BirchLeaves as u8);
+    }
+
+    #[test]
+    fn light_block_count_decrements_when_emissive_overwritten() {
+        // QA-002: overwriting a GlowStone with a non-emissive block must
+        // drop the per-chunk emissive count so `collect_torch_lights` can
+        // skip the chunk again instead of scanning it forever.
+        let mut chunk = Chunk::new();
+        chunk.set_block(0, 0, 0, BlockType::GlowStone);
+        assert_eq!(chunk.light_block_count(), 1);
+
+        chunk.set_block(0, 0, 0, BlockType::Water);
+        assert_eq!(
+            chunk.light_block_count(),
+            0,
+            "GlowStone -> Water must decrement light_block_count"
+        );
+    }
+
+    #[test]
+    fn light_block_count_increments_when_emissive_placed() {
+        // QA-002: placing an emissive block on a non-emissive one must
+        // increment the count.
+        let mut chunk = Chunk::new();
+        chunk.set_block(0, 0, 0, BlockType::Stone);
+        assert_eq!(chunk.light_block_count(), 0);
+
+        chunk.set_block(0, 0, 0, BlockType::GlowStone);
+        assert_eq!(
+            chunk.light_block_count(),
+            1,
+            "Stone -> GlowStone must increment light_block_count"
+        );
+    }
+
+    #[test]
+    fn light_block_count_stable_on_same_emissive() {
+        // QA-002: re-setting the same emissive block type at a position must
+        // not double-count.
+        let mut chunk = Chunk::new();
+        chunk.set_block(0, 0, 0, BlockType::GlowStone);
+        assert_eq!(chunk.light_block_count(), 1);
+
+        chunk.set_block(0, 0, 0, BlockType::GlowStone);
+        assert_eq!(
+            chunk.light_block_count(),
+            1,
+            "GlowStone -> GlowStone must not change light_block_count"
+        );
+    }
+
+    #[test]
+    fn light_block_count_via_metadata_setter() {
+        // QA-002: the typed metadata setters must route through
+        // `set_block_with_metadata` so they maintain `light_block_count`
+        // correctly. This is the regression that previously drifted —
+        // `set_crystal_block` only ever incremented, and the other setters
+        // touched `self.blocks` without adjusting the count at all.
+        let mut chunk = Chunk::new();
+
+        // Overwriting GlowStone with Crystal (emissive -> emissive) is net 0.
+        chunk.set_block(0, 0, 0, BlockType::GlowStone);
+        chunk.set_crystal_block(0, 0, 0, 5);
+        assert_eq!(
+            chunk.light_block_count(),
+            1,
+            "GlowStone -> Crystal must keep count at 1 (emissive -> emissive)"
+        );
+
+        // Overwriting Crystal with TintedGlass (emissive -> non-emissive)
+        // via a metadata setter must decrement.
+        chunk.set_tinted_glass_block(0, 0, 0, 7);
+        assert_eq!(
+            chunk.light_block_count(),
+            0,
+            "Crystal -> TintedGlass via setter must decrement light_block_count"
+        );
+
+        // Overwriting a freshly-placed GlowStone with a Painted block via
+        // `set_painted_block` must also decrement.
+        chunk.set_block(1, 0, 0, BlockType::GlowStone);
+        assert_eq!(chunk.light_block_count(), 1);
+        chunk.set_painted_block(1, 0, 0, 0, 12);
+        assert_eq!(
+            chunk.light_block_count(),
+            0,
+            "GlowStone -> Painted via setter must decrement light_block_count"
+        );
+
+        // And `set_water_block` overwriting an emissive block must decrement.
+        chunk.set_block(2, 0, 0, BlockType::GlowStone);
+        assert_eq!(chunk.light_block_count(), 1);
+        chunk.set_water_block(2, 0, 0, WaterType::Lake);
+        assert_eq!(
+            chunk.light_block_count(),
+            0,
+            "GlowStone -> Water via setter must decrement light_block_count"
+        );
     }
 }
