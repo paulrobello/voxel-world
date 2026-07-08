@@ -3,7 +3,7 @@
 //! This module provides functions to generate helix block positions and the
 //! HelixToolState for managing the helix placement tool.
 
-use crate::gpu_resources::MAX_STENCIL_BLOCKS;
+use crate::gpu::MAX_STENCIL_BLOCKS;
 use nalgebra::Vector3;
 
 /// Direction of helix winding.

@@ -3,7 +3,7 @@
 //! This module provides functions to generate cubic Bezier curve block positions
 //! and the BezierToolState for managing the curve placement tool.
 
-use crate::gpu_resources::MAX_STENCIL_BLOCKS;
+use crate::gpu::MAX_STENCIL_BLOCKS;
 use nalgebra::Vector3;
 
 /// State for the bezier curve placement tool.

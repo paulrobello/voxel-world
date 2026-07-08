@@ -2,10 +2,10 @@
 
 use crate::app::core::App;
 use crate::config::INITIAL_WINDOW_RESOLUTION;
-use crate::gpu_error::GpuError;
-use crate::gpu_resources::{
+use crate::gpu::{
     self, get_distance_image_and_set, get_images_and_sets, get_swapchain_images, load_icon,
 };
+use crate::gpu_error::GpuError;
 use egui_winit_vulkano::{Gui, GuiConfig};
 use std::sync::Arc;
 use vulkano::{
@@ -86,17 +86,17 @@ impl ApplicationHandler for App {
                 ..Default::default()
             },
         );
-        let sprite_icons = gpu_resources::load_sprite_icons(&mut gui);
+        let sprite_icons = gpu::load_sprite_icons(&mut gui);
 
         // Pre-warm the chunk-upload staging pool so the first origin shift
         // doesn't pay the ~5 ms cost of allocating ~30 MB of HOST-visible
         // buffers inline. Two triples covers the ring-buffer's typical
         // in-flight depth for shift bursts.
-        gpu_resources::prewarm_staging_pool(&self.graphics.memory_allocator, 2);
+        gpu::prewarm_staging_pool(&self.graphics.memory_allocator, 2);
 
         let recreate_swapchain = false;
 
-        self.graphics.rcx = Some(gpu_resources::RenderContext {
+        self.graphics.rcx = Some(gpu::RenderContext {
             window,
             swapchain,
             image_views,

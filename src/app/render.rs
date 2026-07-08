@@ -4,7 +4,7 @@ use crate::app::core::App;
 use crate::app::hud::render_hud;
 use crate::app::minimap::prepare_minimap_image;
 use crate::constants::TEXTURE_SIZE_Y;
-use crate::gpu_resources::{
+use crate::gpu::{
     self, PushConstants, get_distance_image_and_set, get_images_and_sets, save_screenshot,
 };
 use crate::player::HEAD_BOB_AMPLITUDE;
@@ -260,7 +260,7 @@ impl App {
         // signaled. Cheap when idle; keeps memory bounded when many uploads
         // were submitted in a short window (e.g. post-world-load picture
         // batch).
-        crate::gpu_resources::poll_atlas_upload_ring();
+        crate::gpu::poll_atlas_upload_ring();
 
         // --- Command buffer recording and frame submission ---
         self.record_and_submit_frame(
@@ -285,7 +285,7 @@ impl App {
     ///
     /// Gathers torch lights near the player, prioritised by camera direction, and
     /// returns the collected GpuLight vec ready for buffer upload.
-    fn collect_lights(&self) -> Vec<gpu_resources::GpuLight> {
+    fn collect_lights(&self) -> Vec<gpu::GpuLight> {
         let player_world_pos = self
             .sim
             .player
@@ -319,11 +319,11 @@ impl App {
         }
 
         let tex_origin = self.sim.texture_origin;
-        let mut sources = Vec::with_capacity(gpu_resources::MAX_WATER_SOURCES);
+        let mut sources = Vec::with_capacity(gpu::MAX_WATER_SOURCES);
 
         for (pos, cell) in self.sim.water_grid.iter() {
-            if cell.is_source && sources.len() < gpu_resources::MAX_WATER_SOURCES {
-                sources.push(gpu_resources::GpuWaterSource {
+            if cell.is_source && sources.len() < gpu::MAX_WATER_SOURCES {
+                sources.push(gpu::GpuWaterSource {
                     position: [
                         (pos.x - tex_origin.x) as f32,
                         (pos.y - tex_origin.y) as f32,
@@ -335,8 +335,8 @@ impl App {
         }
 
         for (pos, cell) in self.sim.lava_grid.iter() {
-            if cell.is_source && sources.len() < gpu_resources::MAX_WATER_SOURCES {
-                sources.push(gpu_resources::GpuWaterSource {
+            if cell.is_source && sources.len() < gpu::MAX_WATER_SOURCES {
+                sources.push(gpu::GpuWaterSource {
                     position: [
                         (pos.x - tex_origin.x) as f32,
                         (pos.y - tex_origin.y) as f32,
@@ -347,7 +347,7 @@ impl App {
             }
         }
 
-        let count = sources.len().min(gpu_resources::MAX_WATER_SOURCES);
+        let count = sources.len().min(gpu::MAX_WATER_SOURCES);
         if let Ok(mut write) = self.graphics.water_source_buffer.write() {
             for (i, src) in sources.iter().take(count).enumerate() {
                 write[i] = *src;
@@ -703,12 +703,12 @@ impl App {
     /// Returns the number of blocks written (0 when no template placement is active).
     fn populate_template_buffer(&mut self, tex_origin: Vector3<i32>) -> u32 {
         if let Some(ref placement) = self.ui.active_placement {
-            let block_positions = placement.get_preview_blocks(gpu_resources::MAX_TEMPLATE_BLOCKS);
+            let block_positions = placement.get_preview_blocks(gpu::MAX_TEMPLATE_BLOCKS);
             let count = block_positions.len();
             if let Ok(mut write) = self.graphics.template_block_buffer.write() {
                 for (i, pos) in block_positions.iter().enumerate() {
                     let tex_pos = world_to_tex(*pos, tex_origin);
-                    write[i] = gpu_resources::GpuTemplateBlock {
+                    write[i] = gpu::GpuTemplateBlock {
                         position: [tex_pos.0 as f32, tex_pos.1 as f32, tex_pos.2 as f32, 0.0],
                     };
                 }
@@ -742,10 +742,10 @@ impl App {
         /// Append one stencil block entry to the buffer if capacity permits.
         macro_rules! push_block {
             ($world_pos:expr, $color_id:expr) => {
-                if total_blocks < gpu_resources::MAX_STENCIL_BLOCKS {
+                if total_blocks < gpu::MAX_STENCIL_BLOCKS {
                     if let Some(w) = write.as_mut() {
                         let tp = world_to_tex($world_pos, tex_origin);
-                        w[total_blocks] = gpu_resources::GpuStencilBlock {
+                        w[total_blocks] = gpu::GpuStencilBlock {
                             position: [tp.0 as f32, tp.1 as f32, tp.2 as f32, $color_id as f32],
                         };
                         total_blocks += 1;
@@ -758,7 +758,7 @@ impl App {
         for stencil in &self.ui.stencil_manager.active_stencils {
             let color_id = stencil.id as u32 % 8; // Cycle through 8 colors
             for world_pos in stencil.iter_positions() {
-                if total_blocks >= gpu_resources::MAX_STENCIL_BLOCKS {
+                if total_blocks >= gpu::MAX_STENCIL_BLOCKS {
                     break;
                 }
                 push_block!(world_pos, color_id);
@@ -768,7 +768,7 @@ impl App {
         // Add blocks from stencil placement preview
         if let Some(ref placement) = self.ui.active_stencil_placement {
             let preview_color_id = 7u32; // Use distinct color for preview
-            for world_pos in placement.get_preview_positions(gpu_resources::MAX_STENCIL_BLOCKS) {
+            for world_pos in placement.get_preview_positions(gpu::MAX_STENCIL_BLOCKS) {
                 push_block!(world_pos, preview_color_id);
             }
         }
@@ -1121,7 +1121,7 @@ impl App {
     }
 
     /// Copies the pre-collected GPU light slice into the light GPU buffer.
-    fn update_light_buffer(&mut self, gpu_lights: &[gpu_resources::GpuLight]) {
+    fn update_light_buffer(&mut self, gpu_lights: &[gpu::GpuLight]) {
         // Update light buffer with torch positions (collected earlier)
         if let Ok(mut write) = self.graphics.light_buffer.write() {
             for (i, l) in gpu_lights.iter().enumerate() {
@@ -1530,7 +1530,7 @@ impl App {
             );
             let mut uploaded_count = 0;
             for picture in self.sim.picture_library.iter() {
-                let success = crate::gpu_resources::upload_picture_to_atlas(
+                let success = crate::gpu::upload_picture_to_atlas(
                     self.graphics.memory_allocator.clone(),
                     self.graphics.command_buffer_allocator.clone(),
                     &self.graphics.queue,
@@ -1553,7 +1553,7 @@ impl App {
                 picture_id,
                 self.ui.picture_state.selected_picture_id
             );
-            let success = crate::gpu_resources::upload_picture_to_atlas(
+            let success = crate::gpu::upload_picture_to_atlas(
                 self.graphics.memory_allocator.clone(),
                 self.graphics.command_buffer_allocator.clone(),
                 &self.graphics.queue,

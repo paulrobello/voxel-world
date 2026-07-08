@@ -14,7 +14,7 @@ use crate::chunk::BlockType;
 use crate::config::{GameMode, Settings};
 use crate::console::ConsoleState;
 use crate::editor::{EditorAction, EditorState};
-use crate::gpu_resources::SpriteIcons;
+use crate::gpu::SpriteIcons;
 use crate::hud::Minimap;
 use crate::player::Player;
 use crate::raycast::RaycastHit;

@@ -168,7 +168,7 @@ impl App {
             return;
         }
 
-        crate::gpu_resources::batch_update_custom_texture_slots(
+        crate::gpu::batch_update_custom_texture_slots(
             self.graphics.memory_allocator.clone(),
             self.graphics.command_buffer_allocator.clone(),
             &self.graphics.queue,
@@ -228,7 +228,7 @@ impl App {
             return; // Already initialized
         }
 
-        let (image, view, sampler) = crate::gpu_resources::create_multiplayer_texture_array(
+        let (image, view, sampler) = crate::gpu::create_multiplayer_texture_array(
             self.graphics.memory_allocator.clone(),
             max_slots,
         );
@@ -273,7 +273,7 @@ impl App {
 
         // Upload each new texture
         for (slot, data) in &new_textures {
-            match crate::gpu_resources::update_multiplayer_texture_slot(
+            match crate::gpu::update_multiplayer_texture_slot(
                 self.graphics.memory_allocator.clone(),
                 self.graphics.command_buffer_allocator.clone(),
                 &self.graphics.queue,

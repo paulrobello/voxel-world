@@ -4,7 +4,7 @@ use super::App;
 use crate::app::stats::print_stats;
 use crate::app_state::AutoProfileFeature;
 use crate::constants::{DAY_CYCLE_DURATION, TEXTURE_SIZE_Y};
-use crate::gpu_resources::{ModelAtlasTargets, upload_model_registry};
+use crate::gpu::{ModelAtlasTargets, upload_model_registry};
 use nalgebra::Vector3;
 use std::time::{Duration, Instant};
 use winit::event_loop::ActiveEventLoop;

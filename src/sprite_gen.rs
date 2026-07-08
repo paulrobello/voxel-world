@@ -1,6 +1,6 @@
 use crate::chunk::{BlockType, CHUNK_SIZE, CHUNK_VOLUME};
 use crate::config::Args;
-use crate::gpu_resources::{
+use crate::gpu::{
     ChunkUploadConfig, PushConstants, create_empty_voxel_texture, get_brick_and_model_set,
     get_chunk_metadata_set, get_distance_image_and_set, get_images_and_sets, get_light_set,
     get_particle_and_falling_block_set, load_texture_atlases, save_screenshot,

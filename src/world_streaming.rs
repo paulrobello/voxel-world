@@ -12,7 +12,7 @@ use crate::constants::{
     LOADED_CHUNKS_Z, MAX_COMPLETED_UPLOADS_PER_FRAME, TEXTURE_SIZE_X, TEXTURE_SIZE_Y,
     TEXTURE_SIZE_Z, WORLD_CHUNKS_Y,
 };
-use crate::gpu_resources::{
+use crate::gpu::{
     BRICK_DIST_WORDS, BRICK_MASK_WORDS, CHUNK_METADATA_WORDS, ChunkDataSlice, ChunkUploadConfig,
     GpuUploadResult, TOTAL_CHUNKS, upload_chunks_batched,
 };

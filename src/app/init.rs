@@ -18,7 +18,7 @@ use crate::constants::{
 };
 use crate::editor::EditorState;
 use crate::falling_block::FallingBlockSystem;
-use crate::gpu_resources::{
+use crate::gpu::{
     create_empty_voxel_texture, get_brick_and_model_set, get_chunk_metadata_set, get_light_set,
     get_particle_and_falling_block_set, load_texture_atlases,
 };

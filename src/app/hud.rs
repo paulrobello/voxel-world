@@ -3,7 +3,7 @@ use crate::chunk::BlockType;
 use crate::config::WorldGenType;
 use crate::editor::EditorAction;
 use crate::editor::rasterizer::generate_model_sprite;
-use crate::gpu_resources::RenderContext;
+use crate::gpu::RenderContext;
 use crate::pictures::{PictureBrowserAction, draw_picture_browser};
 use crate::stencils::{StencilBrowserAction, draw_stencil_browser};
 use crate::templates::{TemplateBrowserAction, draw_save_template_dialog, draw_template_browser};

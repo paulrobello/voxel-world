@@ -3,7 +3,7 @@
 use super::helpers::HudHelpers;
 use crate::app_state::PaletteItem;
 use crate::chunk::{BlockType, WaterType};
-use crate::gpu_resources::SpriteIcons;
+use crate::gpu::SpriteIcons;
 use crate::sub_voxel::ModelRegistry;
 use egui_winit_vulkano::egui;
 

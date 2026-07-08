@@ -3,7 +3,7 @@
 //! This module provides functions to generate sphere block positions,
 //! calculate sphere volumes, and the SphereToolState for managing the tool.
 
-use crate::gpu_resources::MAX_STENCIL_BLOCKS;
+use crate::gpu::MAX_STENCIL_BLOCKS;
 use nalgebra::Vector3;
 
 use super::PlacementMode;

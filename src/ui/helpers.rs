@@ -2,7 +2,7 @@
 
 use crate::app_state::PaletteItem;
 use crate::chunk::{BlockType, WaterType};
-use crate::gpu_resources::SpriteIcons;
+use crate::gpu::SpriteIcons;
 use egui_winit_vulkano::egui;
 
 pub struct HudHelpers;

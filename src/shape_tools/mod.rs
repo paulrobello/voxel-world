@@ -150,7 +150,7 @@ impl CubeToolState {
     ///
     /// Regenerates preview positions when target or settings change.
     pub fn update_preview(&mut self, target: Vector3<i32>) {
-        use crate::gpu_resources::MAX_STENCIL_BLOCKS;
+        use crate::gpu::MAX_STENCIL_BLOCKS;
 
         let center = cube::calculate_center(target, self.size_y, self.placement_mode);
 
@@ -331,7 +331,7 @@ impl CylinderToolState {
     ///
     /// Regenerates preview positions when target or settings change.
     pub fn update_preview(&mut self, target: Vector3<i32>) {
-        use crate::gpu_resources::MAX_STENCIL_BLOCKS;
+        use crate::gpu::MAX_STENCIL_BLOCKS;
 
         let center = cylinder::calculate_center(
             target,
@@ -462,7 +462,7 @@ impl WallToolState {
     ///
     /// Only generates preview if start_position is set.
     pub fn update_preview(&mut self, target: Vector3<i32>) {
-        use crate::gpu_resources::MAX_STENCIL_BLOCKS;
+        use crate::gpu::MAX_STENCIL_BLOCKS;
 
         if let Some(start) = self.start_position {
             // Check if regeneration needed
@@ -575,7 +575,7 @@ impl FloorToolState {
     ///
     /// Only generates preview if start_position is set.
     pub fn update_preview(&mut self, target: Vector3<i32>) {
-        use crate::gpu_resources::MAX_STENCIL_BLOCKS;
+        use crate::gpu::MAX_STENCIL_BLOCKS;
 
         if let Some(start) = self.start_position {
             // Check if regeneration needed
@@ -694,7 +694,7 @@ impl ReplaceToolState {
         world: &crate::world::World,
         selection: &crate::templates::TemplateSelection,
     ) {
-        use crate::gpu_resources::MAX_STENCIL_BLOCKS;
+        use crate::gpu::MAX_STENCIL_BLOCKS;
 
         if selection.pos1.is_none() || selection.pos2.is_none() {
             self.clear_preview();
@@ -840,7 +840,7 @@ impl CircleToolState {
 
     /// Update the circle preview centered on the given target position.
     pub fn update_preview(&mut self, target: Vector3<i32>) {
-        use crate::gpu_resources::MAX_STENCIL_BLOCKS;
+        use crate::gpu::MAX_STENCIL_BLOCKS;
 
         // Check if regeneration needed
         let needs_regen = self.preview_center != Some(target) || self.settings_changed();
@@ -1027,7 +1027,7 @@ impl StairsToolState {
 
     /// Update the stairs preview given the current target position.
     pub fn update_preview(&mut self, target: Vector3<i32>) {
-        use crate::gpu_resources::MAX_STENCIL_BLOCKS;
+        use crate::gpu::MAX_STENCIL_BLOCKS;
 
         if let Some(start) = self.start_pos {
             let (height, horizontal, _steps) = stairs::calculate_dimensions(start, target);
@@ -1138,7 +1138,7 @@ impl ArchToolState {
     /// In single-click mode, places arch centered at base_center.
     /// In two-click mode, if start is set, calculates arch between start and target.
     pub fn update_preview(&mut self, target: Vector3<i32>) {
-        use crate::gpu_resources::MAX_STENCIL_BLOCKS;
+        use crate::gpu::MAX_STENCIL_BLOCKS;
 
         if self.two_click_mode {
             if let Some(start) = self.start_position {
@@ -1342,7 +1342,7 @@ impl ConeToolState {
 
     /// Update the cone preview at the given base center position.
     pub fn update_preview(&mut self, base_center: Vector3<i32>) {
-        use crate::gpu_resources::MAX_STENCIL_BLOCKS;
+        use crate::gpu::MAX_STENCIL_BLOCKS;
 
         // Check if regeneration needed
         let needs_regen = self.preview_center != Some(base_center) || self.settings_changed();
@@ -1463,7 +1463,7 @@ impl CloneToolState {
         selection: &crate::templates::TemplateSelection,
         world: &crate::world::World,
     ) {
-        use crate::gpu_resources::MAX_STENCIL_BLOCKS;
+        use crate::gpu::MAX_STENCIL_BLOCKS;
 
         if selection.pos1.is_none() || selection.pos2.is_none() {
             self.clear_preview();

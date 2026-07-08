@@ -4,7 +4,7 @@
 //! (triangles, squares, pentagons, hexagons, etc.) and the PolygonToolState
 //! for managing the polygon placement tool.
 
-use crate::gpu_resources::MAX_STENCIL_BLOCKS;
+use crate::gpu::MAX_STENCIL_BLOCKS;
 use nalgebra::Vector3;
 
 /// State for the polygon placement tool.

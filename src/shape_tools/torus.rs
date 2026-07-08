@@ -3,7 +3,7 @@
 //! This module provides functions to generate torus block positions and the
 //! TorusToolState for managing the torus placement tool.
 
-use crate::gpu_resources::MAX_STENCIL_BLOCKS;
+use crate::gpu::MAX_STENCIL_BLOCKS;
 use nalgebra::Vector3;
 
 use super::PlacementMode;

@@ -12,7 +12,7 @@ use vulkano::{
 };
 
 use crate::falling_block::GpuFallingBlock;
-use crate::gpu_resources::{self, GpuLight};
+use crate::gpu::{self, GpuLight};
 use crate::hot_reload::HotReloadComputePipeline;
 use crate::particles;
 use crate::remote_player::GpuRemotePlayer;
@@ -69,10 +69,10 @@ pub struct Graphics {
     pub brick_dist_buffer: Subbuffer<[u32]>,
     pub brick_and_model_set: Arc<DescriptorSet>,
     pub falling_block_buffer: Subbuffer<[GpuFallingBlock]>,
-    pub water_source_buffer: Subbuffer<[gpu_resources::GpuWaterSource]>,
-    pub template_block_buffer: Subbuffer<[gpu_resources::GpuTemplateBlock]>,
+    pub water_source_buffer: Subbuffer<[gpu::GpuWaterSource]>,
+    pub template_block_buffer: Subbuffer<[gpu::GpuTemplateBlock]>,
     #[allow(dead_code)] // Will be used when stencils are fully integrated
-    pub stencil_block_buffer: Subbuffer<[gpu_resources::GpuStencilBlock]>,
+    pub stencil_block_buffer: Subbuffer<[gpu::GpuStencilBlock]>,
     /// Remote player buffer for multiplayer player rendering
     pub remote_player_buffer: Subbuffer<[GpuRemotePlayer]>,
     pub voxel_image: Arc<Image>,
@@ -84,7 +84,7 @@ pub struct Graphics {
     pub model_metadata: Arc<Image>,
     /// Per-block custom data (e.g., picture_id, offset_x, offset_y for frames).
     pub block_custom_data: Arc<Image>,
-    pub model_properties_buffer: Subbuffer<[gpu_resources::GpuModelProperties]>,
+    pub model_properties_buffer: Subbuffer<[gpu::GpuModelProperties]>,
 
-    pub rcx: Option<gpu_resources::RenderContext>,
+    pub rcx: Option<gpu::RenderContext>,
 }

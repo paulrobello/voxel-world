@@ -117,7 +117,7 @@ Production code uses the `log` crate macros (`log::debug!` / `log::info!` / `log
 
 ### `.unwrap()` policy
 
-`.unwrap()` / `.expect()` are fine inside `#[cfg(test)]` blocks. Production code should return a `Result` or handle the error explicitly. Vulkan init paths in `gpu_resources.rs` / `vulkan_context.rs` are the known exception — GPU failures at those call sites mean the game cannot continue regardless.
+`.unwrap()` / `.expect()` are fine inside `#[cfg(test)]` blocks. Production code should return a `Result` or handle the error explicitly. Vulkan init paths in `gpu/` / `vulkan_context.rs` are the known exception — GPU failures at those call sites mean the game cannot continue regardless.
 
 ## Architecture Overview
 
@@ -135,7 +135,7 @@ Vulkan compute shader voxel engine with GPU ray marching. See README.md for deta
 - `app/` — Central `App` split across 12 impl files (`core`, `init`, `render`, `update`, `input`, `event_handler`, `network_sync`, `hud`, `minimap`, `stats`, `helpers`, plus submodules)
 - `net/` — Multiplayer: ~21 per-subsystem sync modules (`chunk_sync`, `block_sync`, `fluid_sync`, `tree_fall_sync`, `player_sync`, `extended_gameplay_sync`, …) over a client/server/channel core. See "Multiplayer architecture" below for key patterns. Integration test `test_loopback_connect_send_receive` in `src/net/client.rs` is the pattern for future end-to-end tests.
 - `app_state/multiplayer.rs` — Multiplayer state orchestration: host/client startup, message routing between server ↔ client ↔ game world, originator-excluded broadcasts, epoch-aware chunk dedup.
-- `sub_voxel/` — Sub-voxel model system (8³/16³/32³) in `model.rs` + `registry.rs` + `types.rs` + `builtins/`. `PaletteTable` in `registry.rs` dedupes palettes across models; GPU upload in `gpu_resources::upload_model_registry_incremental` consumes `dirty_model_ids`/`dirty_palette_ids`/`tier_dirty` to avoid full atlas repacks.
+- `sub_voxel/` — Sub-voxel model system (8³/16³/32³) in `model.rs` + `registry.rs` + `types.rs` + `builtins/`. `PaletteTable` in `registry.rs` dedupes palettes across models; GPU upload in `gpu::upload_model_registry_incremental` consumes `dirty_model_ids`/`dirty_palette_ids`/`tier_dirty` to avoid full atlas repacks.
 - `block_interaction.rs` — Block placement/breaking, hotbar, palette UI
 - `water.rs` / `lava.rs` — Fluid simulation (cellular automata)
 - `falling_block.rs`, `block_update.rs` — Gravity physics and frame-distributed physics queue
@@ -169,7 +169,7 @@ Performance-critical; the "origin shift" hot path runs through this trio:
 
 - `chunk_loader.rs` — Background thread pool generates chunks off the main thread; epoch-bumping cancels in-flight work on origin shift.
 - `world_streaming.rs` — Owns `MetadataState` (CPU-side SVT / brick-mask buffers with a pending queue). `check_and_shift_texture_origin()` performs the async texture clear, partitions chunks into near (immediate bulk upload) and far (queued in `reupload_queue`), and drains the queue across subsequent frames via `upload_world_to_gpu()`.
-- `gpu_resources.rs` — `upload_chunks_batched()` packs chunks into staging buffers and issues merged `BufferImageCopy` regions. Zero-slice skip (`skip_zero_slices`) avoids memcpy/region emission for all-zero `model_metadata` / `custom_data` when the destination is known-zero (post-clear only). Z-adjacent chunks at the same (y, x) are merged into single multi-depth regions. Thread-local `STAGING_POOL` + `TRANSFER_RING` reuse HOST-visible buffers across uploads; `prewarm_staging_pool()` is called at init so the first origin shift never pays cold-alloc cost. `MultiplayerState::chunk_compression_cache` memoizes LZ4 output keyed on `Chunk::mutation_epoch` so the same chunk isn't re-compressed when streaming to multiple clients.
+- `gpu/` — `upload_chunks_batched()` packs chunks into staging buffers and issues merged `BufferImageCopy` regions. Zero-slice skip (`skip_zero_slices`) avoids memcpy/region emission for all-zero `model_metadata` / `custom_data` when the destination is known-zero (post-clear only). Z-adjacent chunks at the same (y, x) are merged into single multi-depth regions. Thread-local `STAGING_POOL` + `TRANSFER_RING` reuse HOST-visible buffers across uploads; `prewarm_staging_pool()` is called at init so the first origin shift never pays cold-alloc cost. `MultiplayerState::chunk_compression_cache` memoizes LZ4 output keyed on `Chunk::mutation_epoch` so the same chunk isn't re-compressed when streaming to multiple clients.
 - `svt.rs` — `ChunkSVT` 64-bit brick mask + per-brick distance field for ray skipping.
 - **Shift-reset optimization** — on origin-shift the metadata reset only pushes the tiny `chunk_bits` buffer (all-empty placeholder) to GPU; the larger `brick_masks` / `brick_distances` buffers stay stale for empty slots because `shaders/accel.glsl::isChunkEmpty` short-circuits before reading them. The incremental path writes brick data *before* flipping a chunk's bit to "not empty" to maintain that invariant.
 

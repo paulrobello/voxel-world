@@ -2,7 +2,7 @@
 
 use super::World;
 use crate::chunk::{BlockType, CHUNK_SIZE};
-use crate::gpu_resources::GpuLight;
+use crate::gpu::GpuLight;
 use crate::player::PLAYER_EYE_HEIGHT;
 use crate::sub_voxel::ModelRegistry;
 use nalgebra::Vector3;
