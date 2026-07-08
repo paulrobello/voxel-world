@@ -137,6 +137,26 @@ fn main() {
     // binary can embed them via include_bytes! (faster startup; the .comp source
     // stays a dev-only hot-reload override). Mirrors src/hot_reload.rs.
     println!("cargo:rerun-if-changed=build.rs");
+
+    // REN-003 follow-up: the embedded SPIR-V depends on every shader file
+    // transitively #included by traverse.comp / resample.comp (common.glsl,
+    // lighting.glsl, materials.glsl, …), not just the top-level .comp files.
+    // Watch the whole shaders/ tree so editing an include regenerates the
+    // embedded SPIR-V — otherwise include_bytes! silently re-embeds stale
+    // SPIR-V and the change only surfaces later as a runtime descriptor-layout
+    // mismatch (e.g. a binding that exists in the source but not the embed).
+    let shaders_dir = root.join("shaders");
+    for entry in fs::read_dir(&shaders_dir)
+        .unwrap_or_else(|e| panic!("build.rs: failed to read {shaders_dir:?}: {e}"))
+    {
+        let path = entry
+            .unwrap_or_else(|e| panic!("build.rs: bad dir entry in {shaders_dir:?}: {e}"))
+            .path();
+        if path.is_file() {
+            println!("cargo:rerun-if-changed={}", path.display());
+        }
+    }
+
     let out_dir = std::env::var("OUT_DIR").expect("build.rs: OUT_DIR not set");
     compile_shader_to_out_dir(
         root,
