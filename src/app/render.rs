@@ -348,11 +348,12 @@ impl App {
         }
 
         let count = sources.len().min(gpu_resources::MAX_WATER_SOURCES);
-        {
-            let mut write = self.graphics.water_source_buffer.write().unwrap();
+        if let Ok(mut write) = self.graphics.water_source_buffer.write() {
             for (i, src) in sources.iter().take(count).enumerate() {
                 write[i] = *src;
             }
+        } else {
+            log::warn!("[GPU] water_source_buffer write failed; skipping update this frame");
         }
         count as u32
     }
@@ -669,12 +670,15 @@ impl App {
         if let Some(ref placement) = self.ui.active_placement {
             let block_positions = placement.get_preview_blocks(gpu_resources::MAX_TEMPLATE_BLOCKS);
             let count = block_positions.len();
-            let mut write = self.graphics.template_block_buffer.write().unwrap();
-            for (i, pos) in block_positions.iter().enumerate() {
-                let tex_pos = world_to_tex(*pos, tex_origin);
-                write[i] = gpu_resources::GpuTemplateBlock {
-                    position: [tex_pos.0 as f32, tex_pos.1 as f32, tex_pos.2 as f32, 0.0],
-                };
+            if let Ok(mut write) = self.graphics.template_block_buffer.write() {
+                for (i, pos) in block_positions.iter().enumerate() {
+                    let tex_pos = world_to_tex(*pos, tex_origin);
+                    write[i] = gpu_resources::GpuTemplateBlock {
+                        position: [tex_pos.0 as f32, tex_pos.1 as f32, tex_pos.2 as f32, 0.0],
+                    };
+                }
+            } else {
+                log::warn!("[GPU] template_block_buffer write failed; skipping update this frame");
             }
             count as u32
         } else {
@@ -687,17 +691,30 @@ impl App {
     /// Returns `(block_count, global_opacity, render_mode)`.
     fn populate_stencil_buffer(&mut self, tex_origin: Vector3<i32>) -> (u32, f32, u32) {
         let mut total_blocks = 0usize;
-        let mut write = self.graphics.stencil_block_buffer.write().unwrap();
+        // Acquire the write guard once; if the buffer can't be mapped (e.g. GPU device-loss),
+        // `write` stays None and the push_block! macro below no-ops, leaving total_blocks at 0
+        // so the renderer draws no stencil blocks this frame.
+        let mut write = match self.graphics.stencil_block_buffer.write() {
+            Ok(g) => Some(g),
+            Err(e) => {
+                log::warn!(
+                    "[GPU] stencil_block_buffer write failed; skipping stencil update this frame: {e:?}"
+                );
+                None
+            }
+        };
 
         /// Append one stencil block entry to the buffer if capacity permits.
         macro_rules! push_block {
             ($world_pos:expr, $color_id:expr) => {
                 if total_blocks < gpu_resources::MAX_STENCIL_BLOCKS {
-                    let tp = world_to_tex($world_pos, tex_origin);
-                    write[total_blocks] = gpu_resources::GpuStencilBlock {
-                        position: [tp.0 as f32, tp.1 as f32, tp.2 as f32, $color_id as f32],
-                    };
-                    total_blocks += 1;
+                    if let Some(w) = write.as_mut() {
+                        let tp = world_to_tex($world_pos, tex_origin);
+                        w[total_blocks] = gpu_resources::GpuStencilBlock {
+                            position: [tp.0 as f32, tp.1 as f32, tp.2 as f32, $color_id as f32],
+                        };
+                        total_blocks += 1;
+                    }
                 }
             };
         }
@@ -1035,8 +1052,7 @@ impl App {
         // Update particle buffer (convert world coords to texture coords)
         let gpu_particles = self.sim.particles.gpu_data();
         let particle_count = gpu_particles.len() as u32;
-        {
-            let mut write = self.graphics.particle_buffer.write().unwrap();
+        if let Ok(mut write) = self.graphics.particle_buffer.write() {
             for (i, p) in gpu_particles.iter().enumerate() {
                 let mut converted = *p;
                 // Convert world position to texture position
@@ -1045,6 +1061,8 @@ impl App {
                 converted.pos_size[2] -= tex_origin.z as f32;
                 write[i] = converted;
             }
+        } else {
+            log::warn!("[GPU] particle_buffer write failed; skipping update this frame");
         }
         particle_count
     }
@@ -1053,8 +1071,7 @@ impl App {
     fn update_falling_block_buffer(&mut self, tex_origin: Vector3<i32>) {
         // Update falling block buffer (convert world coords to texture coords)
         let gpu_falling_blocks = self.sim.falling_blocks.gpu_data();
-        {
-            let mut write = self.graphics.falling_block_buffer.write().unwrap();
+        if let Ok(mut write) = self.graphics.falling_block_buffer.write() {
             for (i, fb) in gpu_falling_blocks.iter().enumerate() {
                 let mut converted = *fb;
                 // Convert world position to texture position
@@ -1063,15 +1080,20 @@ impl App {
                 converted.pos_type[2] -= tex_origin.z as f32;
                 write[i] = converted;
             }
+        } else {
+            log::warn!("[GPU] falling_block_buffer write failed; skipping update this frame");
         }
     }
 
     /// Copies the pre-collected GPU light slice into the light GPU buffer.
     fn update_light_buffer(&mut self, gpu_lights: &[gpu_resources::GpuLight]) {
         // Update light buffer with torch positions (collected earlier)
-        let mut write = self.graphics.light_buffer.write().unwrap();
-        for (i, l) in gpu_lights.iter().enumerate() {
-            write[i] = *l;
+        if let Ok(mut write) = self.graphics.light_buffer.write() {
+            for (i, l) in gpu_lights.iter().enumerate() {
+                write[i] = *l;
+            }
+        } else {
+            log::warn!("[GPU] light_buffer write failed; skipping update this frame");
         }
     }
 
@@ -1087,31 +1109,34 @@ impl App {
         if remote_player_data.is_empty() {
             return 0;
         }
-        let mut write = self.graphics.remote_player_buffer.write().unwrap();
-        for (i, (pos, player_id)) in remote_player_data.iter().enumerate() {
-            if i >= MAX_REMOTE_PLAYERS {
-                break;
-            }
-            // Assign color based on player_id (same logic as minimap):
-            // Host (player_id 0) always gets red (index 0)
-            // Other players get colors 1-7 based on their player_id hash
-            let color_index = if *player_id == 0 {
-                0 // Host is always red
-            } else {
-                ((player_id.wrapping_mul(0x5851F42E4C957F2D) % 7) + 1) as u32
-            };
+        if let Ok(mut write) = self.graphics.remote_player_buffer.write() {
+            for (i, (pos, player_id)) in remote_player_data.iter().enumerate() {
+                if i >= MAX_REMOTE_PLAYERS {
+                    break;
+                }
+                // Assign color based on player_id (same logic as minimap):
+                // Host (player_id 0) always gets red (index 0)
+                // Other players get colors 1-7 based on their player_id hash
+                let color_index = if *player_id == 0 {
+                    0 // Host is always red
+                } else {
+                    ((player_id.wrapping_mul(0x5851F42E4C957F2D) % 7) + 1) as u32
+                };
 
-            // Convert world position to texture position
-            let gpu_player = GpuRemotePlayer::new(
-                [
-                    pos[0] - tex_origin.x as f32,
-                    pos[1] - tex_origin.y as f32,
-                    pos[2] - tex_origin.z as f32,
-                ],
-                color_index,
-                1.8, // 2-block tall player
-            );
-            write[i] = gpu_player;
+                // Convert world position to texture position
+                let gpu_player = GpuRemotePlayer::new(
+                    [
+                        pos[0] - tex_origin.x as f32,
+                        pos[1] - tex_origin.y as f32,
+                        pos[2] - tex_origin.z as f32,
+                    ],
+                    color_index,
+                    1.8, // 2-block tall player
+                );
+                write[i] = gpu_player;
+            }
+        } else {
+            log::warn!("[GPU] remote_player_buffer write failed; skipping update this frame");
         }
         remote_player_data.len().min(MAX_REMOTE_PLAYERS) as u32
     }

@@ -507,39 +507,55 @@ impl App {
             // Update metadata buffers for near chunks
             {
                 let t_lock = Instant::now();
-                let mut chunk_meta_write = self.graphics.chunk_metadata_buffer.write().unwrap();
-                let mut brick_mask_write = self.graphics.brick_mask_buffer.write().unwrap();
-                let mut brick_dist_write = self.graphics.brick_dist_buffer.write().unwrap();
+                let meta_guard = self.graphics.chunk_metadata_buffer.write();
+                let mask_guard = self.graphics.brick_mask_buffer.write();
+                let dist_guard = self.graphics.brick_dist_buffer.write();
                 lock_acquire_us = t_lock.elapsed();
 
-                let t_write = Instant::now();
-                for ((pos, _), svt) in near_chunk_refs.iter().zip(svt_data.iter()) {
-                    if let Some(idx) = world_pos_to_chunk_index(self.sim.texture_origin, *pos) {
-                        let word_idx = idx / 32;
-                        let bit_idx = idx % 32;
-                        if svt.brick_mask == 0 {
-                            self.sim.metadata_state.chunk_bits[word_idx] |= 1u32 << bit_idx;
-                        } else {
-                            self.sim.metadata_state.chunk_bits[word_idx] &= !(1u32 << bit_idx);
-                        }
-                        chunk_meta_write[word_idx] = self.sim.metadata_state.chunk_bits[word_idx];
+                // Skip the SVT write if any metadata buffer can't be mapped (e.g. GPU device-loss).
+                // The chunk block data is already on the GPU; SVT metadata is recomputed on the next
+                // metadata refresh pass, so a skipped frame is transient.
+                if let (
+                    Ok(mut chunk_meta_write),
+                    Ok(mut brick_mask_write),
+                    Ok(mut brick_dist_write),
+                ) = (meta_guard, mask_guard, dist_guard)
+                {
+                    let t_write = Instant::now();
+                    for ((pos, _), svt) in near_chunk_refs.iter().zip(svt_data.iter()) {
+                        if let Some(idx) = world_pos_to_chunk_index(self.sim.texture_origin, *pos) {
+                            let word_idx = idx / 32;
+                            let bit_idx = idx % 32;
+                            if svt.brick_mask == 0 {
+                                self.sim.metadata_state.chunk_bits[word_idx] |= 1u32 << bit_idx;
+                            } else {
+                                self.sim.metadata_state.chunk_bits[word_idx] &= !(1u32 << bit_idx);
+                            }
+                            chunk_meta_write[word_idx] =
+                                self.sim.metadata_state.chunk_bits[word_idx];
 
-                        let mask_offset = idx * 2;
-                        self.sim.metadata_state.brick_masks[mask_offset] = svt.brick_mask as u32;
-                        self.sim.metadata_state.brick_masks[mask_offset + 1] =
-                            (svt.brick_mask >> 32) as u32;
-                        brick_mask_write[mask_offset] = svt.brick_mask as u32;
-                        brick_mask_write[mask_offset + 1] = (svt.brick_mask >> 32) as u32;
+                            let mask_offset = idx * 2;
+                            self.sim.metadata_state.brick_masks[mask_offset] =
+                                svt.brick_mask as u32;
+                            self.sim.metadata_state.brick_masks[mask_offset + 1] =
+                                (svt.brick_mask >> 32) as u32;
+                            brick_mask_write[mask_offset] = svt.brick_mask as u32;
+                            brick_mask_write[mask_offset + 1] = (svt.brick_mask >> 32) as u32;
 
-                        let dist_offset = idx * 16;
-                        let packed_dist = pack_distances(&svt.brick_distances);
-                        for (i, word) in packed_dist.iter().enumerate() {
-                            self.sim.metadata_state.brick_distances[dist_offset + i] = *word;
-                            brick_dist_write[dist_offset + i] = *word;
+                            let dist_offset = idx * 16;
+                            let packed_dist = pack_distances(&svt.brick_distances);
+                            for (i, word) in packed_dist.iter().enumerate() {
+                                self.sim.metadata_state.brick_distances[dist_offset + i] = *word;
+                                brick_dist_write[dist_offset + i] = *word;
+                            }
                         }
                     }
+                    meta_write_us = t_write.elapsed();
+                } else {
+                    log::warn!(
+                        "[GPU] origin-shift near-chunk metadata buffer write failed; SVT update skipped this frame"
+                    );
                 }
-                meta_write_us = t_write.elapsed();
             }
         }
 
@@ -568,6 +584,11 @@ impl App {
     /// Clears the voxel and model metadata textures asynchronously.
     /// Returns a fence that signals when the clear is complete.
     /// Uploads should be delayed until this fence signals.
+    ///
+    /// The `.unwrap()` calls below are intentional fail-fast: these are Vulkan command-buffer
+    /// build/submit ops whose only failure mode is GPU device-loss (the game cannot continue
+    /// regardless). Silently skipping the clear would let subsequent uploads write into uncleared
+    /// texture memory and corrupt the world, so crashing is the correct behavior here.
     pub fn clear_voxel_texture_async(&self) -> crate::app_state::ClearFence {
         let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
             self.graphics.command_buffer_allocator.clone(),
@@ -1041,34 +1062,45 @@ impl App {
         // Apply pre-computed metadata updates to GPU buffers
         // These were computed during chunk processing to avoid 32KB clone per chunk
         if !metadata_updates.is_empty() {
-            let mut chunk_meta_write = self.graphics.chunk_metadata_buffer.write().unwrap();
-            let mut brick_mask_write = self.graphics.brick_mask_buffer.write().unwrap();
-            let mut brick_dist_write = self.graphics.brick_dist_buffer.write().unwrap();
+            let meta_guard = self.graphics.chunk_metadata_buffer.write();
+            let mask_guard = self.graphics.brick_mask_buffer.write();
+            let dist_guard = self.graphics.brick_dist_buffer.write();
 
-            for update in &metadata_updates {
-                // Update chunk empty bit
-                if update.is_empty {
-                    self.sim.metadata_state.chunk_bits[update.word_idx] |= 1u32 << update.bit_idx;
-                } else {
-                    self.sim.metadata_state.chunk_bits[update.word_idx] &=
-                        !(1u32 << update.bit_idx);
+            // Skip the GPU write if any metadata buffer can't be mapped (e.g. GPU device-loss).
+            // CPU-side metadata_state stays authoritative; the next refresh pass re-applies it.
+            if let (Ok(mut chunk_meta_write), Ok(mut brick_mask_write), Ok(mut brick_dist_write)) =
+                (meta_guard, mask_guard, dist_guard)
+            {
+                for update in &metadata_updates {
+                    // Update chunk empty bit
+                    if update.is_empty {
+                        self.sim.metadata_state.chunk_bits[update.word_idx] |=
+                            1u32 << update.bit_idx;
+                    } else {
+                        self.sim.metadata_state.chunk_bits[update.word_idx] &=
+                            !(1u32 << update.bit_idx);
+                    }
+                    chunk_meta_write[update.word_idx] =
+                        self.sim.metadata_state.chunk_bits[update.word_idx];
+
+                    // Update brick mask
+                    let mask_offset = update.idx * 2;
+                    self.sim.metadata_state.brick_masks[mask_offset] = update.mask_low;
+                    self.sim.metadata_state.brick_masks[mask_offset + 1] = update.mask_high;
+                    brick_mask_write[mask_offset] = update.mask_low;
+                    brick_mask_write[mask_offset + 1] = update.mask_high;
+
+                    // Update brick distances
+                    let dist_offset = update.idx * 16;
+                    for (i, word) in update.packed_dist.iter().enumerate() {
+                        self.sim.metadata_state.brick_distances[dist_offset + i] = *word;
+                        brick_dist_write[dist_offset + i] = *word;
+                    }
                 }
-                chunk_meta_write[update.word_idx] =
-                    self.sim.metadata_state.chunk_bits[update.word_idx];
-
-                // Update brick mask
-                let mask_offset = update.idx * 2;
-                self.sim.metadata_state.brick_masks[mask_offset] = update.mask_low;
-                self.sim.metadata_state.brick_masks[mask_offset + 1] = update.mask_high;
-                brick_mask_write[mask_offset] = update.mask_low;
-                brick_mask_write[mask_offset + 1] = update.mask_high;
-
-                // Update brick distances
-                let dist_offset = update.idx * 16;
-                for (i, word) in update.packed_dist.iter().enumerate() {
-                    self.sim.metadata_state.brick_distances[dist_offset + i] = *word;
-                    brick_dist_write[dist_offset + i] = *word;
-                }
+            } else {
+                log::warn!(
+                    "[GPU] chunk-loading metadata buffer write failed; SVT update skipped this frame"
+                );
             }
 
             // NOTE: We intentionally do NOT queue for background refresh here.
@@ -1178,35 +1210,50 @@ impl App {
                     .map(|(pos, block_data, _, _)| (*pos, ChunkSVT::from_bytes(block_data)))
                     .collect();
 
-                let mut chunk_meta_write = self.graphics.chunk_metadata_buffer.write().unwrap();
-                let mut brick_mask_write = self.graphics.brick_mask_buffer.write().unwrap();
-                let mut brick_dist_write = self.graphics.brick_dist_buffer.write().unwrap();
+                let meta_guard = self.graphics.chunk_metadata_buffer.write();
+                let mask_guard = self.graphics.brick_mask_buffer.write();
+                let dist_guard = self.graphics.brick_dist_buffer.write();
 
-                for (pos, svt) in &svt_results {
-                    if let Some(idx) = world_pos_to_chunk_index(self.sim.texture_origin, *pos) {
-                        let word_idx = idx / 32;
-                        let bit_idx = idx % 32;
-                        if svt.brick_mask == 0 {
-                            self.sim.metadata_state.chunk_bits[word_idx] |= 1u32 << bit_idx;
-                        } else {
-                            self.sim.metadata_state.chunk_bits[word_idx] &= !(1u32 << bit_idx);
-                        }
-                        chunk_meta_write[word_idx] = self.sim.metadata_state.chunk_bits[word_idx];
+                // Skip the SVT write if any metadata buffer can't be mapped (e.g. GPU device-loss).
+                // Chunk block data is already uploaded; SVT metadata refreshes on the next pass.
+                if let (
+                    Ok(mut chunk_meta_write),
+                    Ok(mut brick_mask_write),
+                    Ok(mut brick_dist_write),
+                ) = (meta_guard, mask_guard, dist_guard)
+                {
+                    for (pos, svt) in &svt_results {
+                        if let Some(idx) = world_pos_to_chunk_index(self.sim.texture_origin, *pos) {
+                            let word_idx = idx / 32;
+                            let bit_idx = idx % 32;
+                            if svt.brick_mask == 0 {
+                                self.sim.metadata_state.chunk_bits[word_idx] |= 1u32 << bit_idx;
+                            } else {
+                                self.sim.metadata_state.chunk_bits[word_idx] &= !(1u32 << bit_idx);
+                            }
+                            chunk_meta_write[word_idx] =
+                                self.sim.metadata_state.chunk_bits[word_idx];
 
-                        let mask_offset = idx * 2;
-                        self.sim.metadata_state.brick_masks[mask_offset] = svt.brick_mask as u32;
-                        self.sim.metadata_state.brick_masks[mask_offset + 1] =
-                            (svt.brick_mask >> 32) as u32;
-                        brick_mask_write[mask_offset] = svt.brick_mask as u32;
-                        brick_mask_write[mask_offset + 1] = (svt.brick_mask >> 32) as u32;
+                            let mask_offset = idx * 2;
+                            self.sim.metadata_state.brick_masks[mask_offset] =
+                                svt.brick_mask as u32;
+                            self.sim.metadata_state.brick_masks[mask_offset + 1] =
+                                (svt.brick_mask >> 32) as u32;
+                            brick_mask_write[mask_offset] = svt.brick_mask as u32;
+                            brick_mask_write[mask_offset + 1] = (svt.brick_mask >> 32) as u32;
 
-                        let dist_offset = idx * 16;
-                        let packed_dist = pack_distances(&svt.brick_distances);
-                        for (i, word) in packed_dist.iter().enumerate() {
-                            self.sim.metadata_state.brick_distances[dist_offset + i] = *word;
-                            brick_dist_write[dist_offset + i] = *word;
+                            let dist_offset = idx * 16;
+                            let packed_dist = pack_distances(&svt.brick_distances);
+                            for (i, word) in packed_dist.iter().enumerate() {
+                                self.sim.metadata_state.brick_distances[dist_offset + i] = *word;
+                                brick_dist_write[dist_offset + i] = *word;
+                            }
                         }
                     }
+                } else {
+                    log::warn!(
+                        "[GPU] upload_world_to_gpu metadata buffer write failed; SVT update skipped this frame"
+                    );
                 }
             }
 
@@ -1456,34 +1503,50 @@ impl App {
         // brick_distances have been written. The loop below writes brick
         // data first, then flips the chunk_bit.
         if reset_buffers {
-            let mut chunk_meta_write = self.graphics.chunk_metadata_buffer.write().unwrap();
-            chunk_meta_write.copy_from_slice(&self.sim.metadata_state.chunk_bits);
+            if let Ok(mut chunk_meta_write) = self.graphics.chunk_metadata_buffer.write() {
+                chunk_meta_write.copy_from_slice(&self.sim.metadata_state.chunk_bits);
+            } else {
+                log::warn!(
+                    "[GPU] metadata reset buffer write failed; chunk_bits sync skipped this frame"
+                );
+            }
         }
 
         if !work_indices.is_empty() {
-            let mut chunk_meta_write = self.graphics.chunk_metadata_buffer.write().unwrap();
-            let mut brick_mask_write = self.graphics.brick_mask_buffer.write().unwrap();
-            let mut brick_dist_write = self.graphics.brick_dist_buffer.write().unwrap();
+            let meta_guard = self.graphics.chunk_metadata_buffer.write();
+            let mask_guard = self.graphics.brick_mask_buffer.write();
+            let dist_guard = self.graphics.brick_dist_buffer.write();
 
-            for idx in &work_indices {
-                // 1) Brick mask + distances first so they're visible before
-                //    the chunk_bit is flipped to "not empty".
-                let mask_offset = idx * 2;
-                brick_mask_write[mask_offset] = self.sim.metadata_state.brick_masks[mask_offset];
-                brick_mask_write[mask_offset + 1] =
-                    self.sim.metadata_state.brick_masks[mask_offset + 1];
+            // Skip the GPU write if any metadata buffer can't be mapped (e.g. GPU device-loss).
+            // metadata_state stays authoritative; the next refresh pass re-applies these indices.
+            if let (Ok(mut chunk_meta_write), Ok(mut brick_mask_write), Ok(mut brick_dist_write)) =
+                (meta_guard, mask_guard, dist_guard)
+            {
+                for idx in &work_indices {
+                    // 1) Brick mask + distances first so they're visible before
+                    //    the chunk_bit is flipped to "not empty".
+                    let mask_offset = idx * 2;
+                    brick_mask_write[mask_offset] =
+                        self.sim.metadata_state.brick_masks[mask_offset];
+                    brick_mask_write[mask_offset + 1] =
+                        self.sim.metadata_state.brick_masks[mask_offset + 1];
 
-                let dist_offset = idx * 16;
-                for i in 0..16 {
-                    brick_dist_write[dist_offset + i] =
-                        self.sim.metadata_state.brick_distances[dist_offset + i];
+                    let dist_offset = idx * 16;
+                    for i in 0..16 {
+                        brick_dist_write[dist_offset + i] =
+                            self.sim.metadata_state.brick_distances[dist_offset + i];
+                    }
+
+                    // 2) Now flip the chunk_bit. For non-empty chunks this
+                    //    publishes the brick data above; for empty chunks it
+                    //    keeps the "empty" flag that was seeded on reset.
+                    let word_idx = idx / 32;
+                    chunk_meta_write[word_idx] = self.sim.metadata_state.chunk_bits[word_idx];
                 }
-
-                // 2) Now flip the chunk_bit. For non-empty chunks this
-                //    publishes the brick data above; for empty chunks it
-                //    keeps the "empty" flag that was seeded on reset.
-                let word_idx = idx / 32;
-                chunk_meta_write[word_idx] = self.sim.metadata_state.chunk_bits[word_idx];
+            } else {
+                log::warn!(
+                    "[GPU] metadata work_indices buffer write failed; SVT update skipped this frame"
+                );
             }
         }
 
