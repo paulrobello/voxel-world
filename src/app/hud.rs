@@ -213,6 +213,40 @@ pub fn render_hud(
     // to avoid duplicate processing (take_pending_* methods drain the queue)
 
     // Handle tool palette actions
+
+    // Mutual exclusion: if a placement tool is being turned ON, deactivate
+    // every other placement tool first so two can never run at once. Each
+    // Toggle* handler below flips only its own `.active` flag, so without this
+    // the previously-active tool stays live (e.g. activate Cube while Sphere is
+    // on and both end up active). Mirror is a placement modifier and is not
+    // part of this set.
+    let activating_placement_tool = match tool_action {
+        ToolAction::ToggleSphereTool => !ui.sphere_tool.active,
+        ToolAction::ToggleCubeTool => !ui.cube_tool.active,
+        ToolAction::ToggleCylinderTool => !ui.cylinder_tool.active,
+        ToolAction::ToggleWallTool => !ui.wall_tool.active,
+        ToolAction::ToggleFloorTool => !ui.floor_tool.active,
+        ToolAction::ToggleReplaceTool => !ui.replace_tool.active,
+        ToolAction::ToggleCircleTool => !ui.circle_tool.active,
+        ToolAction::ToggleStairsTool => !ui.stairs_tool.active,
+        ToolAction::ToggleArchTool => !ui.arch_tool.active,
+        ToolAction::ToggleConeTool => !ui.cone_tool.active,
+        ToolAction::ToggleCloneTool => !ui.clone_tool.active,
+        ToolAction::ToggleTorusTool => !ui.torus_tool.active,
+        ToolAction::ToggleHelixTool => !ui.helix_tool.active,
+        ToolAction::TogglePolygonTool => !ui.polygon_tool.active,
+        ToolAction::ToggleBezierTool => !ui.bezier_tool.active,
+        ToolAction::TogglePatternFillTool => !ui.pattern_fill.active,
+        ToolAction::ToggleScatterTool => !ui.scatter_tool.active,
+        ToolAction::ToggleHollowTool => !ui.hollow_tool.active,
+        ToolAction::ToggleTerrainBrush => !ui.terrain_brush.active,
+        ToolAction::ToggleBridgeTool => !ui.bridge_tool.active,
+        _ => false,
+    };
+    if activating_placement_tool {
+        ui.deactivate_all_placement_tools();
+    }
+
     match tool_action {
         ToolAction::ToggleTemplateBrowser => {
             ui.template_ui.browser_open = !ui.template_ui.browser_open;

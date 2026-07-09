@@ -140,4 +140,37 @@ impl UiState {
             (ActiveTool::Hollow, &self.hollow_tool as &dyn ShapeTool),
         ]
     }
+
+    /// Deactivate every mutually-exclusive placement tool. Called when one is
+    /// turned ON so that two placement tools can never be active at once — each
+    /// `ToolAction::Toggle*Tool` handler otherwise flips only its own flag,
+    /// leaving the previously-active tool running.
+    ///
+    /// `Mirror` is excluded on purpose: it is a placement modifier (block
+    /// placement is mirrored across its plane when active and the plane is set)
+    /// and is meant to combine with an active placement tool. The browser /
+    /// measurement toggles (Template / Stencil / Rangefinder / FloodFill) are a
+    /// separate UX category and are not placement tools, so they're excluded too.
+    pub fn deactivate_all_placement_tools(&mut self) {
+        self.sphere_tool.active = false;
+        self.cube_tool.active = false;
+        self.cylinder_tool.active = false;
+        self.wall_tool.active = false;
+        self.floor_tool.active = false;
+        self.circle_tool.active = false;
+        self.cone_tool.active = false;
+        self.arch_tool.active = false;
+        self.stairs_tool.active = false;
+        self.clone_tool.active = false;
+        self.torus_tool.active = false;
+        self.helix_tool.active = false;
+        self.polygon_tool.active = false;
+        self.bezier_tool.active = false;
+        self.hollow_tool.active = false;
+        self.bridge_tool.active = false;
+        self.replace_tool.active = false;
+        self.pattern_fill.active = false;
+        self.scatter_tool.active = false;
+        self.terrain_brush.active = false;
+    }
 }
