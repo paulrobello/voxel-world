@@ -82,15 +82,15 @@ fn require_rust_const(src: &str, name: &str) -> u64 {
         };
         let with_pub = format!("pub const {}:", name);
         let without_pub = format!("const {}:", name);
-        if without_comment.starts_with(&with_pub) || without_comment.starts_with(&without_pub) {
-            if let Some(eq) = without_comment.find('=') {
-                let rhs = without_comment[eq + 1..]
-                    .trim()
-                    .trim_end_matches(';')
-                    .trim();
-                if let Ok(n) = rhs.parse::<u64>() {
-                    return n;
-                }
+        if (without_comment.starts_with(&with_pub) || without_comment.starts_with(&without_pub))
+            && let Some(eq) = without_comment.find('=')
+        {
+            let rhs = without_comment[eq + 1..]
+                .trim()
+                .trim_end_matches(';')
+                .trim();
+            if let Ok(n) = rhs.parse::<u64>() {
+                return n;
             }
         }
     }

@@ -507,7 +507,7 @@ mod tests {
         assert!(
             hash_part
                 .chars()
-                .all(|c| ('0'..='9').contains(&c) || ('a'..='f').contains(&c)),
+                .all(|c: char| c.is_ascii_digit() || ('a'..='f').contains(&c)),
             "hash suffix must be lowercase hex, got {hash_part}"
         );
         let _ = chars;

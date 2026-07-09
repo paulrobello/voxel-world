@@ -413,17 +413,6 @@ impl Default for PushConstants {
     }
 }
 
-/// Maximum number of water/lava sources to show in debug mode.
-
-/// Number of chunks in the metadata buffer (must match shader constants)
-/// Number of u32 words for brick masks (2 words = 64 bits per chunk).
-
-/// Queue and image targets used by [`upload_chunks_batched`].
-///
-/// Groups the transfer-queue configuration and destination images so that
-/// callers only need to pass allocators + this config instead of 8+ separate
-/// arguments.
-
 #[cfg(test)]
 mod tests {
     use super::PushConstants;
