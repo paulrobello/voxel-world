@@ -782,7 +782,7 @@ fn draw_preview(ui: &mut egui::Ui, pixels: &[u8]) {
     painter.rect_stroke(
         rect,
         0.0,
-        egui::Stroke::new(1.0, egui::Color32::GRAY),
+        egui::Stroke::new(1.0_f32, egui::Color32::GRAY),
         egui::StrokeKind::Outside,
     );
 }

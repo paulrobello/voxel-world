@@ -604,7 +604,7 @@ impl TextureGeneratorUI {
         painter.rect_stroke(
             rect,
             0.0,
-            egui::Stroke::new(1.0, egui::Color32::GRAY),
+            egui::Stroke::new(1.0_f32, egui::Color32::GRAY),
             egui::StrokeKind::Outside,
         );
     }
@@ -904,9 +904,9 @@ impl TextureGeneratorUI {
 
                             // Selection border
                             let stroke = if is_selected {
-                                egui::Stroke::new(2.0, egui::Color32::WHITE)
+                                egui::Stroke::new(2.0_f32, egui::Color32::WHITE)
                             } else {
-                                egui::Stroke::new(1.0, egui::Color32::DARK_GRAY)
+                                egui::Stroke::new(1.0_f32, egui::Color32::DARK_GRAY)
                             };
                             painter.rect_stroke(rect, 0.0, stroke, egui::StrokeKind::Outside);
 
@@ -1088,14 +1088,14 @@ impl TextureGeneratorUI {
                     let x = rect.min.x + i as f32 * zoom;
                     painter.line_segment(
                         [egui::pos2(x, rect.min.y), egui::pos2(x, rect.max.y)],
-                        egui::Stroke::new(1.0, grid_color),
+                        egui::Stroke::new(1.0_f32, grid_color),
                     );
                 }
                 for i in 0..=height {
                     let y = rect.min.y + i as f32 * zoom;
                     painter.line_segment(
                         [egui::pos2(rect.min.x, y), egui::pos2(rect.max.x, y)],
-                        egui::Stroke::new(1.0, grid_color),
+                        egui::Stroke::new(1.0_f32, grid_color),
                     );
                 }
             }
@@ -1111,7 +1111,7 @@ impl TextureGeneratorUI {
                         egui::pos2(rect.min.x, center_y),
                         egui::pos2(rect.max.x, center_y),
                     ],
-                    egui::Stroke::new(2.0, mirror_color),
+                    egui::Stroke::new(2.0_f32, mirror_color),
                 );
             }
 
@@ -1123,7 +1123,7 @@ impl TextureGeneratorUI {
                         egui::pos2(center_x, rect.min.y),
                         egui::pos2(center_x, rect.max.y),
                     ],
-                    egui::Stroke::new(2.0, mirror_color),
+                    egui::Stroke::new(2.0_f32, mirror_color),
                 );
             }
 
@@ -1150,7 +1150,7 @@ impl TextureGeneratorUI {
                     painter.rect_stroke(
                         cursor_rect,
                         0.0,
-                        egui::Stroke::new(2.0, cursor_color),
+                        egui::Stroke::new(2.0_f32, cursor_color),
                         egui::StrokeKind::Outside,
                     );
                 }
@@ -1160,7 +1160,7 @@ impl TextureGeneratorUI {
             painter.rect_stroke(
                 rect,
                 0.0,
-                egui::Stroke::new(1.0, egui::Color32::GRAY),
+                egui::Stroke::new(1.0_f32, egui::Color32::GRAY),
                 egui::StrokeKind::Outside,
             );
 
@@ -1436,7 +1436,7 @@ impl TextureGeneratorUI {
                 painter.rect_stroke(
                     rect,
                     0.0,
-                    egui::Stroke::new(1.0, egui::Color32::GRAY),
+                    egui::Stroke::new(1.0_f32, egui::Color32::GRAY),
                     egui::StrokeKind::Outside,
                 );
 

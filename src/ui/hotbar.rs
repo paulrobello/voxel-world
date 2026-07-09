@@ -152,7 +152,7 @@ impl HotbarUI {
                                 } else {
                                     egui::Color32::from_rgb(60, 60, 60)
                                 };
-                                let border_width = if is_selected { 3.0 } else { 1.0 };
+                                let border_width = if is_selected { 3.0_f32 } else { 1.0_f32 };
 
                                 // Allocate space for slot
                                 let (rect, response) = ui.allocate_exact_size(
@@ -207,7 +207,7 @@ impl HotbarUI {
                                     ui.painter().rect_stroke(
                                         texture_rect.shrink(1.0),
                                         egui::CornerRadius::same(2),
-                                        egui::Stroke::new(2.0, tint_color),
+                                        egui::Stroke::new(2.0_f32, tint_color),
                                         egui::StrokeKind::Outside,
                                     );
                                 }

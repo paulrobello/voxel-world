@@ -586,14 +586,14 @@ fn draw_palette_grid(ui: &mut egui::Ui, editor: &mut EditorState) {
                     ui.painter().rect_stroke(
                         rect,
                         egui::CornerRadius::ZERO,
-                        egui::Stroke::new(2.0, egui::Color32::WHITE),
+                        egui::Stroke::new(2.0_f32, egui::Color32::WHITE),
                         egui::StrokeKind::Inside,
                     );
                 } else {
                     ui.painter().rect_stroke(
                         rect,
                         egui::CornerRadius::ZERO,
-                        egui::Stroke::new(1.0, egui::Color32::from_gray(80)),
+                        egui::Stroke::new(1.0_f32, egui::Color32::from_gray(80)),
                         egui::StrokeKind::Inside,
                     );
                 }

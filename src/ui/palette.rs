@@ -356,7 +356,7 @@ impl PaletteUI {
                 ui.painter().rect_stroke(
                     hover_rect.shrink(2.0),
                     egui::CornerRadius::same(3),
-                    egui::Stroke::new(3.0, tint_color),
+                    egui::Stroke::new(3.0_f32, tint_color),
                     egui::StrokeKind::Outside,
                 );
             }

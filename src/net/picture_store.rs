@@ -96,7 +96,7 @@ impl PictureManager {
     #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     fn rebuild_content_hash_index(&mut self) {
         self.content_hash_index.clear();
-        for (&id, _name) in self.metadata.pictures.iter() {
+        for &id in self.metadata.pictures.keys() {
             let path = self.base_path.join(format!("picture_{:05}.png", id));
             if let Ok(bytes) = fs::read(&path) {
                 let h = Self::hash_png(&bytes);

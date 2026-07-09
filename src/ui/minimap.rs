@@ -64,7 +64,10 @@ impl MinimapUI {
                 .show(ctx, |ui| {
                     egui::Frame::new()
                         .fill(egui::Color32::from_rgba_unmultiplied(0, 0, 0, 200))
-                        .stroke(egui::Stroke::new(2.0, egui::Color32::from_rgb(60, 60, 60)))
+                        .stroke(egui::Stroke::new(
+                            2.0_f32,
+                            egui::Color32::from_rgb(60, 60, 60),
+                        ))
                         .corner_radius(egui::CornerRadius::same(4))
                         .inner_margin(egui::Margin::same(4))
                         .show(ui, |ui| {
@@ -106,7 +109,7 @@ impl MinimapUI {
                             ui.painter().add(egui::Shape::convex_polygon(
                                 vec![tip, left, right],
                                 egui::Color32::RED,
-                                egui::Stroke::new(1.0, egui::Color32::WHITE),
+                                egui::Stroke::new(1.0_f32, egui::Color32::WHITE),
                             ));
 
                             // Draw remote player markers as colored dots
@@ -197,7 +200,7 @@ impl MinimapUI {
                                     ui.painter().add(egui::Shape::convex_polygon(
                                         vec![tip, left, right],
                                         color,
-                                        egui::Stroke::new(1.0, egui::Color32::WHITE),
+                                        egui::Stroke::new(1.0_f32, egui::Color32::WHITE),
                                     ));
                                 } else {
                                     // Draw as a circle for in-range players
@@ -212,7 +215,7 @@ impl MinimapUI {
                                     ui.painter().circle_stroke(
                                         egui::pos2(final_x, final_y),
                                         dot_radius,
-                                        egui::Stroke::new(1.0, egui::Color32::WHITE),
+                                        egui::Stroke::new(1.0_f32, egui::Color32::WHITE),
                                     );
                                 }
                             }
@@ -240,7 +243,10 @@ impl MinimapUI {
             .show(ctx, |ui| {
                 egui::Frame::new()
                     .fill(egui::Color32::from_rgba_unmultiplied(0, 0, 0, 200))
-                    .stroke(egui::Stroke::new(2.0, egui::Color32::from_rgb(60, 60, 60)))
+                    .stroke(egui::Stroke::new(
+                        2.0_f32,
+                        egui::Color32::from_rgb(60, 60, 60),
+                    ))
                     .corner_radius(egui::CornerRadius::same(4))
                     .inner_margin(egui::Margin::same(8))
                     .show(ui, |ui| {
@@ -256,7 +262,7 @@ impl MinimapUI {
                         painter.circle_stroke(
                             center,
                             radius,
-                            egui::Stroke::new(1.5, egui::Color32::from_rgb(100, 100, 100)),
+                            egui::Stroke::new(1.5_f32, egui::Color32::from_rgb(100, 100, 100)),
                         );
 
                         // Cardinal direction positions (N=-Z, S=+Z, E=+X, W=-X)
@@ -295,7 +301,7 @@ impl MinimapUI {
                                 egui::pos2(center.x, center.y),
                                 egui::pos2(center.x, center.y - radius + 12.0),
                             ],
-                            egui::Stroke::new(2.0, egui::Color32::YELLOW),
+                            egui::Stroke::new(2.0_f32, egui::Color32::YELLOW),
                         );
                         // Arrow head
                         painter.line_segment(
@@ -303,14 +309,14 @@ impl MinimapUI {
                                 egui::pos2(center.x - 4.0, center.y - radius + 18.0),
                                 egui::pos2(center.x, center.y - radius + 12.0),
                             ],
-                            egui::Stroke::new(2.0, egui::Color32::YELLOW),
+                            egui::Stroke::new(2.0_f32, egui::Color32::YELLOW),
                         );
                         painter.line_segment(
                             [
                                 egui::pos2(center.x + 4.0, center.y - radius + 18.0),
                                 egui::pos2(center.x, center.y - radius + 12.0),
                             ],
-                            egui::Stroke::new(2.0, egui::Color32::YELLOW),
+                            egui::Stroke::new(2.0_f32, egui::Color32::YELLOW),
                         );
                     });
             });

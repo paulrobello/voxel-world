@@ -716,7 +716,7 @@ impl HUDRenderer {
                 egui::Frame::new()
                     .fill(egui::Color32::from_rgba_unmultiplied(30, 30, 40, 220))
                     .stroke(egui::Stroke::new(
-                        2.0,
+                        2.0_f32,
                         egui::Color32::from_rgb(100, 255, 100),
                     ))
                     .inner_margin(12.0)
@@ -794,7 +794,7 @@ impl HUDRenderer {
                 egui::Frame::new()
                     .fill(egui::Color32::from_rgba_unmultiplied(30, 30, 30, 220))
                     .stroke(egui::Stroke::new(
-                        2.0,
+                        2.0_f32,
                         egui::Color32::from_rgb(100, 255, 100),
                     ))
                     .inner_margin(12.0)
@@ -849,7 +849,7 @@ impl HUDRenderer {
         } else {
             (8.0, 0.0, egui::Color32::WHITE) // White, smaller, no gap
         };
-        let stroke = egui::Stroke::new(2.0, crosshair_color);
+        let stroke = egui::Stroke::new(2.0_f32, crosshair_color);
 
         // Horizontal lines (with gap when targeting)
         painter.line_segment(
@@ -910,7 +910,7 @@ impl HUDRenderer {
             .show(ctx, |ui| {
                 egui::Frame::new()
                     .fill(egui::Color32::from_rgba_unmultiplied(20, 20, 30, 200))
-                    .stroke(egui::Stroke::new(1.5, laser_color32))
+                    .stroke(egui::Stroke::new(1.5_f32, laser_color32))
                     .inner_margin(egui::Margin::symmetric(10, 6))
                     .corner_radius(4.0)
                     .show(ui, |ui| {
@@ -961,7 +961,7 @@ impl HUDRenderer {
                     egui::Frame::new()
                         .fill(egui::Color32::from_rgba_unmultiplied(20, 20, 30, 220))
                         .stroke(egui::Stroke::new(
-                            1.5,
+                            1.5_f32,
                             egui::Color32::from_rgb(100, 200, 255),
                         ))
                         .inner_margin(egui::Margin::symmetric(10, 8))
@@ -1085,7 +1085,7 @@ impl HUDRenderer {
             // Draw a subtle red laser line extending from crosshair
             // This is a visual indicator - the actual 3D line would require projection
             let laser_color = egui::Color32::from_rgba_unmultiplied(255, 50, 50, 100);
-            let laser_stroke = egui::Stroke::new(1.5, laser_color);
+            let laser_stroke = egui::Stroke::new(1.5_f32, laser_color);
 
             // Draw decorative laser brackets around the crosshair
             let bracket_size = 20.0;
@@ -1210,7 +1210,7 @@ impl HUDRenderer {
                 egui::Frame::new()
                     .fill(egui::Color32::from_rgba_unmultiplied(20, 30, 50, 200))
                     .stroke(egui::Stroke::new(
-                        1.5,
+                        1.5_f32,
                         egui::Color32::from_rgb(100, 180, 255),
                     ))
                     .inner_margin(egui::Margin::symmetric(10, 6))
@@ -1259,7 +1259,7 @@ impl HUDRenderer {
 
             // Draw decorative brackets with blue color
             let bracket_color = egui::Color32::from_rgba_unmultiplied(100, 180, 255, 150);
-            let bracket_stroke = egui::Stroke::new(2.0, bracket_color);
+            let bracket_stroke = egui::Stroke::new(2.0_f32, bracket_color);
             let bracket_size = 24.0;
             let bracket_offset = 16.0;
 

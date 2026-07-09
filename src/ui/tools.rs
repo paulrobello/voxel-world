@@ -692,9 +692,9 @@ impl ToolsPaletteUI {
                         .fill(color32)
                         .min_size(size)
                         .stroke(if is_selected {
-                            egui::Stroke::new(2.0, egui::Color32::WHITE)
+                            egui::Stroke::new(2.0_f32, egui::Color32::WHITE)
                         } else {
-                            egui::Stroke::new(1.0, egui::Color32::from_gray(60))
+                            egui::Stroke::new(1.0_f32, egui::Color32::from_gray(60))
                         })
                         .corner_radius(egui::CornerRadius::same(3));
 
@@ -850,7 +850,7 @@ impl ToolsPaletteUI {
                 rect,
                 egui::CornerRadius::same(6),
                 bg,
-                egui::Stroke::new(if is_active { 2.0 } else { 1.0 }, border_color),
+                egui::Stroke::new(if is_active { 2.0_f32 } else { 1.0_f32 }, border_color),
                 egui::StrokeKind::Outside,
             );
 

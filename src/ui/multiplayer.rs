@@ -517,7 +517,7 @@ impl MultiplayerUI {
             .show(ctx, |ui| {
                 egui::Frame::new()
                     .fill(Color32::from_rgba_unmultiplied(20, 20, 30, 220))
-                    .stroke(egui::Stroke::new(1.0, Color32::from_rgb(100, 200, 100)))
+                    .stroke(egui::Stroke::new(1.0_f32, Color32::from_rgb(100, 200, 100)))
                     .inner_margin(egui::Margin::symmetric(10, 6))
                     .corner_radius(4.0)
                     .show(ui, |ui| {
@@ -592,7 +592,7 @@ impl MultiplayerUI {
             .show(ctx, |ui| {
                 egui::Frame::new()
                     .fill(Color32::from_rgba_unmultiplied(20, 20, 30, 240))
-                    .stroke(egui::Stroke::new(2.0, Color32::from_rgb(100, 150, 200)))
+                    .stroke(egui::Stroke::new(2.0_f32, Color32::from_rgb(100, 150, 200)))
                     .inner_margin(12.0)
                     .corner_radius(6.0)
                     .show(ui, |ui| {
