@@ -86,7 +86,7 @@ use stairs_tool::StairsToolUI;
 use stats::StatsUI;
 use terrain_brush_tool::TerrainBrushToolUI;
 pub use tools::ToolAction;
-use tools::{ToolsPaletteState, ToolsPaletteUI};
+use tools::{ToolActiveFlags, ToolsPaletteState, ToolsPaletteUI};
 use torus_tool::TorusToolUI;
 use wall_tool::WallToolUI;
 
@@ -419,35 +419,47 @@ impl HUDRenderer {
             );
 
             // Tools palette (T key)
+            //
+            // `template_browser_open` is passed `false` and `selection_mode_active`
+            // receives `template_selection.visual_mode`: previously the call site
+            // passed `visual_mode` for BOTH params (a copy-paste duplication).
+            // They are only ever combined via `||` inside `draw_tools_window` to
+            // select `ActiveTool::Template`, so `false || visual_mode` is
+            // behaviorally identical to the old `visual_mode || visual_mode`.
+            // `visual_mode` is the closer semantic match for "selection mode
+            // active"; no distinct `template_browser_open` source exists today.
+            let tool_active = ToolActiveFlags {
+                sphere: sphere_tool.active,
+                cube: cube_tool.active,
+                bridge: bridge_tool.active,
+                cylinder: cylinder_tool.active,
+                wall: wall_tool.active,
+                floor: floor_tool.active,
+                replace: replace_tool.active,
+                circle: circle_tool.active,
+                mirror: mirror_tool.active,
+                stairs: stairs_tool.active,
+                arch: arch_tool.active,
+                cone: cone_tool.active,
+                clone: clone_tool.active,
+                torus: torus_tool.active,
+                helix: helix_tool.active,
+                polygon: polygon_tool.active,
+                bezier: bezier_tool.active,
+                pattern_fill: pattern_fill.active,
+                scatter: scatter_tool.active,
+                hollow: hollow_tool.active,
+                terrain_brush: terrain_brush.active,
+            };
             let tools_result = ToolsPaletteUI::draw_tools_window(
                 &ctx,
                 tools_palette,
-                template_selection.visual_mode,
+                false,
                 rangefinder_active,
                 stencil_browser_open,
                 template_selection.visual_mode,
                 flood_fill_active,
-                sphere_tool.active,
-                cube_tool.active,
-                bridge_tool.active,
-                cylinder_tool.active,
-                wall_tool.active,
-                floor_tool.active,
-                replace_tool.active,
-                circle_tool.active,
-                mirror_tool.active,
-                stairs_tool.active,
-                arch_tool.active,
-                cone_tool.active,
-                clone_tool.active,
-                torus_tool.active,
-                helix_tool.active,
-                polygon_tool.active,
-                bezier_tool.active,
-                pattern_fill.active,
-                scatter_tool.active,
-                hollow_tool.active,
-                terrain_brush.active,
+                &tool_active,
                 stencil_manager.global_opacity,
                 stencil_manager.render_mode,
             );
@@ -591,8 +603,20 @@ impl HUDRenderer {
 
             // Editor
             if editor.active {
-                let library = crate::storage::model_format::LibraryManager::new("user_models");
-                let _ = library.init();
+                // LibraryManager is a stateless PathBuf wrapper; init() just
+                // ensures the directory exists (a stat, plus a mkdir on the
+                // very first call). Constructing and init'ing it every frame
+                // was per-frame filesystem I/O for no benefit. Cache it for the
+                // program lifetime. This does NOT cache the model *list* —
+                // LibraryManager::list_models() reads the directory fresh on
+                // every call, so newly saved/deleted models stay visible.
+                static LIBRARY: std::sync::OnceLock<crate::storage::model_format::LibraryManager> =
+                    std::sync::OnceLock::new();
+                let library = LIBRARY.get_or_init(|| {
+                    let lib = crate::storage::model_format::LibraryManager::new("user_models");
+                    let _ = lib.init();
+                    lib
+                });
                 // Collect custom model names for door pair linking UI
                 let custom_model_names: Vec<(u8, String)> = model_registry
                     .iter_custom_models()
@@ -601,7 +625,7 @@ impl HUDRenderer {
                 editor_action = crate::editor::draw_editor_ui(
                     &ctx,
                     editor,
-                    &library,
+                    library,
                     "Player",
                     &custom_model_names,
                 );

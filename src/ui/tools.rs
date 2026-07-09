@@ -308,6 +308,37 @@ impl ToolsPaletteState {
     }
 }
 
+/// Active-state flags for each shape/construction tool.
+///
+/// Groups the per-tool `.active` bools that were previously threaded through
+/// `draw_tools_window` as ~21 consecutive positional parameters (a
+/// transposition hazard). Each field maps 1:1 to the `active` flag of the
+/// corresponding tool state struct.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct ToolActiveFlags {
+    pub sphere: bool,
+    pub cube: bool,
+    pub bridge: bool,
+    pub cylinder: bool,
+    pub wall: bool,
+    pub floor: bool,
+    pub replace: bool,
+    pub circle: bool,
+    pub mirror: bool,
+    pub stairs: bool,
+    pub arch: bool,
+    pub cone: bool,
+    pub clone: bool,
+    pub torus: bool,
+    pub helix: bool,
+    pub polygon: bool,
+    pub bezier: bool,
+    pub pattern_fill: bool,
+    pub scatter: bool,
+    pub hollow: bool,
+    pub terrain_brush: bool,
+}
+
 /// Tools palette UI renderer.
 pub struct ToolsPaletteUI;
 
@@ -335,27 +366,7 @@ impl ToolsPaletteUI {
         stencil_browser_open: bool,
         selection_mode_active: bool,
         flood_fill_active: bool,
-        sphere_tool_active: bool,
-        cube_tool_active: bool,
-        bridge_tool_active: bool,
-        cylinder_tool_active: bool,
-        wall_tool_active: bool,
-        floor_tool_active: bool,
-        replace_tool_active: bool,
-        circle_tool_active: bool,
-        mirror_tool_active: bool,
-        stairs_tool_active: bool,
-        arch_tool_active: bool,
-        cone_tool_active: bool,
-        clone_tool_active: bool,
-        torus_tool_active: bool,
-        helix_tool_active: bool,
-        polygon_tool_active: bool,
-        bezier_tool_active: bool,
-        pattern_fill_active: bool,
-        scatter_tool_active: bool,
-        hollow_tool_active: bool,
-        terrain_brush_active: bool,
+        tool_active: &ToolActiveFlags,
         stencil_opacity: f32,
         stencil_render_mode: StencilRenderMode,
     ) -> ToolsPaletteResult {
@@ -378,47 +389,47 @@ impl ToolsPaletteUI {
             ActiveTool::Stencil
         } else if flood_fill_active {
             ActiveTool::FloodFill
-        } else if sphere_tool_active {
+        } else if tool_active.sphere {
             ActiveTool::Sphere
-        } else if cube_tool_active {
+        } else if tool_active.cube {
             ActiveTool::Cube
-        } else if bridge_tool_active {
+        } else if tool_active.bridge {
             ActiveTool::Bridge
-        } else if cylinder_tool_active {
+        } else if tool_active.cylinder {
             ActiveTool::Cylinder
-        } else if wall_tool_active {
+        } else if tool_active.wall {
             ActiveTool::Wall
-        } else if floor_tool_active {
+        } else if tool_active.floor {
             ActiveTool::Floor
-        } else if replace_tool_active {
+        } else if tool_active.replace {
             ActiveTool::Replace
-        } else if circle_tool_active {
+        } else if tool_active.circle {
             ActiveTool::Circle
-        } else if mirror_tool_active {
+        } else if tool_active.mirror {
             ActiveTool::Mirror
-        } else if stairs_tool_active {
+        } else if tool_active.stairs {
             ActiveTool::Stairs
-        } else if arch_tool_active {
+        } else if tool_active.arch {
             ActiveTool::Arch
-        } else if cone_tool_active {
+        } else if tool_active.cone {
             ActiveTool::Cone
-        } else if clone_tool_active {
+        } else if tool_active.clone {
             ActiveTool::Clone
-        } else if torus_tool_active {
+        } else if tool_active.torus {
             ActiveTool::Torus
-        } else if helix_tool_active {
+        } else if tool_active.helix {
             ActiveTool::Helix
-        } else if polygon_tool_active {
+        } else if tool_active.polygon {
             ActiveTool::Polygon
-        } else if bezier_tool_active {
+        } else if tool_active.bezier {
             ActiveTool::Bezier
-        } else if pattern_fill_active {
+        } else if tool_active.pattern_fill {
             ActiveTool::PatternFill
-        } else if scatter_tool_active {
+        } else if tool_active.scatter {
             ActiveTool::Scatter
-        } else if hollow_tool_active {
+        } else if tool_active.hollow {
             ActiveTool::Hollow
-        } else if terrain_brush_active {
+        } else if tool_active.terrain_brush {
             ActiveTool::TerrainBrush
         } else {
             ActiveTool::None
