@@ -1733,6 +1733,79 @@ mod tests {
         assert_eq!(reg2.len(), FIRST_CUSTOM_MODEL_ID as usize + 3);
     }
 
+    /// MDL-001 editor-reload variant: deleting one model and rebuilding the
+    /// registry — mirroring the world-open sequence (models.dat first, then
+    /// library) while skipping the deleted name — must NOT drop models that
+    /// exist only in `models.dat`.
+    ///
+    /// Reproduces the bug fixed in the `EditorAction::ModelDeleted` handler: a
+    /// bare `clear()` + `load_library_models()` reload loses any model with no
+    /// `.vxm` file, because the library walk cannot see it.
+    #[test]
+    fn editor_reload_preserves_models_dat_only_models_after_delete() {
+        use crate::storage::model_format::{LibraryManager, WorldModelStore};
+        use tempfile::tempdir;
+
+        let world_dir = tempdir().expect("tempdir").keep();
+        let lib_dir = tempdir().expect("lib tempdir").keep();
+
+        // Original session: Alpha + Gamma live in the library; Beta is a
+        // placed custom model never saved to a .vxm file (models.dat is its
+        // only home).
+        let lib = LibraryManager::new(&lib_dir);
+        lib.init().expect("init lib");
+        let mut alpha = SubVoxelModel::new("Alpha");
+        alpha.set_voxel(0, 0, 0, 1);
+        let mut beta = SubVoxelModel::new("Beta");
+        beta.set_voxel(1, 0, 0, 2);
+        let mut gamma = SubVoxelModel::new("Gamma");
+        gamma.set_voxel(2, 0, 0, 3);
+        lib.save_model(&alpha, "tester").expect("save Alpha");
+        lib.save_model(&gamma, "tester").expect("save Gamma");
+
+        let mut reg = ModelRegistry::new();
+        let alpha_id = reg.register(alpha).expect("Alpha");
+        let beta_id = reg.register(beta).expect("Beta");
+        let _gamma_id = reg.register(gamma).expect("Gamma");
+        assert_eq!(alpha_id, FIRST_CUSTOM_MODEL_ID);
+        assert_eq!(beta_id, FIRST_CUSTOM_MODEL_ID + 1);
+
+        // Persist the full set (including models.dat-only Beta) to models.dat.
+        reg.to_world_store()
+            .save(&world_dir)
+            .expect("save models.dat");
+
+        // User deletes Gamma from the library, then the editor rebuilds.
+        lib.delete_model("Gamma").expect("delete Gamma .vxm");
+
+        // Rebuild mirroring world-open (init.rs), EXCLUDING the deleted name —
+        // exactly what EditorAction::ModelDeleted now does.
+        let mut reg2 = ModelRegistry::new();
+        let store = WorldModelStore::load(&world_dir)
+            .expect("load ok")
+            .expect("store present");
+        for (_id, model) in store.iter() {
+            if model.name == "Gamma" {
+                continue;
+            }
+            reg2.register(model).expect("re-register from models.dat");
+        }
+        let loaded = reg2.load_library_models(&lib_dir).expect("load library");
+        // Alpha already came from models.dat (skipped); Gamma was deleted from
+        // the library, so the library adds nothing new.
+        assert_eq!(loaded, 0, "library should add no new models");
+
+        // Acceptance: Alpha + models.dat-only Beta survive at stable IDs;
+        // Gamma is gone.
+        assert_eq!(reg2.get_id("Alpha"), Some(alpha_id));
+        assert_eq!(
+            reg2.get_id("Beta"),
+            Some(beta_id),
+            "models.dat-only Beta must survive the editor rebuild"
+        );
+        assert_eq!(reg2.get_id("Gamma"), None, "deleted Gamma must be absent");
+    }
+
     /// `load_library_models` must be idempotent: calling it twice does not
     /// duplicate models or shift IDs.
     #[test]

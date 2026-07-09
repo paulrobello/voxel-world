@@ -664,21 +664,41 @@ pub fn render_hud(
                 }
             }
         }
-        EditorAction::ModelDeleted => {
-            // Reload custom models from library to update the palette
+        EditorAction::ModelDeleted { name } => {
+            // Rebuild mirroring the world-open sequence (init.rs / MDL-001):
+            // models.dat first (stable saved IDs), then the library (idempotent
+            // merge). The deleted model is still in models.dat, so skip it by
+            // name; the next save_all rewrites models.dat from this registry,
+            // persisting the deletion on disk. A bare clear()+library reload
+            // would silently drop any model that exists only in models.dat.
             let library_path = crate::user_prefs::user_models_dir();
             let old_count = sim.model_registry.custom_model_count();
 
-            // Clear existing custom models and reload from library
-            // We need to rebuild the registry with built-ins + library models
             sim.model_registry = crate::sub_voxel::ModelRegistry::new();
+            match crate::storage::model_format::WorldModelStore::load(&sim.world_dir) {
+                Ok(Some(store)) => {
+                    for (id, model) in store.iter() {
+                        if model.name == name {
+                            continue;
+                        }
+                        if sim.model_registry.register(model).is_none() {
+                            log::warn!(
+                                "[Editor] Failed to re-register custom model id {} from models.dat (registry full?)",
+                                id
+                            );
+                        }
+                    }
+                }
+                Ok(None) => {}
+                Err(e) => log::warn!("[Editor] Failed to reload models.dat: {}", e),
+            }
             match sim.model_registry.load_library_models(&library_path) {
                 Ok(count) => {
                     log::debug!(
-                        "[Editor] Reloaded model registry: {} custom models ({} -> {})",
+                        "[Editor] Reloaded registry: {} library models ({} -> {} custom)",
                         count,
                         old_count,
-                        count
+                        sim.model_registry.custom_model_count()
                     );
                 }
                 Err(e) => {

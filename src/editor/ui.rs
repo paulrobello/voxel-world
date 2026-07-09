@@ -458,7 +458,9 @@ pub fn draw_editor_ui(
                             log::warn!("[Editor] Failed to delete model '{}': {}", model_name, e);
                         } else {
                             log::debug!("[Editor] Deleted model '{}'", model_name);
-                            action = EditorAction::ModelDeleted;
+                            action = EditorAction::ModelDeleted {
+                                name: model_name.clone(),
+                            };
                         }
                     }
                     if ui.button("Cancel").clicked() {
@@ -722,7 +724,11 @@ pub enum EditorAction {
     None,
     ModelSaved,
     ModelLoaded,
-    ModelDeleted,
+    /// Model deleted from the library; `name` is carried so the registry
+    /// rebuild can skip it (it is still present in models.dat until next save).
+    ModelDeleted {
+        name: String,
+    },
     /// Place the edited model in the world and close the editor.
     #[allow(dead_code)] // reason: WIP editor — not yet fully integrated
     PlaceInWorld,
