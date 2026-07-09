@@ -111,7 +111,6 @@ pub fn locate(
 }
 
 /// Parse a biome name
-#[allow(deprecated)]
 fn parse_biome(name: &str) -> Option<BiomeType> {
     match name {
         // Surface biomes
@@ -130,8 +129,8 @@ fn parse_biome(name: &str) -> Option<BiomeType> {
         "mountains" | "mountain" | "mount" | "peaks" => Some(BiomeType::Mountains),
         "meadow" | "flower" => Some(BiomeType::Meadow),
         "jungle" | "rainforest" => Some(BiomeType::Jungle),
-        // Legacy aliases (deprecated but still supported)
-        "snow" | "ice" => Some(BiomeType::Snow),
+        // "snow"/"ice" — common aliases for Snowy Plains
+        "snow" | "ice" => Some(BiomeType::SnowyPlains),
         // Underground biomes
         "lushcaves" | "lush_caves" | "lush-caves" | "lush" => Some(BiomeType::LushCaves),
         "dripstonecaves" | "dripstone_caves" | "dripstone-caves" | "dripstone" => {

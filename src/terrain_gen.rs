@@ -205,10 +205,9 @@ fn generate_normal_chunk(
                     }
                 } else if world_y == height {
                     // Surface block selection based on biome
-                    #[allow(deprecated)]
                     match biome {
                         // Snowy biomes - snow on top
-                        BiomeType::SnowyPlains | BiomeType::Snow => BlockType::Snow,
+                        BiomeType::SnowyPlains => BlockType::Snow,
                         BiomeType::SnowyTaiga => BlockType::Snow, // Snow over podzol
 
                         // Desert - sand surface
@@ -298,7 +297,6 @@ fn generate_normal_chunk(
 
                         // All other biomes - grass or sand near water
                         BiomeType::Plains
-                        | BiomeType::Grassland
                         | BiomeType::Forest
                         | BiomeType::BirchForest
                         | BiomeType::Meadow => {
@@ -325,7 +323,6 @@ fn generate_normal_chunk(
                     }
                 } else if world_y > height - 4 {
                     // Subsurface layer (1-4 blocks below surface)
-                    #[allow(deprecated)]
                     match biome {
                         // Desert - sandstone subsurface
                         BiomeType::Desert => {
@@ -337,7 +334,7 @@ fn generate_normal_chunk(
                         BiomeType::Mountains => BlockType::Stone,
 
                         // Snowy biomes - packed ice or regular ice
-                        BiomeType::SnowyPlains | BiomeType::Snow => {
+                        BiomeType::SnowyPlains => {
                             if col.hash % 3 == 0 {
                                 BlockType::PackedIce
                             } else {
@@ -423,10 +420,9 @@ fn generate_normal_chunk(
                     }
                 } else if world_y > 32 {
                     // Mid-level underground (stone layer)
-                    #[allow(deprecated)]
                     match biome {
                         // Snowy biomes have ice layer
-                        BiomeType::SnowyPlains | BiomeType::SnowyTaiga | BiomeType::Snow => {
+                        BiomeType::SnowyPlains | BiomeType::SnowyTaiga => {
                             if world_y > height - 12 {
                                 BlockType::Ice
                             } else {
@@ -457,7 +453,6 @@ fn generate_normal_chunk(
                     }
                 } else {
                     // Deep underground (Y <= 32) - Deepslate layer
-                    #[allow(deprecated)]
                     match biome {
                         // Deep dark is always deepslate
                         BiomeType::DeepDark => BlockType::Deepslate,

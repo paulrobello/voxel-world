@@ -104,10 +104,9 @@ pub fn generate_trees(
                 continue;
             }
 
-            #[allow(deprecated)]
             match biome {
                 // Plains and grassland - sparse oak trees
-                BiomeType::Plains | BiomeType::Grassland => {
+                BiomeType::Plains => {
                     if hash % 100 < 5 {
                         generate_oak(
                             chunk,
@@ -226,7 +225,7 @@ pub fn generate_trees(
                 }
 
                 // Snowy plains - sparse trees
-                BiomeType::SnowyPlains | BiomeType::Snow => {
+                BiomeType::SnowyPlains => {
                     let tree_roll = hash % 100;
                     if tree_roll < 6 {
                         generate_snow_pine(

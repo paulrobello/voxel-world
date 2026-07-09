@@ -53,20 +53,11 @@ pub enum BiomeType {
     LushCaves,
     DripstoneCaves,
     DeepDark,
-
-    // Legacy aliases (mapped to new biomes internally)
-    #[deprecated(note = "Use Plains instead")]
-    #[allow(dead_code)]
-    Grassland,
-    #[deprecated(note = "Use SnowyPlains instead")]
-    #[allow(dead_code)]
-    Snow,
 }
 
 impl BiomeType {
     /// Get the water type for this biome's bodies of water
     pub fn water_type(&self) -> WaterType {
-        #[allow(deprecated)]
         match self {
             // Ocean and coastal
             BiomeType::Ocean => WaterType::Ocean,
@@ -74,7 +65,6 @@ impl BiomeType {
 
             // Cold biomes - icy water
             BiomeType::SnowyPlains | BiomeType::SnowyTaiga | BiomeType::Taiga => WaterType::River,
-            BiomeType::Snow => WaterType::River, // Legacy
 
             // Wet biomes
             BiomeType::Swamp => WaterType::Swamp,
@@ -89,21 +79,20 @@ impl BiomeType {
             BiomeType::DripstoneCaves | BiomeType::DeepDark => WaterType::Spring,
 
             // Forest and plains biomes
-            BiomeType::Plains | BiomeType::Grassland => WaterType::Lake,
+            BiomeType::Plains => WaterType::Lake,
             BiomeType::Forest | BiomeType::DarkForest | BiomeType::BirchForest => WaterType::Lake,
             BiomeType::Meadow => WaterType::Lake,
         }
     }
 
     /// Check if this is a cold biome (snow/ice generation)
-    #[allow(dead_code, deprecated)]
+    #[allow(dead_code)]
     pub fn is_cold(&self) -> bool {
         matches!(
             self,
             BiomeType::SnowyPlains
                 | BiomeType::SnowyTaiga
                 | BiomeType::Taiga
-                | BiomeType::Snow
                 | BiomeType::Mountains
         )
     }
@@ -151,7 +140,6 @@ impl BiomeType {
 
     /// Get a human-readable display name for this biome.
     pub fn display_name(&self) -> &'static str {
-        #[allow(deprecated)]
         match self {
             BiomeType::Ocean => "Ocean",
             BiomeType::Beach => "Beach",
@@ -171,15 +159,12 @@ impl BiomeType {
             BiomeType::LushCaves => "Lush Caves",
             BiomeType::DripstoneCaves => "Dripstone Caves",
             BiomeType::DeepDark => "Deep Dark",
-            BiomeType::Grassland => "Plains",
-            BiomeType::Snow => "Snowy Plains",
         }
     }
 
     /// Get tree density for this biome (0.0 = none, 1.0 = dense)
     #[allow(dead_code)]
     pub fn tree_density(&self) -> f64 {
-        #[allow(deprecated)]
         match self {
             // Dense forests
             BiomeType::DarkForest | BiomeType::Jungle => 0.8,
@@ -188,10 +173,10 @@ impl BiomeType {
             BiomeType::Swamp => 0.3,
 
             // Sparse trees
-            BiomeType::Plains | BiomeType::Grassland => 0.05,
+            BiomeType::Plains => 0.05,
             BiomeType::Meadow => 0.03,
             BiomeType::Savanna => 0.08,
-            BiomeType::SnowyPlains | BiomeType::Snow => 0.02,
+            BiomeType::SnowyPlains => 0.02,
 
             // No trees
             BiomeType::Desert => 0.01, // Cacti only

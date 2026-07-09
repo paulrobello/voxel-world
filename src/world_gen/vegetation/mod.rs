@@ -74,10 +74,9 @@ pub fn generate_ground_cover(
 
                 // Note: hash is already computed above (from cache or terrain.hash)
 
-                #[allow(deprecated)]
                 match biome {
                     // Plains and temperate grasslands - moderate coverage
-                    BiomeType::Plains | BiomeType::Grassland => {
+                    BiomeType::Plains => {
                         if surface_block == BlockType::Grass {
                             let roll = hash % 100;
                             if roll < 8 {
@@ -222,7 +221,7 @@ pub fn generate_ground_cover(
                     }
 
                     // Snowy biomes - very sparse
-                    BiomeType::SnowyPlains | BiomeType::Snow => {
+                    BiomeType::SnowyPlains => {
                         if surface_block == BlockType::Snow && hash % 100 < 2 {
                             chunk.set_model_block(lx, y, lz, MODEL_TALL_GRASS, 0, false);
                         }
@@ -354,7 +353,6 @@ fn get_ceiling_decoration(
     world_y: i32,
     world_z: i32,
 ) -> Option<u8> {
-    #[allow(deprecated)]
     match biome {
         // Lush caves - hanging roots, glow berries, glow lichen
         BiomeType::LushCaves => {
@@ -405,7 +403,6 @@ fn get_floor_decoration(
     world_y: i32,
     world_z: i32,
 ) -> Option<u8> {
-    #[allow(deprecated)]
     match biome {
         // Lush caves - moss carpet, glow mushrooms
         BiomeType::LushCaves => {

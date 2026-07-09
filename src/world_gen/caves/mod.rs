@@ -198,7 +198,6 @@ impl CaveCoordinator {
 
     /// Get biome-specific cave density multiplier.
     fn get_biome_density(&self, biome: BiomeType) -> f64 {
-        #[allow(deprecated)]
         match biome {
             // Underground biomes have many more caves
             BiomeType::LushCaves | BiomeType::DripstoneCaves => 2.0,
@@ -210,7 +209,7 @@ impl CaveCoordinator {
             // Swamp has slightly fewer caves
             BiomeType::Swamp => 0.8,
             // Snowy biomes have ice caves
-            BiomeType::SnowyPlains | BiomeType::SnowyTaiga | BiomeType::Snow => 0.9,
+            BiomeType::SnowyPlains | BiomeType::SnowyTaiga => 0.9,
             // Taiga has slightly more caves
             BiomeType::Taiga => 1.2,
             // Jungle has wet caves
@@ -220,9 +219,7 @@ impl CaveCoordinator {
             // Forest biomes - normal density
             BiomeType::Forest | BiomeType::DarkForest | BiomeType::BirchForest => 1.0,
             // Default
-            BiomeType::Plains | BiomeType::Grassland | BiomeType::Meadow | BiomeType::Savanna => {
-                1.0
-            }
+            BiomeType::Plains | BiomeType::Meadow | BiomeType::Savanna => 1.0,
         }
     }
 
@@ -244,7 +241,6 @@ impl CaveCoordinator {
             }
         }
 
-        #[allow(deprecated)]
         match biome {
             // Desert caves are always dry
             BiomeType::Desert | BiomeType::Savanna => CaveFillType::Air,
@@ -259,7 +255,7 @@ impl CaveCoordinator {
             }
 
             // Ice caves are dry
-            BiomeType::SnowyPlains | BiomeType::SnowyTaiga | BiomeType::Snow => CaveFillType::Air,
+            BiomeType::SnowyPlains | BiomeType::SnowyTaiga => CaveFillType::Air,
 
             // Mountain caves have lava lakes to sea level
             BiomeType::Mountains => {
@@ -318,19 +314,17 @@ impl CaveCoordinator {
 
     /// Get stalactite model ID based on biome.
     pub fn get_stalactite_model(&self, biome: BiomeType) -> u8 {
-        #[allow(deprecated)]
         match biome {
-            BiomeType::SnowyPlains | BiomeType::SnowyTaiga | BiomeType::Snow => 108, // Ice
-            _ => 106,                                                                // Stone
+            BiomeType::SnowyPlains | BiomeType::SnowyTaiga => 108, // Ice
+            _ => 106,                                              // Stone
         }
     }
 
     /// Get stalagmite model ID based on biome.
     pub fn get_stalagmite_model(&self, biome: BiomeType) -> u8 {
-        #[allow(deprecated)]
         match biome {
-            BiomeType::SnowyPlains | BiomeType::SnowyTaiga | BiomeType::Snow => 109, // Ice
-            _ => 107,                                                                // Stone
+            BiomeType::SnowyPlains | BiomeType::SnowyTaiga => 109, // Ice
+            _ => 107,                                              // Stone
         }
     }
 
@@ -350,7 +344,6 @@ impl CaveCoordinator {
 
         // ~15% spawn rate in normal caves
         // Higher in dripstone caves
-        #[allow(deprecated)]
         let threshold = match biome {
             BiomeType::DripstoneCaves => 0.5,
             _ => 0.7,
@@ -381,7 +374,6 @@ impl CaveCoordinator {
 
         // ~15% spawn rate in normal caves
         // Higher in dripstone caves
-        #[allow(deprecated)]
         let threshold = match biome {
             BiomeType::DripstoneCaves => 0.5,
             _ => 0.7,

@@ -363,7 +363,6 @@ impl TerrainGenerator {
     /// - `continentalness`: Controls base height (-1.0 = ocean, 1.0 = inland)
     /// - `erosion`: Controls height amplitude (-1.0 = peaks, 1.0 = flat)
     /// - Biome type adds only SMALL adjustments (not dramatic differences)
-    #[allow(deprecated)]
     fn calculate_biome_height(
         &self,
         biome: BiomeType,
@@ -449,7 +448,7 @@ impl TerrainGenerator {
             BiomeType::Mountains => 8.0,
 
             // Snow biomes slightly elevated
-            BiomeType::SnowyPlains | BiomeType::Snow | BiomeType::SnowyTaiga => 3.0,
+            BiomeType::SnowyPlains | BiomeType::SnowyTaiga => 3.0,
 
             // Taiga/forest biomes neutral
             BiomeType::Taiga | BiomeType::Forest | BiomeType::BirchForest => 0.0,
@@ -464,7 +463,7 @@ impl TerrainGenerator {
             BiomeType::Jungle => 0.0,
 
             // Plains/grassland neutral
-            BiomeType::Plains | BiomeType::Grassland => 0.0,
+            BiomeType::Plains => 0.0,
 
             // Desert slightly lower
             BiomeType::Desert => -3.0,
