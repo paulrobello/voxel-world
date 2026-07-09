@@ -5,6 +5,7 @@
 use crate::block_interaction::BlockInteractionContext;
 use crate::chunk::{BlockType, WaterType};
 use crate::constants::TEXTURE_SIZE_Y;
+use crate::net::protocol::BlockData;
 use crate::placement::{BlockPlacementParams, place_blocks_at_positions};
 use nalgebra::Vector3;
 
@@ -867,6 +868,8 @@ impl<'a> BlockInteractionContext<'a> {
         let thickness = self.ui.hollow_tool.thickness;
 
         let mut removed = 0;
+        let air_data = BlockData::from(BlockType::Air);
+        let mut changes: Vec<([i32; 3], BlockData)> = Vec::new();
         for pos in &positions {
             if let Some(block) = self.sim.world.get_block(*pos) {
                 // Only remove non-air, non-fluid blocks
@@ -878,10 +881,12 @@ impl<'a> BlockInteractionContext<'a> {
 
                     // Remove the block (set to air)
                     self.sim.world.set_block(*pos, BlockType::Air);
+                    changes.push(([pos.x, pos.y, pos.z], air_data.clone()));
                     removed += 1;
                 }
             }
         }
+        self.sync_raw_block_writes(changes);
 
         // Invalidate minimap cache for affected area
         if let Some(first_pos) = positions.first() {
@@ -953,6 +958,13 @@ impl<'a> BlockInteractionContext<'a> {
             hotbar_block
         };
 
+        // Mirror each local write into a per-position BlockData for multiplayer
+        // sync. Raise/Smooth-add/Flatten-add produce `block_type`; the remove
+        // arms produce Air. Only positions whose write-condition held are pushed.
+        let block_data = BlockData::from(block_type);
+        let air_data = BlockData::from(BlockType::Air);
+        let mut changes: Vec<([i32; 3], BlockData)> = Vec::new();
+
         match mode {
             TerrainBrushMode::Raise => {
                 let positions =
@@ -964,6 +976,7 @@ impl<'a> BlockInteractionContext<'a> {
                             || existing == BlockType::Lava)
                     {
                         self.sim.world.set_block(pos, block_type);
+                        changes.push(([pos.x, pos.y, pos.z], block_data.clone()));
                     }
                 }
             }
@@ -979,6 +992,7 @@ impl<'a> BlockInteractionContext<'a> {
                         self.sim.water_grid.remove_water(pos, 999.0);
                         self.sim.lava_grid.remove_lava(pos, 999.0);
                         self.sim.world.set_block(pos, BlockType::Air);
+                        changes.push(([pos.x, pos.y, pos.z], air_data.clone()));
                     }
                 }
             }
@@ -994,6 +1008,7 @@ impl<'a> BlockInteractionContext<'a> {
                         self.sim.water_grid.remove_water(pos, 999.0);
                         self.sim.lava_grid.remove_lava(pos, 999.0);
                         self.sim.world.set_block(pos, BlockType::Air);
+                        changes.push(([pos.x, pos.y, pos.z], air_data.clone()));
                     }
                 }
                 // Then add blocks
@@ -1002,6 +1017,7 @@ impl<'a> BlockInteractionContext<'a> {
                         && existing == BlockType::Air
                     {
                         self.sim.world.set_block(pos, block_type);
+                        changes.push(([pos.x, pos.y, pos.z], block_data.clone()));
                     }
                 }
             }
@@ -1017,6 +1033,7 @@ impl<'a> BlockInteractionContext<'a> {
                         self.sim.water_grid.remove_water(pos, 999.0);
                         self.sim.lava_grid.remove_lava(pos, 999.0);
                         self.sim.world.set_block(pos, BlockType::Air);
+                        changes.push(([pos.x, pos.y, pos.z], air_data.clone()));
                     }
                 }
                 // Then add blocks
@@ -1025,10 +1042,12 @@ impl<'a> BlockInteractionContext<'a> {
                         && existing == BlockType::Air
                     {
                         self.sim.world.set_block(pos, block_type);
+                        changes.push(([pos.x, pos.y, pos.z], block_data.clone()));
                     }
                 }
             }
         }
+        self.sync_raw_block_writes(changes);
 
         // Invalidate minimap cache for affected area
         self.sim.world.invalidate_minimap_cache(center.x, center.z);
@@ -1105,6 +1124,7 @@ impl<'a> BlockInteractionContext<'a> {
 
         // Place cloned blocks at each origin offset
         let mut placed_count = 0;
+        let mut changes: Vec<([i32; 3], BlockData)> = Vec::new();
         for origin in &clone_origins {
             for (source_pos, block_type, tint, paint) in &source_blocks {
                 let target_pos = source_pos + origin;
@@ -1118,22 +1138,50 @@ impl<'a> BlockInteractionContext<'a> {
                     BlockType::TintedGlass => {
                         let tint_idx: u8 = tint.unwrap_or(0);
                         self.sim.world.set_tinted_glass_block(target_pos, tint_idx);
+                        changes.push((
+                            [target_pos.x, target_pos.y, target_pos.z],
+                            BlockData {
+                                block_type: BlockType::TintedGlass,
+                                tint_index: Some(tint_idx),
+                                ..Default::default()
+                            },
+                        ));
                     }
                     BlockType::Crystal => {
                         let tint_idx: u8 = tint.unwrap_or(0);
                         self.sim.world.set_crystal_block(target_pos, tint_idx);
+                        changes.push((
+                            [target_pos.x, target_pos.y, target_pos.z],
+                            BlockData {
+                                block_type: BlockType::Crystal,
+                                tint_index: Some(tint_idx),
+                                ..Default::default()
+                            },
+                        ));
                     }
                     BlockType::Painted => {
-                        if let Some(p) = paint {
+                        // Mirror the local write exactly: full paint when
+                        // metadata is present, else texture/tint 0 (blend 0).
+                        let p = if let Some(p) = paint {
                             self.sim.world.set_painted_block_full(
                                 target_pos,
                                 p.texture_idx,
                                 p.tint_idx,
                                 p.blend_mode,
                             );
+                            *p
                         } else {
                             self.sim.world.set_painted_block(target_pos, 0, 0);
-                        }
+                            crate::chunk::BlockPaintData::simple(0, 0)
+                        };
+                        changes.push((
+                            [target_pos.x, target_pos.y, target_pos.z],
+                            BlockData {
+                                block_type: BlockType::Painted,
+                                paint_data: Some(p),
+                                ..Default::default()
+                            },
+                        ));
                     }
                     BlockType::Water => {
                         let water_type = self
@@ -1143,10 +1191,24 @@ impl<'a> BlockInteractionContext<'a> {
                             .unwrap_or(WaterType::Ocean);
                         self.sim.water_grid.place_source(target_pos, water_type);
                         self.sim.world.set_water_block(target_pos, water_type);
+                        changes.push((
+                            [target_pos.x, target_pos.y, target_pos.z],
+                            BlockData {
+                                block_type: BlockType::Water,
+                                water_type: Some(water_type),
+                                ..Default::default()
+                            },
+                        ));
                     }
                     BlockType::Lava => {
+                        // NOTE: remote apply does not place a lava source
+                        // (pre-existing divergence, see mod.rs ~:122).
                         self.sim.lava_grid.place_source(target_pos);
                         self.sim.world.set_block(target_pos, BlockType::Lava);
+                        changes.push((
+                            [target_pos.x, target_pos.y, target_pos.z],
+                            BlockData::from(BlockType::Lava),
+                        ));
                     }
                     BlockType::Model => {
                         // Clone model blocks with their metadata
@@ -1157,6 +1219,14 @@ impl<'a> BlockInteractionContext<'a> {
                                 model_data.rotation,
                                 model_data.waterlogged,
                             );
+                            changes.push((
+                                [target_pos.x, target_pos.y, target_pos.z],
+                                BlockData {
+                                    block_type: BlockType::Model,
+                                    model_data: Some(model_data),
+                                    ..Default::default()
+                                },
+                            ));
                         }
                     }
                     BlockType::Air => {
@@ -1165,11 +1235,16 @@ impl<'a> BlockInteractionContext<'a> {
                     }
                     _ => {
                         self.sim.world.set_block(target_pos, *block_type);
+                        changes.push((
+                            [target_pos.x, target_pos.y, target_pos.z],
+                            BlockData::from(*block_type),
+                        ));
                     }
                 }
                 placed_count += 1;
             }
         }
+        self.sync_raw_block_writes(changes);
 
         // Invalidate minimap cache for affected area
         self.sim.world.invalidate_minimap_cache(min.x, min.z);
@@ -1214,7 +1289,40 @@ impl<'a> BlockInteractionContext<'a> {
         let target_tint = replace.target_tint;
         let target_texture = replace.target_texture;
 
+        // Build the target BlockData once; every matched position writes the
+        // same payload. Painted carries the full paint (incl. blend_mode, which
+        // block_data_for_params' BlockPaintData::simple would drop). Model is
+        // unsupported for replacement (the loop's Model arm `continue`s, so
+        // target_data is never read in that case).
+        let target_data = match target_block {
+            BlockType::TintedGlass | BlockType::Crystal => BlockData {
+                block_type: target_block,
+                tint_index: Some(target_tint),
+                ..Default::default()
+            },
+            BlockType::Painted => {
+                let blend_mode = self.ui.paint_panel.current_config.blend_mode as u8;
+                BlockData {
+                    block_type: BlockType::Painted,
+                    paint_data: Some(crate::chunk::BlockPaintData::new(
+                        target_texture,
+                        target_tint,
+                        blend_mode,
+                    )),
+                    ..Default::default()
+                }
+            }
+            BlockType::Water => BlockData {
+                block_type: BlockType::Water,
+                water_type: Some(WaterType::from_u8(target_tint)),
+                ..Default::default()
+            },
+            BlockType::Model => BlockData::from(BlockType::Model),
+            other => BlockData::from(other),
+        };
+
         let mut replaced_count = 0;
+        let mut changes: Vec<([i32; 3], BlockData)> = Vec::new();
 
         for x in min.x..=max.x {
             for y in min.y..=max.y {
@@ -1272,11 +1380,15 @@ impl<'a> BlockInteractionContext<'a> {
                                 self.sim.world.set_block(pos, target_block);
                             }
                         }
+                        // Model arm `continue`s above, so every path reaching
+                        // here wrote target_data-equivalent state.
+                        changes.push(([x, y, z], target_data.clone()));
                         replaced_count += 1;
                     }
                 }
             }
         }
+        self.sync_raw_block_writes(changes);
 
         // Invalidate minimap cache for affected area
         self.sim.world.invalidate_minimap_cache(min.x, min.z);

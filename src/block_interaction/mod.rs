@@ -175,6 +175,40 @@ impl<'a> BlockInteractionContext<'a> {
             .send_blocks_changed(BlocksChanged { changes });
     }
 
+    /// Syncs a batch of pre-resolved per-position writes to the server.
+    ///
+    /// Like [`sync_shape_blocks`], but each entry already carries the exact
+    /// `BlockData` the local world was set to. Covers the heterogeneous shape
+    /// tools (`replace` / `hollow` / `terrain_brush` / `clone`) where different
+    /// positions in the same batch carry different block types or metadata, so
+    /// the writes can't be derived from a single
+    /// [`crate::placement::BlockPlacementParams`].
+    ///
+    /// Applies the same `MAX_BLOCKS_CHANGED` cap and Y-bounds skip as
+    /// `sync_shape_blocks` (via [`filter_and_cap_block_writes`]) and sends a
+    /// single `BlocksChanged`. The server relays originator-excluded, so the
+    /// local world is never double-applied.
+    pub(super) fn sync_raw_block_writes(
+        &mut self,
+        changes: Vec<([i32; 3], crate::net::protocol::BlockData)>,
+    ) {
+        if !self.is_connected_to_server() {
+            return;
+        }
+
+        let filtered = filter_and_cap_block_writes(changes);
+        if filtered.is_empty() {
+            return;
+        }
+
+        log::debug!(
+            "[Client] Syncing {} heterogeneous block write(s)",
+            filtered.len()
+        );
+        self.multiplayer
+            .send_blocks_changed(crate::net::protocol::BlocksChanged { changes: filtered });
+    }
+
     /// Returns the currently selected block from the hotbar.
     pub(super) fn selected_block(&self) -> BlockType {
         self.ui.hotbar.hotbar_blocks[self.ui.hotbar.hotbar_index]
@@ -1069,6 +1103,48 @@ pub fn should_place_inverted_stair(hit_normal_y: i32, local_y: f32) -> bool {
     }
 }
 
+/// Caps a batch of resolved block writes to `MAX_BLOCKS_CHANGED` and drops
+/// out-of-Y-bounds entries, returning the `Vec` to ship in a `BlocksChanged`.
+///
+/// Pure free function so the cap / Y-skip behavior is unit-testable without
+/// constructing a `BlockInteractionContext`. `sync_shape_blocks` applies the
+/// same guards inline; it is intentionally not refactored to call this to
+/// avoid any behavior drift in the params-driven path (surgical, rule §3).
+fn filter_and_cap_block_writes(
+    changes: Vec<([i32; 3], crate::net::protocol::BlockData)>,
+) -> Vec<([i32; 3], crate::net::protocol::BlockData)> {
+    use crate::net::protocol::MAX_BLOCKS_CHANGED;
+
+    let total = changes.len();
+    let mut out: Vec<([i32; 3], crate::net::protocol::BlockData)> =
+        Vec::with_capacity(total.min(MAX_BLOCKS_CHANGED));
+    let mut skipped_overflow = 0u32;
+
+    for (pos, block) in changes {
+        if out.len() >= MAX_BLOCKS_CHANGED {
+            skipped_overflow = skipped_overflow.saturating_add((total - out.len()) as u32);
+            break;
+        }
+        // Mirror sync_shape_blocks Y-bounds skip.
+        if pos[1] < 0 || pos[1] >= TEXTURE_SIZE_Y as i32 {
+            continue;
+        }
+        out.push((pos, block));
+    }
+
+    if skipped_overflow > 0 {
+        log::warn!(
+            "[Client] Shape edit produced {} positions beyond the {}-entry sync cap; \
+             the first {} were synced and the rest will reconcile via chunk resend / autosave",
+            skipped_overflow,
+            MAX_BLOCKS_CHANGED,
+            MAX_BLOCKS_CHANGED
+        );
+    }
+
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1160,6 +1236,60 @@ mod tests {
             queue_client.pending_count(),
             0,
             "pure client must not enqueue server-owned physics checks"
+        );
+    }
+
+    // ── filter_and_cap_block_writes: cap + Y-skip for the heterogeneous sync path ──
+    //
+    // Exercises the two guards that sync_raw_block_writes (and, by shared
+    // intent, sync_shape_blocks) rely on: truncate at MAX_BLOCKS_CHANGED, and
+    // drop anything outside the valid Y range.
+
+    #[test]
+    fn filter_and_cap_truncates_at_max_blocks_changed() {
+        use crate::chunk::BlockType;
+        use crate::net::protocol::{BlockData, MAX_BLOCKS_CHANGED};
+
+        // MAX_BLOCKS_CHANGED + 100 in-bounds entries.
+        let input: Vec<([i32; 3], BlockData)> = (0..(MAX_BLOCKS_CHANGED + 100))
+            .map(|i| {
+                (
+                    ((i & 0x1ff) as i32),
+                    1,
+                    0,
+                    BlockData::from(BlockType::Stone),
+                )
+            })
+            .map(|(x, y, z, b)| ([x, y, z], b))
+            .collect();
+        let out = filter_and_cap_block_writes(input);
+        assert_eq!(
+            out.len(),
+            MAX_BLOCKS_CHANGED,
+            "must cap at MAX_BLOCKS_CHANGED"
+        );
+        assert_eq!(out[0].1, BlockData::from(BlockType::Stone));
+    }
+
+    #[test]
+    fn filter_and_cap_drops_out_of_bounds_y() {
+        use crate::chunk::BlockType;
+        use crate::constants::TEXTURE_SIZE_Y;
+        use crate::net::protocol::BlockData;
+
+        let stone = BlockData::from(BlockType::Stone);
+        let input: Vec<([i32; 3], BlockData)> = vec![
+            ([0, -1, 0], stone.clone()),                        // below min Y
+            ([0, TEXTURE_SIZE_Y as i32, 0], stone.clone()),     // at ceiling (exclusive)
+            ([0, 0, 0], stone.clone()),                         // in-bounds (min)
+            ([0, TEXTURE_SIZE_Y as i32 - 1, 0], stone.clone()), // in-bounds (max)
+            ([0, 5, 0], stone),                                 // in-bounds
+        ];
+        let out = filter_and_cap_block_writes(input);
+        assert_eq!(out.len(), 3, "only the 3 in-bounds-Y entries survive");
+        assert!(
+            out.iter()
+                .all(|(_, b)| *b == BlockData::from(BlockType::Stone))
         );
     }
 }
