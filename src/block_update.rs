@@ -224,7 +224,7 @@ impl BlockUpdateQueue {
         falling_blocks: &mut crate::falling_block::FallingBlockSystem,
         particles: &mut crate::particles::ParticleSystem,
         model_registry: &crate::sub_voxel::ModelRegistry,
-        _player_pos: Vector3<f32>,
+        player_pos: Vector3<f32>,
     ) -> (
         Vec<FallingBlockSpawnEvent>,
         Vec<ModelGroundSupportBreakEvent>,
@@ -236,18 +236,30 @@ impl BlockUpdateQueue {
         for update in batch {
             match update.update_type {
                 BlockUpdateType::Gravity => {
-                    let spawns =
-                        self.process_gravity_update(update.position, world, falling_blocks);
+                    let spawns = self.process_gravity_update(
+                        update.position,
+                        world,
+                        falling_blocks,
+                        player_pos,
+                    );
                     spawn_events.extend(spawns);
                 }
                 BlockUpdateType::TreeSupport => {
-                    let spawns =
-                        self.process_tree_support_update(update.position, world, falling_blocks);
+                    let spawns = self.process_tree_support_update(
+                        update.position,
+                        world,
+                        falling_blocks,
+                        player_pos,
+                    );
                     spawn_events.extend(spawns);
                 }
                 BlockUpdateType::OrphanedLeaves => {
-                    let spawns =
-                        self.process_orphaned_leaves_update(update.position, world, falling_blocks);
+                    let spawns = self.process_orphaned_leaves_update(
+                        update.position,
+                        world,
+                        falling_blocks,
+                        player_pos,
+                    );
                     spawn_events.extend(spawns);
                 }
                 BlockUpdateType::ModelGroundSupport => {
@@ -270,6 +282,7 @@ impl BlockUpdateQueue {
         pos: Vector3<i32>,
         world: &mut crate::world::World,
         falling_blocks: &mut crate::falling_block::FallingBlockSystem,
+        player_pos: Vector3<f32>,
     ) -> Vec<FallingBlockSpawnEvent> {
         let mut spawn_events = Vec::new();
 
@@ -296,14 +309,13 @@ impl BlockUpdateQueue {
             let above_pos = pos + Vector3::new(0, 1, 0);
 
             // Queue the next block up for cascade
-            // Using a dummy player_pos since priority doesn't matter much for cascades
-            self.enqueue(above_pos, BlockUpdateType::Gravity, Vector3::zeros());
+            self.enqueue(above_pos, BlockUpdateType::Gravity, player_pos);
 
             // If block above is a leaf, check if it's still supported
             if let Some(above_block) = world.get_block(above_pos)
                 && above_block.is_leaves()
             {
-                self.enqueue(above_pos, BlockUpdateType::OrphanedLeaves, Vector3::zeros());
+                self.enqueue(above_pos, BlockUpdateType::OrphanedLeaves, player_pos);
             }
         }
 
@@ -315,6 +327,7 @@ impl BlockUpdateQueue {
         pos: Vector3<i32>,
         world: &mut crate::world::World,
         falling_blocks: &mut crate::falling_block::FallingBlockSystem,
+        player_pos: Vector3<f32>,
     ) -> Vec<FallingBlockSpawnEvent> {
         let mut spawn_events = Vec::new();
 
@@ -344,13 +357,13 @@ impl BlockUpdateQueue {
                     let above_pos = p + Vector3::new(0, 1, 0);
 
                     // Queue gravity check for block above (snow, sand, gravel, etc.)
-                    self.enqueue(above_pos, BlockUpdateType::Gravity, Vector3::zeros());
+                    self.enqueue(above_pos, BlockUpdateType::Gravity, player_pos);
 
                     // Also check for orphaned leaves above
                     if let Some(above_block) = world.get_block(above_pos)
                         && above_block.is_leaves()
                     {
-                        self.enqueue(above_pos, BlockUpdateType::OrphanedLeaves, Vector3::zeros());
+                        self.enqueue(above_pos, BlockUpdateType::OrphanedLeaves, player_pos);
                     }
                 }
             }
@@ -364,6 +377,7 @@ impl BlockUpdateQueue {
         pos: Vector3<i32>,
         world: &mut crate::world::World,
         falling_blocks: &mut crate::falling_block::FallingBlockSystem,
+        player_pos: Vector3<f32>,
     ) -> Vec<FallingBlockSpawnEvent> {
         let mut spawn_events = Vec::new();
 
@@ -393,13 +407,13 @@ impl BlockUpdateQueue {
                     let above_pos = p + Vector3::new(0, 1, 0);
 
                     // Queue gravity check for block above (snow, sand, gravel, etc.)
-                    self.enqueue(above_pos, BlockUpdateType::Gravity, Vector3::zeros());
+                    self.enqueue(above_pos, BlockUpdateType::Gravity, player_pos);
 
                     // Also check for more orphaned leaves above
                     if let Some(above_block) = world.get_block(above_pos)
                         && above_block.is_leaves()
                     {
-                        self.enqueue(above_pos, BlockUpdateType::OrphanedLeaves, Vector3::zeros());
+                        self.enqueue(above_pos, BlockUpdateType::OrphanedLeaves, player_pos);
                     }
                 }
             }
