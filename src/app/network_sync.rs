@@ -1,7 +1,7 @@
 //! Network synchronisation context for the App.
 //!
 //! All multiplayer state-application logic lives on [`NetworkSyncContext`], a
-//! short-lived struct that borrows only the [`App`] fields it needs.  The
+//! short-lived struct that borrows only the [`crate::app::App`] fields it needs.  The
 //! `impl App` delegates at the bottom forward public calls unchanged, so no
 //! call-site in `update.rs` or `world_streaming.rs` needs to change.
 //!
@@ -18,7 +18,7 @@
 use crate::app_state::{MultiplayerState, UiState, WorldSim};
 use crate::chunk::BlockType;
 
-/// Borrows the [`App`] fields required by the network-synchronisation subsystem.
+/// Borrows the [`crate::app::App`] fields required by the network-synchronisation subsystem.
 pub(crate) struct NetworkSyncContext<'a> {
     pub sim: &'a mut WorldSim,
     pub multiplayer: &'a mut MultiplayerState,

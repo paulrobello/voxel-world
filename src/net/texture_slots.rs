@@ -252,7 +252,7 @@ impl TextureSlotManager {
     /// Removes a texture, refusing if the slot is still referenced by blocks.
     ///
     /// Callers that want to force-remove a slot should use
-    /// [`force_remove_texture`] — this variant is safe by default so admin
+    /// [`Self::force_remove_texture`] — this variant is safe by default so admin
     /// mistakes don't orphan `paint_data` pointing at a deleted slot.
     #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn remove_texture(&mut self, slot: u8) -> Result<(), String> {

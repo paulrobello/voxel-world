@@ -281,7 +281,7 @@ impl PictureManager {
     /// Callers must `add_reference` for every block that embeds this picture_id
     /// and `remove_reference` when the block is broken/overwritten. Deletion is
     /// rejected while `reference_count(picture_id) > 0` to avoid orphaned
-    /// paint_data. Use [`force_remove_picture`] for admin / wipe flows that
+    /// paint_data. Use [`Self::force_remove_picture`] for admin / wipe flows that
     /// explicitly want to drop the picture regardless.
     #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn remove_picture(&mut self, picture_id: u16) -> Result<(), String> {

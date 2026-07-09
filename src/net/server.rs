@@ -280,7 +280,7 @@ impl GameServer {
     /// allows a re-send so modified chunks reach the client promptly.
     ///
     /// Callers that successfully send the chunk must follow up with
-    /// [`record_chunk_sent`] so the window is refreshed.
+    /// [`Self::record_chunk_sent`] so the window is refreshed.
     pub fn should_send_chunk(&mut self, client_id: u64, pos: [i32; 3]) -> bool {
         if let Some(map) = self.recently_sent_chunks.get(&client_id)
             && let Some((last_sent, _epoch)) = map.get(&pos)
@@ -318,7 +318,7 @@ impl GameServer {
 
     /// Records that `pos` was sent to `client_id` at the current instant, along
     /// with the chunk's `mutation_epoch`. Used for dedup in
-    /// [`should_send_chunk_with_epoch`].
+    /// [`Self::should_send_chunk_with_epoch`].
     pub fn record_chunk_sent_with_epoch(&mut self, client_id: u64, pos: [i32; 3], epoch: u64) {
         self.recently_sent_chunks
             .entry(client_id)
@@ -327,7 +327,7 @@ impl GameServer {
     }
 
     /// Records that `pos` was sent to `client_id` at the current instant. Used
-    /// for dedup in [`should_send_chunk`].
+    /// for dedup in [`Self::should_send_chunk`].
     pub fn record_chunk_sent(&mut self, client_id: u64, pos: [i32; 3]) {
         self.recently_sent_chunks
             .entry(client_id)

@@ -90,7 +90,7 @@ impl BlockIdentity {
 
 /// Execute the floodfill command.
 ///
-/// Syntax: floodfill <target_block> [x] [y] [z]
+/// Syntax: floodfill <target_block> `x` `y` `z`
 ///
 /// If coordinates are omitted, uses the block at player's crosshair (raycast hit).
 /// This is a pre-scan only - the actual filling will be done by the caller

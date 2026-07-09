@@ -11,8 +11,8 @@ use nalgebra::Vector3;
 
 /// Execute the boxme command.
 ///
-/// Syntax: boxme <block> <size>
-/// Equivalent to: fill <block> ~-size ~ ~-size ~size ~size ~size hollow
+/// Syntax: boxme `<block>` `<size>`
+/// Equivalent to: fill `<block>` ~-size ~ ~-size ~size ~size ~size hollow
 pub fn boxme(
     args: &[&str],
     world: &mut World,

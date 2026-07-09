@@ -446,7 +446,7 @@ pub enum ClientMessage {
     /// Upload a custom model to the server.
     ///
     /// Boxed so the enum's overall stack size isn't dominated by this large
-    /// variant (Name + Author + Vec<u8> ≈ 72 bytes). postcard treats Box<T>
+    /// variant (Name + Author + `Vec<u8>` ≈ 72 bytes). postcard treats `Box<T>`
     /// transparently — no wire-format change.
     UploadModel(Box<UploadModel>),
     /// Upload a custom texture to the server.

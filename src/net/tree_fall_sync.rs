@@ -76,9 +76,9 @@ impl Default for TreeFallSync {
 ///
 /// Sized so a worst-case serialized `TreeFell { blocks: Vec<TreeFellBlock> }`
 /// stays under ~1500 bytes: each block is ~18 bytes on the wire (entity_id
-/// u32 + position [i32;3] + block_type u8 + postcard framing), so 80 blocks
+/// u32 + position `i32;3` + block_type u8 + postcard framing), so 80 blocks
 /// ≈ 1440 bytes + enum tag + length-prefix overhead. Trees larger than this
-/// are split into multiple `TreeFell` messages by [`build_tree_fell_batched`].
+/// are split into multiple `TreeFell` messages by [`TreeFallSync::build_tree_fell_batched`].
 #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
 pub const MAX_TREE_FELL_BLOCKS_PER_MSG: usize = 80;
 
@@ -104,7 +104,7 @@ impl TreeFallSync {
     /// Each block gets a unique entity ID for tracking during the fall.
     ///
     /// **NOTE:** Callers handling real trees should use
-    /// [`build_tree_fell_batched`] which splits oversized trees across
+    /// [`Self::build_tree_fell_batched`] which splits oversized trees across
     /// multiple messages so a single packet never exceeds the MTU budget.
     #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn build_tree_fell(&mut self, blocks: Vec<(Vector3<i32>, BlockType)>) -> TreeFell {

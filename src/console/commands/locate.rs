@@ -12,9 +12,9 @@ use std::collections::{HashSet, VecDeque};
 /// Execute the locate command.
 ///
 /// Syntax:
-/// - locate <biome> [range]
-/// - locate <block> [range]
-/// - locate cave [min_size] [range]
+/// - locate `<biome>` `range`
+/// - locate `<block>` `range`
+/// - locate cave `min_size` `range`
 pub fn locate(
     args: &[&str],
     player_pos: Vector3<i32>,

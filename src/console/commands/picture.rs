@@ -3,7 +3,7 @@
 use crate::console::CommandResult;
 use crate::pictures::PictureLibrary;
 
-/// Handles picture frame commands: list, set <id>, clear, debug
+/// Handles picture frame commands: list, set `<id>`, clear, debug
 pub fn picture(args: &[&str], picture_library: &PictureLibrary) -> CommandResult {
     if args.is_empty() {
         return CommandResult::Error(

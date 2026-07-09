@@ -68,7 +68,7 @@ impl ServerAuth {
     ///
     /// The key is regenerated every time the server starts so a single
     /// compromised pairing cannot replay across deployments. Callers who want
-    /// to pin a key (e.g. for testing) can use [`with_key`].
+    /// to pin a key (e.g. for testing) can use [`Self::with_key`].
     pub fn new(address: SocketAddr) -> Self {
         let private_key = Self::generate_random_key();
         Self {
@@ -99,7 +99,7 @@ impl ServerAuth {
     }
 
     /// Deprecated alias retained for backwards compatibility. Forwards to
-    /// [`generate_random_key`] — the old fixed-byte implementation is gone.
+    /// [`Self::generate_random_key`] — the old fixed-byte implementation is gone.
     #[deprecated(note = "Use generate_random_key() — dev_key was a hardcoded shared secret")]
     #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn generate_dev_key() -> [u8; 32] {

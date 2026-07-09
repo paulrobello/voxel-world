@@ -348,8 +348,8 @@ impl ModelRegistry {
     /// Applies a full model-registry sync from the server (client-side).
     ///
     /// `models_data` is LZ4-compressed (`compress_prepend_size`) postcard-
-    /// serialized [`WorldModelStore`]; `door_pairs_data` is the same for
-    /// [`DoorPairStore`]. Each model is placed at its server-authoritative ID
+    /// serialized [`crate::storage::model_format::WorldModelStore`]; `door_pairs_data` is the same for
+    /// [`crate::storage::model_format::DoorPairStore`]. Each model is placed at its server-authoritative ID
     /// via [`register_at`](Self::register_at), and door pairs are loaded via
     /// [`load_door_pairs`](Self::load_door_pairs).
     ///

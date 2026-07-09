@@ -9,7 +9,7 @@
 //! # Architecture
 //!
 //! All block interaction logic lives on [`BlockInteractionContext`], a short-lived
-//! struct that borrows only the [`App`] fields it needs. The `impl App` block at the
+//! struct that borrows only the [`crate::app::App`] fields it needs. The `impl App` block at the
 //! bottom of this file contains thin one-liner delegates that construct the context
 //! and forward the call, preserving the existing public API without requiring callers
 //! to change.
@@ -40,9 +40,9 @@ use nalgebra::Vector3;
 use winit::event::MouseButton;
 use winit::keyboard::KeyCode;
 
-/// Borrows only the [`App`] fields required by the block-interaction subsystem.
+/// Borrows only the [`crate::app::App`] fields required by the block-interaction subsystem.
 ///
-/// Construct via [`BlockInteractionContext::from_app`] or by calling any of the
+/// Construct a [`BlockInteractionContext`] or call any of the
 /// thin delegate methods on `App` (which do so automatically).
 pub(crate) struct BlockInteractionContext<'a> {
     pub sim: &'a mut WorldSim,
@@ -109,7 +109,7 @@ impl<'a> BlockInteractionContext<'a> {
     /// Syncs a batch of resolved block writes (from a shape tool) to the server.
     ///
     /// Mirrors `place_blocks_at_positions`: builds a `BlockData` per position
-    /// from `params` using [`block_data_for_params`] (the same per-type
+    /// from `params` using [`crate::placement::block_data_for_params`] (the same per-type
     /// branches the placement helper writes), skips Model/Air and
     /// out-of-Y-bounds positions identically, caps the batch at
     /// `MAX_BLOCKS_CHANGED` (logging truncation rather than panicking), and

@@ -11,7 +11,7 @@ use nalgebra::Vector3;
 
 /// Execute the copy command.
 ///
-/// Syntax: copy <x1> <y1> <z1> <x2> <y2> <z2> <dx> <dy> <dz> [rotate_90|rotate_180|rotate_270]
+/// Syntax: copy `<x1>` `<y1>` `<z1>` `<x2>` `<y2>` `<z2>` `<dx>` `<dy>` `<dz>` [rotate_90|rotate_180|rotate_270]
 pub fn copy(
     args: &[&str],
     world: &mut World,

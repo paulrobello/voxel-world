@@ -785,7 +785,7 @@ impl BlockType {
 
     /// Break time for a block of this type at world height `y`.
     ///
-    /// Most blocks have a position-independent break time (see [`break_time`]).
+    /// Most blocks have a position-independent break time (see [`Self::break_time`]).
     /// Bedrock is the exception: it is indestructible only at bedrock height
     /// (y == 0, where world generation places the floor — see `terrain_gen.rs`);
     /// bedrock a player places elsewhere breaks like the hardest stone.
@@ -897,9 +897,9 @@ impl From<u8> for BlockType {
 /// GPU texels, lost saves, or redundant recompute.
 ///
 /// - `dirty` — block bytes need GPU re-upload. Set by every `set_*`/`remove_*`
-///   mutator and by [`mark_dirty`]; cleared by [`mark_clean`], which the GPU
+///   mutator and by [`Self::mark_dirty`]; cleared by [`Self::mark_clean`], which the GPU
 ///   upload path (`world_streaming`) calls only after a successful upload.
-/// - `persistence_dirty` — needs save to disk. Set by [`mark_mutated`] (the
+/// - `persistence_dirty` — needs save to disk. Set by [`Self::mark_mutated`] (the
 ///   single funnel every public mutator passes through); cleared by the save
 ///   paths (`simulation` persistence, `storage` metadata flush) and by world-gen
 ///   seeding (`chunk_loader`, `terrain_gen`) which start clean by design.
@@ -909,11 +909,11 @@ impl From<u8> for BlockType {
 ///   custom-data-writing mutators; cleared by `ensure_gpu_metadata()`.
 /// - `metadata_dirty` — `cached_is_empty` / `cached_is_fully_solid` are stale.
 ///   Set by block-count-changing mutators; cleared by `update_metadata()`.
-/// - `mutation_epoch` — monotonic counter bumped by [`mark_mutated`] so external
+/// - `mutation_epoch` — monotonic counter bumped by [`Self::mark_mutated`] so external
 ///   memoization (multiplayer compressed-chunk cache) can invalidate without
 ///   trusting `persistence_dirty` (which saves clear). Never reset, only wraps.
 ///
-/// Invariants: (1) [`mark_mutated`] is the sole setter of `persistence_dirty`
+/// Invariants: (1) [`Self::mark_mutated`] is the sole setter of `persistence_dirty`
 /// and `mutation_epoch`, so they advance in lockstep. (2) The lazy caches are
 /// guarded by debug asserts in `model_metadata_bytes()` / `custom_data_bytes()`:
 /// those readers must not run while their flag is set — call
@@ -963,7 +963,7 @@ pub struct Chunk {
     /// Whether this chunk has been modified since last save to disk.
     pub persistence_dirty: bool,
 
-    /// Monotonic mutation counter. Bumped on every call to [`mark_mutated`],
+    /// Monotonic mutation counter. Bumped on every call to [`Self::mark_mutated`],
     /// which all public `set_*` / `remove_*` methods funnel through. External
     /// memoization layers (e.g. chunk compression cache in multiplayer
     /// streaming) can observe this to invalidate cached bytes without having
@@ -1208,7 +1208,7 @@ impl Chunk {
     /// `self.blocks[idx]` directly — keeps `light_block_count` and
     /// `mutation_epoch` consistent regardless of which setter the caller used.
     ///
-    /// The block-type change goes through [`set_block_internal`], which compares
+    /// The block-type change goes through [`Self::set_block_internal`], which compares
     /// the old vs new block and adjusts `light_block_count` (decrement if the
     /// old block was emissive, increment if the new one is). This is what fixes
     /// the drift where overwriting a `GlowStone` with a `Crystal` via
@@ -1537,7 +1537,7 @@ impl Chunk {
 
     /// Converts the chunk to a format that includes block type information.
     ///
-    /// This returns a Vec<u8> with one byte per block, suitable for
+    /// This returns a `Vec<u8>` with one byte per block, suitable for
     /// uploading to an R8_UINT 3D texture.
     pub fn to_block_data(&self) -> Vec<u8> {
         self.blocks.iter().map(|&b| b as u8).collect()
@@ -1552,7 +1552,7 @@ impl Chunk {
         bytemuck::cast_slice(self.blocks.as_ref())
     }
 
-    /// Returns a pooled Vec<u8> containing block bytes, reusing the provided buffer if large enough.
+    /// Returns a pooled `Vec<u8>` containing block bytes, reusing the provided buffer if large enough.
     #[allow(dead_code)] // reason: BlockType API — kept for completeness / future use
     pub fn write_block_bytes_into(&self, out: &mut Vec<u8>) {
         out.clear();
@@ -1565,7 +1565,7 @@ impl Chunk {
 
     /// Converts the chunk's model metadata to an owned `Vec<u8>` (RG8 format).
     ///
-    /// Clones the cached slice returned by [`model_metadata_bytes`]; prefer
+    /// Clones the cached slice returned by [`Self::model_metadata_bytes`]; prefer
     /// borrowing that slice directly when the chunk is already ensured.
     pub fn to_model_metadata(&self) -> Vec<u8> {
         self.model_metadata_bytes().to_vec()
@@ -1668,7 +1668,7 @@ impl Chunk {
 
     /// Returns a cached RG8 view of the model metadata (2 bytes per voxel).
     /// Metadata-free chunks read back as the shared `EMPTY_MODEL_METADATA` zero
-    /// buffer. Call [`ensure_gpu_metadata`] first so the cache is up to date
+    /// buffer. Call [`Self::ensure_gpu_metadata`] first so the cache is up to date
     /// (debug builds assert the chunk is not dirty).
     ///
     /// Layout:
@@ -1688,7 +1688,7 @@ impl Chunk {
 
     /// Returns the custom data buffer for GPU upload (4 bytes / u32 per block).
     /// Chunks without a nonzero-`custom_data` model read back as the shared
-    /// `EMPTY_CUSTOM_DATA` zero buffer. Call [`ensure_gpu_metadata`] first so
+    /// `EMPTY_CUSTOM_DATA` zero buffer. Call [`Self::ensure_gpu_metadata`] first so
     /// the cache is up to date (debug builds assert the chunk is not dirty).
     ///
     /// For frames: stores picture_id, offset_x, offset_y, width, height, facing.

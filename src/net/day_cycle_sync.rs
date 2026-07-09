@@ -59,7 +59,7 @@ impl Default for DayCycleSync {
 
 impl DayCycleSync {
     /// Creates a new day cycle sync tracker with a morning default. Prefer
-    /// [`with_initial_state`] when you have the actual world-save state in
+    /// [`Self::with_initial_state`] when you have the actual world-save state in
     /// hand — the bare `new()` only makes sense before metadata is loaded.
     #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn new() -> Self {

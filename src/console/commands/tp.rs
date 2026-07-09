@@ -7,7 +7,7 @@ use nalgebra::Vector3;
 
 /// Execute the tp (teleport) command.
 ///
-/// Syntax: tp <x> <y> <z>
+/// Syntax: tp `<x>` `<y>` `<z>`
 /// Coordinates support relative values with ~ prefix.
 pub fn tp(args: &[&str], player_pos: Vector3<i32>) -> CommandResult {
     if args.len() < 3 {

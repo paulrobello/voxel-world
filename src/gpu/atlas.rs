@@ -812,7 +812,7 @@ pub fn load_texture_atlases(
 ///
 /// Each slot gets its own small staging buffer, but all copies are recorded into
 /// one command buffer and protected by a single fence. Callers should prefer
-/// this over calling [`update_custom_texture_slot`] in a loop when more than one
+/// this over calling the single-slot update in a loop when more than one
 /// slot is dirty.
 pub fn batch_update_custom_texture_slots<'a, I>(
     memory_allocator: Arc<StandardMemoryAllocator>,

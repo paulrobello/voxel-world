@@ -6,7 +6,7 @@ use crate::console::CommandResult;
 
 /// Execute the save_pos command.
 ///
-/// Syntax: save_pos <name>
+/// Syntax: save_pos `<name>`
 /// Saves the player's current position with the given name.
 pub fn save_pos(args: &[&str]) -> CommandResult {
     if args.is_empty() {
@@ -33,7 +33,7 @@ pub fn save_pos(args: &[&str]) -> CommandResult {
 
 /// Execute the delete_pos command.
 ///
-/// Syntax: delete_pos <name>
+/// Syntax: delete_pos `<name>`
 /// Deletes the saved position with the given name.
 pub fn delete_pos(args: &[&str]) -> CommandResult {
     if args.is_empty() {

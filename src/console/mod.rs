@@ -146,7 +146,7 @@ impl CommandResult {
 }
 
 /// Chunk a drained `pending_block_syncs` list into `BlocksChanged` batches,
-/// each capped at [`MAX_BLOCKS_CHANGED`] entries, so a large console edit
+/// each capped at [`crate::net::protocol::MAX_BLOCKS_CHANGED`] entries, so a large console edit
 /// (`/fill` over a big region) syncs as one batched message per cap-sized chunk
 /// instead of N single-block messages, and never exceeds the server's per-message
 /// block limit. An empty input yields no batches.

@@ -6,7 +6,7 @@ use crate::console::CommandResult;
 
 /// Execute the measure command.
 ///
-/// Syntax: measure <subcommand>
+/// Syntax: measure `<subcommand>`
 /// Subcommands:
 ///   clear - Remove all measurement markers
 pub fn measure(args: &[&str]) -> CommandResult {

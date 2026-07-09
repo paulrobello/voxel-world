@@ -11,9 +11,9 @@ pub struct Camera {
 #[derive(Debug, Clone, Copy)]
 #[allow(dead_code)]
 pub struct ScreenProjection {
-    /// Screen X coordinate (0 = left, extent[0] = right).
+    /// Screen X coordinate (0 = left, `extent[0]` = right).
     pub x: f32,
-    /// Screen Y coordinate (0 = top, extent[1] = bottom).
+    /// Screen Y coordinate (0 = top, `extent[1]` = bottom).
     pub y: f32,
     /// Whether the point is in front of the camera (positive Z in view space).
     pub in_front: bool,
