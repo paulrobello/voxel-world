@@ -513,53 +513,10 @@ impl TerrainGenerator {
             let height = self.calculate_biome_height(center_biome, &climate, base, ridges, detail);
             height.round() as i32
         } else {
-            // At a boundary - use distance-weighted blend of surrounding biomes
+            // At a boundary - use distance-weighted blend of surrounding biomes.
             // Since height is climate-driven, we only need to blend the small
-            // biome-specific adjustments (max ±8 blocks)
-            const BLEND_RADIUS: i32 = 16;
-
-            // Collect biome heights weighted by inverse distance
-            let mut total_weight = 0.0;
-            let mut weighted_height = 0.0;
-
-            // Sample in a grid pattern for efficiency
-            for dx in (-BLEND_RADIUS..=BLEND_RADIUS).step_by(4) {
-                for dz in (-BLEND_RADIUS..=BLEND_RADIUS).step_by(4) {
-                    let dist_sq = (dx * dx + dz * dz) as f64;
-                    if dist_sq > (BLEND_RADIUS * BLEND_RADIUS) as f64 {
-                        continue;
-                    }
-
-                    let sample_x = world_x + dx;
-                    let sample_z = world_z + dz;
-
-                    // Single lookup returns both biome and climate for this sample.
-                    let sample_info = self.get_biome_info(sample_x, sample_z);
-                    let sample_biome = sample_info.biome;
-                    let sample_climate = sample_info.climate;
-                    let sample_base = self.height_noise.get([sample_x as f64, sample_z as f64]);
-                    let sample_ridges = self.mountain_noise.get([sample_x as f64, sample_z as f64]);
-                    let sample_detail = self
-                        .detail_noise
-                        .get([sample_x as f64 * 0.02, sample_z as f64 * 0.02]);
-
-                    let height = self.calculate_biome_height(
-                        sample_biome,
-                        &sample_climate,
-                        sample_base,
-                        sample_ridges,
-                        sample_detail,
-                    );
-
-                    // Weight by inverse distance (closer = more influence)
-                    // Add 1.0 to avoid division by zero at center
-                    let weight = 1.0 / (dist_sq.sqrt() + 1.0);
-                    weighted_height += height * weight;
-                    total_weight += weight;
-                }
-            }
-
-            (weighted_height / total_weight).round() as i32
+            // biome-specific adjustments (max ±8 blocks).
+            self.blend_boundary_height(world_x, world_z, 16, 4)
         };
 
         // Apply river carving if a river exists at this position
@@ -777,170 +734,65 @@ impl TerrainGenerator {
             let height = self.calculate_biome_height(center_biome, climate, base, ridges, detail);
             height.round() as i32
         } else {
-            // At a boundary - use reduced sampling for performance
-            const BLEND_RADIUS: i32 = 12;
-            const BLEND_STEP: usize = 6;
-
-            let mut total_weight = 0.0;
-            let mut weighted_height = 0.0;
-
-            for dx in (-BLEND_RADIUS..=BLEND_RADIUS).step_by(BLEND_STEP) {
-                for dz in (-BLEND_RADIUS..=BLEND_RADIUS).step_by(BLEND_STEP) {
-                    let dist_sq = (dx * dx + dz * dz) as f64;
-                    if dist_sq > (BLEND_RADIUS * BLEND_RADIUS) as f64 {
-                        continue;
-                    }
-
-                    let sample_x = world_x + dx;
-                    let sample_z = world_z + dz;
-
-                    // Single lookup returns both biome and climate for this sample.
-                    let sample_info = self.get_biome_info(sample_x, sample_z);
-                    let sample_biome = sample_info.biome;
-                    let sample_climate = sample_info.climate;
-                    let sample_base = self.height_noise.get([sample_x as f64, sample_z as f64]);
-                    let sample_ridges = self.mountain_noise.get([sample_x as f64, sample_z as f64]);
-                    let sample_detail = self
-                        .detail_noise
-                        .get([sample_x as f64 * 0.02, sample_z as f64 * 0.02]);
-
-                    let height = self.calculate_biome_height(
-                        sample_biome,
-                        &sample_climate,
-                        sample_base,
-                        sample_ridges,
-                        sample_detail,
-                    );
-
-                    // Weight by inverse distance
-                    let weight = 1.0 / (dist_sq.sqrt() + 1.0);
-                    weighted_height += height * weight;
-                    total_weight += weight;
-                }
-            }
-
-            (weighted_height / total_weight).round() as i32
+            // At a boundary - use reduced sampling for performance.
+            self.blend_boundary_height(world_x, world_z, 12, 6)
         }
     }
 
-    /// Internal height calculation that reuses pre-computed noise values.
-    #[allow(dead_code)]
-    #[allow(clippy::too_many_arguments)]
-    fn get_height_internal(
+    /// Distance-weighted blend of biome heights around (world_x, world_z).
+    ///
+    /// Used at biome boundaries to smooth the small per-biome height adjustments.
+    /// `blend_radius` is the half-extent of the sample grid (blocks); `blend_step`
+    /// is the grid spacing. The chunk-generation hot path (`get_base_terrain_height`)
+    /// passes a smaller radius / larger step than `get_height` does; each call site
+    /// keeps its own tuned values for the performance vs. smoothness trade-off.
+    fn blend_boundary_height(
         &self,
         world_x: i32,
         world_z: i32,
-        base: f64,
-        ridges: f64,
-        detail: f64,
-        climate: &ClimatePoint,
-        center_biome: BiomeType,
+        blend_radius: i32,
+        blend_step: usize,
     ) -> i32 {
-        // Sample neighboring biomes to detect boundaries
-        // Use smaller offset for faster boundary detection
-        const SAMPLE_OFFSET: i32 = 8;
-        let neighbors = [
-            self.get_biome(world_x + SAMPLE_OFFSET, world_z),
-            self.get_biome(world_x - SAMPLE_OFFSET, world_z),
-            self.get_biome(world_x, world_z + SAMPLE_OFFSET),
-            self.get_biome(world_x, world_z - SAMPLE_OFFSET),
-        ];
+        let mut total_weight = 0.0;
+        let mut weighted_height = 0.0;
 
-        let at_boundary = neighbors.iter().any(|&b| b != center_biome);
-
-        let base_terrain_height = if !at_boundary {
-            // Not at boundary - use center biome height directly
-            let height = self.calculate_biome_height(center_biome, climate, base, ridges, detail);
-            height.round() as i32
-        } else {
-            // At a boundary - use reduced sampling for performance
-            // Optimized: 12-block radius with step 6 = 5x5 = 25 samples (was 81)
-            const BLEND_RADIUS: i32 = 12;
-            const BLEND_STEP: usize = 6;
-
-            let mut total_weight = 0.0;
-            let mut weighted_height = 0.0;
-
-            for dx in (-BLEND_RADIUS..=BLEND_RADIUS).step_by(BLEND_STEP) {
-                for dz in (-BLEND_RADIUS..=BLEND_RADIUS).step_by(BLEND_STEP) {
-                    let dist_sq = (dx * dx + dz * dz) as f64;
-                    if dist_sq > (BLEND_RADIUS * BLEND_RADIUS) as f64 {
-                        continue;
-                    }
-
-                    let sample_x = world_x + dx;
-                    let sample_z = world_z + dz;
-
-                    // Single lookup returns both biome and climate for this sample.
-                    let sample_info = self.get_biome_info(sample_x, sample_z);
-                    let sample_biome = sample_info.biome;
-                    let sample_climate = sample_info.climate;
-                    let sample_base = self.height_noise.get([sample_x as f64, sample_z as f64]);
-                    let sample_ridges = self.mountain_noise.get([sample_x as f64, sample_z as f64]);
-                    let sample_detail = self
-                        .detail_noise
-                        .get([sample_x as f64 * 0.02, sample_z as f64 * 0.02]);
-
-                    let height = self.calculate_biome_height(
-                        sample_biome,
-                        &sample_climate,
-                        sample_base,
-                        sample_ridges,
-                        sample_detail,
-                    );
-
-                    // Weight by inverse distance
-                    let weight = 1.0 / (dist_sq.sqrt() + 1.0);
-                    weighted_height += height * weight;
-                    total_weight += weight;
+        for dx in (-blend_radius..=blend_radius).step_by(blend_step) {
+            for dz in (-blend_radius..=blend_radius).step_by(blend_step) {
+                let dist_sq = (dx * dx + dz * dz) as f64;
+                if dist_sq > (blend_radius * blend_radius) as f64 {
+                    continue;
                 }
-            }
 
-            (weighted_height / total_weight).round() as i32
-        };
+                let sample_x = world_x + dx;
+                let sample_z = world_z + dz;
 
-        // Apply river carving if terrain is flat enough
-        let slope = self.calculate_slope_fast(world_x, world_z, base_terrain_height);
-        if slope <= 0.25
-            && let Some(river_info) = self.river_generator.get_river_at(
-                world_x,
-                world_z,
-                base_terrain_height,
-                center_biome,
-            )
-        {
-            let carve_depth =
-                self.river_generator
-                    .get_height_modification(world_x, world_z, &river_info);
-            return base_terrain_height - carve_depth;
-        }
+                // Single lookup returns both biome and climate for this sample.
+                let sample_info = self.get_biome_info(sample_x, sample_z);
+                let sample_biome = sample_info.biome;
+                let sample_climate = sample_info.climate;
+                let sample_base = self.height_noise.get([sample_x as f64, sample_z as f64]);
+                let sample_ridges = self.mountain_noise.get([sample_x as f64, sample_z as f64]);
+                let sample_detail = self
+                    .detail_noise
+                    .get([sample_x as f64 * 0.02, sample_z as f64 * 0.02]);
 
-        base_terrain_height
-    }
+                let height = self.calculate_biome_height(
+                    sample_biome,
+                    &sample_climate,
+                    sample_base,
+                    sample_ridges,
+                    sample_detail,
+                );
 
-    /// Fast slope calculation using fewer samples.
-    fn calculate_slope_fast(&self, world_x: i32, world_z: i32, center_height: i32) -> f64 {
-        let center = center_height as f64;
-
-        // Sample only at distance 4 and 8 (was 2, 4, 8 with diagonals)
-        // This reduces samples from 24 to 8
-        let mut max_slope = 0.0f64;
-
-        for &dist in &[4, 8] {
-            let heights = [
-                self.get_base_height(world_x + dist, world_z) as f64,
-                self.get_base_height(world_x - dist, world_z) as f64,
-                self.get_base_height(world_x, world_z + dist) as f64,
-                self.get_base_height(world_x, world_z - dist) as f64,
-            ];
-
-            for h in heights {
-                let slope = (h - center).abs() / dist as f64;
-                max_slope = max_slope.max(slope);
+                // Weight by inverse distance (closer = more influence).
+                // +1.0 avoids division by zero at the center sample.
+                let weight = 1.0 / (dist_sq.sqrt() + 1.0);
+                weighted_height += height * weight;
+                total_weight += weight;
             }
         }
 
-        max_slope
+        (weighted_height / total_weight).round() as i32
     }
 
     /// Fast river water level check using pre-computed values.
