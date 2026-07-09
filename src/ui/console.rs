@@ -17,88 +17,15 @@ pub struct ConsoleAction {
 pub struct ConsoleUI;
 
 impl ConsoleUI {
-    /// Draw the command console UI.
-    ///
-    /// Returns a ConsoleAction with any actions that need to be handled by the caller,
-    /// such as broadcasting stencil loads to multiplayer.
-    #[allow(clippy::too_many_arguments)]
-    pub fn draw_console(
-        ctx: &egui::Context,
+    /// Advance a pending `/locate` search by one frame: dispatch the result via
+    /// `handle_result` when it completes, otherwise re-store it on the console
+    /// (emitting a periodic progress line every 1000 positions).
+    fn poll_pending_locate_search(
         console: &mut ConsoleState,
         world: &mut crate::world::World,
-        player_world_pos: Vector3<f64>,
-        fluid_stats: FluidStats,
-        template_selection: &mut crate::templates::TemplateSelection,
-        template_library: &crate::templates::TemplateLibrary,
-        stencil_library: &crate::stencils::StencilLibrary,
-        water_grid: &mut crate::water::WaterGrid,
-        lava_grid: &mut crate::lava::LavaGrid,
-        picture_library: &crate::pictures::PictureLibrary,
-        active_placement: &mut Option<TemplatePlacement>,
-        active_stencil_placement: &mut Option<StencilPlacementMode>,
         terrain_generator: &crate::terrain_gen::TerrainGenerator,
         cave_generator: &crate::cave_gen::CaveGenerator,
-        measurement_markers: &mut Vec<Vector3<i32>>,
-        author: &str,
-    ) -> ConsoleAction {
-        let mut action = ConsoleAction::default();
-        if !console.active {
-            // Still update pending searches even when console is closed
-            if let Some(mut search) = console.pending_locate_search.take() {
-                if let Some(result) = crate::console::commands::update_locate_search(
-                    &mut search,
-                    world,
-                    terrain_generator,
-                    cave_generator,
-                ) {
-                    // Search completed, handle result
-                    console.handle_result(result);
-                } else {
-                    // Still searching, keep it for next frame
-                    // Show progress update every 1000 positions
-                    if search.positions_checked % 1000 == 0 {
-                        let search_msg = match &search.search_type {
-                            crate::console::LocateSearchType::Biome(biome) => {
-                                format!(
-                                    "Searching for {:?} biome... ({} positions checked)",
-                                    biome, search.positions_checked
-                                )
-                            }
-                            crate::console::LocateSearchType::Block(block) => {
-                                if *block == crate::chunk::BlockType::Lava {
-                                    format!(
-                                        "Searching for lava... ({} positions, {} mountain biomes found)",
-                                        search.positions_checked, search.relevant_biomes_found
-                                    )
-                                } else {
-                                    format!(
-                                        "Searching for {:?} block... ({} positions checked)",
-                                        block, search.positions_checked
-                                    )
-                                }
-                            }
-                            crate::console::LocateSearchType::Cave(size) => {
-                                format!(
-                                    "Searching for cave (min {} blocks)... ({} positions checked)",
-                                    size, search.positions_checked
-                                )
-                            }
-                            crate::console::LocateSearchType::River => {
-                                format!(
-                                    "Searching for river... ({} positions checked)",
-                                    search.positions_checked
-                                )
-                            }
-                        };
-                        console.info(search_msg);
-                    }
-                    console.pending_locate_search = Some(search);
-                }
-            }
-            return action;
-        }
-
-        // Update pending locate search if active
+    ) {
         if let Some(mut search) = console.pending_locate_search.take() {
             if let Some(result) = crate::console::commands::update_locate_search(
                 &mut search,
@@ -150,6 +77,41 @@ impl ConsoleUI {
                 console.pending_locate_search = Some(search);
             }
         }
+    }
+
+    /// Draw the command console UI.
+    ///
+    /// Returns a ConsoleAction with any actions that need to be handled by the caller,
+    /// such as broadcasting stencil loads to multiplayer.
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_console(
+        ctx: &egui::Context,
+        console: &mut ConsoleState,
+        world: &mut crate::world::World,
+        player_world_pos: Vector3<f64>,
+        fluid_stats: FluidStats,
+        template_selection: &mut crate::templates::TemplateSelection,
+        template_library: &crate::templates::TemplateLibrary,
+        stencil_library: &crate::stencils::StencilLibrary,
+        water_grid: &mut crate::water::WaterGrid,
+        lava_grid: &mut crate::lava::LavaGrid,
+        picture_library: &crate::pictures::PictureLibrary,
+        active_placement: &mut Option<TemplatePlacement>,
+        active_stencil_placement: &mut Option<StencilPlacementMode>,
+        terrain_generator: &crate::terrain_gen::TerrainGenerator,
+        cave_generator: &crate::cave_gen::CaveGenerator,
+        measurement_markers: &mut Vec<Vector3<i32>>,
+        author: &str,
+    ) -> ConsoleAction {
+        let mut action = ConsoleAction::default();
+        if !console.active {
+            // Still update pending searches even when console is closed
+            Self::poll_pending_locate_search(console, world, terrain_generator, cave_generator);
+            return action;
+        }
+
+        // Update pending locate search if active
+        Self::poll_pending_locate_search(console, world, terrain_generator, cave_generator);
 
         let screen_rect = ctx.screen_rect();
         let console_height = screen_rect.height() * 0.6;
