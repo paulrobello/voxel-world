@@ -346,7 +346,10 @@ impl App {
             self.sim.model_registry.clear_gpu_dirty();
         }
 
-        self.sim.auto_save(&self.ui.placement.measurement_markers);
+        self.sim.auto_save(
+            &self.ui.placement.measurement_markers,
+            &self.ui.stencil_manager,
+        );
 
         // Amortized metadata refresh runs once per frame.
         self.update_metadata_buffers();
@@ -403,11 +406,9 @@ impl App {
                 let player_yaw = self.sim.player.camera.rotation.y as f32;
                 let player_pitch = self.sim.player.camera.rotation.x as f32;
 
-                // Send input ~20 times per second (every 3 frames at 60fps)
-                static INPUT_COUNTER: std::sync::atomic::AtomicU64 =
-                    std::sync::atomic::AtomicU64::new(0);
-                let count = INPUT_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                if count.is_multiple_of(3) {
+                // Send input ~20 times per second (50 ms wall-clock tick; was
+                // every 3 frames at 60 FPS — PHY-M05, decoupled from render FPS)
+                if self.multiplayer.should_send_input_tick() {
                     self.multiplayer.send_input(
                         [
                             player_world_pos.x as f32,

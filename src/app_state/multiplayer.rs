@@ -32,6 +32,13 @@ const USE_THREADED_SERVER: bool = false;
 /// Maximum chat messages to keep in history.
 const MAX_CHAT_HISTORY: usize = 50;
 
+/// Target send rate for periodic network updates (client input, server
+/// player-state broadcasts). Was originally "every 3 frames at 60 FPS";
+/// expressed here as a wall-clock interval so the send rate no longer
+/// couples to render FPS (PHY-M05). 50 ms ≈ 20 Hz, matching the cadence
+/// assumed by `send_input`'s `FORCE_SEND_EVERY` keep-alive math.
+const NETWORK_TICK_INTERVAL: Duration = Duration::from_millis(50);
+
 /// Chat message entry for display.
 #[derive(Debug, Clone)]
 pub struct ChatEntry {
@@ -153,6 +160,12 @@ pub struct MultiplayerState {
     pub input_sequence: u32,
     /// Last sent input state for delta-skipping idle frames.
     last_sent_input: Option<LastSentInput>,
+    /// Wall-clock time of the last client→server input send, used to
+    /// throttle `send_input` independent of render FPS (PHY-M05).
+    last_input_send: Option<Instant>,
+    /// Wall-clock time of the last player-state broadcast, used to
+    /// throttle `broadcast_player_states` independent of render FPS (PHY-M05).
+    last_player_state_broadcast: Option<Instant>,
     /// Unified incoming event queue — replaces all individual `pending_*` `Vec<T>` fields.
     ///
     /// Events are pushed here when received from the network and consumed by the
@@ -259,6 +272,8 @@ impl MultiplayerState {
             block_validator: crate::net::block_sync::BlockValidator::new(),
             input_sequence: 0,
             last_sent_input: None,
+            last_input_send: None,
+            last_player_state_broadcast: None,
             events: VecDeque::new(),
             pending_server_seed: None,
             texture_cache: CustomTextureCache::new(0), // Will be set on connect
@@ -622,10 +637,6 @@ impl MultiplayerState {
 
     /// Updates the multiplayer state (call every frame).
     pub fn update(&mut self, duration: Duration) {
-        // Frame counter for periodic operations (no logging)
-        static UPDATE_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        let count = UPDATE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-
         // Handle threaded server events
         #[cfg(feature = "threaded-server")]
         if let Some(ref server_thread) = self.server_thread {
@@ -648,16 +659,24 @@ impl MultiplayerState {
             self.handle_server_event(event);
         }
 
-        // Broadcast player states periodically (every 3 frames = ~20 times per second at 60fps)
-        if count.is_multiple_of(3)
-            && let Some(ref mut server) = self.server
-        {
-            server.broadcast_player_states();
-        }
-        #[cfg(feature = "threaded-server")]
-        #[cfg(feature = "threaded-server")]
-        if let Some(ref server_thread) = self.server_thread {
-            let _ = server_thread.send_command(ServerCommand::BroadcastPlayerStates);
+        // Broadcast player states periodically (20 Hz wall-clock; was every 3
+        // frames at 60 FPS — PHY-M05). The time gate covers both the direct
+        // server and the threaded-server path so the send rate is FPS-independent
+        // in either configuration. First call after construction always fires.
+        let now = Instant::now();
+        let broadcast_elapsed = self
+            .last_player_state_broadcast
+            .map(|t| now.duration_since(t))
+            .unwrap_or(Duration::MAX);
+        if broadcast_elapsed >= NETWORK_TICK_INTERVAL {
+            self.last_player_state_broadcast = Some(now);
+            if let Some(ref mut server) = self.server {
+                server.broadcast_player_states();
+            }
+            #[cfg(feature = "threaded-server")]
+            if let Some(ref server_thread) = self.server_thread {
+                let _ = server_thread.send_command(ServerCommand::BroadcastPlayerStates);
+            }
         }
 
         // CRITICAL: Flush packets after processing events (which may queue messages)
@@ -1670,6 +1689,24 @@ impl MultiplayerState {
                     .push_back(NetworkEvent::ChatReceived(chat.clone()));
             }
             _ => {}
+        }
+    }
+
+    /// Returns true when the network tick interval has elapsed since the
+    /// last client→server input send (and records the time). Gates
+    /// `send_input` so the send rate is independent of render FPS (PHY-M05).
+    /// The first call always returns true. Does not panic on clock issues.
+    pub fn should_send_input_tick(&mut self) -> bool {
+        let now = Instant::now();
+        let elapsed = self
+            .last_input_send
+            .map(|t| now.duration_since(t))
+            .unwrap_or(Duration::MAX);
+        if elapsed >= NETWORK_TICK_INTERVAL {
+            self.last_input_send = Some(now);
+            true
+        } else {
+            false
         }
     }
 

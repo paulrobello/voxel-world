@@ -139,10 +139,37 @@ pub struct WorldSim {
 }
 
 impl WorldSim {
-    pub fn auto_save(&mut self, measurement_markers: &[Vector3<i32>]) {
+    pub fn auto_save(
+        &mut self,
+        measurement_markers: &[Vector3<i32>],
+        stencil_manager: &crate::stencils::StencilManager,
+    ) {
         let now = Instant::now();
         if now.duration_since(self.last_save) > Duration::from_secs(30) {
             self.save_dirty(AUTO_SAVE_CHUNK_BUDGET);
+
+            // STOR-M06: persist fluid sources + stencil state on the autosave
+            // path so a crash between autosaves no longer loses every
+            // water/lava source and active stencil (previously these were only
+            // saved by save_all on clean exit). Same STOR-004 remote-client
+            // gate as save_all: a non-editing client must not overwrite its own
+            // local fluids/stencils with state streamed from the server.
+            if !self.remote_client || self.player_modified {
+                let fluid_sources = storage::fluid_sources::FluidSources {
+                    water: self.water_grid.get_source_positions(),
+                    lava: self.lava_grid.get_source_positions(),
+                };
+                if let Err(e) = fluid_sources.save(&self.world_dir) {
+                    log::error!("[Storage] Failed to save fluid sources: {}", e);
+                }
+
+                let stencil_state =
+                    storage::stencil_state::StencilState::from_manager(stencil_manager);
+                if let Err(e) = stencil_state.save(&self.world_dir) {
+                    log::error!("[Storage] Failed to save stencil state: {}", e);
+                }
+            }
+
             self.save_metadata(measurement_markers);
             // Update last_save even if nothing was saved, to wait for the next interval
             self.last_save = now;
