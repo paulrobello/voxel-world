@@ -6,7 +6,7 @@
 //! Blocks of type `Model` use sparse metadata storage to associate
 //! a model_id and rotation with each model block.
 
-use std::cell::{Cell, Ref, RefCell};
+use crate::constants::{EMPTY_CUSTOM_DATA, EMPTY_MODEL_METADATA};
 use std::collections::HashMap;
 
 /// Size of a chunk in each dimension (32³ = 32,768 blocks per chunk).
@@ -899,20 +899,26 @@ pub struct Chunk {
     /// one entry. Replaces four separate HashMaps — one allocation instead of four.
     metadata: HashMap<usize, BlockMetadata>,
 
-    /// Reusable RG8 buffer for model metadata uploads (len = CHUNK_VOLUME * 2).
-    model_metadata_buf: RefCell<Vec<u8>>,
+    /// Lazy RG8 cache of packed model metadata (len = CHUNK_VOLUME * 2 when
+    /// `Some`). `None` means the chunk has never carried packable metadata
+    /// (Model / Tint / Painted / Water) and reads back as the shared
+    /// `EMPTY_MODEL_METADATA` zero buffer — so the ~64 KiB allocation is paid
+    /// only by the minority of chunks that actually have it (QA-003). Materialized
+    /// once, then kept for the chunk's lifetime (stickiness invariant: regular
+    /// non-`skip_zero_slices` uploads must keep writing zeros over stale GPU texels).
+    model_metadata_buf: Option<Box<[u8]>>,
     /// Whether the cached model metadata buffer needs recomputing.
-    model_metadata_dirty: Cell<bool>,
+    model_metadata_dirty: bool,
     /// Block indices written in last metadata rebuild for partial zeroing.
-    metadata_written_indices: RefCell<Vec<usize>>,
-    /// Whether first metadata rebuild has occurred (forces full zero on first pass).
-    metadata_first_rebuild: Cell<bool>,
+    metadata_written_indices: Vec<usize>,
 
-    /// Reusable R32 buffer for custom data uploads (len = CHUNK_VOLUME * 4).
-    /// Stores per-block custom data (e.g., picture_id, offset_x, offset_y for frames).
-    custom_data_buf: RefCell<Vec<u8>>,
+    /// Lazy R32 cache of per-block custom data (len = CHUNK_VOLUME * 4 when
+    /// `Some`); stores picture_id/offset/size for frames. `None` for any chunk
+    /// without a nonzero-`custom_data` model — the common case — which reads back
+    /// as `EMPTY_CUSTOM_DATA` and avoids the ~128 KiB allocation (QA-003).
+    custom_data_buf: Option<Box<[u8]>>,
     /// Whether the cached custom data buffer needs recomputing.
-    custom_data_dirty: Cell<bool>,
+    custom_data_dirty: bool,
 
     /// Count of non-model light-emitting block types (for quick skip).
     light_block_count: usize,
@@ -953,12 +959,11 @@ impl Chunk {
         Self {
             blocks: Box::new([BlockType::Air; CHUNK_VOLUME]),
             metadata: HashMap::with_capacity(32),
-            model_metadata_buf: RefCell::new(vec![0u8; CHUNK_VOLUME * 2]),
-            model_metadata_dirty: Cell::new(false),
-            metadata_written_indices: RefCell::new(Vec::new()),
-            metadata_first_rebuild: Cell::new(true),
-            custom_data_buf: RefCell::new(vec![0u8; CHUNK_VOLUME * 4]),
-            custom_data_dirty: Cell::new(false),
+            model_metadata_buf: None,
+            model_metadata_dirty: false,
+            metadata_written_indices: Vec::new(),
+            custom_data_buf: None,
+            custom_data_dirty: false,
             light_block_count: 0,
             dirty: true,
             persistence_dirty: true,
@@ -999,12 +1004,11 @@ impl Chunk {
         Self {
             blocks: Box::new([block_type; CHUNK_VOLUME]),
             metadata: HashMap::with_capacity(32),
-            model_metadata_buf: RefCell::new(vec![0u8; CHUNK_VOLUME * 2]),
-            model_metadata_dirty: Cell::new(false),
-            metadata_written_indices: RefCell::new(Vec::new()),
-            metadata_first_rebuild: Cell::new(true),
-            custom_data_buf: RefCell::new(vec![0u8; CHUNK_VOLUME * 4]),
-            custom_data_dirty: Cell::new(false),
+            model_metadata_buf: None,
+            model_metadata_dirty: false,
+            metadata_written_indices: Vec::new(),
+            custom_data_buf: None,
+            custom_data_dirty: false,
             light_block_count,
             dirty: true,
             persistence_dirty: true,
@@ -1057,12 +1061,11 @@ impl Chunk {
         Self {
             blocks,
             metadata,
-            model_metadata_buf: RefCell::new(vec![0u8; CHUNK_VOLUME * 2]),
-            model_metadata_dirty: Cell::new(true), // Need to compute on first request
-            metadata_written_indices: RefCell::new(Vec::new()),
-            metadata_first_rebuild: Cell::new(true),
-            custom_data_buf: RefCell::new(vec![0u8; CHUNK_VOLUME * 4]),
-            custom_data_dirty: Cell::new(true),
+            model_metadata_buf: None,
+            model_metadata_dirty: true, // Need to compute on first ensure_gpu_metadata()
+            metadata_written_indices: Vec::new(),
+            custom_data_buf: None,
+            custom_data_dirty: true,
             light_block_count,
             dirty: true,
             persistence_dirty: false, // Network chunks are not locally modified
@@ -1157,7 +1160,7 @@ impl Chunk {
                 .is_some_and(|m| !m.matches_block_type(block));
             if drop_metadata {
                 self.metadata.remove(&idx);
-                self.model_metadata_dirty.set(true);
+                self.model_metadata_dirty = true;
             }
         } else if block.is_light_source() {
             // No change, keep counts stable
@@ -1195,7 +1198,7 @@ impl Chunk {
         let unchanged = self.blocks[idx] == block;
         self.set_block_internal(x, y, z, block, true);
         self.metadata.insert(idx, metadata);
-        self.model_metadata_dirty.set(true);
+        self.model_metadata_dirty = true;
         if unchanged {
             self.dirty = true;
             self.metadata_dirty = true;
@@ -1252,7 +1255,7 @@ impl Chunk {
                 custom_data,
             }),
         );
-        self.custom_data_dirty.set(true);
+        self.custom_data_dirty = true;
     }
 
     /// Gets the model data for a block at the given local coordinates.
@@ -1274,8 +1277,8 @@ impl Chunk {
             data.custom_data = custom_data;
             self.dirty = true;
             self.mark_mutated();
-            self.model_metadata_dirty.set(true);
-            self.custom_data_dirty.set(true);
+            self.model_metadata_dirty = true;
+            self.custom_data_dirty = true;
         }
     }
 
@@ -1288,7 +1291,7 @@ impl Chunk {
         self.metadata.insert(idx, BlockMetadata::Model(data));
         self.dirty = true;
         self.mark_mutated();
-        self.model_metadata_dirty.set(true);
+        self.model_metadata_dirty = true;
     }
 
     /// Recomputes frame edge masks from custom_data metadata.
@@ -1343,7 +1346,7 @@ impl Chunk {
 
         for (idx, data) in updates {
             self.metadata.insert(idx, BlockMetadata::Model(data));
-            self.model_metadata_dirty.set(true);
+            self.model_metadata_dirty = true;
         }
     }
 
@@ -1526,57 +1529,54 @@ impl Chunk {
         out.extend_from_slice(self.block_bytes());
     }
 
-    /// Converts the chunk's model metadata to GPU format.
+    /// Converts the chunk's model metadata to an owned `Vec<u8>` (RG8 format).
     ///
-    /// Returns a Vec<u8> with 2 bytes per block (RG8 format) suitable for upload.
+    /// Clones the cached slice returned by [`model_metadata_bytes`]; prefer
+    /// borrowing that slice directly when the chunk is already ensured.
     pub fn to_model_metadata(&self) -> Vec<u8> {
-        let mut out = Vec::with_capacity(CHUNK_VOLUME * 2);
-        self.write_model_metadata_into(&mut out);
-        out
+        self.model_metadata_bytes().to_vec()
     }
 
-    /// Writes model metadata into provided Vec, reusing its capacity.
-    pub fn write_model_metadata_into(&self, out: &mut Vec<u8>) {
-        let buf = self.model_metadata_bytes();
-        out.clear();
-        if out.capacity() < buf.len() {
-            out.reserve(buf.len() - out.capacity());
-        }
-        out.extend_from_slice(&buf);
-    }
-
-    /// Returns a cached RG8 view of the model metadata (2 bytes per voxel).
-    /// The buffer is rebuilt only when model or tint data changes.
+    /// Rebuilds the lazy GPU metadata byte caches (`model_metadata_buf`,
+    /// `custom_data_buf`) when either is dirty. This is the explicit rebuild
+    /// step for the lazy `Option<Box<[u8]>>` caches (QA-003): chunks with no
+    /// packable metadata stay `None` and read back as the shared `EMPTY_*`
+    /// zero buffer, so the ~192 KiB/chunk allocation is paid only by the
+    /// minority of chunks that carry models / tinted glass / painted / water /
+    /// picture frames.
     ///
-    /// Layout:
-    /// - For Model blocks: R = model_id, G = rotation (bits 0-1) | waterlogged (bit 2)
-    /// - For TintedGlass blocks: R = 0, G = tint_index (bits 0-4)
-    /// - For Painted blocks: R = texture_idx, G = tint_index (bits 0-4)
-    #[inline]
-    pub fn model_metadata_bytes(&self) -> Ref<'_, [u8]> {
-        if self.model_metadata_dirty.get() {
-            {
-                let mut buf = self.model_metadata_buf.borrow_mut();
-                let mut prev_indices = self.metadata_written_indices.borrow_mut();
-
-                if self.metadata_first_rebuild.get() {
-                    // First rebuild: zero the entire buffer to ensure clean state
-                    buf.fill(0);
-                    self.metadata_first_rebuild.set(false);
-                } else {
-                    // Subsequent rebuilds: only zero previously-written entries
-                    for &idx in prev_indices.iter() {
-                        let offset = idx * 2;
-                        buf[offset] = 0;
-                        buf[offset + 1] = 0;
-                    }
+    /// Idempotent — a no-op when neither cache is dirty. NOT a mutation: it must
+    /// not touch `dirty`, `persistence_dirty`, or `mutation_epoch`, since the
+    /// multiplayer compressed-chunk cache keys on `mutation_epoch` and a pure
+    /// rebuild must not invalidate it.
+    ///
+    /// Materialization rules (a "write of zeros stays `None`" property):
+    /// - `model_metadata_buf` materializes only when the sparse map is
+    ///   non-empty (some Model / Tint / Painted / Water entry needs packing).
+    /// - `custom_data_buf` materializes only when some `Model` entry has a
+    ///   nonzero `custom_data` (i.e. picture frames); all-zero custom data
+    ///   reads back identically from the shared static.
+    /// - Stickiness (I2): once materialized, a buffer is never released, so
+    ///   regular uploads keep overwriting stale GPU texels with zeros after a
+    ///   model is removed.
+    pub fn ensure_gpu_metadata(&mut self) {
+        if self.model_metadata_dirty {
+            if self.model_metadata_buf.is_none() && !self.metadata.is_empty() {
+                self.model_metadata_buf = Some(vec![0u8; CHUNK_VOLUME * 2].into_boxed_slice());
+            }
+            if let Some(buf) = self.model_metadata_buf.as_deref_mut() {
+                // Zero only previously-written entries (not the whole buffer) —
+                // fluid-churn water chunks redirty every tick, so a full 64 KiB
+                // memset per rebuild would regress fluid-heavy scenes.
+                for &idx in self.metadata_written_indices.iter() {
+                    let offset = idx * 2;
+                    buf[offset] = 0;
+                    buf[offset + 1] = 0;
                 }
-
-                // Collect new written indices and pack data
-                prev_indices.clear();
+                self.metadata_written_indices.clear();
 
                 // Pack all metadata variants into the RG8 buffer.
-                for (idx, meta) in &self.metadata {
+                for (&idx, meta) in &self.metadata {
                     let offset = idx * 2;
                     match meta {
                         BlockMetadata::Model(data) => {
@@ -1602,22 +1602,22 @@ impl Chunk {
                             buf[offset + 1] = *water_type as u8; // G = water type
                         }
                     }
-                    prev_indices.push(*idx);
+                    self.metadata_written_indices.push(idx);
                 }
             }
-            self.model_metadata_dirty.set(false);
+            self.model_metadata_dirty = false;
         }
-        Ref::map(self.model_metadata_buf.borrow(), |v| v.as_slice())
-    }
 
-    /// Returns the custom data buffer for GPU upload.
-    /// Each block uses 4 bytes (u32) for custom data.
-    /// For frames: stores picture_id, offset_x, offset_y, width, height, facing.
-    #[inline]
-    pub fn custom_data_bytes(&self) -> Ref<'_, [u8]> {
-        if self.custom_data_dirty.get() {
-            {
-                let mut buf = self.custom_data_buf.borrow_mut();
+        if self.custom_data_dirty {
+            let needs_materialize = self.custom_data_buf.is_none()
+                && self
+                    .metadata
+                    .values()
+                    .any(|m| matches!(m, BlockMetadata::Model(d) if d.custom_data != 0));
+            if needs_materialize {
+                self.custom_data_buf = Some(vec![0u8; CHUNK_VOLUME * 4].into_boxed_slice());
+            }
+            if let Some(buf) = self.custom_data_buf.as_deref_mut() {
                 buf.fill(0);
                 // Pack custom data from model-variant metadata entries.
                 for (idx, meta) in &self.metadata {
@@ -1628,9 +1628,45 @@ impl Chunk {
                     }
                 }
             }
-            self.custom_data_dirty.set(false);
+            self.custom_data_dirty = false;
         }
-        Ref::map(self.custom_data_buf.borrow(), |v| v.as_slice())
+    }
+
+    /// Returns a cached RG8 view of the model metadata (2 bytes per voxel).
+    /// Metadata-free chunks read back as the shared `EMPTY_MODEL_METADATA` zero
+    /// buffer. Call [`ensure_gpu_metadata`] first so the cache is up to date
+    /// (debug builds assert the chunk is not dirty).
+    ///
+    /// Layout:
+    /// - For Model blocks: R = model_id, G = rotation (bits 0-1) | waterlogged (bit 2)
+    /// - For TintedGlass blocks: R = 0, G = tint_index (bits 0-4)
+    /// - For Painted blocks: R = texture_idx, G = tint_index (bits 0-4)
+    #[inline]
+    pub fn model_metadata_bytes(&self) -> &[u8] {
+        debug_assert!(
+            !self.model_metadata_dirty,
+            "model_metadata_bytes() called on a dirty chunk; call ensure_gpu_metadata() first"
+        );
+        self.model_metadata_buf
+            .as_deref()
+            .unwrap_or(EMPTY_MODEL_METADATA.as_slice())
+    }
+
+    /// Returns the custom data buffer for GPU upload (4 bytes / u32 per block).
+    /// Chunks without a nonzero-`custom_data` model read back as the shared
+    /// `EMPTY_CUSTOM_DATA` zero buffer. Call [`ensure_gpu_metadata`] first so
+    /// the cache is up to date (debug builds assert the chunk is not dirty).
+    ///
+    /// For frames: stores picture_id, offset_x, offset_y, width, height, facing.
+    #[inline]
+    pub fn custom_data_bytes(&self) -> &[u8] {
+        debug_assert!(
+            !self.custom_data_dirty,
+            "custom_data_bytes() called on a dirty chunk; call ensure_gpu_metadata() first"
+        );
+        self.custom_data_buf
+            .as_deref()
+            .unwrap_or(EMPTY_CUSTOM_DATA.as_slice())
     }
 
     /// Returns the number of non-air blocks in the chunk.
@@ -2145,5 +2181,104 @@ mod tests {
             assert_eq!(block.connects_to_fences(), block.is_solid(), "{:?}", block);
             assert_eq!(block.is_buildable_ground(), block.is_solid(), "{:?}", block);
         }
+    }
+
+    // ---- QA-003: lazy per-chunk GPU metadata buffers ----
+
+    #[test]
+    fn test_lazy_metadata_starts_unmaterialized() {
+        // Chunks with no packable metadata never allocate the 64/128 KiB GPU
+        // staging buffers — they stay None until the first metadata write and
+        // read back as the shared EMPTY_* zero buffer.
+        let mut chunk = Chunk::new();
+        chunk.ensure_gpu_metadata();
+        assert!(chunk.model_metadata_buf.is_none());
+        assert!(chunk.custom_data_buf.is_none());
+        assert!(chunk.model_metadata_bytes().iter().all(|&b| b == 0));
+        assert!(chunk.custom_data_bytes().iter().all(|&b| b == 0));
+
+        let mut filled = Chunk::filled(BlockType::Stone);
+        filled.ensure_gpu_metadata();
+        assert!(filled.model_metadata_buf.is_none());
+        assert!(filled.custom_data_buf.is_none());
+    }
+
+    #[test]
+    fn test_model_block_materializes_metadata_only() {
+        let mut chunk = Chunk::new();
+        // A plain model block (custom_data == 0) materializes the RG8 metadata
+        // buffer but NOT the 128 KiB custom_data buffer.
+        chunk.set_model_block(1, 2, 3, 1, 0, false);
+        chunk.ensure_gpu_metadata();
+        assert!(chunk.model_metadata_buf.is_some());
+        assert!(chunk.custom_data_buf.is_none());
+
+        let idx = Chunk::index(1, 2, 3);
+        let buf = chunk.model_metadata_bytes();
+        assert_eq!(buf[idx * 2], 1, "R = model_id");
+        assert_eq!(buf[idx * 2 + 1], 0, "G = rotation 0, not waterlogged");
+    }
+
+    #[test]
+    fn test_frame_custom_data_materializes_custom_buffer() {
+        let mut chunk = Chunk::new();
+        // custom_data == 0 (plain model) does NOT materialize custom_data_buf.
+        chunk.set_model_block_with_data(0, 0, 0, 5, 0, false, 0);
+        chunk.ensure_gpu_metadata();
+        assert!(chunk.custom_data_buf.is_none());
+
+        // A nonzero custom_data (e.g. a picture frame) materializes it.
+        chunk.set_model_block_with_data(1, 1, 1, 160, 0, false, 0xABCD_1234);
+        chunk.ensure_gpu_metadata();
+        assert!(
+            chunk.custom_data_buf.is_some(),
+            "nonzero custom_data must materialize the custom buffer"
+        );
+        let idx = Chunk::index(1, 1, 1);
+        let buf = chunk.custom_data_bytes();
+        assert_eq!(&buf[idx * 4..idx * 4 + 4], &0xABCD_1234u32.to_le_bytes());
+    }
+
+    #[test]
+    fn test_metadata_buffer_is_sticky_after_model_removed() {
+        // Stickiness invariant (I2): once materialized, the buffer is never
+        // released, so regular uploads overwrite stale GPU texels with zeros
+        // after a model is removed (no ghost left on the GPU texture).
+        let mut chunk = Chunk::new();
+        chunk.set_model_block(2, 2, 2, 7, 0, false);
+        chunk.ensure_gpu_metadata();
+        assert!(chunk.model_metadata_buf.is_some());
+
+        chunk.set_block(2, 2, 2, BlockType::Air);
+        chunk.ensure_gpu_metadata();
+        assert!(
+            chunk.model_metadata_buf.is_some(),
+            "buffer stays allocated (sticky) after the model is removed"
+        );
+        let idx = Chunk::index(2, 2, 2);
+        let buf = chunk.model_metadata_bytes();
+        assert_eq!(buf[idx * 2], 0);
+        assert_eq!(buf[idx * 2 + 1], 0);
+    }
+
+    #[test]
+    fn test_ensure_gpu_metadata_is_not_a_mutation() {
+        // A pure rebuild must not invalidate external caches keyed on
+        // mutation_epoch / persistence_dirty, nor flip the upload dirty flag.
+        let mut chunk = Chunk::new();
+        chunk.set_model_block(0, 0, 0, 1, 0, false);
+        // Clear the flags the setter raised so we can detect ensure touching them.
+        chunk.dirty = false;
+        chunk.persistence_dirty = false;
+        let epoch = chunk.mutation_epoch();
+
+        chunk.ensure_gpu_metadata();
+
+        assert_eq!(chunk.mutation_epoch(), epoch, "ensure must not bump epoch");
+        assert!(!chunk.dirty, "ensure must not mark the chunk dirty");
+        assert!(
+            !chunk.persistence_dirty,
+            "ensure must not mark persistence_dirty"
+        );
     }
 }

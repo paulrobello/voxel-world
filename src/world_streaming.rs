@@ -20,7 +20,6 @@ use crate::svt::ChunkSVT;
 use crate::utils::ChunkStats;
 use nalgebra::{Vector3, vector};
 use rayon::prelude::*;
-use std::cell::Ref;
 use std::collections::{HashSet, VecDeque};
 use std::sync::OnceLock;
 use std::time::Instant;
@@ -442,6 +441,13 @@ impl App {
 
         // Collect near chunk refs for immediate upload (zero-copy borrows).
         let t_svt = Instant::now();
+        // Materialize/refresh the lazy metadata caches before taking the
+        // immutable borrows used for the upload (QA-003).
+        for pos in &near_positions {
+            if let Some(c) = self.sim.world.get_chunk_mut(*pos) {
+                c.ensure_gpu_metadata();
+            }
+        }
         let near_chunk_refs: Vec<_> = near_positions
             .iter()
             .filter_map(|pos| self.sim.world.get_chunk(*pos).map(|c| (*pos, c)))
@@ -457,25 +463,16 @@ impl App {
             .map(|bytes| ChunkSVT::from_bytes(bytes))
             .collect();
 
-        // Build upload refs with zero-copy borrows.
-        let meta_guards: Vec<_> = near_chunk_refs
-            .iter()
-            .map(|(_, chunk)| chunk.model_metadata_bytes())
-            .collect();
-        let custom_guards: Vec<_> = near_chunk_refs
-            .iter()
-            .map(|(_, chunk)| chunk.custom_data_bytes())
-            .collect();
-
+        // Build upload refs with zero-copy borrows. Metadata slices resolve to
+        // the shared EMPTY_* statics for metadata-free chunks (QA-003).
         let upload_refs: Vec<ChunkDataSlice<'_>> = near_chunk_refs
             .iter()
-            .enumerate()
-            .map(|(i, (pos, chunk))| {
+            .map(|(pos, chunk)| {
                 (
                     *pos,
                     chunk.block_bytes(),
-                    &*meta_guards[i],
-                    &*custom_guards[i],
+                    chunk.model_metadata_bytes(),
+                    chunk.custom_data_bytes(),
                 )
             })
             .collect();
@@ -764,8 +761,9 @@ impl App {
                 let chunk = self
                     .sim
                     .world
-                    .get_chunk(result.position)
+                    .get_chunk_mut(result.position)
                     .expect("Chunk should exist after insert");
+                chunk.ensure_gpu_metadata();
                 uploads.push(Upload {
                     pos: result.position,
                     block: chunk.to_block_data(),
@@ -853,8 +851,9 @@ impl App {
                     let chunk = self
                         .sim
                         .world
-                        .get_chunk(pos)
+                        .get_chunk_mut(pos)
                         .expect("Chunk should exist after insert");
+                    chunk.ensure_gpu_metadata();
                     network_uploads.push(Upload {
                         pos,
                         block: chunk.to_block_data(),
@@ -1171,8 +1170,16 @@ impl App {
         struct Upload<'a> {
             pos: Vector3<i32>,
             block: &'a [u8],
-            meta: Ref<'a, [u8]>,
-            custom: Ref<'a, [u8]>,
+            meta: &'a [u8],
+            custom: &'a [u8],
+        }
+
+        // Materialize/refresh the lazy metadata caches before taking the
+        // immutable borrows held across the upload (QA-003).
+        for &pos in &dirty_positions {
+            if let Some(chunk) = self.sim.world.get_chunk_mut(pos) {
+                chunk.ensure_gpu_metadata();
+            }
         }
 
         let mut uploads: Vec<Upload> = Vec::new();
@@ -1191,7 +1198,7 @@ impl App {
             self.sim.profiler.chunks_uploaded += uploads.len() as u32;
             let upload_slices: Vec<_> = uploads
                 .iter()
-                .map(|u| (u.pos, u.block, &*u.meta, &*u.custom))
+                .map(|u| (u.pos, u.block, u.meta, u.custom))
                 .collect();
             if let Err(e) = self.upload_chunk_refs(&upload_slices) {
                 // Upload failed: skip metadata update and keep chunks dirty so they retry next frame.
@@ -1294,8 +1301,16 @@ impl App {
         struct Upload<'a> {
             pos: Vector3<i32>,
             block: &'a [u8],
-            meta: Ref<'a, [u8]>,
-            custom: Ref<'a, [u8]>,
+            meta: &'a [u8],
+            custom: &'a [u8],
+        }
+
+        // Materialize/refresh the lazy metadata caches before taking the
+        // immutable borrows held across the upload (QA-003).
+        for pos in &dirty_positions {
+            if let Some(chunk) = self.sim.world.get_chunk_mut(*pos) {
+                chunk.ensure_gpu_metadata();
+            }
         }
 
         let mut uploads: Vec<Upload> = Vec::new();
@@ -1318,7 +1333,7 @@ impl App {
         self.sim.profiler.chunks_uploaded += uploads.len() as u32;
         let upload_slices: Vec<_> = uploads
             .iter()
-            .map(|u| (u.pos, u.block, &*u.meta, &*u.custom))
+            .map(|u| (u.pos, u.block, u.meta, u.custom))
             .collect();
         if let Err(e) = self.upload_chunk_refs(&upload_slices) {
             // Upload failed: keep chunks dirty so they retry next frame.
