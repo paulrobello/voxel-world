@@ -157,9 +157,6 @@ pub const MAX_MODELS: usize = 256;
 /// Colors per model palette (expanded from 16 to 32 for more variety).
 pub const PALETTE_SIZE: usize = 32;
 
-/// Number of atlas tiers (Low, Medium, High).
-pub const NUM_RESOLUTION_TIERS: usize = 3;
-
 /// First model ID available for custom/user models.
 /// Built-in models occupy IDs 0-175; custom models start at 176.
 /// - IDs 0-118: Original built-ins (torch, slabs, fences, doors, etc.)

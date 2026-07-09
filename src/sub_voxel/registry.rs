@@ -1,8 +1,8 @@
 use super::builtins;
 use super::model::SubVoxelModel;
 use super::types::{
-    Color, FIRST_CUSTOM_MODEL_ID, LightBlocking, MAX_MODELS, ModelResolution, NUM_RESOLUTION_TIERS,
-    PALETTE_SIZE, SimpleDoorPair, StairShape,
+    Color, FIRST_CUSTOM_MODEL_ID, LightBlocking, MAX_MODELS, ModelResolution, PALETTE_SIZE,
+    SimpleDoorPair, StairShape,
 };
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -183,10 +183,6 @@ pub struct ModelRegistry {
     /// Palette IDs with pending GPU upload (palette texture column needs refresh).
     dirty_palette_ids: HashSet<u8>,
 
-    /// Per-tier dirty flags [Low, Medium, High].
-    /// Each tier's atlas is updated independently for efficiency.
-    tier_dirty: [bool; NUM_RESOLUTION_TIERS],
-
     /// Custom door pairs (user-created doors).
     custom_door_pairs: Vec<SimpleDoorPair>,
 
@@ -211,7 +207,6 @@ impl ModelRegistry {
             palette_table: PaletteTable::default(),
             model_palette_ids: Vec::with_capacity(MAX_MODELS),
             dirty_palette_ids: HashSet::new(),
-            tier_dirty: [true; NUM_RESOLUTION_TIERS], // All tiers need initial upload
             custom_door_pairs: Vec::new(),
             model_to_door_pair: HashMap::new(),
         };
@@ -255,7 +250,6 @@ impl ModelRegistry {
         }
         let id = self.models.len() as u8;
         model.id = id;
-        let tier = model.resolution.tier();
         let (palette_id, newly_allocated) = self
             .palette_table
             .intern(&model.palette, model.palette_emission_slice())
@@ -268,7 +262,6 @@ impl ModelRegistry {
             self.dirty_palette_ids.insert(palette_id);
         }
         self.dirty_model_ids.insert(id);
-        self.tier_dirty[tier] = true;
         Some(id)
     }
 
@@ -301,7 +294,6 @@ impl ModelRegistry {
             return None;
         }
         model.id = id;
-        let tier = model.resolution.tier();
 
         if target == self.models.len() {
             // Append — mirror register().
@@ -319,7 +311,6 @@ impl ModelRegistry {
                 self.dirty_palette_ids.insert(palette_id);
             }
             self.dirty_model_ids.insert(id);
-            self.tier_dirty[tier] = true;
             Some(id)
         } else if target < self.models.len() {
             // Overwrite — mirror update_or_register's overwrite branch.
@@ -342,7 +333,6 @@ impl ModelRegistry {
             self.name_to_id.insert(model.name.clone(), id);
             self.models[target] = model;
             self.dirty_model_ids.insert(id);
-            self.tier_dirty[tier] = true;
             Some(id)
         } else {
             // target > len() — gap in the ID range.
@@ -506,7 +496,6 @@ impl ModelRegistry {
             // Update existing model
             let mut updated = model;
             updated.id = existing_id;
-            let tier = updated.resolution.tier();
             // Release the old palette slot first. If the new palette bytes are identical,
             // `intern` will reclaim the same slot via its key_to_id lookup and ref_count
             // is restored — no spurious dirty flag or duplicate slot.
@@ -522,7 +511,6 @@ impl ModelRegistry {
             }
             self.models[existing_id as usize] = updated;
             self.dirty_model_ids.insert(existing_id);
-            self.tier_dirty[tier] = true;
             Some(existing_id)
         } else {
             // Register as new
@@ -613,38 +601,11 @@ impl ModelRegistry {
         self.palette_table.len()
     }
 
-    /// Returns true if a specific tier needs GPU update.
-    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
-    pub fn is_tier_dirty(&self, tier: usize) -> bool {
-        tier < NUM_RESOLUTION_TIERS && self.tier_dirty[tier]
-    }
-
-    /// Returns true if any tier needs GPU update.
-    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
-    pub fn is_any_tier_dirty(&self) -> bool {
-        self.tier_dirty.iter().any(|&d| d)
-    }
-
     /// Clears all GPU dirty tracking after a successful upload.
     pub fn clear_gpu_dirty(&mut self) {
         self.full_resync_needed = false;
         self.dirty_model_ids.clear();
         self.dirty_palette_ids.clear();
-        self.tier_dirty = [false; NUM_RESOLUTION_TIERS];
-    }
-
-    /// Clears a specific tier's dirty flag.
-    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
-    pub fn clear_tier_dirty(&mut self, tier: usize) {
-        if tier < NUM_RESOLUTION_TIERS {
-            self.tier_dirty[tier] = false;
-        }
-    }
-
-    /// Clears all tier dirty flags.
-    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
-    pub fn clear_all_tier_dirty(&mut self) {
-        self.tier_dirty = [false; NUM_RESOLUTION_TIERS];
     }
 
     /// Packs voxel data for a specific resolution tier.
