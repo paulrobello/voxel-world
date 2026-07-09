@@ -9,9 +9,11 @@ use crate::console::{
 use crate::lava::LavaGrid;
 use crate::net::protocol::BlockData;
 use crate::placement::{BlockPlacementParams, block_data_for_params, place_blocks_at_positions};
+use crate::shape_tools::sphere::{estimate_volume, generate_sphere_positions};
 use crate::water::WaterGrid;
 use crate::world::World;
 use nalgebra::Vector3;
+use std::collections::HashSet;
 
 /// Number of coordinate args a `sphere` takes (cx cy cz radius).
 const SPHERE_COORD_ARG_COUNT: usize = 4;
@@ -129,16 +131,8 @@ pub fn sphere(
         return CommandResult::Error(error);
     }
 
-    // Estimate volume for confirmation
-    let radius_f = radius as f64;
-    let mut estimated_volume = if hollow {
-        let outer_vol = (4.0 / 3.0) * std::f64::consts::PI * radius_f.powi(3);
-        let inner_radius = (radius - 1).max(0) as f64;
-        let inner_vol = (4.0 / 3.0) * std::f64::consts::PI * inner_radius.powi(3);
-        (outer_vol - inner_vol) as u64
-    } else {
-        ((4.0 / 3.0) * std::f64::consts::PI * radius_f.powi(3)) as u64
-    };
+    // Estimate volume for confirmation (shared formula with the sphere tool).
+    let mut estimated_volume = estimate_volume(radius, hollow);
     if dome {
         estimated_volume /= 2;
     }
@@ -155,37 +149,31 @@ pub fn sphere(
         };
     }
 
-    // Generate the sphere positions.
-    let radius_sq = (radius * radius) as i64;
-    let inner_radius_sq = if hollow && radius > 1 {
-        ((radius - 1) * (radius - 1)) as i64
-    } else {
-        -1 // No inner cutout
-    };
-
-    let mut shell_positions: Vec<Vector3<i32>> = Vec::new();
-    let mut interior_positions: Vec<Vector3<i32>> = Vec::new();
-    let y_start = if dome { cy } else { cy - radius };
-
-    for x in (cx - radius)..=(cx + radius) {
-        for y in y_start..=(cy + radius) {
-            for z in (cz - radius)..=(cz + radius) {
-                let dx = (x - cx) as i64;
-                let dy = (y - cy) as i64;
-                let dz = (z - cz) as i64;
-                let dist_sq = dx * dx + dy * dy + dz * dz;
-
-                if dist_sq <= radius_sq {
-                    let pos = Vector3::new(x, y, z);
-                    if hollow && dist_sq <= inner_radius_sq {
-                        interior_positions.push(pos);
-                    } else {
-                        shell_positions.push(pos);
-                    }
+    // Use the shared sphere geometry (ARC-TOOL-001). Split shell vs interior by
+    // differencing a solid sphere of radius-1 out of the full sphere: this matches
+    // the console's hollow semantics exactly, including the floor ring at y == cy
+    // for hollow domes (the shared hollow path drops that ring, the console never did).
+    let center = Vector3::new(cx, cy, cz);
+    let outer = generate_sphere_positions(center, radius, false, dome);
+    let (shell_positions, interior_positions): (Vec<Vector3<i32>>, Vec<Vector3<i32>>) =
+        if hollow && radius > 1 {
+            let inner: HashSet<Vector3<i32>> =
+                generate_sphere_positions(center, radius - 1, false, dome)
+                    .into_iter()
+                    .collect();
+            let mut shell = Vec::with_capacity(outer.len());
+            let mut interior = Vec::new();
+            for pos in outer {
+                if inner.contains(&pos) {
+                    interior.push(pos);
+                } else {
+                    shell.push(pos);
                 }
             }
-        }
-    }
+            (shell, interior)
+        } else {
+            (outer, Vec::new())
+        };
 
     let params = BlockPlacementParams::new(block, tint_index, paint_texture);
     execute_sphere(
