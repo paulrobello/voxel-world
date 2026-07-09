@@ -55,3 +55,19 @@ jobs:
           sudo apt-get install -y cmake ninja-build libvulkan-dev vulkan-tools mesa-vulkan-drivers libshaderc-dev
       - name: Run tests
         run: cargo test --all-features
+
+  audit:
+    name: Security audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      - name: Run cargo audit
+        # cargo-audit reads Cargo.lock and flags any RUSTSEC advisories.
+        # It auto-honors ./audit.toml if present ([advisories] ignore list);
+        # current RUSTSEC mitigations are version-floor pins in Cargo.toml.
+        run: cargo audit --deny warnings
