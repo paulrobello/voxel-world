@@ -186,6 +186,26 @@ pub const MAX_UPLOAD_TEXTURE_BYTES: usize = 128 * 1024;
 /// Maximum size of an uploaded picture PNG.
 pub const MAX_UPLOAD_PICTURE_BYTES: usize = 1024 * 1024;
 
+/// Upper bound on the decompressed size of a single inbound (host→client)
+/// model payload, checked before allocation. See [`check_lz4_size_prefix`].
+///
+/// SEC-001 follow-up: [`MAX_INBOUND_MESSAGE_SIZE`] bounds only the *compressed*
+/// wire bytes, not the 4-byte LZ4 size header, so an under-8-MiB packet can
+/// still claim gigabytes and OOM the receiver. A single VxmFile is kilobytes;
+/// 50 MiB matches the symmetric client→server cap in `process_model_uploads`
+/// with wide headroom.
+pub const MAX_INBOUND_MODEL_DECOMPRESSED_SIZE: usize = 50 * 1024 * 1024;
+
+/// Upper bound on the decompressed size of an inbound (host→client) template
+/// payload, checked before allocation. See [`check_lz4_size_prefix`].
+pub const MAX_INBOUND_TEMPLATE_DECOMPRESSED_SIZE: usize = 16 * 1024 * 1024;
+
+/// Upper bound on the decompressed size of a bulk inbound (host→client)
+/// `ModelRegistrySync` payload — the host's entire model library plus door
+/// pairs, pushed to a joining client. Must exceed
+/// [`MAX_INBOUND_MODEL_DECOMPRESSED_SIZE`] since it carries many models.
+pub const MAX_INBOUND_REGISTRY_DECOMPRESSED_SIZE: usize = 64 * 1024 * 1024;
+
 /// Minimum world Y coordinate accepted from client block edits.
 pub const MIN_BLOCK_Y: i32 = 0;
 
@@ -195,6 +215,31 @@ pub const MAX_BLOCK_Y: i32 = 511;
 /// Absolute bound on world X/Z coordinates accepted from clients.
 /// Well beyond any practical build radius but small enough that `x * x` never overflows `i64`.
 pub const MAX_BLOCK_HORIZONTAL: i32 = 30_000_000;
+
+/// Reads the 4-byte little-endian LZ4 size prefix on `buf` and returns `Err`
+/// if it is missing or claims more than `max_decompressed_bytes`.
+///
+/// Defense-in-depth against a decompression bomb:
+/// `lz4_flex::decompress_size_prepended` allocates a `Vec` sized by this
+/// header *before* decompressing, so a hostile or buggy peer can OOM the
+/// receiver with a tiny packet whose header claims gigabytes. Call this
+/// immediately before every `decompress_size_prepended` on network-received
+/// bytes. Mirrors the inline guard in `SerializedChunk::decompress` (SEC-001)
+/// and the model-upload path in `process_model_uploads`. This does NOT change
+/// the trust model (the host is still trusted); it only bounds allocation.
+pub fn check_lz4_size_prefix(
+    buf: &[u8],
+    max_decompressed_bytes: usize,
+) -> Result<(), &'static str> {
+    if buf.len() < 4 {
+        return Err("payload too short for LZ4 size header");
+    }
+    let declared = u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]) as usize;
+    if declared > max_decompressed_bytes {
+        return Err("decompressed size exceeds inbound cap");
+    }
+    Ok(())
+}
 
 /// Returns `true` when the given world block coordinate is inside the accepted play area.
 #[inline]

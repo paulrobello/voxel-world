@@ -357,48 +357,61 @@ impl ModelRegistry {
     /// payload is skipped (no panic). This is the pure parse-and-register step
     /// shared with the production multiplayer apply path and unit tests.
     pub fn apply_registry_sync(&mut self, models_data: &[u8], door_pairs_data: &[u8]) {
+        use crate::net::protocol::{MAX_INBOUND_REGISTRY_DECOMPRESSED_SIZE, check_lz4_size_prefix};
         use crate::storage::model_format::{DoorPairStore, WorldModelStore};
         use lz4_flex::decompress_size_prepended;
 
         if !models_data.is_empty() {
-            match decompress_size_prepended(models_data) {
-                Ok(bytes) => match postcard::from_bytes::<WorldModelStore>(&bytes) {
-                    Ok(store) => {
-                        for (id, model) in store.iter() {
-                            if self.register_at(id, model).is_none() {
-                                log::warn!(
-                                    "[ModelRegistry] apply_registry_sync: could not place model at id {} (current len {})",
-                                    id,
-                                    self.models.len()
-                                );
+            match check_lz4_size_prefix(models_data, MAX_INBOUND_REGISTRY_DECOMPRESSED_SIZE) {
+                Ok(()) => match decompress_size_prepended(models_data) {
+                    Ok(bytes) => match postcard::from_bytes::<WorldModelStore>(&bytes) {
+                        Ok(store) => {
+                            for (id, model) in store.iter() {
+                                if self.register_at(id, model).is_none() {
+                                    log::warn!(
+                                        "[ModelRegistry] apply_registry_sync: could not place model at id {} (current len {})",
+                                        id,
+                                        self.models.len()
+                                    );
+                                }
                             }
                         }
-                    }
+                        Err(e) => log::warn!(
+                            "[ModelRegistry] apply_registry_sync: WorldModelStore deserialize failed: {:?}",
+                            e
+                        ),
+                    },
                     Err(e) => log::warn!(
-                        "[ModelRegistry] apply_registry_sync: WorldModelStore deserialize failed: {:?}",
+                        "[ModelRegistry] apply_registry_sync: models_data decompress failed: {:?}",
                         e
                     ),
                 },
                 Err(e) => log::warn!(
-                    "[ModelRegistry] apply_registry_sync: models_data decompress failed: {:?}",
+                    "[ModelRegistry] apply_registry_sync: rejected models_data: {} (possible decompression bomb)",
                     e
                 ),
             }
         }
 
         if !door_pairs_data.is_empty() {
-            match decompress_size_prepended(door_pairs_data) {
-                Ok(bytes) => match postcard::from_bytes::<DoorPairStore>(&bytes) {
-                    Ok(store) => {
-                        self.load_door_pairs(store.get_all().to_vec());
-                    }
+            match check_lz4_size_prefix(door_pairs_data, MAX_INBOUND_REGISTRY_DECOMPRESSED_SIZE) {
+                Ok(()) => match decompress_size_prepended(door_pairs_data) {
+                    Ok(bytes) => match postcard::from_bytes::<DoorPairStore>(&bytes) {
+                        Ok(store) => {
+                            self.load_door_pairs(store.get_all().to_vec());
+                        }
+                        Err(e) => log::warn!(
+                            "[ModelRegistry] apply_registry_sync: DoorPairStore deserialize failed: {:?}",
+                            e
+                        ),
+                    },
                     Err(e) => log::warn!(
-                        "[ModelRegistry] apply_registry_sync: DoorPairStore deserialize failed: {:?}",
+                        "[ModelRegistry] apply_registry_sync: door_pairs_data decompress failed: {:?}",
                         e
                     ),
                 },
                 Err(e) => log::warn!(
-                    "[ModelRegistry] apply_registry_sync: door_pairs_data decompress failed: {:?}",
+                    "[ModelRegistry] apply_registry_sync: rejected door_pairs_data: {} (possible decompression bomb)",
                     e
                 ),
             }
@@ -1804,6 +1817,22 @@ mod tests {
             "models.dat-only Beta must survive the editor rebuild"
         );
         assert_eq!(reg2.get_id("Gamma"), None, "deleted Gamma must be absent");
+    }
+
+    /// SEC-001 follow-up: `apply_registry_sync` must reject a decompression
+    /// bomb (LZ4 header claims gigabytes) without allocating or panicking.
+    #[test]
+    fn apply_registry_sync_rejects_decompression_bomb() {
+        // 4-byte LE header claims 4 GiB, then a little junk body.
+        let mut bomb = Vec::new();
+        bomb.extend_from_slice(&0xFFFF_FFFFu32.to_le_bytes());
+        bomb.extend_from_slice(&[0u8; 16]);
+
+        let mut reg = ModelRegistry::new();
+        // Must not panic or allocate gigabytes; logs a warn and leaves the
+        // registry's custom-model set empty.
+        reg.apply_registry_sync(&bomb, &bomb);
+        assert_eq!(reg.custom_model_count(), 0);
     }
 
     /// `load_library_models` must be idempotent: calling it twice does not

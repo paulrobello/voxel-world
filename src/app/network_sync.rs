@@ -566,6 +566,18 @@ impl<'a> NetworkSyncContext<'a> {
             use crate::storage::model_format::VxmFile;
             use lz4_flex::decompress_size_prepended;
 
+            if let Err(e) = crate::net::protocol::check_lz4_size_prefix(
+                &model_added.model_data,
+                crate::net::protocol::MAX_INBOUND_MODEL_DECOMPRESSED_SIZE,
+            ) {
+                log::warn!(
+                    "[Client] Rejected model '{}': {} (possible decompression bomb)",
+                    model_added.name,
+                    e
+                );
+                continue;
+            }
+
             let decompressed = match decompress_size_prepended(&model_added.model_data) {
                 Ok(d) => d,
                 Err(e) => {
@@ -666,6 +678,18 @@ impl<'a> NetworkSyncContext<'a> {
 
         for template_loaded in templates {
             use lz4_flex::decompress_size_prepended;
+
+            if let Err(e) = crate::net::protocol::check_lz4_size_prefix(
+                &template_loaded.template_data,
+                crate::net::protocol::MAX_INBOUND_TEMPLATE_DECOMPRESSED_SIZE,
+            ) {
+                log::warn!(
+                    "[Client] Rejected template '{}': {} (possible decompression bomb)",
+                    template_loaded.name,
+                    e
+                );
+                continue;
+            }
 
             let decompressed = match decompress_size_prepended(&template_loaded.template_data) {
                 Ok(d) => d,
