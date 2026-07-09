@@ -6,15 +6,15 @@ use crate::shape_tools::{
     ArchToolState, BezierToolState, BridgeToolState, CircleToolState, CloneToolState,
     ConeToolState, CubeToolState, CylinderToolState, FloorToolState, HelixToolState,
     HollowToolState, MirrorToolState, PatternFillState, PolygonToolState, ReplaceToolState,
-    ScatterToolState, SphereToolState, StairsToolState, TerrainBrushState, TorusToolState,
-    WallToolState,
+    ScatterToolState, ShapeTool, SphereToolState, StairsToolState, TerrainBrushState,
+    TorusToolState, WallToolState,
 };
 use crate::templates::{TemplateLibrary, TemplatePlacement, TemplateSelection, TemplateUi};
 use crate::textures::TextureLibrary;
 use crate::ui::multiplayer::MultiplayerPanelState;
 use crate::ui::paint_panel::PaintPanelState;
 use crate::ui::texture_generator::TextureGeneratorState;
-use crate::ui::tools::ToolsPaletteState;
+use crate::ui::tools::{ActiveTool, ToolsPaletteState};
 
 use super::ui_substates::{
     FrameState, HotbarState, MinimapUiState, PaletteUiState, PictureUiState, PlacementState,
@@ -108,4 +108,36 @@ pub struct UiState {
 
     /// Multiplayer panel UI state.
     pub multiplayer_panel: MultiplayerPanelState,
+}
+
+impl UiState {
+    /// Iterate the placement tools that carry a standard holographic preview as
+    /// `(ActiveTool, &dyn ShapeTool)` pairs, so render / dispatch sites can loop
+    /// over the registry instead of re-encoding per tool.
+    ///
+    /// Colour and any extra markers stay keyed off the `ActiveTool` at the call
+    /// site (the trait is preview-state only — rendering concerns don't belong
+    /// on it). Excluded: `Mirror` (a placement modifier), and `Bridge` /
+    /// `Replace` / `PatternFill` / `Scatter` / `TerrainBrush` (modifiers or lack
+    /// the standard preview fields) — those are handled directly at their call
+    /// sites.
+    pub fn shape_tools(&self) -> Vec<(ActiveTool, &dyn ShapeTool)> {
+        vec![
+            (ActiveTool::Sphere, &self.sphere_tool as &dyn ShapeTool),
+            (ActiveTool::Cube, &self.cube_tool as &dyn ShapeTool),
+            (ActiveTool::Cylinder, &self.cylinder_tool as &dyn ShapeTool),
+            (ActiveTool::Wall, &self.wall_tool as &dyn ShapeTool),
+            (ActiveTool::Floor, &self.floor_tool as &dyn ShapeTool),
+            (ActiveTool::Circle, &self.circle_tool as &dyn ShapeTool),
+            (ActiveTool::Cone, &self.cone_tool as &dyn ShapeTool),
+            (ActiveTool::Arch, &self.arch_tool as &dyn ShapeTool),
+            (ActiveTool::Stairs, &self.stairs_tool as &dyn ShapeTool),
+            (ActiveTool::Clone, &self.clone_tool as &dyn ShapeTool),
+            (ActiveTool::Torus, &self.torus_tool as &dyn ShapeTool),
+            (ActiveTool::Helix, &self.helix_tool as &dyn ShapeTool),
+            (ActiveTool::Polygon, &self.polygon_tool as &dyn ShapeTool),
+            (ActiveTool::Bezier, &self.bezier_tool as &dyn ShapeTool),
+            (ActiveTool::Hollow, &self.hollow_tool as &dyn ShapeTool),
+        ]
+    }
 }

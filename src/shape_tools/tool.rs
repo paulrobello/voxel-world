@@ -14,11 +14,13 @@
 //! method body, or signature; every accessor reads an existing `pub` field and
 //! every `clear_preview` delegates to (or mirrors) the struct's existing reset.
 
-// The trait is introduced ahead of its consumers: later audit batches build the
-// dispatch registry / preview-gather / HUD sites that use it. Until then the
-// trait and its impls are unreached from `main`, so suppress dead_code for the
-// whole module (mirrors the per-method `#[allow(dead_code)]` already used on
-// the inherent `deactivate()`s in mod.rs).
+// The trait's full uniform surface (deactivate / clear_preview / set_active /
+// total_blocks / preview_truncated) is the audit-named deliverable; this batch
+// wires its first consumer (render.rs preview-gather exercises active() +
+// preview_positions()). The remaining methods await incremental consumer wiring
+// (a deactivate-all loop, HUD block-count display) — suppress dead_code module-
+// wide rather than scattering ~75 per-method attrs across the impls. Mirrors the
+// per-method #[allow(dead_code)] already on the inherent deactivate()s in mod.rs.
 #![allow(dead_code)]
 
 use nalgebra::Vector3;

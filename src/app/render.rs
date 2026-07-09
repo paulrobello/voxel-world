@@ -10,6 +10,7 @@ use crate::gpu::{
 use crate::player::HEAD_BOB_AMPLITUDE;
 use crate::raycast::get_place_position;
 use crate::remote_player::{GpuRemotePlayer, MAX_REMOTE_PLAYERS};
+use crate::ui::tools::ActiveTool;
 use nalgebra::Vector3;
 use std::time::Instant;
 use vulkano::{
@@ -775,21 +776,23 @@ impl App {
             }
         }
 
-        // Add blocks from sphere tool preview (cyan)
-        if self.ui.sphere_tool.active {
-            for &world_pos in &self.ui.sphere_tool.preview_positions {
-                push_block!(world_pos, 0u32);
+        // Placement tools with a standard holographic preview — one registry
+        // loop replaces the per-tool blocks. Only one placement tool is active
+        // at a time, so this is equivalent to those blocks; the colour is keyed
+        // off the ActiveTool via preview_color_for. Tools with extra markers
+        // (bridge start, stairs start, bezier control points) or that are
+        // placement modifiers / two-vector previews (replace, pattern, terrain,
+        // mirror) are handled explicitly below.
+        for (kind, tool) in self.ui.shape_tools() {
+            if tool.active() {
+                let colour = Self::preview_color_for(kind);
+                for &world_pos in tool.preview_positions() {
+                    push_block!(world_pos, colour);
+                }
             }
         }
 
-        // Add blocks from cube tool preview (cyan)
-        if self.ui.cube_tool.active {
-            for &world_pos in &self.ui.cube_tool.preview_positions {
-                push_block!(world_pos, 0u32);
-            }
-        }
-
-        // Add blocks from bridge tool: start position marker (magenta), preview line (cyan)
+        // Bridge tool: start marker (magenta) + preview line (cyan).
         if self.ui.bridge_tool.active {
             if let Some(start) = self.ui.bridge_tool.start_position {
                 push_block!(start, 2u32); // Magenta for start marker
@@ -799,106 +802,31 @@ impl App {
             }
         }
 
-        // Add blocks from cylinder tool preview (cyan)
-        if self.ui.cylinder_tool.active {
-            for &world_pos in &self.ui.cylinder_tool.preview_positions {
-                push_block!(world_pos, 0u32);
+        // Stairs tool: start marker (magenta, only before the preview is drawn).
+        // The staircase positions themselves come from the registry loop above.
+        if self.ui.stairs_tool.active
+            && let Some(start) = self.ui.stairs_tool.start_pos
+            && self.ui.stairs_tool.preview_positions.is_empty()
+        {
+            push_block!(start, 2u32); // Magenta for start marker
+        }
+
+        // Bezier tool: control-point markers (magenta). The curve itself comes
+        // from the registry loop above.
+        if self.ui.bezier_tool.active {
+            for &world_pos in &self.ui.bezier_tool.control_point_markers {
+                push_block!(world_pos, 3u32); // Magenta for control point markers
             }
         }
 
-        // Add blocks from wall tool preview (cyan)
-        if self.ui.wall_tool.active {
-            for &world_pos in &self.ui.wall_tool.preview_positions {
-                push_block!(world_pos, 0u32);
-            }
-        }
-
-        // Add blocks from floor tool preview (cyan)
-        if self.ui.floor_tool.active {
-            for &world_pos in &self.ui.floor_tool.preview_positions {
-                push_block!(world_pos, 0u32);
-            }
-        }
-
-        // Add blocks from replace tool preview (yellow — distinct from placement)
+        // Replace tool preview (yellow — distinct from placement).
         if self.ui.replace_tool.active {
             for &world_pos in &self.ui.replace_tool.preview_positions {
                 push_block!(world_pos, 3u32);
             }
         }
 
-        // Add blocks from circle tool preview (cyan)
-        if self.ui.circle_tool.active {
-            for &world_pos in &self.ui.circle_tool.preview_positions {
-                push_block!(world_pos, 0u32);
-            }
-        }
-
-        // Add blocks from stairs tool: start marker (magenta if no preview yet), preview (green)
-        if self.ui.stairs_tool.active {
-            if let Some(start) = self.ui.stairs_tool.start_pos
-                && self.ui.stairs_tool.preview_positions.is_empty()
-            {
-                push_block!(start, 2u32); // Magenta for start marker
-            }
-            for &world_pos in &self.ui.stairs_tool.preview_positions {
-                push_block!(world_pos, 1u32); // Green for stairs preview
-            }
-        }
-
-        // Add blocks from arch tool preview (cyan)
-        if self.ui.arch_tool.active {
-            for &world_pos in &self.ui.arch_tool.preview_positions {
-                push_block!(world_pos, 0u32);
-            }
-        }
-
-        // Add blocks from cone tool preview (cyan)
-        if self.ui.cone_tool.active {
-            for &world_pos in &self.ui.cone_tool.preview_positions {
-                push_block!(world_pos, 0u32);
-            }
-        }
-
-        // Add blocks from torus tool preview (cyan)
-        if self.ui.torus_tool.active {
-            for &world_pos in &self.ui.torus_tool.preview_positions {
-                push_block!(world_pos, 0u32);
-            }
-        }
-
-        // Add blocks from helix tool preview (cyan)
-        if self.ui.helix_tool.active {
-            for &world_pos in &self.ui.helix_tool.preview_positions {
-                push_block!(world_pos, 0u32);
-            }
-        }
-
-        // Add blocks from polygon tool preview (cyan)
-        if self.ui.polygon_tool.active {
-            for &world_pos in &self.ui.polygon_tool.preview_positions {
-                push_block!(world_pos, 0u32);
-            }
-        }
-
-        // Add blocks from bezier tool: curve preview (cyan), control point markers (magenta)
-        if self.ui.bezier_tool.active {
-            for &world_pos in &self.ui.bezier_tool.preview_positions {
-                push_block!(world_pos, 0u32); // Cyan for the curve
-            }
-            for &world_pos in &self.ui.bezier_tool.control_point_markers {
-                push_block!(world_pos, 3u32); // Magenta for control point markers
-            }
-        }
-
-        // Add blocks from clone tool preview (green — distinguishes from original)
-        if self.ui.clone_tool.active {
-            for &world_pos in &self.ui.clone_tool.preview_positions {
-                push_block!(world_pos, 1u32);
-            }
-        }
-
-        // Add blocks from pattern fill tool preview (Block A = cyan, Block B = green)
+        // Pattern fill tool preview (Block A = cyan, Block B = green).
         if self.ui.pattern_fill.active {
             for &world_pos in &self.ui.pattern_fill.preview_a {
                 push_block!(world_pos, 0u32);
@@ -908,14 +836,7 @@ impl App {
             }
         }
 
-        // Add blocks from hollow tool preview (interior blocks to remove — red/orange)
-        if self.ui.hollow_tool.active {
-            for &world_pos in &self.ui.hollow_tool.preview_positions {
-                push_block!(world_pos, 3u32);
-            }
-        }
-
-        // Add terrain brush preview footprint (cyan)
+        // Terrain brush preview footprint (cyan).
         if self.ui.terrain_brush.active {
             for &world_pos in &self.ui.terrain_brush.preview_positions {
                 push_block!(world_pos, 0u32);
@@ -937,6 +858,18 @@ impl App {
             self.ui.stencil_manager.global_opacity,
             self.ui.stencil_manager.render_mode.as_i32() as u32,
         )
+    }
+
+    /// Preview colour ID for a placement tool rendered via the shape-tool
+    /// registry loop. Most tools use cyan (0); clone/stairs are green (1) and
+    /// hollow is red/orange (3) to distinguish them. Tools not iterated by the
+    /// registry never reach this function.
+    fn preview_color_for(kind: ActiveTool) -> u32 {
+        match kind {
+            ActiveTool::Clone | ActiveTool::Stairs => 1u32, // green
+            ActiveTool::Hollow => 3u32,                     // red/orange
+            _ => 0u32,                                      // cyan
+        }
     }
 
     /// Returns the world-space positions of all blocks in the mirror-plane visualisation.
