@@ -11,6 +11,31 @@ pub struct World {
     /// All currently loaded chunks, keyed by chunk position.
     pub(super) chunks: HashMap<ChunkPos, Chunk>,
 
+    // ---- Dual dirty representation (ARC-M11) ---------------------------------
+    // "Which chunks need GPU re-upload" is tracked two ways, kept in sync by
+    // convention (there is no compiler link between them):
+    //
+    // 1. `Chunk.dirty: bool` (in `chunk.rs`) — the per-chunk source of truth.
+    // 2. `dirty_chunks` + `dirty_set` here — a deduped work queue of positions
+    //    drained each frame by `world_streaming::upload_world_to_gpu`.
+    //
+    // Convention: every `World` mutator (`set_block`, `set_water_block`,
+    // `set_model_block`, ...) calls `push_dirty(pos)` exactly on the
+    // clean→dirty transition (guarded by the `was_dirty` snapshot), so the
+    // queue mirrors the bools on the happy path. The upload path drains the
+    // queue (`drain_dirty_chunks_limit`), then clears each chunk's bool via
+    // `chunk.mark_clean()` ONLY after a successful upload; on failure the bool
+    // stays true and the queue entry is dropped, to be re-pushed by the next
+    // mutation or an origin-shift `requeue_dirty`, or caught by the one-shot
+    // full scan `upload_all_dirty_chunks` (which reads `Chunk.dirty` directly
+    // and bypasses this queue entirely — invoked from `main.rs` at startup).
+    // `remove_dirty_positions` tidies any position re-pushed between drain and
+    // upload.
+    //
+    // Invariant: the bool is authoritative; the queue is a hint. A chunk with
+    // `dirty == true` may transiently be absent from the queue (e.g. right
+    // after a failed incremental upload), but a position in the queue always
+    // has `Chunk.dirty == true`.
     /// Queue of chunk positions that need GPU re-upload.
     pub(super) dirty_chunks: Vec<ChunkPos>,
     /// Membership set to keep dirty_chunks unique.

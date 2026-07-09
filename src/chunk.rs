@@ -887,6 +887,40 @@ impl From<u8> for BlockType {
 ///
 /// Chunks are 32³ grids of blocks that can be individually loaded,
 /// modified, and uploaded to the GPU.
+///
+/// # Dirty flags & mutation tracking
+///
+/// `Chunk` carries five independent "needs work" booleans plus a monotonic
+/// `mutation_epoch`. They are NOT derived from one another; each has its own
+/// producer and consumer, and the rest of the codebase relies on that
+/// convention without compiler enforcement. Mishandling them surfaces as stale
+/// GPU texels, lost saves, or redundant recompute.
+///
+/// - `dirty` — block bytes need GPU re-upload. Set by every `set_*`/`remove_*`
+///   mutator and by [`mark_dirty`]; cleared by [`mark_clean`], which the GPU
+///   upload path (`world_streaming`) calls only after a successful upload.
+/// - `persistence_dirty` — needs save to disk. Set by [`mark_mutated`] (the
+///   single funnel every public mutator passes through); cleared by the save
+///   paths (`simulation` persistence, `storage` metadata flush) and by world-gen
+///   seeding (`chunk_loader`, `terrain_gen`) which start clean by design.
+/// - `model_metadata_dirty` — the lazy RG8 cache `model_metadata_buf` is stale.
+///   Set by metadata-writing mutators; cleared by `ensure_gpu_metadata()`.
+/// - `custom_data_dirty` — the lazy R32 cache `custom_data_buf` is stale. Set by
+///   custom-data-writing mutators; cleared by `ensure_gpu_metadata()`.
+/// - `metadata_dirty` — `cached_is_empty` / `cached_is_fully_solid` are stale.
+///   Set by block-count-changing mutators; cleared by `update_metadata()`.
+/// - `mutation_epoch` — monotonic counter bumped by [`mark_mutated`] so external
+///   memoization (multiplayer compressed-chunk cache) can invalidate without
+///   trusting `persistence_dirty` (which saves clear). Never reset, only wraps.
+///
+/// Invariants: (1) [`mark_mutated`] is the sole setter of `persistence_dirty`
+/// and `mutation_epoch`, so they advance in lockstep. (2) The lazy caches are
+/// guarded by debug asserts in `model_metadata_bytes()` / `custom_data_bytes()`:
+/// those readers must not run while their flag is set — call
+/// `ensure_gpu_metadata()` first. (3) The lazy-cache flags and `dirty` are
+/// flipped independently at each mutator site, because one mutation does not
+/// necessarily invalidate every cache (e.g. swapping one solid block for
+/// another dirties `dirty` and `metadata_dirty` but not the model/custom caches).
 pub struct Chunk {
     /// Block data stored as a flat array.
     /// Index = x + y * CHUNK_SIZE + z * CHUNK_SIZE * CHUNK_SIZE

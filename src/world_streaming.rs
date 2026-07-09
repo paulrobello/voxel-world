@@ -1160,7 +1160,15 @@ impl App {
             }
         }
 
-        // Drain a bounded number of dirty chunk positions from world to avoid frame stalls
+        // Drain a bounded number of dirty chunk positions from world to avoid frame stalls.
+        // This is the queue half of the dual dirty representation (ARC-M11): the queue
+        // (`World.dirty_chunks`) is a hint that mirrors `Chunk.dirty` (the authoritative
+        // bool). Draining removes positions from the queue but does NOT clear the bool —
+        // `chunk.mark_clean()` does that below, only after a successful upload. On upload
+        // failure (early return below) the queue entry is dropped while the bool stays
+        // true; recovery is via the next mutation, an origin-shift `requeue_dirty`, or the
+        // full-scan `upload_all_dirty_chunks`. See `src/world/storage.rs` for the full
+        // invariant.
         let max_uploads = uploads_per_frame();
         let dirty_positions = self.sim.world.drain_dirty_chunks_limit(max_uploads);
         if dirty_positions.is_empty() {
