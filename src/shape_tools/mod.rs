@@ -22,8 +22,12 @@ pub mod scatter;
 pub mod sphere;
 pub mod stairs;
 pub mod terrain_brush;
+pub mod tool;
 pub mod torus;
 pub mod wall;
+
+// Uniform trait surface for placement-tool preview state structs.
+pub use tool::ShapeTool;
 
 // Re-export tool state structs from their respective modules
 pub use bezier::BezierToolState;
