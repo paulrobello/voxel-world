@@ -60,41 +60,29 @@ void applyWaterOverlay(
 }
 
 // ---------------------------------------------------------------------------
-// Glass surface overlay
+// Shared glass-overlay core: edge frame highlight + Fresnel sky reflection.
 //
-// Applies the cyan-tinted edge highlight, Fresnel sky reflection, depth-based
-// tinting for stacked glass, and (optionally) the target-block wireframe for
-// the first glass block the ray crossed.
-//
-// Parameters:
-//   dir                  - Ray direction
-//   passedGlass          - Whether the ray crossed at least one glass block
-//   glassDepth           - Number of glass blocks traversed
-//   glassSurfaceNormal   - Face normal at the glass entry crossing
-//   firstGlassLocalHit   - Local (block-space) hit position on first glass face
-//   firstGlassCoord      - Integer block coordinate of the first glass block
-//   color (inout)        - Current pixel color, modified in place
+// Both the plain-glass and tinted-glass overlays compute the same face-UV edge
+// frame and Fresnel reflection; only the frame colours and the sky-reflection
+// tint differ. `reflectionTint` multiplies the sky reflection (vec3(1.0) for
+// plain glass, the accumulated tint for stained glass).
 // ---------------------------------------------------------------------------
-void applyGlassOverlay(
+void applyGlassFrameReflection(
     vec3 dir,
-    bool passedGlass,
-    float glassDepth,
-    vec3 glassSurfaceNormal,
-    vec3 firstGlassLocalHit,
-    ivec3 firstGlassCoord,
+    vec3 surfaceNormal,
+    vec3 firstLocalHit,
+    vec3 frameColor,
+    vec3 highlightColor,
+    vec3 reflectionTint,
     inout vec3 color)
 {
-    if (!passedGlass) {
-        return;
-    }
-
-    vec3 localPos = firstGlassLocalHit;
+    vec3 localPos = firstLocalHit;
 
     // Compute face UV from surface normal direction
     vec2 faceUV;
-    if (abs(glassSurfaceNormal.x) > 0.5) {
+    if (abs(surfaceNormal.x) > 0.5) {
         faceUV = localPos.yz;
-    } else if (abs(glassSurfaceNormal.y) > 0.5) {
+    } else if (abs(surfaceNormal.y) > 0.5) {
         faceUV = localPos.xz;
     } else {
         faceUV = localPos.xy;
@@ -112,18 +100,70 @@ void applyGlassOverlay(
     float innerFrame  = smoothstep(frameWidth * 0.7, innerFrameWidth, distFromEdge) *
                         (1.0 - smoothstep(innerFrameWidth, innerFrameWidth + 0.01, distFromEdge));
 
-    vec3 frameColor     = vec3(0.6, 0.9, 0.95);   // cyan-ish frame
-    vec3 highlightColor = vec3(0.95, 0.99, 1.0);  // lighter rim
-
     color = mix(color, frameColor,     outerFrame * 0.35);
     color = mix(color, highlightColor, innerFrame * 0.22);
 
     // Fresnel sky reflection
-    float viewDotNormal = abs(dot(normalize(dir), glassSurfaceNormal));
+    float viewDotNormal = abs(dot(normalize(dir), surfaceNormal));
     float fresnel = 0.05 + 0.15 * pow(1.0 - viewDotNormal, 2.0);
-    vec3 reflectDir      = reflect(normalize(dir), glassSurfaceNormal);
-    vec3 reflectionColor = getSkyColor(reflectDir);
+    vec3 reflectDir      = reflect(normalize(dir), surfaceNormal);
+    vec3 reflectionColor = getSkyColor(reflectDir) * reflectionTint;
     color = mix(color, reflectionColor, fresnel);
+}
+
+// ---------------------------------------------------------------------------
+// Shared target-block selection wireframe, drawn on the first crossed block.
+// Identical for plain and tinted glass.
+// ---------------------------------------------------------------------------
+void applyGlassTargetWireframe(
+    vec3 firstLocalHit,
+    vec3 surfaceNormal,
+    ivec3 firstCoord,
+    inout vec3 color)
+{
+    if (!hasTargetBlock()) {
+        return;
+    }
+    ivec3 targetPos = ivec3(pc.target_block_x, pc.target_block_y, pc.target_block_z);
+    if (firstCoord != targetPos) {
+        return;
+    }
+    float wireframe = getWireframeFactor(firstLocalHit, surfaceNormal);
+    if (wireframe > 0.1) {
+        vec3  outlineColor = vec3(0.0, 1.0, 1.0);
+        float outlineAlpha = wireframe * 0.9;
+        color = mix(color, outlineColor, outlineAlpha);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Glass surface overlay
+//
+// Applies the cyan-tinted edge highlight, Fresnel sky reflection, depth-based
+// tinting for stacked glass, and (optionally) the target-block wireframe for
+// the first glass block the ray crossed.
+// ---------------------------------------------------------------------------
+void applyGlassOverlay(
+    vec3 dir,
+    bool passedGlass,
+    float glassDepth,
+    vec3 glassSurfaceNormal,
+    vec3 firstGlassLocalHit,
+    ivec3 firstGlassCoord,
+    inout vec3 color)
+{
+    if (!passedGlass) {
+        return;
+    }
+
+    applyGlassFrameReflection(
+        dir,
+        glassSurfaceNormal,
+        firstGlassLocalHit,
+        vec3(0.6, 0.9, 0.95),    // cyan-ish frame
+        vec3(0.95, 0.99, 1.0),   // lighter rim
+        vec3(1.0),               // plain sky reflection
+        color);
 
     // Depth tinting through stacked glass
     if (glassDepth > 1.0) {
@@ -132,18 +172,7 @@ void applyGlassOverlay(
         color = mix(color, color * glassTint, depthFactor);
     }
 
-    // Target-block selection wireframe on the first glass block
-    if (hasTargetBlock()) {
-        ivec3 targetPos = ivec3(pc.target_block_x, pc.target_block_y, pc.target_block_z);
-        if (firstGlassCoord == targetPos) {
-            float wireframe = getWireframeFactor(firstGlassLocalHit, glassSurfaceNormal);
-            if (wireframe > 0.1) {
-                vec3  outlineColor = vec3(0.0, 1.0, 1.0);
-                float outlineAlpha = wireframe * 0.9;
-                color = mix(color, outlineColor, outlineAlpha);
-            }
-        }
-    }
+    applyGlassTargetWireframe(firstGlassLocalHit, glassSurfaceNormal, firstGlassCoord, color);
 }
 
 // ---------------------------------------------------------------------------
@@ -152,15 +181,6 @@ void applyGlassOverlay(
 // Applies edge frame highlight (using the accumulated tint colour), Fresnel
 // sky reflection, and the multiplicative colour tint accumulated from all
 // tinted glass blocks the ray crossed.
-//
-// Parameters:
-//   dir                       - Ray direction
-//   passedTintedGlass         - Whether the ray crossed at least one tinted glass block
-//   accumulatedTint           - Multiplicative tint product from all crossed blocks
-//   tintedGlassSurfaceNormal  - Face normal at the tinted glass entry crossing
-//   firstTintedGlassLocalHit  - Local (block-space) hit on the first tinted glass face
-//   firstTintedGlassCoord     - Integer block coord of the first tinted glass block
-//   color (inout)             - Current pixel color, modified in place
 // ---------------------------------------------------------------------------
 void applyTintedGlassOverlay(
     vec3 dir,
@@ -175,56 +195,20 @@ void applyTintedGlassOverlay(
         return;
     }
 
-    vec3 localPos = firstTintedGlassLocalHit;
-
-    // Compute face UV from surface normal direction
-    vec2 faceUV;
-    if (abs(tintedGlassSurfaceNormal.x) > 0.5) {
-        faceUV = localPos.yz;
-    } else if (abs(tintedGlassSurfaceNormal.y) > 0.5) {
-        faceUV = localPos.xz;
-    } else {
-        faceUV = localPos.xy;
-    }
-
-    // Edge frame highlight using the tint colour
-    const float frameWidth = 0.012;
-    const float innerFrameWidth = 0.03;
-
-    float distFromEdgeX = min(faceUV.x, 1.0 - faceUV.x);
-    float distFromEdgeY = min(faceUV.y, 1.0 - faceUV.y);
-    float distFromEdge  = min(distFromEdgeX, distFromEdgeY);
-
-    float outerFrame = 1.0 - smoothstep(0.0, frameWidth * 0.8, distFromEdge);
-    float innerFrame  = smoothstep(frameWidth * 0.7, innerFrameWidth, distFromEdge) *
-                        (1.0 - smoothstep(innerFrameWidth, innerFrameWidth + 0.01, distFromEdge));
-
     vec3 frameColor     = accumulatedTint * 0.8;
     vec3 highlightColor = mix(accumulatedTint, vec3(1.0), 0.5);
 
-    color = mix(color, frameColor,     outerFrame * 0.35);
-    color = mix(color, highlightColor, innerFrame * 0.22);
-
-    // Fresnel sky reflection (tinted)
-    float viewDotNormal = abs(dot(normalize(dir), tintedGlassSurfaceNormal));
-    float fresnel = 0.05 + 0.15 * pow(1.0 - viewDotNormal, 2.0);
-    vec3 reflectDir      = reflect(normalize(dir), tintedGlassSurfaceNormal);
-    vec3 reflectionColor = getSkyColor(reflectDir) * accumulatedTint;
-    color = mix(color, reflectionColor, fresnel);
+    applyGlassFrameReflection(
+        dir,
+        tintedGlassSurfaceNormal,
+        firstTintedGlassLocalHit,
+        frameColor,
+        highlightColor,
+        accumulatedTint,         // tinted sky reflection
+        color);
 
     // Multiplicative tint pass (colour absorption through stained glass)
     color *= accumulatedTint;
 
-    // Target-block selection wireframe on the first tinted glass block
-    if (hasTargetBlock()) {
-        ivec3 targetPos = ivec3(pc.target_block_x, pc.target_block_y, pc.target_block_z);
-        if (firstTintedGlassCoord == targetPos) {
-            float wireframe = getWireframeFactor(firstTintedGlassLocalHit, tintedGlassSurfaceNormal);
-            if (wireframe > 0.1) {
-                vec3  outlineColor = vec3(0.0, 1.0, 1.0);
-                float outlineAlpha = wireframe * 0.9;
-                color = mix(color, outlineColor, outlineAlpha);
-            }
-        }
-    }
+    applyGlassTargetWireframe(firstTintedGlassLocalHit, tintedGlassSurfaceNormal, firstTintedGlassCoord, color);
 }
