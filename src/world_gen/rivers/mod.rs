@@ -15,8 +15,8 @@
 //! - No convergence artifacts since contours don't converge
 //! - Density noise controls river frequency per region
 
-use crate::terrain_gen::BiomeType;
 use crate::world_gen::SEA_LEVEL;
+use crate::world_gen::biome::BiomeType;
 use noise::{NoiseFn, Perlin, Simplex};
 
 /// Maximum water level for rivers (caps how high river water can be).

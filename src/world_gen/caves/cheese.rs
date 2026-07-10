@@ -76,19 +76,20 @@ impl CheeseCaves {
     ///
     /// Some biomes have larger or smaller cheese caves.
     #[allow(dead_code)]
-    pub fn get_biome_multiplier(&self, biome: crate::terrain_gen::BiomeType) -> f64 {
+    pub fn get_biome_multiplier(&self, biome: crate::world_gen::biome::BiomeType) -> f64 {
         #[allow(deprecated)]
         match biome {
             // Underground biomes have more caverns
-            crate::terrain_gen::BiomeType::LushCaves => 1.5,
-            crate::terrain_gen::BiomeType::DripstoneCaves => 1.3,
-            crate::terrain_gen::BiomeType::DeepDark => 2.0,
+            crate::world_gen::biome::BiomeType::LushCaves => 1.5,
+            crate::world_gen::biome::BiomeType::DripstoneCaves => 1.3,
+            crate::world_gen::biome::BiomeType::DeepDark => 2.0,
             // Mountains have large internal caverns
-            crate::terrain_gen::BiomeType::Mountains => 1.4,
+            crate::world_gen::biome::BiomeType::Mountains => 1.4,
             // Desert has fewer caverns (less erosion)
-            crate::terrain_gen::BiomeType::Desert => 0.6,
+            crate::world_gen::biome::BiomeType::Desert => 0.6,
             // Ocean/Beach rarely have cheese caves
-            crate::terrain_gen::BiomeType::Ocean | crate::terrain_gen::BiomeType::Beach => 0.3,
+            crate::world_gen::biome::BiomeType::Ocean
+            | crate::world_gen::biome::BiomeType::Beach => 0.3,
             // Default for other biomes
             _ => 1.0,
         }

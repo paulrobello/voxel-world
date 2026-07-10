@@ -1,14 +1,17 @@
-//! Terrain generation facade.
+//! Chunk terrain generation — the live chunk-orchestration layer.
 //!
-//! This module provides backward compatibility by re-exporting types from
-//! the new modular world_gen system.
+//! This is NOT a compat shim: it holds the production entry points
+//! ([`generate_chunk_terrain`] and the per-biome block-placement loop in
+//! [`generate_normal_chunk`]) called by the chunk loader, world init,
+//! simulation, and console commands. Phase timing is exposed via
+//! [`get_gen_phase_timing`].
 //!
-//! The actual implementation has been split into:
-//! - `world_gen::biome` - Biome types and selection
-//! - `world_gen::terrain` - TerrainGenerator and height calculation
-//! - `world_gen::trees` - Tree generation
-//! - `world_gen::vegetation` - Ground cover and cave decorations
-//! - `world_gen::utils` - Helper functions and overflow blocks
+//! The lower-level building blocks live in `world_gen::*` (biome, climate,
+//! rivers, caves, trees, vegetation, utils). For historical reasons a few of
+//! those types are also re-exported here ([`BiomeType`], [`BiomeInfo`],
+//! [`TerrainGenerator`], [`ChunkGenerationResult`], [`OverflowBlock`],
+//! [`SEA_LEVEL`]) — many modules import them from this path, so the
+//! re-exports are retained.
 
 // Cross-chunk terrain generation requires many parameters (chunk coords, overflow blocks)
 // which exceeds clippy's default limit. This is intentional for the overflow block system.

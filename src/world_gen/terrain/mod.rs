@@ -1,6 +1,10 @@
-//! Core terrain generation.
+//! Core terrain generation primitives.
 //!
-//! Contains the TerrainGenerator struct and height calculation methods.
+//! Contains the [`TerrainGenerator`] struct: noise layers, climate-driven
+//! biome selection, height calculation (with river carving and biome-boundary
+//! blending), and the cached [`ColumnData`] snapshot consumed by the chunk
+//! loop. The higher-level per-chunk block-placement orchestration that
+//! drives this generator lives in `crate::terrain_gen`, not here.
 
 use crate::cave_gen::CaveGenerator;
 use crate::world_gen::biome::{BiomeInfo, BiomeType};

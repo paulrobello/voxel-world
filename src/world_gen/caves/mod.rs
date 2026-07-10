@@ -16,7 +16,7 @@ pub mod noodle;
 pub mod spaghetti;
 
 use crate::chunk::WaterType;
-use crate::terrain_gen::BiomeType;
+use crate::world_gen::biome::BiomeType;
 use carved::CarvedCaves;
 use cheese::CheeseCaves;
 use noise::{NoiseFn, Perlin};
