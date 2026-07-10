@@ -10,6 +10,23 @@ use crate::render_mode::RenderMode;
 use crate::sub_voxel::ModelRegistry;
 use egui_winit_vulkano::egui;
 
+/// World/player game-state mutations originating from the settings panel.
+///
+/// UI-002: instead of the settings panel mutating `World`/`Player`/game-state
+/// fields directly inside egui draw closures, each control emits one of these
+/// and a single consumer (`render_hud`) applies it — one choke point that undo
+/// or multiplayer-sync could later hook into.
+#[derive(Debug)]
+pub enum SettingsAction {
+    None,
+    SetFov(f64),
+    SetAutoJump(bool),
+    SetPlayerLight(bool),
+    SetTimeOfDay(f32),
+    SetMaxBlockUpdates(usize),
+    ClearMinimapCache,
+}
+
 pub struct SettingsUI;
 
 impl SettingsUI {
@@ -19,22 +36,23 @@ impl SettingsUI {
         settings: &mut Settings,
         render_mode: &mut RenderMode,
         current_hit: &Option<RaycastHit>,
-        player: &mut Player,
-        world: &mut crate::world::World,
+        player: &Player,
+        world: &crate::world::World,
         selected_block: BlockType,
-        time_of_day: &mut f32,
+        time_of_day: &f32,
         day_cycle_paused: &mut bool,
         atmosphere: &mut crate::atmosphere::AtmosphereSettings,
         view_distance: &mut i32,
         load_distance: &mut i32,
         unload_distance: &mut i32,
-        block_updates: &mut BlockUpdateQueue,
+        block_updates: &BlockUpdateQueue,
         _model_registry: &ModelRegistry,
         minimap: &mut crate::hud::Minimap,
         show_minimap: &mut bool,
         minimap_cached_image: &mut Option<egui_winit_vulkano::egui::ColorImage>,
-    ) -> bool {
+    ) -> (bool, SettingsAction) {
         let mut scale_changed = false;
+        let mut settings_action = SettingsAction::None;
 
         egui::Window::new("Settings")
             .default_open(false)
@@ -162,7 +180,13 @@ impl SettingsUI {
 
                         ui.separator();
 
-                        ui.add(egui::Slider::new(&mut player.camera.fov, 20.0..=120.0).text("FOV"));
+                        let mut fov = player.camera.fov;
+                        if ui
+                            .add(egui::Slider::new(&mut fov, 20.0..=120.0).text("FOV"))
+                            .changed()
+                        {
+                            settings_action = SettingsAction::SetFov(fov);
+                        }
 
                         if ui
                             .add(
@@ -221,12 +245,18 @@ impl SettingsUI {
                         } else {
                             "Night"
                         };
-                        ui.add(
-                            egui::Slider::new(time_of_day, 0.0..=1.0)
-                                .text(time_label)
-                                .custom_formatter(|v, _| format_time(v))
-                                .custom_parser(parse_time),
-                        );
+                        let mut time_value = *time_of_day;
+                        if ui
+                            .add(
+                                egui::Slider::new(&mut time_value, 0.0..=1.0)
+                                    .text(time_label)
+                                    .custom_formatter(|v, _| format_time(v))
+                                    .custom_parser(parse_time),
+                            )
+                            .changed()
+                        {
+                            settings_action = SettingsAction::SetTimeOfDay(time_value);
+                        }
                         ui.add(
                             egui::Slider::new(&mut atmosphere.ambient_light, 0.0..=1.0)
                                 .text("Ambient Light"),
@@ -557,19 +587,24 @@ impl SettingsUI {
                         ui.separator();
 
                         // Gameplay options
-                        ui.checkbox(&mut player.auto_jump, "Auto-jump");
+                        let mut auto_jump = player.auto_jump;
+                        if ui.checkbox(&mut auto_jump, "Auto-jump").changed() {
+                            settings_action = SettingsAction::SetAutoJump(auto_jump);
+                        }
                         ui.checkbox(&mut settings.instant_break, "Instant block break");
                         ui.checkbox(&mut settings.instant_place, "Instant block place");
                         ui.checkbox(&mut settings.show_block_preview, "Block placement preview");
                         ui.checkbox(&mut settings.show_target_outline, "Target block outline");
+                        let mut player_light = player.light_enabled;
                         if ui
-                            .checkbox(&mut player.light_enabled, "Player torch light")
+                            .checkbox(&mut player_light, "Player torch light")
                             .changed()
                         {
                             log::debug!(
                                 "[TOGGLE] Player Light: {}",
-                                if player.light_enabled { "ON" } else { "OFF" }
+                                if player_light { "ON" } else { "OFF" }
                             );
+                            settings_action = SettingsAction::SetPlayerLight(player_light);
                         }
 
                         ui.add(
@@ -593,7 +628,8 @@ impl SettingsUI {
                             )
                             .changed()
                         {
-                            block_updates.max_per_frame = max_updates as usize;
+                            settings_action =
+                                SettingsAction::SetMaxBlockUpdates(max_updates as usize);
                         }
 
                         ui.separator();
@@ -666,7 +702,7 @@ impl SettingsUI {
                         {
                             // Clear cache when this setting changes
                             *minimap_cached_image = None;
-                            world.clear_minimap_cache();
+                            settings_action = SettingsAction::ClearMinimapCache;
                             log::debug!(
                                 "[MINIMAP] Skip ground clutter: {}",
                                 if minimap.skip_decorative { "ON" } else { "OFF" }
@@ -696,6 +732,6 @@ impl SettingsUI {
                     }); // end ScrollArea
             });
 
-        scale_changed
+        (scale_changed, settings_action)
     }
 }

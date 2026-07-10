@@ -82,6 +82,7 @@ use pattern_tool::PatternToolUI;
 use polygon_tool::PolygonToolUI;
 use replace_tool::ReplaceToolUI;
 use scatter_tool::ScatterToolUI;
+pub use settings::SettingsAction;
 use settings::SettingsUI;
 use sphere_tool::SphereToolUI;
 use stairs_tool::StairsToolUI;
@@ -247,7 +248,13 @@ impl HUDRenderer {
         &self,
         gui: &mut egui_winit_vulkano::Gui,
         input: HudInputs<'_>,
-    ) -> (bool, EditorAction, ToolAction, MultiplayerAction) {
+    ) -> (
+        bool,
+        EditorAction,
+        ToolAction,
+        MultiplayerAction,
+        SettingsAction,
+    ) {
         let HudInputs {
             fps,
             chunk_stats,
@@ -366,6 +373,7 @@ impl HUDRenderer {
         let mut editor_action = EditorAction::None;
         let mut tool_action = ToolAction::None;
         let mut multiplayer_action = MultiplayerAction::default();
+        let mut settings_action = SettingsAction::None;
         gui.immediate_ui(|gui| {
             let ctx = gui.context();
 
@@ -399,7 +407,7 @@ impl HUDRenderer {
                 HotbarUI::draw_drag_preview(&ctx, *item, atlas_texture_id, sprite_icons);
             }
 
-            scale_changed = SettingsUI::draw_settings_window(
+            let (sc, sa) = SettingsUI::draw_settings_window(
                 &ctx,
                 settings,
                 render_mode,
@@ -419,6 +427,8 @@ impl HUDRenderer {
                 show_minimap,
                 minimap_cached_image,
             );
+            scale_changed = sc;
+            settings_action = sa;
 
             // Tools palette (T key)
             //
@@ -725,6 +735,7 @@ impl HUDRenderer {
             editor_action,
             tool_action,
             multiplayer_action,
+            settings_action,
         )
     }
 
