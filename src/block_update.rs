@@ -109,6 +109,12 @@ pub struct BlockUpdateQueue {
     queued_set: HashSet<(Vector3<i32>, BlockUpdateType)>,
     /// Maximum updates to process per frame.
     pub max_per_frame: usize,
+    /// PHY-M04: roots whose flood-fill was already evaluated this frame. Keyed on
+    /// `(update_type, position)` so distinct logs/leaves of the same tree cluster
+    /// (each enqueued under its own position) skip the redundant re-flood. Cleared
+    /// at the start of every `process_updates` call so the set never leaks across
+    /// frames.
+    flood_evaluated_this_frame: HashSet<(BlockUpdateType, Vector3<i32>)>,
 }
 
 impl BlockUpdateQueue {
@@ -121,6 +127,7 @@ impl BlockUpdateQueue {
             pending: BinaryHeap::with_capacity(256),
             queued_set: HashSet::with_capacity(256),
             max_per_frame,
+            flood_evaluated_this_frame: HashSet::new(),
         }
     }
 
@@ -229,12 +236,31 @@ impl BlockUpdateQueue {
         Vec<FallingBlockSpawnEvent>,
         Vec<ModelGroundSupportBreakEvent>,
     ) {
+        // PHY-M04: the dedupe set is per-frame; reset it so a tree evaluated
+        // last tick can be re-checked this tick if the world changed.
+        self.flood_evaluated_this_frame.clear();
+
         let batch = self.take_batch();
         let mut spawn_events = Vec::new();
         let mut model_break_events = Vec::new();
 
+        // PHY-M04: account for flood-fill work in the frame budget. Previously
+        // `max_per_frame` counted updates dequeued, so one expensive tree flood
+        // (hundreds of nodes) counted as a single unit and could blow the frame.
+        // We now accumulate the nodes each update touches and defer the rest of
+        // the batch (re-enqueueing it for next frame) once the work cap is hit.
+        // Re-enqueueing is the queue's native operation; deferring to the next
+        // frame is exactly the frame-distribution this module exists to provide.
+        let mut work_done: usize = 0;
+        let work_cap = self.max_per_frame;
+
         for update in batch {
-            match update.update_type {
+            if work_done >= work_cap {
+                self.enqueue(update.position, update.update_type, player_pos);
+                continue;
+            }
+
+            let work = match update.update_type {
                 BlockUpdateType::Gravity => {
                     let spawns = self.process_gravity_update(
                         update.position,
@@ -243,24 +269,27 @@ impl BlockUpdateQueue {
                         player_pos,
                     );
                     spawn_events.extend(spawns);
+                    1
                 }
                 BlockUpdateType::TreeSupport => {
-                    let spawns = self.process_tree_support_update(
+                    let (spawns, work) = self.process_tree_support_update(
                         update.position,
                         world,
                         falling_blocks,
                         player_pos,
                     );
                     spawn_events.extend(spawns);
+                    work
                 }
                 BlockUpdateType::OrphanedLeaves => {
-                    let spawns = self.process_orphaned_leaves_update(
+                    let (spawns, work) = self.process_orphaned_leaves_update(
                         update.position,
                         world,
                         falling_blocks,
                         player_pos,
                     );
                     spawn_events.extend(spawns);
+                    work
                 }
                 BlockUpdateType::ModelGroundSupport => {
                     let breaks = self.process_model_ground_support_update(
@@ -270,8 +299,10 @@ impl BlockUpdateQueue {
                         model_registry,
                     );
                     model_break_events.extend(breaks);
+                    1
                 }
-            }
+            };
+            work_done = work_done.saturating_add(work);
         }
 
         (spawn_events, model_break_events)
@@ -293,29 +324,31 @@ impl BlockUpdateQueue {
         if let Some(block_type) = world.get_block(pos)
             && block_type.is_affected_by_gravity()
         {
-            world.set_block(pos, BlockType::Air);
-            world.invalidate_minimap_cache(pos.x, pos.z);
-
-            // Spawn falling block and capture entity ID
+            // PHY-M01: spawn FIRST, and only clear the source block on success.
+            // `FallingBlockSystem::spawn` rejects at `MAX_FALLING_BLOCKS` (256);
+            // the old code ran `set_block(Air)` before the spawn attempt, so a
+            // capacity rejection deleted the terrain block and left a permanent
+            // hole. Now a rejected spawn leaves the source block intact.
             if let Some(entity_id) = falling_blocks.spawn(pos, block_type) {
-                // Record spawn event for multiplayer sync
+                world.set_block(pos, BlockType::Air);
+                world.invalidate_minimap_cache(pos.x, pos.z);
                 spawn_events.push(FallingBlockSpawnEvent {
                     entity_id,
                     position: pos,
                     block_type,
                 });
-            }
 
-            let above_pos = pos + Vector3::new(0, 1, 0);
+                let above_pos = pos + Vector3::new(0, 1, 0);
 
-            // Queue the next block up for cascade
-            self.enqueue(above_pos, BlockUpdateType::Gravity, player_pos);
+                // Queue the next block up for cascade
+                self.enqueue(above_pos, BlockUpdateType::Gravity, player_pos);
 
-            // If block above is a leaf, check if it's still supported
-            if let Some(above_block) = world.get_block(above_pos)
-                && above_block.is_leaves()
-            {
-                self.enqueue(above_pos, BlockUpdateType::OrphanedLeaves, player_pos);
+                // If block above is a leaf, check if it's still supported
+                if let Some(above_block) = world.get_block(above_pos)
+                    && above_block.is_leaves()
+                {
+                    self.enqueue(above_pos, BlockUpdateType::OrphanedLeaves, player_pos);
+                }
             }
         }
 
@@ -328,48 +361,71 @@ impl BlockUpdateQueue {
         world: &mut crate::world::World,
         falling_blocks: &mut crate::falling_block::FallingBlockSystem,
         player_pos: Vector3<f32>,
-    ) -> Vec<FallingBlockSpawnEvent> {
+    ) -> (Vec<FallingBlockSpawnEvent>, usize) {
         let mut spawn_events = Vec::new();
 
         if !y_in_bounds(pos.y) {
-            return spawn_events;
+            return (spawn_events, 0);
         }
 
         if let Some(block) = world.get_block(pos)
             && block.is_log()
         {
+            // PHY-M04: skip the flood if this tree was already evaluated this
+            // frame. Distinct logs of the same cluster are enqueued under their
+            // own positions; without this guard each re-floods the whole tree.
+            if self
+                .flood_evaluated_this_frame
+                .contains(&(BlockUpdateType::TreeSupport, pos))
+            {
+                return (spawn_events, 0);
+            }
+
             let tree_blocks = world.find_connected_tree(pos);
+            // Work done this call = nodes the flood touched. Counts against the
+            // frame budget so one expensive flood can't monopolize a tick.
+            let work = tree_blocks.len();
+            // Mark every block of the cluster (and the queried root) so any other
+            // queued log of the same tree skips its redundant re-flood this frame.
+            self.flood_evaluated_this_frame
+                .insert((BlockUpdateType::TreeSupport, pos));
+            for (p, _) in &tree_blocks {
+                self.flood_evaluated_this_frame
+                    .insert((BlockUpdateType::TreeSupport, *p));
+            }
+
             if !tree_blocks.is_empty() && !world.tree_has_ground_support(&tree_blocks) {
                 for (p, bt) in tree_blocks {
-                    world.set_block(p, BlockType::Air);
-                    world.invalidate_minimap_cache(p.x, p.z);
-
-                    // Spawn falling block and capture entity ID
+                    // PHY-M01: only clear the source block on a successful spawn
+                    // so a capacity rejection (MAX_FALLING_BLOCKS) doesn't delete
+                    // the tree block and leave a hole.
                     if let Some(entity_id) = falling_blocks.spawn(p, bt) {
-                        // Record spawn event for multiplayer sync
+                        world.set_block(p, BlockType::Air);
+                        world.invalidate_minimap_cache(p.x, p.z);
                         spawn_events.push(FallingBlockSpawnEvent {
                             entity_id,
                             position: p,
                             block_type: bt,
                         });
-                    }
 
-                    let above_pos = p + Vector3::new(0, 1, 0);
+                        let above_pos = p + Vector3::new(0, 1, 0);
 
-                    // Queue gravity check for block above (snow, sand, gravel, etc.)
-                    self.enqueue(above_pos, BlockUpdateType::Gravity, player_pos);
+                        // Queue gravity check for block above (snow, sand, gravel, etc.)
+                        self.enqueue(above_pos, BlockUpdateType::Gravity, player_pos);
 
-                    // Also check for orphaned leaves above
-                    if let Some(above_block) = world.get_block(above_pos)
-                        && above_block.is_leaves()
-                    {
-                        self.enqueue(above_pos, BlockUpdateType::OrphanedLeaves, player_pos);
+                        // Also check for orphaned leaves above
+                        if let Some(above_block) = world.get_block(above_pos)
+                            && above_block.is_leaves()
+                        {
+                            self.enqueue(above_pos, BlockUpdateType::OrphanedLeaves, player_pos);
+                        }
                     }
                 }
             }
+            return (spawn_events, work);
         }
 
-        spawn_events
+        (spawn_events, 0)
     }
 
     fn process_orphaned_leaves_update(
@@ -378,48 +434,65 @@ impl BlockUpdateQueue {
         world: &mut crate::world::World,
         falling_blocks: &mut crate::falling_block::FallingBlockSystem,
         player_pos: Vector3<f32>,
-    ) -> Vec<FallingBlockSpawnEvent> {
+    ) -> (Vec<FallingBlockSpawnEvent>, usize) {
         let mut spawn_events = Vec::new();
 
         if !y_in_bounds(pos.y) {
-            return spawn_events;
+            return (spawn_events, 0);
         }
 
         if let Some(block) = world.get_block(pos)
             && block.is_leaves()
         {
+            // PHY-M04: skip the flood if this leaf cluster was already evaluated
+            // this frame (multiple leaves of one cluster are enqueued separately).
+            if self
+                .flood_evaluated_this_frame
+                .contains(&(BlockUpdateType::OrphanedLeaves, pos))
+            {
+                return (spawn_events, 0);
+            }
+
             let (leaves, has_log) = world.find_leaf_cluster_and_check_log(pos);
+            let work = leaves.len();
+            self.flood_evaluated_this_frame
+                .insert((BlockUpdateType::OrphanedLeaves, pos));
+            for (p, _) in &leaves {
+                self.flood_evaluated_this_frame
+                    .insert((BlockUpdateType::OrphanedLeaves, *p));
+            }
+
             if !has_log && !leaves.is_empty() {
                 for (p, bt) in leaves {
-                    world.set_block(p, BlockType::Air);
-                    world.invalidate_minimap_cache(p.x, p.z);
-
-                    // Spawn falling block and capture entity ID
+                    // PHY-M01: only clear on successful spawn so a capacity
+                    // rejection doesn't delete the leaf and leave a hole.
                     if let Some(entity_id) = falling_blocks.spawn(p, bt) {
-                        // Record spawn event for multiplayer sync
+                        world.set_block(p, BlockType::Air);
+                        world.invalidate_minimap_cache(p.x, p.z);
                         spawn_events.push(FallingBlockSpawnEvent {
                             entity_id,
                             position: p,
                             block_type: bt,
                         });
-                    }
 
-                    let above_pos = p + Vector3::new(0, 1, 0);
+                        let above_pos = p + Vector3::new(0, 1, 0);
 
-                    // Queue gravity check for block above (snow, sand, gravel, etc.)
-                    self.enqueue(above_pos, BlockUpdateType::Gravity, player_pos);
+                        // Queue gravity check for block above (snow, sand, gravel, etc.)
+                        self.enqueue(above_pos, BlockUpdateType::Gravity, player_pos);
 
-                    // Also check for more orphaned leaves above
-                    if let Some(above_block) = world.get_block(above_pos)
-                        && above_block.is_leaves()
-                    {
-                        self.enqueue(above_pos, BlockUpdateType::OrphanedLeaves, player_pos);
+                        // Also check for more orphaned leaves above
+                        if let Some(above_block) = world.get_block(above_pos)
+                            && above_block.is_leaves()
+                        {
+                            self.enqueue(above_pos, BlockUpdateType::OrphanedLeaves, player_pos);
+                        }
                     }
                 }
             }
+            return (spawn_events, work);
         }
 
-        spawn_events
+        (spawn_events, 0)
     }
 
     fn process_model_ground_support_update(
@@ -470,6 +543,8 @@ impl BlockUpdateQueue {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::falling_block::{FallingBlockSystem, MAX_FALLING_BLOCKS};
+    use crate::world::World;
 
     #[test]
     fn test_enqueue_dedup() {
@@ -763,5 +838,137 @@ mod tests {
         assert_eq!(client_grid_pos, server_event.position);
         assert_eq!(server_event.entity_id, 123);
         assert_eq!(server_event.block_type, BlockType::Sand);
+    }
+
+    /// PHY-M01: when the falling-block system is at capacity, a rejected spawn
+    /// must NOT delete the source terrain block. The old code ran
+    /// `set_block(Air)` before attempting the spawn, so a capacity rejection
+    /// punched a permanent hole wherever gravity sand/gravel/snow sat.
+    #[test]
+    fn test_phy_m01_gravity_capacity_rejection_preserves_block() {
+        let mut world = World::new();
+        let mut falling = FallingBlockSystem::new();
+        // Fill the system to capacity so the next spawn() returns None.
+        for i in 0..MAX_FALLING_BLOCKS {
+            assert!(
+                falling
+                    .spawn(Vector3::new(i as i32, 100, 0), BlockType::Sand)
+                    .is_some()
+            );
+        }
+        assert_eq!(falling.count(), MAX_FALLING_BLOCKS);
+
+        let pos = Vector3::new(5, 20, 5);
+        // Floor below loads the chunk so the sand's get_block resolves.
+        world.set_block(Vector3::new(pos.x, pos.y - 1, pos.z), BlockType::Stone);
+        world.set_block(pos, BlockType::Sand);
+
+        let mut queue = BlockUpdateQueue::new(32);
+        let player_pos = Vector3::new(0.0, 0.0, 0.0);
+        let spawns = queue.process_gravity_update(pos, &mut world, &mut falling, player_pos);
+
+        // Spawn rejected at capacity → no event, and the sand block MUST remain.
+        assert!(spawns.is_empty(), "no spawn event when at capacity");
+        assert_eq!(
+            world.get_block(pos),
+            Some(BlockType::Sand),
+            "PHY-M01: source block must not be deleted when spawn is rejected"
+        );
+    }
+
+    /// PHY-M01: the tree-support path has the same capacity-rejection hazard.
+    /// A tree with no ground support whose spawn is rejected must NOT have its
+    /// logs silently deleted.
+    #[test]
+    fn test_phy_m01_tree_support_capacity_rejection_preserves_log() {
+        let mut world = World::new();
+        let mut falling = FallingBlockSystem::new();
+        for i in 0..MAX_FALLING_BLOCKS {
+            assert!(
+                falling
+                    .spawn(Vector3::new(i as i32, 100, 0), BlockType::Sand)
+                    .is_some()
+            );
+        }
+
+        // Single log with nothing below it → no ground support → would fall.
+        let log_pos = Vector3::new(3, 30, 3);
+        world.set_block(log_pos, BlockType::Log);
+
+        let mut queue = BlockUpdateQueue::new(32);
+        queue.flood_evaluated_this_frame.clear();
+        let player_pos = Vector3::new(0.0, 0.0, 0.0);
+        let (spawns, _work) =
+            queue.process_tree_support_update(log_pos, &mut world, &mut falling, player_pos);
+
+        assert!(spawns.is_empty(), "no spawn event when at capacity");
+        assert_eq!(
+            world.get_block(log_pos),
+            Some(BlockType::Log),
+            "PHY-M01: unsupported log must not be deleted when spawn is rejected"
+        );
+    }
+
+    /// PHY-M01: when capacity is available, gravity processing still works —
+    /// the source block is cleared and a spawn event is emitted. Guards against
+    /// the M01 fix accidentally suppressing legitimate spawns.
+    #[test]
+    fn test_phy_m01_gravity_spawns_normally_under_capacity() {
+        let mut world = World::new();
+        let mut falling = FallingBlockSystem::new();
+        let pos = Vector3::new(2, 40, 2);
+        world.set_block(Vector3::new(pos.x, pos.y - 1, pos.z), BlockType::Stone);
+        world.set_block(pos, BlockType::Sand);
+
+        let mut queue = BlockUpdateQueue::new(32);
+        let player_pos = Vector3::new(0.0, 0.0, 0.0);
+        let spawns = queue.process_gravity_update(pos, &mut world, &mut falling, player_pos);
+
+        assert_eq!(spawns.len(), 1);
+        assert_eq!(spawns[0].block_type, BlockType::Sand);
+        assert_eq!(spawns[0].position, pos);
+        assert_eq!(world.get_block(pos), Some(BlockType::Air));
+    }
+
+    /// PHY-M04: two logs of the same connected tree, evaluated in the same
+    /// frame, must trigger only ONE flood. The second check (a distinct
+    /// enqueued position belonging to the already-evaluated cluster) reports
+    /// zero work and skips the redundant `find_connected_tree` traversal.
+    #[test]
+    fn test_phy_m04_tree_support_dedupes_same_tree_within_frame() {
+        let mut world = World::new();
+        let mut queue = BlockUpdateQueue::new(32);
+        let mut falling = FallingBlockSystem::new();
+        let player_pos = Vector3::new(0.0, 0.0, 0.0);
+
+        // Two orthogonally-adjacent logs form one connected tree. A Stone floor
+        // below the lower log gives ground support so the tree stands — we want
+        // to observe the dedupe, not a fall.
+        let log1 = Vector3::new(5, 10, 5);
+        let log2 = Vector3::new(5, 11, 5);
+        world.set_block(Vector3::new(log1.x, log1.y - 1, log1.z), BlockType::Stone);
+        world.set_block(log1, BlockType::Log);
+        world.set_block(log2, BlockType::Log);
+
+        queue.flood_evaluated_this_frame.clear();
+
+        // First check from log1 floods the whole 2-log tree → 2 units of work.
+        let (spawns1, work1) =
+            queue.process_tree_support_update(log1, &mut world, &mut falling, player_pos);
+        assert!(spawns1.is_empty(), "stable tree does not fall");
+        assert_eq!(work1, 2, "flood visited both logs");
+
+        // Second check from log2 (same cluster, already evaluated) must skip.
+        let (spawns2, work2) =
+            queue.process_tree_support_update(log2, &mut world, &mut falling, player_pos);
+        assert!(spawns2.is_empty());
+        assert_eq!(
+            work2, 0,
+            "PHY-M04: same-tree re-check must skip the redundant flood"
+        );
+
+        // Tree still standing.
+        assert_eq!(world.get_block(log1), Some(BlockType::Log));
+        assert_eq!(world.get_block(log2), Some(BlockType::Log));
     }
 }
