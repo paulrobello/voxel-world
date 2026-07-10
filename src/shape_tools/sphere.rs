@@ -7,6 +7,7 @@ use crate::gpu::MAX_STENCIL_BLOCKS;
 use nalgebra::Vector3;
 
 use super::PlacementMode;
+use super::PreviewCache;
 
 /// State for the sphere placement tool.
 #[derive(Clone, Debug)]
@@ -21,14 +22,12 @@ pub struct SphereToolState {
     pub dome: bool,
     /// Placement mode (center or base).
     pub placement_mode: PlacementMode,
-    /// Cached preview positions for GPU upload.
-    pub preview_positions: Vec<Vector3<i32>>,
+    /// Cached preview state (positions + truncation flag).
+    pub preview: PreviewCache,
     /// Current preview center position (if targeting a block).
     pub preview_center: Option<Vector3<i32>>,
     /// Total block count for the full sphere (may differ from preview if truncated).
     pub total_blocks: usize,
-    /// Whether the preview was truncated due to exceeding buffer limit.
-    pub preview_truncated: bool,
     /// Cached radius for detecting when to regenerate preview.
     cached_radius: i32,
     /// Cached hollow setting for detecting when to regenerate preview.
@@ -47,10 +46,9 @@ impl Default for SphereToolState {
             hollow: false,
             dome: false,
             placement_mode: PlacementMode::Center,
-            preview_positions: Vec::new(),
+            preview: PreviewCache::new(),
             preview_center: None,
             total_blocks: 0,
-            preview_truncated: false,
             cached_radius: 5,
             cached_hollow: false,
             cached_dome: false,
@@ -78,9 +76,8 @@ impl SphereToolState {
 
     /// Clear the preview state.
     pub fn clear_preview(&mut self) {
-        self.preview_positions.clear();
+        self.preview.clear();
         self.preview_center = None;
-        self.preview_truncated = false;
         self.total_blocks = 0;
     }
 
@@ -108,14 +105,8 @@ impl SphereToolState {
 
             // Track total count and truncation status
             self.total_blocks = all_positions.len();
-            self.preview_truncated = all_positions.len() > MAX_STENCIL_BLOCKS;
-
-            // Truncate for preview (full list used for actual placement)
-            if all_positions.len() > MAX_STENCIL_BLOCKS {
-                self.preview_positions = all_positions[..MAX_STENCIL_BLOCKS].to_vec();
-            } else {
-                self.preview_positions = all_positions;
-            }
+            self.preview
+                .set(all_positions, self.total_blocks, MAX_STENCIL_BLOCKS);
         }
     }
 }

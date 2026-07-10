@@ -748,7 +748,7 @@ impl App {
         // Handle sphere placement with right-click
         if self.input.focused
             && self.ui.sphere_tool.active
-            && !self.ui.sphere_tool.preview_positions.is_empty()
+            && !self.ui.sphere_tool.preview.positions.is_empty()
             && self.input.mouse_pressed(MouseButton::Right)
             && !self.ui.placement.place_needs_reclick
         {
@@ -760,7 +760,7 @@ impl App {
         // Handle cube placement with right-click
         if self.input.focused
             && self.ui.cube_tool.active
-            && !self.ui.cube_tool.preview_positions.is_empty()
+            && !self.ui.cube_tool.preview.positions.is_empty()
             && self.input.mouse_pressed(MouseButton::Right)
             && !self.ui.placement.place_needs_reclick
         {
@@ -772,7 +772,7 @@ impl App {
         // Handle cylinder placement with right-click
         if self.input.focused
             && self.ui.cylinder_tool.active
-            && !self.ui.cylinder_tool.preview_positions.is_empty()
+            && !self.ui.cylinder_tool.preview.positions.is_empty()
             && self.input.mouse_pressed(MouseButton::Right)
             && !self.ui.placement.place_needs_reclick
         {
@@ -850,7 +850,7 @@ impl App {
         // Handle circle placement with right-click
         if self.input.focused
             && self.ui.circle_tool.active
-            && !self.ui.circle_tool.preview_positions.is_empty()
+            && !self.ui.circle_tool.preview.positions.is_empty()
             && self.input.mouse_pressed(MouseButton::Right)
             && !self.ui.placement.place_needs_reclick
         {
@@ -896,14 +896,14 @@ impl App {
                         self.ui.arch_tool.start_position = Some(target);
                         log::debug!("Arch start: ({}, {}, {})", target.x, target.y, target.z);
                     }
-                } else if !self.ui.arch_tool.preview_positions.is_empty() {
+                } else if !self.ui.arch_tool.preview.positions.is_empty() {
                     // Place the arch
                     self.place_arch();
                     self.ui.arch_tool.start_position = None;
                 }
             } else {
                 // Single-click mode
-                if !self.ui.arch_tool.preview_positions.is_empty() {
+                if !self.ui.arch_tool.preview.positions.is_empty() {
                     self.place_arch();
                 }
             }
@@ -914,7 +914,7 @@ impl App {
         // Handle cone/pyramid placement with right-click
         if self.input.focused
             && self.ui.cone_tool.active
-            && !self.ui.cone_tool.preview_positions.is_empty()
+            && !self.ui.cone_tool.preview.positions.is_empty()
             && self.input.mouse_pressed(MouseButton::Right)
             && !self.ui.placement.place_needs_reclick
         {
@@ -926,7 +926,7 @@ impl App {
         // Handle torus placement with right-click
         if self.input.focused
             && self.ui.torus_tool.active
-            && !self.ui.torus_tool.preview_positions.is_empty()
+            && !self.ui.torus_tool.preview.positions.is_empty()
             && self.input.mouse_pressed(MouseButton::Right)
             && !self.ui.placement.place_needs_reclick
         {
@@ -938,7 +938,7 @@ impl App {
         // Handle helix placement with right-click
         if self.input.focused
             && self.ui.helix_tool.active
-            && !self.ui.helix_tool.preview_positions.is_empty()
+            && !self.ui.helix_tool.preview.positions.is_empty()
             && self.input.mouse_pressed(MouseButton::Right)
             && !self.ui.placement.place_needs_reclick
         {
@@ -950,7 +950,7 @@ impl App {
         // Handle polygon placement with right-click
         if self.input.focused
             && self.ui.polygon_tool.active
-            && !self.ui.polygon_tool.preview_positions.is_empty()
+            && !self.ui.polygon_tool.preview.positions.is_empty()
             && self.input.mouse_pressed(MouseButton::Right)
             && !self.ui.placement.place_needs_reclick
         {
@@ -998,7 +998,7 @@ impl App {
         if self.input.focused
             && self.ui.bezier_tool.active
             && self.ui.bezier_tool.has_curve()
-            && !self.ui.bezier_tool.preview_positions.is_empty()
+            && !self.ui.bezier_tool.preview.positions.is_empty()
             && self.input.key_pressed(KeyCode::Enter)
         {
             self.place_bezier();
@@ -1041,7 +1041,7 @@ impl App {
         // Handle hollow tool with right-click
         if self.input.focused
             && self.ui.hollow_tool.active
-            && !self.ui.hollow_tool.preview_positions.is_empty()
+            && !self.ui.hollow_tool.preview.positions.is_empty()
             && self.input.mouse_pressed(MouseButton::Right)
             && !self.ui.placement.place_needs_reclick
         {

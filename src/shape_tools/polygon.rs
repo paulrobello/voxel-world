@@ -7,6 +7,8 @@
 use crate::gpu::MAX_STENCIL_BLOCKS;
 use nalgebra::Vector3;
 
+use super::PreviewCache;
+
 /// State for the polygon placement tool.
 #[derive(Clone, Debug)]
 pub struct PolygonToolState {
@@ -22,14 +24,12 @@ pub struct PolygonToolState {
     pub hollow: bool,
     /// Rotation angle in degrees (0-360).
     pub rotation: i32,
-    /// Cached preview positions for GPU upload.
-    pub preview_positions: Vec<Vector3<i32>>,
+    /// Cached preview state (positions + truncation flag).
+    pub preview: PreviewCache,
     /// Current preview center position (if targeting a block).
     pub preview_center: Option<Vector3<i32>>,
     /// Total block count for the full polygon (may differ from preview if truncated).
     pub total_blocks: usize,
-    /// Whether the preview is truncated due to MAX_STENCIL_BLOCKS.
-    pub preview_truncated: bool,
     /// Cached parameters to detect when regeneration is needed.
     cached_params: (i32, i32, i32, bool, i32),
 }
@@ -43,10 +43,9 @@ impl Default for PolygonToolState {
             height: 1,
             hollow: false,
             rotation: 0,
-            preview_positions: Vec::new(),
+            preview: PreviewCache::new(),
             preview_center: None,
             total_blocks: 0,
-            preview_truncated: false,
             cached_params: (0, 0, 0, false, 0),
         }
     }
@@ -100,22 +99,15 @@ impl PolygonToolState {
         );
 
         self.total_blocks = all_positions.len();
-        self.preview_truncated = self.total_blocks > MAX_STENCIL_BLOCKS;
-
-        // Truncate for preview if needed
-        if self.preview_truncated {
-            self.preview_positions = all_positions.into_iter().take(MAX_STENCIL_BLOCKS).collect();
-        } else {
-            self.preview_positions = all_positions;
-        }
+        self.preview
+            .set(all_positions, self.total_blocks, MAX_STENCIL_BLOCKS);
     }
 
     /// Clear the preview (when not targeting any block).
     pub fn clear_preview(&mut self) {
-        self.preview_positions.clear();
+        self.preview.clear();
         self.preview_center = None;
         self.total_blocks = 0;
-        self.preview_truncated = false;
     }
 
     /// Deactivate the tool and clear preview.

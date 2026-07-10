@@ -53,7 +53,7 @@ impl HollowToolUI {
                             state.total_blocks - state.hollow_count
                         ));
 
-                        if state.preview_truncated {
+                        if state.preview.truncated {
                             ui.colored_label(egui::Color32::YELLOW, "Preview truncated");
                         }
 

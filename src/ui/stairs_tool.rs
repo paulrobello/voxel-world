@@ -60,7 +60,7 @@ impl StairsToolUI {
                             ui.label("Blocks:");
                             ui.label(format!("{}", state.total_blocks));
                         });
-                        if state.preview_truncated {
+                        if state.preview.truncated {
                             ui.colored_label(egui::Color32::YELLOW, "Preview truncated (>4096)");
                         }
                     }

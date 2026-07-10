@@ -6,6 +6,8 @@
 use crate::gpu::MAX_STENCIL_BLOCKS;
 use nalgebra::Vector3;
 
+use super::PreviewCache;
+
 /// State for the bezier curve placement tool.
 #[derive(Clone, Debug)]
 pub struct BezierToolState {
@@ -17,14 +19,12 @@ pub struct BezierToolState {
     pub tube_radius: i32,
     /// Resolution multiplier (segments per unit distance) (1-5).
     pub resolution: i32,
-    /// Cached preview positions for GPU upload.
-    pub preview_positions: Vec<Vector3<i32>>,
+    /// Cached preview state (positions + truncation flag).
+    pub preview: PreviewCache,
     /// Control point marker positions (for rendering with different color).
     pub control_point_markers: Vec<Vector3<i32>>,
     /// Total block count for the full curve (may differ from preview if truncated).
     pub total_blocks: usize,
-    /// Whether the preview is truncated due to MAX_STENCIL_BLOCKS.
-    pub preview_truncated: bool,
     /// Cached parameters to detect when regeneration is needed.
     cached_params: (i32, i32, Vec<Vector3<i32>>),
 }
@@ -36,10 +36,9 @@ impl Default for BezierToolState {
             control_points: Vec::new(),
             tube_radius: 1,
             resolution: 2,
-            preview_positions: Vec::new(),
+            preview: PreviewCache::new(),
             control_point_markers: Vec::new(),
             total_blocks: 0,
-            preview_truncated: false,
             cached_params: (0, 0, Vec::new()),
         }
     }
@@ -108,9 +107,8 @@ impl BezierToolState {
         self.control_point_markers = generate_control_point_markers(&self.control_points);
 
         if self.control_points.len() < 3 {
-            self.preview_positions.clear();
+            self.preview.clear();
             self.total_blocks = 0;
-            self.preview_truncated = false;
             return;
         }
 
@@ -119,14 +117,8 @@ impl BezierToolState {
             generate_bezier_positions(&self.control_points, self.tube_radius, self.resolution);
 
         self.total_blocks = all_positions.len();
-        self.preview_truncated = self.total_blocks > MAX_STENCIL_BLOCKS;
-
-        // Truncate for preview if needed
-        if self.preview_truncated {
-            self.preview_positions = all_positions.into_iter().take(MAX_STENCIL_BLOCKS).collect();
-        } else {
-            self.preview_positions = all_positions;
-        }
+        self.preview
+            .set(all_positions, self.total_blocks, MAX_STENCIL_BLOCKS);
     }
 
     /// Update preview with live cursor position as next point.
@@ -141,9 +133,8 @@ impl BezierToolState {
         self.control_point_markers = generate_control_point_markers(&temp_points);
 
         if temp_points.len() < 3 {
-            self.preview_positions.clear();
+            self.preview.clear();
             self.total_blocks = 0;
-            self.preview_truncated = false;
             return;
         }
 
@@ -152,23 +143,16 @@ impl BezierToolState {
             generate_bezier_positions(&temp_points, self.tube_radius, self.resolution);
 
         self.total_blocks = all_positions.len();
-        self.preview_truncated = self.total_blocks > MAX_STENCIL_BLOCKS;
-
-        // Truncate for preview if needed
-        if self.preview_truncated {
-            self.preview_positions = all_positions.into_iter().take(MAX_STENCIL_BLOCKS).collect();
-        } else {
-            self.preview_positions = all_positions;
-        }
+        self.preview
+            .set(all_positions, self.total_blocks, MAX_STENCIL_BLOCKS);
     }
 
     /// Clear all control points and preview.
     pub fn clear(&mut self) {
         self.control_points.clear();
-        self.preview_positions.clear();
+        self.preview.clear();
         self.control_point_markers.clear();
         self.total_blocks = 0;
-        self.preview_truncated = false;
     }
 
     /// Deactivate the tool and clear state.

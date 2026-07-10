@@ -52,6 +52,46 @@ pub enum PlacementMode {
     Base,
 }
 
+/// Cached preview state shared by every shape-placement tool: the cached
+/// positions for GPU upload and a flag set when the full shape exceeded the
+/// stencil budget (so the preview is a truncated prefix).
+#[derive(Clone, Debug)]
+pub struct PreviewCache {
+    pub positions: Vec<Vector3<i32>>,
+    pub truncated: bool,
+}
+
+impl PreviewCache {
+    pub const fn new() -> Self {
+        Self {
+            positions: Vec::new(),
+            truncated: false,
+        }
+    }
+
+    /// Store `all_positions`, truncating to `max_blocks` when `total_blocks`
+    /// exceeds it. `total_blocks` is the count the caller compares against the
+    /// budget (usually `self.total_blocks`, already assigned from the full vec).
+    pub fn set(
+        &mut self,
+        all_positions: Vec<Vector3<i32>>,
+        total_blocks: usize,
+        max_blocks: usize,
+    ) {
+        self.truncated = total_blocks > max_blocks;
+        self.positions = if self.truncated {
+            all_positions.into_iter().take(max_blocks).collect()
+        } else {
+            all_positions
+        };
+    }
+
+    pub fn clear(&mut self) {
+        self.positions.clear();
+        self.truncated = false;
+    }
+}
+
 /// State for the cube placement tool.
 #[derive(Clone, Debug)]
 pub struct CubeToolState {
@@ -69,14 +109,12 @@ pub struct CubeToolState {
     pub dome: bool,
     /// Placement mode (center or base).
     pub placement_mode: PlacementMode,
-    /// Cached preview positions for GPU upload.
-    pub preview_positions: Vec<Vector3<i32>>,
+    /// Cached preview state (positions + truncation flag).
+    pub preview: PreviewCache,
     /// Current preview center position (if targeting a block).
     pub preview_center: Option<Vector3<i32>>,
     /// Total block count for the full cube (may differ from preview if truncated).
     pub total_blocks: usize,
-    /// Whether the preview was truncated due to exceeding buffer limit.
-    pub preview_truncated: bool,
     /// Cached size_x for detecting when to regenerate preview.
     cached_size_x: i32,
     /// Cached size_y for detecting when to regenerate preview.
@@ -101,10 +139,9 @@ impl Default for CubeToolState {
             hollow: false,
             dome: false,
             placement_mode: PlacementMode::Center,
-            preview_positions: Vec::new(),
+            preview: PreviewCache::new(),
             preview_center: None,
             total_blocks: 0,
-            preview_truncated: false,
             cached_size_x: 5,
             cached_size_y: 5,
             cached_size_z: 5,
@@ -138,9 +175,8 @@ impl CubeToolState {
 
     /// Clear the preview state.
     pub fn clear_preview(&mut self) {
-        self.preview_positions.clear();
+        self.preview.clear();
         self.preview_center = None;
-        self.preview_truncated = false;
         self.total_blocks = 0;
     }
 
@@ -176,14 +212,8 @@ impl CubeToolState {
 
             // Track total count and truncation status
             self.total_blocks = all_positions.len();
-            self.preview_truncated = all_positions.len() > MAX_STENCIL_BLOCKS;
-
-            // Truncate for preview (full list used for actual placement)
-            if all_positions.len() > MAX_STENCIL_BLOCKS {
-                self.preview_positions = all_positions[..MAX_STENCIL_BLOCKS].to_vec();
-            } else {
-                self.preview_positions = all_positions;
-            }
+            self.preview
+                .set(all_positions, self.total_blocks, MAX_STENCIL_BLOCKS);
         }
     }
 }
@@ -256,14 +286,12 @@ pub struct CylinderToolState {
     pub axis: cylinder::CylinderAxis,
     /// Placement mode (center or base).
     pub placement_mode: PlacementMode,
-    /// Cached preview positions for GPU upload.
-    pub preview_positions: Vec<Vector3<i32>>,
+    /// Cached preview state (positions + truncation flag).
+    pub preview: PreviewCache,
     /// Current preview center position (if targeting a block).
     pub preview_center: Option<Vector3<i32>>,
     /// Total block count for the full cylinder (may differ from preview if truncated).
     pub total_blocks: usize,
-    /// Whether the preview was truncated due to exceeding buffer limit.
-    pub preview_truncated: bool,
     /// Cached radius for detecting when to regenerate preview.
     cached_radius: i32,
     /// Cached height for detecting when to regenerate preview.
@@ -285,10 +313,9 @@ impl Default for CylinderToolState {
             hollow: false,
             axis: cylinder::CylinderAxis::Y,
             placement_mode: PlacementMode::Base,
-            preview_positions: Vec::new(),
+            preview: PreviewCache::new(),
             preview_center: None,
             total_blocks: 0,
-            preview_truncated: false,
             cached_radius: 3,
             cached_height: 10,
             cached_hollow: false,
@@ -319,9 +346,8 @@ impl CylinderToolState {
 
     /// Clear the preview state.
     pub fn clear_preview(&mut self) {
-        self.preview_positions.clear();
+        self.preview.clear();
         self.preview_center = None;
-        self.preview_truncated = false;
         self.total_blocks = 0;
     }
 
@@ -362,14 +388,8 @@ impl CylinderToolState {
 
             // Track total count and truncation status
             self.total_blocks = all_positions.len();
-            self.preview_truncated = all_positions.len() > MAX_STENCIL_BLOCKS;
-
-            // Truncate for preview (full list used for actual placement)
-            if all_positions.len() > MAX_STENCIL_BLOCKS {
-                self.preview_positions = all_positions[..MAX_STENCIL_BLOCKS].to_vec();
-            } else {
-                self.preview_positions = all_positions;
-            }
+            self.preview
+                .set(all_positions, self.total_blocks, MAX_STENCIL_BLOCKS);
         }
     }
 }
@@ -387,14 +407,12 @@ pub struct WallToolState {
     pub use_manual_height: bool,
     /// Manual height value for UI slider.
     pub height_value: i32,
-    /// Cached preview positions for GPU upload.
-    pub preview_positions: Vec<Vector3<i32>>,
+    /// Cached preview state (positions + truncation flag).
+    pub preview: PreviewCache,
     /// Current end position for preview (crosshair target).
     pub preview_end: Option<Vector3<i32>>,
     /// Total block count for the wall.
     pub total_blocks: usize,
-    /// Whether the preview was truncated due to exceeding buffer limit.
-    pub preview_truncated: bool,
     /// Cached thickness for detecting changes.
     cached_thickness: i32,
     /// Cached manual height for detecting changes.
@@ -409,10 +427,9 @@ impl Default for WallToolState {
             thickness: 1,
             use_manual_height: false,
             height_value: 5,
-            preview_positions: Vec::new(),
+            preview: PreviewCache::new(),
             preview_end: None,
             total_blocks: 0,
-            preview_truncated: false,
             cached_thickness: 1,
             cached_manual_height: None,
         }
@@ -431,10 +448,9 @@ impl WallToolState {
 
     /// Clear the preview state.
     pub fn clear_preview(&mut self) {
-        self.preview_positions.clear();
+        self.preview.clear();
         self.preview_end = None;
         self.total_blocks = 0;
-        self.preview_truncated = false;
     }
 
     /// Cancel the wall (clear start position and preview).
@@ -485,14 +501,8 @@ impl WallToolState {
 
                 // Track total count and truncation status
                 self.total_blocks = all_positions.len();
-                self.preview_truncated = all_positions.len() > MAX_STENCIL_BLOCKS;
-
-                // Truncate for preview (full list used for actual placement)
-                if all_positions.len() > MAX_STENCIL_BLOCKS {
-                    self.preview_positions = all_positions[..MAX_STENCIL_BLOCKS].to_vec();
-                } else {
-                    self.preview_positions = all_positions;
-                }
+                self.preview
+                    .set(all_positions, self.total_blocks, MAX_STENCIL_BLOCKS);
             }
         } else {
             self.clear_preview();
@@ -511,14 +521,12 @@ pub struct FloorToolState {
     pub thickness: i32,
     /// Build direction (Floor=down, Ceiling=up).
     pub direction: floor::FloorDirection,
-    /// Cached preview positions for GPU upload.
-    pub preview_positions: Vec<Vector3<i32>>,
+    /// Cached preview state (positions + truncation flag).
+    pub preview: PreviewCache,
     /// Current end position for preview (crosshair target).
     pub preview_end: Option<Vector3<i32>>,
     /// Total block count for the floor.
     pub total_blocks: usize,
-    /// Whether the preview was truncated due to exceeding buffer limit.
-    pub preview_truncated: bool,
     /// Cached thickness for detecting changes.
     cached_thickness: i32,
     /// Cached direction for detecting changes.
@@ -532,10 +540,9 @@ impl Default for FloorToolState {
             start_position: None,
             thickness: 1,
             direction: floor::FloorDirection::Floor,
-            preview_positions: Vec::new(),
+            preview: PreviewCache::new(),
             preview_end: None,
             total_blocks: 0,
-            preview_truncated: false,
             cached_thickness: 1,
             cached_direction: floor::FloorDirection::Floor,
         }
@@ -545,10 +552,9 @@ impl Default for FloorToolState {
 impl FloorToolState {
     /// Clear the preview state.
     pub fn clear_preview(&mut self) {
-        self.preview_positions.clear();
+        self.preview.clear();
         self.preview_end = None;
         self.total_blocks = 0;
-        self.preview_truncated = false;
     }
 
     /// Cancel the floor (clear start position and preview).
@@ -594,14 +600,8 @@ impl FloorToolState {
 
                 // Track total count and truncation status
                 self.total_blocks = all_positions.len();
-                self.preview_truncated = all_positions.len() > MAX_STENCIL_BLOCKS;
-
-                // Truncate for preview (full list used for actual placement)
-                if all_positions.len() > MAX_STENCIL_BLOCKS {
-                    self.preview_positions = all_positions[..MAX_STENCIL_BLOCKS].to_vec();
-                } else {
-                    self.preview_positions = all_positions;
-                }
+                self.preview
+                    .set(all_positions, self.total_blocks, MAX_STENCIL_BLOCKS);
             }
         } else {
             self.clear_preview();
@@ -628,10 +628,8 @@ pub struct ReplaceToolState {
     pub target_texture: u8,
     /// Number of matching blocks found (for preview).
     pub match_count: usize,
-    /// Cached preview positions for GPU upload (matching blocks).
-    pub preview_positions: Vec<Vector3<i32>>,
-    /// Whether the preview was truncated due to exceeding buffer limit.
-    pub preview_truncated: bool,
+    /// Cached preview state (positions + truncation flag).
+    pub preview: PreviewCache,
     /// Flag: user requested to scan/preview matching blocks.
     pub preview_requested: bool,
     /// Flag: user requested to execute the replacement.
@@ -649,8 +647,7 @@ impl Default for ReplaceToolState {
             source_texture: 0,
             target_texture: 0,
             match_count: 0,
-            preview_positions: Vec::new(),
-            preview_truncated: false,
+            preview: PreviewCache::new(),
             preview_requested: false,
             execute_requested: false,
         }
@@ -660,9 +657,8 @@ impl Default for ReplaceToolState {
 impl ReplaceToolState {
     /// Clear the preview state.
     pub fn clear_preview(&mut self) {
-        self.preview_positions.clear();
+        self.preview.clear();
         self.match_count = 0;
-        self.preview_truncated = false;
     }
 
     /// Deactivate the tool and clear all state.
@@ -716,13 +712,11 @@ impl ReplaceToolState {
             all_positions.len()
         };
 
-        self.preview_truncated = all_positions.len() > MAX_STENCIL_BLOCKS;
-
-        if all_positions.len() > MAX_STENCIL_BLOCKS {
-            self.preview_positions = all_positions[..MAX_STENCIL_BLOCKS].to_vec();
-        } else {
-            self.preview_positions = all_positions;
-        }
+        // Bind the length before moving all_positions into set(); match_count is
+        // the *full* match count when truncated, not all_positions.len(), so it
+        // cannot stand in for the truncation comparison.
+        let total = all_positions.len();
+        self.preview.set(all_positions, total, MAX_STENCIL_BLOCKS);
     }
 }
 
@@ -743,14 +737,12 @@ pub struct CircleToolState {
     pub plane: circle::CirclePlane,
     /// Placement mode: Center or Base (for wall modes).
     pub placement_mode: PlacementMode,
-    /// Cached preview positions for GPU upload.
-    pub preview_positions: Vec<Vector3<i32>>,
+    /// Cached preview state (positions + truncation flag).
+    pub preview: PreviewCache,
     /// Current preview center position (if targeting a block).
     pub preview_center: Option<Vector3<i32>>,
     /// Total block count for the shape.
     pub total_blocks: usize,
-    /// Whether the preview was truncated due to exceeding buffer limit.
-    pub preview_truncated: bool,
     /// Cached radius_a for detecting changes.
     cached_radius_a: i32,
     /// Cached radius_b for detecting changes.
@@ -775,10 +767,9 @@ impl Default for CircleToolState {
             filled: true,
             plane: circle::CirclePlane::XZ,
             placement_mode: PlacementMode::Center,
-            preview_positions: Vec::new(),
+            preview: PreviewCache::new(),
             preview_center: None,
             total_blocks: 0,
-            preview_truncated: false,
             cached_radius_a: 5,
             cached_radius_b: 5,
             cached_ellipse_mode: false,
@@ -801,10 +792,9 @@ impl CircleToolState {
 
     /// Clear the preview state.
     pub fn clear_preview(&mut self) {
-        self.preview_positions.clear();
+        self.preview.clear();
         self.preview_center = None;
         self.total_blocks = 0;
-        self.preview_truncated = false;
     }
 
     /// Deactivate the tool and clear all state.
@@ -866,14 +856,8 @@ impl CircleToolState {
 
             // Track total count and truncation status
             self.total_blocks = all_positions.len();
-            self.preview_truncated = all_positions.len() > MAX_STENCIL_BLOCKS;
-
-            // Truncate for preview (full list used for actual placement)
-            if all_positions.len() > MAX_STENCIL_BLOCKS {
-                self.preview_positions = all_positions[..MAX_STENCIL_BLOCKS].to_vec();
-            } else {
-                self.preview_positions = all_positions;
-            }
+            self.preview
+                .set(all_positions, self.total_blocks, MAX_STENCIL_BLOCKS);
         }
     }
 
@@ -979,12 +963,10 @@ pub struct StairsToolState {
     pub start_pos: Option<Vector3<i32>>,
     /// Staircase width in blocks (1-5).
     pub width: i32,
-    /// Cached preview positions for GPU upload.
-    pub preview_positions: Vec<Vector3<i32>>,
+    /// Cached preview state (positions + truncation flag).
+    pub preview: PreviewCache,
     /// Total block count for the full staircase.
     pub total_blocks: usize,
-    /// Whether the preview was truncated due to exceeding buffer limit.
-    pub preview_truncated: bool,
     /// Height difference (steps).
     pub step_count: i32,
     /// Horizontal distance.
@@ -997,9 +979,8 @@ impl Default for StairsToolState {
             active: false,
             start_pos: None,
             width: 1,
-            preview_positions: Vec::new(),
+            preview: PreviewCache::new(),
             total_blocks: 0,
-            preview_truncated: false,
             step_count: 0,
             horizontal_dist: 0,
         }
@@ -1009,9 +990,8 @@ impl Default for StairsToolState {
 impl StairsToolState {
     /// Clear the preview and start position.
     pub fn clear_preview(&mut self) {
-        self.preview_positions.clear();
+        self.preview.clear();
         self.total_blocks = 0;
-        self.preview_truncated = false;
         self.step_count = 0;
         self.horizontal_dist = 0;
     }
@@ -1042,14 +1022,8 @@ impl StairsToolState {
 
             // Track total count and truncation status
             self.total_blocks = all_positions.len();
-            self.preview_truncated = all_positions.len() > MAX_STENCIL_BLOCKS;
-
-            // Truncate for preview
-            if all_positions.len() > MAX_STENCIL_BLOCKS {
-                self.preview_positions = all_positions[..MAX_STENCIL_BLOCKS].to_vec();
-            } else {
-                self.preview_positions = all_positions;
-            }
+            self.preview
+                .set(all_positions, self.total_blocks, MAX_STENCIL_BLOCKS);
         } else {
             self.clear_preview();
         }
@@ -1081,16 +1055,14 @@ pub struct ArchToolState {
     pub two_click_mode: bool,
     /// Starting position for two-click mode (first jamb base).
     pub start_position: Option<Vector3<i32>>,
-    /// Cached preview positions for GPU upload.
-    pub preview_positions: Vec<Vector3<i32>>,
+    /// Cached preview state (positions + truncation flag).
+    pub preview: PreviewCache,
     /// Current preview base position (if targeting a block).
     pub preview_center: Option<Vector3<i32>>,
     /// Preview end position for two-click mode.
     pub preview_end: Option<Vector3<i32>>,
     /// Total block count for the full arch.
     pub total_blocks: usize,
-    /// Whether the preview was truncated due to exceeding buffer limit.
-    pub preview_truncated: bool,
 }
 
 impl Default for ArchToolState {
@@ -1105,11 +1077,10 @@ impl Default for ArchToolState {
             hollow: false,
             two_click_mode: false,
             start_position: None,
-            preview_positions: Vec::new(),
+            preview: PreviewCache::new(),
             preview_center: None,
             preview_end: None,
             total_blocks: 0,
-            preview_truncated: false,
         }
     }
 }
@@ -1117,11 +1088,10 @@ impl Default for ArchToolState {
 impl ArchToolState {
     /// Clear the preview.
     pub fn clear_preview(&mut self) {
-        self.preview_positions.clear();
+        self.preview.clear();
         self.preview_center = None;
         self.preview_end = None;
         self.total_blocks = 0;
-        self.preview_truncated = false;
     }
 
     /// Cancel two-click mode (clear start position and preview).
@@ -1179,18 +1149,12 @@ impl ArchToolState {
 
                 // Track total count and truncation status
                 self.total_blocks = all_positions.len();
-                self.preview_truncated = all_positions.len() > MAX_STENCIL_BLOCKS;
-
-                // Truncate for preview
-                if all_positions.len() > MAX_STENCIL_BLOCKS {
-                    self.preview_positions = all_positions[..MAX_STENCIL_BLOCKS].to_vec();
-                } else {
-                    self.preview_positions = all_positions;
-                }
+                self.preview
+                    .set(all_positions, self.total_blocks, MAX_STENCIL_BLOCKS);
             } else {
                 // No start set yet, just track target
                 self.preview_center = Some(target);
-                self.preview_positions.clear();
+                self.preview.positions.clear();
                 self.total_blocks = 0;
             }
         } else {
@@ -1209,14 +1173,8 @@ impl ArchToolState {
 
             // Track total count and truncation status
             self.total_blocks = all_positions.len();
-            self.preview_truncated = all_positions.len() > MAX_STENCIL_BLOCKS;
-
-            // Truncate for preview
-            if all_positions.len() > MAX_STENCIL_BLOCKS {
-                self.preview_positions = all_positions[..MAX_STENCIL_BLOCKS].to_vec();
-            } else {
-                self.preview_positions = all_positions;
-            }
+            self.preview
+                .set(all_positions, self.total_blocks, MAX_STENCIL_BLOCKS);
         }
     }
 
@@ -1268,14 +1226,12 @@ pub struct ConeToolState {
     pub hollow: bool,
     /// Whether to invert (point down instead of up).
     pub inverted: bool,
-    /// Cached preview positions for GPU upload.
-    pub preview_positions: Vec<Vector3<i32>>,
+    /// Cached preview state (positions + truncation flag).
+    pub preview: PreviewCache,
     /// Current preview base center position.
     pub preview_center: Option<Vector3<i32>>,
     /// Total block count for the full shape.
     pub total_blocks: usize,
-    /// Whether the preview was truncated due to exceeding buffer limit.
-    pub preview_truncated: bool,
     /// Cached base_size for detecting changes.
     cached_base_size: i32,
     /// Cached height for detecting changes.
@@ -1297,10 +1253,9 @@ impl Default for ConeToolState {
             shape: cone::ConeShape::Cone,
             hollow: false,
             inverted: false,
-            preview_positions: Vec::new(),
+            preview: PreviewCache::new(),
             preview_center: None,
             total_blocks: 0,
-            preview_truncated: false,
             cached_base_size: 5,
             cached_height: 8,
             cached_shape: cone::ConeShape::Cone,
@@ -1313,10 +1268,9 @@ impl Default for ConeToolState {
 impl ConeToolState {
     /// Clear the preview.
     pub fn clear_preview(&mut self) {
-        self.preview_positions.clear();
+        self.preview.clear();
         self.preview_center = None;
         self.total_blocks = 0;
-        self.preview_truncated = false;
     }
 
     /// Deactivate the tool and reset state.
@@ -1366,14 +1320,8 @@ impl ConeToolState {
 
             // Track total count and truncation status
             self.total_blocks = all_positions.len();
-            self.preview_truncated = all_positions.len() > MAX_STENCIL_BLOCKS;
-
-            // Truncate for preview
-            if all_positions.len() > MAX_STENCIL_BLOCKS {
-                self.preview_positions = all_positions[..MAX_STENCIL_BLOCKS].to_vec();
-            } else {
-                self.preview_positions = all_positions;
-            }
+            self.preview
+                .set(all_positions, self.total_blocks, MAX_STENCIL_BLOCKS);
         }
     }
 }
@@ -1407,14 +1355,12 @@ pub struct CloneToolState {
     pub grid_spacing_z: i32,
     /// Spacing along Y for 3D grid mode.
     pub grid_spacing_y: i32,
-    /// Cached preview positions for GPU upload.
-    pub preview_positions: Vec<Vector3<i32>>,
+    /// Cached preview state (positions + truncation flag).
+    pub preview: PreviewCache,
     /// Total block count for the clone operation.
     pub total_blocks: usize,
     /// Number of copies (origins) in the preview.
     pub copy_count: usize,
-    /// Whether the preview was truncated due to exceeding buffer limit.
-    pub preview_truncated: bool,
     /// Flag: user requested to execute the clone.
     pub execute_requested: bool,
 }
@@ -1433,10 +1379,9 @@ impl Default for CloneToolState {
             grid_spacing_x: 1,
             grid_spacing_z: 1,
             grid_spacing_y: 1,
-            preview_positions: Vec::new(),
+            preview: PreviewCache::new(),
             total_blocks: 0,
             copy_count: 0,
-            preview_truncated: false,
             execute_requested: false,
         }
     }
@@ -1445,10 +1390,9 @@ impl Default for CloneToolState {
 impl CloneToolState {
     /// Clear the preview.
     pub fn clear_preview(&mut self) {
-        self.preview_positions.clear();
+        self.preview.clear();
         self.total_blocks = 0;
         self.copy_count = 0;
-        self.preview_truncated = false;
     }
 
     /// Deactivate the tool and reset state.
@@ -1522,13 +1466,7 @@ impl CloneToolState {
 
         // Track total count and truncation status
         self.total_blocks = all_positions.len();
-        self.preview_truncated = all_positions.len() > MAX_STENCIL_BLOCKS;
-
-        // Truncate for preview
-        if all_positions.len() > MAX_STENCIL_BLOCKS {
-            self.preview_positions = all_positions[..MAX_STENCIL_BLOCKS].to_vec();
-        } else {
-            self.preview_positions = all_positions;
-        }
+        self.preview
+            .set(all_positions, self.total_blocks, MAX_STENCIL_BLOCKS);
     }
 }

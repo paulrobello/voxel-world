@@ -55,13 +55,13 @@ impl ShapeTool for super::CubeToolState {
         self.active = active;
     }
     fn preview_positions(&self) -> &[Vector3<i32>] {
-        &self.preview_positions
+        &self.preview.positions
     }
     fn total_blocks(&self) -> usize {
         self.total_blocks
     }
     fn preview_truncated(&self) -> bool {
-        self.preview_truncated
+        self.preview.truncated
     }
     fn clear_preview(&mut self) {
         super::CubeToolState::clear_preview(self);
@@ -76,13 +76,13 @@ impl ShapeTool for super::CylinderToolState {
         self.active = active;
     }
     fn preview_positions(&self) -> &[Vector3<i32>] {
-        &self.preview_positions
+        &self.preview.positions
     }
     fn total_blocks(&self) -> usize {
         self.total_blocks
     }
     fn preview_truncated(&self) -> bool {
-        self.preview_truncated
+        self.preview.truncated
     }
     fn clear_preview(&mut self) {
         super::CylinderToolState::clear_preview(self);
@@ -97,13 +97,13 @@ impl ShapeTool for super::WallToolState {
         self.active = active;
     }
     fn preview_positions(&self) -> &[Vector3<i32>] {
-        &self.preview_positions
+        &self.preview.positions
     }
     fn total_blocks(&self) -> usize {
         self.total_blocks
     }
     fn preview_truncated(&self) -> bool {
-        self.preview_truncated
+        self.preview.truncated
     }
     fn clear_preview(&mut self) {
         super::WallToolState::clear_preview(self);
@@ -123,13 +123,13 @@ impl ShapeTool for super::FloorToolState {
         self.active = active;
     }
     fn preview_positions(&self) -> &[Vector3<i32>] {
-        &self.preview_positions
+        &self.preview.positions
     }
     fn total_blocks(&self) -> usize {
         self.total_blocks
     }
     fn preview_truncated(&self) -> bool {
-        self.preview_truncated
+        self.preview.truncated
     }
     fn clear_preview(&mut self) {
         super::FloorToolState::clear_preview(self);
@@ -148,13 +148,13 @@ impl ShapeTool for super::CircleToolState {
         self.active = active;
     }
     fn preview_positions(&self) -> &[Vector3<i32>] {
-        &self.preview_positions
+        &self.preview.positions
     }
     fn total_blocks(&self) -> usize {
         self.total_blocks
     }
     fn preview_truncated(&self) -> bool {
-        self.preview_truncated
+        self.preview.truncated
     }
     fn clear_preview(&mut self) {
         super::CircleToolState::clear_preview(self);
@@ -169,13 +169,13 @@ impl ShapeTool for super::ConeToolState {
         self.active = active;
     }
     fn preview_positions(&self) -> &[Vector3<i32>] {
-        &self.preview_positions
+        &self.preview.positions
     }
     fn total_blocks(&self) -> usize {
         self.total_blocks
     }
     fn preview_truncated(&self) -> bool {
-        self.preview_truncated
+        self.preview.truncated
     }
     fn clear_preview(&mut self) {
         super::ConeToolState::clear_preview(self);
@@ -190,13 +190,13 @@ impl ShapeTool for super::ArchToolState {
         self.active = active;
     }
     fn preview_positions(&self) -> &[Vector3<i32>] {
-        &self.preview_positions
+        &self.preview.positions
     }
     fn total_blocks(&self) -> usize {
         self.total_blocks
     }
     fn preview_truncated(&self) -> bool {
-        self.preview_truncated
+        self.preview.truncated
     }
     fn clear_preview(&mut self) {
         super::ArchToolState::clear_preview(self);
@@ -215,13 +215,13 @@ impl ShapeTool for super::StairsToolState {
         self.active = active;
     }
     fn preview_positions(&self) -> &[Vector3<i32>] {
-        &self.preview_positions
+        &self.preview.positions
     }
     fn total_blocks(&self) -> usize {
         self.total_blocks
     }
     fn preview_truncated(&self) -> bool {
-        self.preview_truncated
+        self.preview.truncated
     }
     fn clear_preview(&mut self) {
         super::StairsToolState::clear_preview(self);
@@ -241,13 +241,13 @@ impl ShapeTool for super::CloneToolState {
         self.active = active;
     }
     fn preview_positions(&self) -> &[Vector3<i32>] {
-        &self.preview_positions
+        &self.preview.positions
     }
     fn total_blocks(&self) -> usize {
         self.total_blocks
     }
     fn preview_truncated(&self) -> bool {
-        self.preview_truncated
+        self.preview.truncated
     }
     fn clear_preview(&mut self) {
         super::CloneToolState::clear_preview(self);
@@ -266,13 +266,13 @@ impl ShapeTool for super::SphereToolState {
         self.active = active;
     }
     fn preview_positions(&self) -> &[Vector3<i32>] {
-        &self.preview_positions
+        &self.preview.positions
     }
     fn total_blocks(&self) -> usize {
         self.total_blocks
     }
     fn preview_truncated(&self) -> bool {
-        self.preview_truncated
+        self.preview.truncated
     }
     fn clear_preview(&mut self) {
         super::SphereToolState::clear_preview(self);
@@ -287,13 +287,13 @@ impl ShapeTool for super::TorusToolState {
         self.active = active;
     }
     fn preview_positions(&self) -> &[Vector3<i32>] {
-        &self.preview_positions
+        &self.preview.positions
     }
     fn total_blocks(&self) -> usize {
         self.total_blocks
     }
     fn preview_truncated(&self) -> bool {
-        self.preview_truncated
+        self.preview.truncated
     }
     fn clear_preview(&mut self) {
         super::TorusToolState::clear_preview(self);
@@ -308,13 +308,13 @@ impl ShapeTool for super::HelixToolState {
         self.active = active;
     }
     fn preview_positions(&self) -> &[Vector3<i32>] {
-        &self.preview_positions
+        &self.preview.positions
     }
     fn total_blocks(&self) -> usize {
         self.total_blocks
     }
     fn preview_truncated(&self) -> bool {
-        self.preview_truncated
+        self.preview.truncated
     }
     fn clear_preview(&mut self) {
         super::HelixToolState::clear_preview(self);
@@ -329,13 +329,13 @@ impl ShapeTool for super::PolygonToolState {
         self.active = active;
     }
     fn preview_positions(&self) -> &[Vector3<i32>] {
-        &self.preview_positions
+        &self.preview.positions
     }
     fn total_blocks(&self) -> usize {
         self.total_blocks
     }
     fn preview_truncated(&self) -> bool {
-        self.preview_truncated
+        self.preview.truncated
     }
     fn clear_preview(&mut self) {
         super::PolygonToolState::clear_preview(self);
@@ -350,13 +350,13 @@ impl ShapeTool for super::BezierToolState {
         self.active = active;
     }
     fn preview_positions(&self) -> &[Vector3<i32>] {
-        &self.preview_positions
+        &self.preview.positions
     }
     fn total_blocks(&self) -> usize {
         self.total_blocks
     }
     fn preview_truncated(&self) -> bool {
-        self.preview_truncated
+        self.preview.truncated
     }
     // BezierToolState has no inherent clear_preview. Mirror the preview-only
     // reset inlined in regenerate_preview()/update_preview_with_cursor()
@@ -365,9 +365,9 @@ impl ShapeTool for super::BezierToolState {
     // NOT dropped here — they are cleared by the full reset in clear() /
     // deactivate() below.
     fn clear_preview(&mut self) {
-        self.preview_positions.clear();
+        self.preview.positions.clear();
         self.total_blocks = 0;
-        self.preview_truncated = false;
+        self.preview.truncated = false;
     }
     // Inherent deactivate() calls clear(), which also drops control_points and
     // control_point_markers; the default would not. Override to preserve the
@@ -385,13 +385,13 @@ impl ShapeTool for super::HollowToolState {
         self.active = active;
     }
     fn preview_positions(&self) -> &[Vector3<i32>] {
-        &self.preview_positions
+        &self.preview.positions
     }
     fn total_blocks(&self) -> usize {
         self.total_blocks
     }
     fn preview_truncated(&self) -> bool {
-        self.preview_truncated
+        self.preview.truncated
     }
     fn clear_preview(&mut self) {
         super::HollowToolState::clear_preview(self);
@@ -412,7 +412,7 @@ mod tests {
         let mut tool = super::super::CubeToolState::default();
         // Seed a preview position so clear_preview's effect is observable
         // (default() leaves preview_positions empty, which would be trivial).
-        tool.preview_positions.push(Vector3::new(1, 2, 3));
+        tool.preview.positions.push(Vector3::new(1, 2, 3));
 
         // Drive entirely through the trait surface via a trait object so every
         // call is unambiguously trait dispatch.

@@ -298,7 +298,7 @@ impl<'a> BlockInteractionContext<'a> {
     /// Place a circle or ellipse using the hotbar block.
     pub fn place_circle(&mut self) {
         let circle = &self.ui.circle_tool;
-        if !circle.active || circle.preview_positions.is_empty() {
+        if !circle.active || circle.preview.positions.is_empty() {
             return;
         }
 
@@ -350,7 +350,7 @@ impl<'a> BlockInteractionContext<'a> {
     /// Place stairs using the current stairs tool settings and hotbar selection.
     pub fn place_stairs(&mut self) {
         let stairs = &self.ui.stairs_tool;
-        if !stairs.active || stairs.start_pos.is_none() || stairs.preview_positions.is_empty() {
+        if !stairs.active || stairs.start_pos.is_none() || stairs.preview.positions.is_empty() {
             return;
         }
 
@@ -358,7 +358,7 @@ impl<'a> BlockInteractionContext<'a> {
         let params = self.get_hotbar_placement_params();
 
         // Use preview positions (already generated with current target)
-        let positions = self.ui.stairs_tool.preview_positions.clone();
+        let positions = self.ui.stairs_tool.preview.positions.clone();
         let step_count = self.ui.stairs_tool.step_count;
         let width = self.ui.stairs_tool.width;
 
@@ -397,7 +397,7 @@ impl<'a> BlockInteractionContext<'a> {
     /// Place an arch using the current arch tool settings and hotbar selection.
     pub fn place_arch(&mut self) {
         let arch = &self.ui.arch_tool;
-        if !arch.active || arch.preview_positions.is_empty() {
+        if !arch.active || arch.preview.positions.is_empty() {
             return;
         }
 
@@ -405,7 +405,7 @@ impl<'a> BlockInteractionContext<'a> {
         let params = self.get_hotbar_placement_params();
 
         // Use preview positions (already generated with current settings)
-        let positions = self.ui.arch_tool.preview_positions.clone();
+        let positions = self.ui.arch_tool.preview.positions.clone();
         let width = self.ui.arch_tool.width;
         let height = self.ui.arch_tool.height;
         let style_name = self.ui.arch_tool.style.name();
@@ -441,7 +441,7 @@ impl<'a> BlockInteractionContext<'a> {
     /// Place a cone or pyramid at the preview position.
     pub fn place_cone(&mut self) {
         let cone = &self.ui.cone_tool;
-        if !cone.active || cone.preview_positions.is_empty() {
+        if !cone.active || cone.preview.positions.is_empty() {
             return;
         }
 
@@ -449,7 +449,7 @@ impl<'a> BlockInteractionContext<'a> {
         let params = self.get_hotbar_placement_params();
 
         // Use preview positions (already generated with current settings)
-        let positions = self.ui.cone_tool.preview_positions.clone();
+        let positions = self.ui.cone_tool.preview.positions.clone();
         let shape_name = self.ui.cone_tool.shape.name();
         let base_size = self.ui.cone_tool.base_size;
         let height = self.ui.cone_tool.height;
@@ -485,7 +485,7 @@ impl<'a> BlockInteractionContext<'a> {
     /// Place a torus (ring/donut) at the preview position.
     pub fn place_torus(&mut self) {
         let torus = &self.ui.torus_tool;
-        if !torus.active || torus.preview_positions.is_empty() {
+        if !torus.active || torus.preview.positions.is_empty() {
             return;
         }
 
@@ -493,7 +493,7 @@ impl<'a> BlockInteractionContext<'a> {
         let params = self.get_hotbar_placement_params();
 
         // Use preview positions (already generated with current settings)
-        let positions = self.ui.torus_tool.preview_positions.clone();
+        let positions = self.ui.torus_tool.preview.positions.clone();
         let major_radius = self.ui.torus_tool.major_radius;
         let minor_radius = self.ui.torus_tool.minor_radius;
         let plane_name = self.ui.torus_tool.plane.name();
@@ -529,7 +529,7 @@ impl<'a> BlockInteractionContext<'a> {
     /// Place a helix (spiral) at the preview position.
     pub fn place_helix(&mut self) {
         let helix = &self.ui.helix_tool;
-        if !helix.active || helix.preview_positions.is_empty() {
+        if !helix.active || helix.preview.positions.is_empty() {
             return;
         }
 
@@ -537,7 +537,7 @@ impl<'a> BlockInteractionContext<'a> {
         let params = self.get_hotbar_placement_params();
 
         // Use preview positions (already generated with current settings)
-        let positions = self.ui.helix_tool.preview_positions.clone();
+        let positions = self.ui.helix_tool.preview.positions.clone();
         let radius = self.ui.helix_tool.radius;
         let height = self.ui.helix_tool.height;
         let turns = self.ui.helix_tool.turns;
@@ -573,7 +573,7 @@ impl<'a> BlockInteractionContext<'a> {
     /// Place a polygon/prism at the preview position.
     pub fn place_polygon(&mut self) {
         let polygon = &self.ui.polygon_tool;
-        if !polygon.active || polygon.preview_positions.is_empty() {
+        if !polygon.active || polygon.preview.positions.is_empty() {
             return;
         }
 
@@ -581,7 +581,7 @@ impl<'a> BlockInteractionContext<'a> {
         let params = self.get_hotbar_placement_params();
 
         // Use preview positions (already generated with current settings)
-        let positions = self.ui.polygon_tool.preview_positions.clone();
+        let positions = self.ui.polygon_tool.preview.positions.clone();
         let sides = self.ui.polygon_tool.sides;
         let radius = self.ui.polygon_tool.radius;
         let height = self.ui.polygon_tool.height;
@@ -619,7 +619,7 @@ impl<'a> BlockInteractionContext<'a> {
     /// Place bezier curve at the preview positions.
     pub fn place_bezier(&mut self) {
         let bezier = &self.ui.bezier_tool;
-        if !bezier.active || bezier.preview_positions.is_empty() {
+        if !bezier.active || bezier.preview.positions.is_empty() {
             return;
         }
 
@@ -627,7 +627,7 @@ impl<'a> BlockInteractionContext<'a> {
         let params = self.get_hotbar_placement_params();
 
         // Use preview positions (already generated with current settings)
-        let positions = self.ui.bezier_tool.preview_positions.clone();
+        let positions = self.ui.bezier_tool.preview.positions.clone();
         let num_points = self.ui.bezier_tool.control_points.len();
         let tube_radius = self.ui.bezier_tool.tube_radius;
 
@@ -859,12 +859,12 @@ impl<'a> BlockInteractionContext<'a> {
     /// with the configured wall thickness.
     pub fn apply_hollow(&mut self) {
         let hollow = &self.ui.hollow_tool;
-        if !hollow.active || hollow.preview_positions.is_empty() {
+        if !hollow.active || hollow.preview.positions.is_empty() {
             return;
         }
 
         // Clone positions before mutating world
-        let positions = self.ui.hollow_tool.preview_positions.clone();
+        let positions = self.ui.hollow_tool.preview.positions.clone();
         let thickness = self.ui.hollow_tool.thickness;
 
         let mut removed = 0;

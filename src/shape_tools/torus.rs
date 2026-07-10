@@ -7,6 +7,7 @@ use crate::gpu::MAX_STENCIL_BLOCKS;
 use nalgebra::Vector3;
 
 use super::PlacementMode;
+use super::PreviewCache;
 
 /// Orientation plane for the torus.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -68,14 +69,12 @@ pub struct TorusToolState {
     pub hollow: bool,
     /// Placement mode (center or base).
     pub placement_mode: PlacementMode,
-    /// Cached preview positions for GPU upload.
-    pub preview_positions: Vec<Vector3<i32>>,
+    /// Cached preview state (positions + truncation flag).
+    pub preview: PreviewCache,
     /// Current preview center position (if targeting a block).
     pub preview_center: Option<Vector3<i32>>,
     /// Total block count for the full torus (may differ from preview if truncated).
     pub total_blocks: usize,
-    /// Whether the preview was truncated due to exceeding buffer limit.
-    pub preview_truncated: bool,
     // Cached settings for detecting changes
     cached_major_radius: i32,
     cached_minor_radius: i32,
@@ -95,10 +94,9 @@ impl Default for TorusToolState {
             arc_angle: 360,
             hollow: false,
             placement_mode: PlacementMode::Center,
-            preview_positions: Vec::new(),
+            preview: PreviewCache::new(),
             preview_center: None,
             total_blocks: 0,
-            preview_truncated: false,
             cached_major_radius: 8,
             cached_minor_radius: 3,
             cached_plane: TorusPlane::XZ,
@@ -132,9 +130,8 @@ impl TorusToolState {
 
     /// Clear the preview state.
     pub fn clear_preview(&mut self) {
-        self.preview_positions.clear();
+        self.preview.clear();
         self.preview_center = None;
-        self.preview_truncated = false;
         self.total_blocks = 0;
     }
 
@@ -173,14 +170,8 @@ impl TorusToolState {
 
             // Track total count and truncation status
             self.total_blocks = all_positions.len();
-            self.preview_truncated = all_positions.len() > MAX_STENCIL_BLOCKS;
-
-            // Truncate for preview (full list used for actual placement)
-            if all_positions.len() > MAX_STENCIL_BLOCKS {
-                self.preview_positions = all_positions[..MAX_STENCIL_BLOCKS].to_vec();
-            } else {
-                self.preview_positions = all_positions;
-            }
+            self.preview
+                .set(all_positions, self.total_blocks, MAX_STENCIL_BLOCKS);
         }
     }
 }

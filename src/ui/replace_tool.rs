@@ -123,7 +123,7 @@ impl ReplaceToolUI {
                                 format!("{} blocks", state.match_count),
                             );
                         });
-                        if state.preview_truncated {
+                        if state.preview.truncated {
                             ui.colored_label(
                                 egui::Color32::YELLOW,
                                 "Preview truncated (>4096 blocks)",

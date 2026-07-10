@@ -806,7 +806,7 @@ impl App {
         // The staircase positions themselves come from the registry loop above.
         if self.ui.stairs_tool.active
             && let Some(start) = self.ui.stairs_tool.start_pos
-            && self.ui.stairs_tool.preview_positions.is_empty()
+            && self.ui.stairs_tool.preview.positions.is_empty()
         {
             push_block!(start, 2u32); // Magenta for start marker
         }
@@ -821,7 +821,7 @@ impl App {
 
         // Replace tool preview (yellow — distinct from placement).
         if self.ui.replace_tool.active {
-            for &world_pos in &self.ui.replace_tool.preview_positions {
+            for &world_pos in &self.ui.replace_tool.preview.positions {
                 push_block!(world_pos, 3u32);
             }
         }

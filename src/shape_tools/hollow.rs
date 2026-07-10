@@ -5,6 +5,8 @@
 
 use nalgebra::Vector3;
 
+use super::PreviewCache;
+
 /// State for the hollow tool.
 #[derive(Debug, Clone)]
 #[allow(clippy::type_complexity)]
@@ -13,14 +15,12 @@ pub struct HollowToolState {
     pub active: bool,
     /// Wall thickness (1-5 blocks).
     pub thickness: i32,
-    /// Preview positions to remove (interior blocks).
-    pub preview_positions: Vec<Vector3<i32>>,
+    /// Cached preview state (positions + truncation flag).
+    pub preview: PreviewCache,
     /// Total blocks in the selection.
     pub total_blocks: usize,
     /// Blocks that would be hollowed out.
     pub hollow_count: usize,
-    /// Whether preview was truncated.
-    pub preview_truncated: bool,
     /// Cached parameters to detect changes.
     cached_params: (i32, Option<(Vector3<i32>, Vector3<i32>)>),
 }
@@ -30,10 +30,9 @@ impl Default for HollowToolState {
         Self {
             active: false,
             thickness: 1,
-            preview_positions: Vec::new(),
+            preview: PreviewCache::new(),
             total_blocks: 0,
             hollow_count: 0,
-            preview_truncated: false,
             cached_params: (1, None),
         }
     }
@@ -48,13 +47,12 @@ impl HollowToolState {
         let params = (self.thickness, selection_bounds);
 
         // Skip if nothing changed
-        if params == self.cached_params && !self.preview_positions.is_empty() {
+        if params == self.cached_params && !self.preview.positions.is_empty() {
             return;
         }
 
         self.cached_params = params;
-        self.preview_positions.clear();
-        self.preview_truncated = false;
+        self.preview.clear();
 
         let Some((min, max)) = selection_bounds else {
             self.total_blocks = 0;
@@ -70,20 +68,16 @@ impl HollowToolState {
 
         // Limit preview to prevent GPU buffer overflow
         const MAX_PREVIEW: usize = 4096;
-        if positions.len() > MAX_PREVIEW {
-            self.preview_positions = positions[..MAX_PREVIEW].to_vec();
-            self.preview_truncated = true;
-        } else {
-            self.preview_positions = positions;
-        }
+        // self.hollow_count == positions.len() (assigned above); read it instead of
+        // borrowing positions on the same line it is moved into set().
+        self.preview.set(positions, self.hollow_count, MAX_PREVIEW);
     }
 
     /// Clear preview data.
     pub fn clear_preview(&mut self) {
-        self.preview_positions.clear();
+        self.preview.clear();
         self.total_blocks = 0;
         self.hollow_count = 0;
-        self.preview_truncated = false;
         self.cached_params = (1, None);
     }
 }
@@ -206,6 +200,6 @@ mod tests {
 
         assert_eq!(state.total_blocks, 125); // 5x5x5
         assert_eq!(state.hollow_count, 27); // 3x3x3 interior
-        assert_eq!(state.preview_positions.len(), 27);
+        assert_eq!(state.preview.positions.len(), 27);
     }
 }

@@ -163,7 +163,7 @@ pub fn update_all_tool_previews(ui: &mut UiState, world: &World) {
             // Keep existing preview if we have a curve
             ui.bezier_tool.regenerate_preview();
         } else {
-            ui.bezier_tool.preview_positions.clear();
+            ui.bezier_tool.preview.positions.clear();
         }
     }
 
