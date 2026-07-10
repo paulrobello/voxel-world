@@ -20,6 +20,9 @@ use crate::net::{
 use crate::net::{ServerCommand, ServerThread, ServerThreadEvent};
 use nalgebra::Vector3;
 
+mod chat;
+pub use chat::{ChatEntry, ChatState};
+
 /// Whether to use threaded server mode (experimental).
 /// When enabled, server network processing runs in a dedicated thread.
 /// Gate behind the `threaded-server` feature; disabled by default.
@@ -29,27 +32,12 @@ const USE_THREADED_SERVER: bool = true;
 #[allow(dead_code)] // reason: multiplayer state — kept for future wire-up
 const USE_THREADED_SERVER: bool = false;
 
-/// Maximum chat messages to keep in history.
-const MAX_CHAT_HISTORY: usize = 50;
-
 /// Target send rate for periodic network updates (client input, server
 /// player-state broadcasts). Was originally "every 3 frames at 60 FPS";
 /// expressed here as a wall-clock interval so the send rate no longer
 /// couples to render FPS (PHY-M05). 50 ms ≈ 20 Hz, matching the cadence
 /// assumed by `send_input`'s `FORCE_SEND_EVERY` keep-alive math.
 const NETWORK_TICK_INTERVAL: Duration = Duration::from_millis(50);
-
-/// Chat message entry for display.
-#[derive(Debug, Clone)]
-pub struct ChatEntry {
-    /// Player name who sent the message.
-    pub player_name: String,
-    /// Message content.
-    pub message: String,
-    /// Timestamp when message was received.
-    #[allow(dead_code)] // reason: multiplayer state — kept for future wire-up
-    pub timestamp: Instant,
-}
 
 /// Typed network event — replaces all individual `pending_*` `Vec<T>` fields.
 ///
@@ -242,10 +230,8 @@ pub struct MultiplayerState {
     pub ping_ms: Option<u32>,
     /// Local player's display name.
     pub local_player_name: String,
-    /// Chat message history (for display).
-    pub chat_history: Vec<ChatEntry>,
-    /// Time remaining to show chat overlay.
-    pub chat_display_timer: Option<f32>,
+    /// Chat history + display-overlay state (ARC-002: extracted to `ChatState`).
+    pub chat: ChatState,
 }
 
 impl Default for MultiplayerState {
@@ -296,8 +282,7 @@ impl MultiplayerState {
             host_pairing_code: None,
             ping_ms: None,
             local_player_name: "Player".to_string(),
-            chat_history: Vec::new(),
-            chat_display_timer: None,
+            chat: ChatState::new(),
         }
     }
 
@@ -596,43 +581,28 @@ impl MultiplayerState {
 
     /// Adds a chat message to history.
     pub fn add_chat_message(&mut self, player_name: String, message: String) {
-        self.chat_history.push(ChatEntry {
-            player_name,
-            message,
-            timestamp: Instant::now(),
-        });
-        // Keep only last MAX_CHAT_HISTORY messages
-        if self.chat_history.len() > MAX_CHAT_HISTORY {
-            self.chat_history.remove(0);
-        }
-        // Show chat for 10 seconds
-        self.chat_display_timer = Some(10.0);
+        self.chat.add_message(player_name, message);
     }
 
     /// Updates the chat display timer (call every frame with delta_time).
     pub fn update_chat_timer(&mut self, delta_time: f32) {
-        if let Some(ref mut timer) = self.chat_display_timer {
-            *timer -= delta_time;
-            if *timer <= 0.0 {
-                self.chat_display_timer = None;
-            }
-        }
+        self.chat.update_timer(delta_time);
     }
 
     /// Returns whether the chat overlay should be visible.
     #[allow(dead_code)] // reason: multiplayer state — kept for future wire-up
     pub fn is_chat_visible(&self) -> bool {
-        self.chat_display_timer.is_some()
+        self.chat.is_visible()
     }
 
     /// Returns the chat history for display.
     pub fn get_chat_history(&self) -> &[ChatEntry] {
-        &self.chat_history
+        self.chat.history()
     }
 
     /// Returns the chat display timer remaining (if any).
     pub fn get_chat_display_timer(&self) -> Option<f32> {
-        self.chat_display_timer
+        self.chat.display_timer()
     }
 
     /// Updates the multiplayer state (call every frame).
