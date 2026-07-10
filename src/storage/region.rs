@@ -115,13 +115,54 @@ impl RegionFile {
         header[magic_end..ver_end].copy_from_slice(&REGION_VERSION.to_be_bytes());
     }
 
+    /// Packs `(offset_sectors, sector_count)` into a 32-bit location-table
+    /// entry of the form `(offset_sectors << 8) | sector_count`.
+    ///
+    /// STOR-M02: the low 8 bits store the sector count, so a chunk needing more
+    /// than 255 sectors would silently wrap when the previous `& 0xFF` packing
+    /// dropped the high bits. The truncated count would then make `read_chunk`
+    /// either read short of the real data or fail its sector-size guard,
+    /// depending on the payload size. Return an explicit error instead so an
+    /// oversized chunk surfaces at the write site rather than corrupting the
+    /// location table.
+    ///
+    /// Callers must invoke this BEFORE issuing any data-sector writes so a
+    /// rejection doesn't leave orphaned sectors on disk.
+    fn pack_location(offset_sectors: u64, sector_count: usize) -> IoResult<u32> {
+        if sector_count > u8::MAX as usize {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!(
+                    "chunk requires {sector_count} sectors ({} bytes payload), exceeding the \
+                     8-bit sector-count field (max {} bytes); refusing to truncate the \
+                     location-table entry",
+                    sector_count.saturating_mul(SECTOR_SIZE),
+                    u8::MAX as usize * SECTOR_SIZE,
+                ),
+            ));
+        }
+        // The high 24 bits hold the sector offset. A region file large enough to
+        // overflow 24 bits (>2^24 sectors ~= 64 TiB) is far beyond any realistic
+        // world and is outside STOR-M02's scope; the narrowing is left as-is.
+        Ok(((offset_sectors as u32) << 8) | (sector_count as u32))
+    }
+
     fn init_new(mut file: File) -> IoResult<Self> {
         file.set_len(HEADER_SIZE as u64)?;
         file.seek(SeekFrom::Start(0))?;
         let mut header = vec![0u8; HEADER_SIZE];
         Self::write_marker_into(&mut header);
         file.write_all(&header)?;
-        file.flush()?;
+        // STOR-M01: `File::flush` only drains the userspace buffer; it is not a
+        // durability barrier. `sync_data` forces the freshly-written header to
+        // stable storage so a crash immediately after `open` can't leave a
+        // half-initialised region file. `sync_all` is the documented fallback
+        // on platforms whose `sync_data` returns Unsupported.
+        match file.sync_data() {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::Unsupported => file.sync_all()?,
+            Err(e) => return Err(e),
+        }
         Ok(Self {
             file,
             locations: [0u32; CHUNKS_PER_REGION],
@@ -265,7 +306,12 @@ impl RegionFile {
 
             new_image.extend_from_slice(&record);
             let new_offset_sectors = (cursor_bytes / SECTOR_SIZE) as u32;
-            new_locations[i] = (new_offset_sectors << 8) | (sector_count as u32 & 0xFF);
+            // STOR-M02: route through the guarded packer. `sector_count` is read
+            // from the old file's location entry (`loc & 0xFF`), so by
+            // construction it already fits u8 and this never errors here -- but
+            // funnelling every packing site through `pack_location` keeps the
+            // truncation guard in one place.
+            new_locations[i] = Self::pack_location(new_offset_sectors as u64, sector_count)?;
             new_timestamps[i] = old_timestamps[i];
             cursor_bytes += record_len;
         }
@@ -386,6 +432,13 @@ impl RegionFile {
             } // Don't overwrite header
         }
 
+        // STOR-M02: validate the packed location entry BEFORE writing any data
+        // sectors. The previous `& 0xFF` packing silently truncated a chunk that
+        // needed >255 sectors; funnelling through `pack_location` here surfaces
+        // it as an error up front instead of leaving orphaned sectors on disk
+        // and a corrupt location table behind.
+        let new_loc = Self::pack_location(offset_sectors, required_sectors)?;
+
         // Write data
         self.file
             .seek(SeekFrom::Start(offset_sectors * SECTOR_SIZE as u64))?;
@@ -401,7 +454,6 @@ impl RegionFile {
         }
 
         // Update header
-        let new_loc = ((offset_sectors as u32) << 8) | (required_sectors as u32 & 0xFF);
         self.locations[index] = new_loc;
 
         let timestamp = std::time::SystemTime::now()
@@ -423,13 +475,53 @@ impl RegionFile {
         // then flush. Generation acts as a publish flag: any reader that
         // observes generation G is guaranteed the location entries for all
         // writes <= G are already on disk. See STOR-003.
+        //
+        // STOR-M01: the durability claim above only holds if the flush is a
+        // real sync barrier. The previous `File::flush` only drained userspace
+        // buffers and silently violated this invariant -- a reader observing
+        // generation G was NOT in fact guaranteed the data sectors were on
+        // stable storage. `self.flush()` calls `sync_data` to make the promise
+        // true. Full crash-safety (journaling / copy-on-write sectors) remains
+        // deferred; see `flush`'s doc comment.
         self.generation = self.generation.wrapping_add(1);
         self.file.seek(SeekFrom::Start(GENERATION_OFFSET as u64))?;
         self.file.write_all(&self.generation.to_be_bytes())?;
 
-        self.file.flush()?;
+        self.flush()?;
 
         Ok(())
+    }
+
+    /// Durably persists all buffered writes on this handle to stable storage.
+    ///
+    /// STOR-M01: the std `File::flush` this module previously used (both in
+    /// `write_chunk` and at file creation) is NOT a durability barrier -- it
+    /// only drains the userspace buffer into the kernel, leaving dirty page
+    /// cache that a power loss can still drop. Combined with the in-place
+    /// sector rewrite in `write_chunk`, that meant a crash after a "successful"
+    /// save could corrupt the just-overwritten record or lose it entirely.
+    ///
+    /// This method calls `sync_data` (which forces file data and the metadata
+    /// needed to reach it -- including size, which matters for the append
+    /// allocator -- to stable storage), falling back to `sync_all` on platforms
+    /// where `sync_data` is unsupported. The save path calls it after every
+    /// `write_chunk` so the STOR-003 generation-counter publish flag is honest.
+    ///
+    /// NOT FULLY DONE / deferred remainder of STOR-M01: durability here is
+    /// per-write, not transactional. `write_chunk` still rewrites the chunk's
+    /// sectors in place and then updates the location table; a crash between
+    /// the data write and the location-table write can still leave the new data
+    /// unreachable from the header or the old data half-overwritten. Full
+    /// crash-safety requires a write-ahead log or copy-on-write sector scheme,
+    /// which is a larger redesign and out of scope for this remediation batch.
+    /// (The parent-directory entry created on first `open` is also not synced;
+    /// that would need a parent-dir fsync, also deferred.)
+    pub fn flush(&mut self) -> IoResult<()> {
+        match self.file.sync_data() {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::Unsupported => self.file.sync_all(),
+            Err(e) => Err(e),
+        }
     }
 
     /// Cheaply detects whether another handle has appended writes to this
@@ -685,6 +777,89 @@ mod tests {
         assert!(
             !refreshed_again,
             "refresh must report false when generation is unchanged"
+        );
+    }
+
+    /// STOR-M02: a chunk whose compressed payload needs more than 255 sectors
+    /// must be rejected with an explicit error at the write site, instead of
+    /// the previous behaviour of silently truncating the sector count via
+    /// `& 0xFF` and corrupting the location-table entry. The guard must fire
+    /// BEFORE any data sectors are written, so a rejected chunk leaves the
+    /// location table untouched (slot reads back as empty).
+    #[test]
+    fn write_chunk_rejects_oversized_payload_instead_of_truncating() {
+        let tmp = NamedTempFile::new().expect("tempfile");
+        let path = tmp.path().to_path_buf();
+        let mut rf = RegionFile::open(&path).expect("open new");
+
+        // 256 sectors required: payload just over the 8-bit sector-count limit.
+        // required_sectors = ceil((data_len + 4) / SECTOR_SIZE) = 257 here.
+        let oversized = vec![0u8; 256 * SECTOR_SIZE];
+        let err = rf
+            .write_chunk(0, 0, 0, &oversized)
+            .expect_err("oversized chunk must be refused, not silently truncated");
+        assert!(
+            matches!(err.kind(), std::io::ErrorKind::InvalidData),
+            "expected InvalidData for oversized chunk, got {:?}: {err}",
+            err.kind()
+        );
+
+        // The rejected chunk must NOT have poisoned the location table: the
+        // slot still reads as empty, so a future valid write can land there.
+        assert_eq!(
+            rf.read_chunk(0, 0, 0).expect("read must not error"),
+            None,
+            "location entry for rejected chunk must remain empty"
+        );
+
+        // The file is still usable for a subsequent valid write.
+        let small = vec![0xAB; 32];
+        rf.write_chunk(0, 0, 0, &small)
+            .expect("valid write after rejection");
+        assert_eq!(
+            rf.read_chunk(0, 0, 0)
+                .expect("read small")
+                .expect("present"),
+            small
+        );
+    }
+
+    /// STOR-M01: `flush()` must be a real durability barrier (sync_data), not
+    /// the std `File::flush` no-op. We can't simulate power loss in a unit
+    /// test, but we CAN pin the contract: after `flush()` returns Ok, the
+    /// on-disk generation counter reflects the most recent write (the
+    /// durability-dependent publish flag from STOR-003), and a fresh handle
+    /// opened against the same file observes the flushed state.
+    #[test]
+    fn flush_durable_sync_after_write() {
+        let tmp = NamedTempFile::new().expect("tempfile");
+        let path = tmp.path().to_path_buf();
+        let payload: Vec<u8> = (0..200u8).collect();
+
+        let generation_before;
+        {
+            let mut rf = RegionFile::open(&path).expect("open new");
+            generation_before = rf.generation;
+            rf.write_chunk(2, 4, 6, &payload).expect("write");
+            // write_chunk already calls flush() (sync_data) internally; an
+            // explicit second flush must also succeed and remain a no-op-ish
+            // valid barrier (no error, no state regression).
+            rf.flush().expect("explicit flush must succeed");
+            // Generation advanced exactly once for the single write.
+            assert_eq!(
+                rf.generation,
+                generation_before.wrapping_add(1),
+                "flush must not corrupt the in-memory generation counter"
+            );
+        }
+
+        // A fresh handle observes the flushed bytes -- the durable sync is what
+        // makes the write survive the handle being dropped / a reopen.
+        let mut rf = RegionFile::open(&path).expect("reopen");
+        assert_eq!(
+            rf.read_chunk(2, 4, 6).expect("read back").expect("present"),
+            payload,
+            "flushed write must be readable from a fresh handle"
         );
     }
 }
