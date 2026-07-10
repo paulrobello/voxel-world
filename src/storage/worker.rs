@@ -114,7 +114,8 @@ impl StorageSystem {
         }
     }
 
-    pub fn load_chunk(&self, pos: ChunkPos) -> Result<Option<Chunk>, String> {
+    pub fn load_chunk<S: Into<ChunkPos>>(&self, pos: S) -> Result<Option<Chunk>, String> {
+        let pos = pos.into();
         let (reply_tx, reply_rx) = channel();
         self.tx
             .send(StorageCommand::Load {
@@ -127,7 +128,8 @@ impl StorageSystem {
             .map_err(|e: std::sync::mpsc::RecvError| e.to_string())?
     }
 
-    pub fn save_chunk(&self, pos: ChunkPos, chunk: SerializedChunk) {
+    pub fn save_chunk<S: Into<ChunkPos>>(&self, pos: S, chunk: SerializedChunk) {
+        let pos = pos.into();
         let _ = self.tx.send(StorageCommand::Save { pos, chunk });
     }
 }
@@ -186,7 +188,8 @@ impl ParallelStorageReader {
     /// Returns `Ok(None)` if the chunk doesn't exist on disk.
     /// Returns `Ok(Some(chunk))` if the chunk was loaded successfully.
     /// Returns `Err` only for actual I/O errors (not "file doesn't exist").
-    pub fn load_chunk(&mut self, pos: ChunkPos) -> Result<Option<Chunk>, String> {
+    pub fn load_chunk<S: Into<ChunkPos>>(&mut self, pos: S) -> Result<Option<Chunk>, String> {
+        let pos = pos.into();
         let rx = pos.x.div_euclid(CHUNKS_PER_REGION_SIDE);
         let rz = pos.z.div_euclid(CHUNKS_PER_REGION_SIDE);
 

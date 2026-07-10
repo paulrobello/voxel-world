@@ -240,8 +240,9 @@ impl WorldSim {
     /// fix: previously the streaming unload path dropped the returned `Chunk`
     /// without checking `persistence_dirty`, silently losing any player edits
     /// in chunks unloaded at the view-distance boundary.
-    pub fn unload_chunk(&mut self, pos: ChunkPos) -> bool {
-        self.chunk_loader.cancel_chunk(pos);
+    pub fn unload_chunk<S: Into<ChunkPos>>(&mut self, pos: S) -> bool {
+        let pos: ChunkPos = pos.into();
+        self.chunk_loader.cancel_chunk(pos.0);
         if let Some(chunk) = self.world.remove_chunk(pos) {
             if chunk.persistence_dirty {
                 let serialized = storage::format::SerializedChunk::from(&chunk);

@@ -3,7 +3,7 @@
 use super::{ChunkPos, WorldPos};
 use crate::chunk::{BlockModelData, BlockType, CHUNK_SIZE, Chunk};
 use crate::terrain_gen::OverflowBlock;
-use nalgebra::vector;
+use nalgebra::{Vector3, vector};
 use std::collections::{HashMap, HashSet};
 
 /// The voxel world, containing all loaded chunks.
@@ -69,17 +69,19 @@ impl World {
 
     /// Converts world coordinates to chunk coordinates.
     #[inline]
-    pub fn world_to_chunk(world_pos: WorldPos) -> ChunkPos {
-        vector![
+    pub fn world_to_chunk<S: Into<WorldPos>>(world_pos: S) -> ChunkPos {
+        let world_pos = world_pos.into();
+        ChunkPos(vector![
             world_pos.x.div_euclid(CHUNK_SIZE as i32),
             world_pos.y.div_euclid(CHUNK_SIZE as i32),
             world_pos.z.div_euclid(CHUNK_SIZE as i32)
-        ]
+        ])
     }
 
     /// Converts world coordinates to local chunk coordinates.
     #[inline]
-    pub fn world_to_local(world_pos: WorldPos) -> (usize, usize, usize) {
+    pub fn world_to_local<S: Into<WorldPos>>(world_pos: S) -> (usize, usize, usize) {
+        let world_pos = world_pos.into();
         (
             world_pos.x.rem_euclid(CHUNK_SIZE as i32) as usize,
             world_pos.y.rem_euclid(CHUNK_SIZE as i32) as usize,
@@ -88,8 +90,14 @@ impl World {
     }
 
     /// Converts chunk position to world position (bottom-left-back corner).
+    ///
+    /// Returns a plain `Vector3<i32>` (the historical block-coordinate type) so
+    /// the many callers that consume the result as a `Vector3` keep compiling
+    /// unchanged. The input remains type-safe: passing a `WorldPos` is a
+    /// compile error because there is intentionally no `Into<ChunkPos>` for it.
     #[inline]
-    pub fn chunk_to_world(chunk_pos: ChunkPos) -> WorldPos {
+    pub fn chunk_to_world<S: Into<ChunkPos>>(chunk_pos: S) -> Vector3<i32> {
+        let chunk_pos = chunk_pos.into();
         vector![
             chunk_pos.x * CHUNK_SIZE as i32,
             chunk_pos.y * CHUNK_SIZE as i32,
@@ -98,22 +106,26 @@ impl World {
     }
 
     /// Gets a reference to a chunk if it exists.
-    pub fn get_chunk(&self, chunk_pos: ChunkPos) -> Option<&Chunk> {
+    pub fn get_chunk<S: Into<ChunkPos>>(&self, chunk_pos: S) -> Option<&Chunk> {
+        let chunk_pos = chunk_pos.into();
         self.chunks.get(&chunk_pos)
     }
 
     /// Gets a mutable reference to a chunk if it exists.
-    pub fn get_chunk_mut(&mut self, chunk_pos: ChunkPos) -> Option<&mut Chunk> {
+    pub fn get_chunk_mut<S: Into<ChunkPos>>(&mut self, chunk_pos: S) -> Option<&mut Chunk> {
+        let chunk_pos = chunk_pos.into();
         self.chunks.get_mut(&chunk_pos)
     }
 
     /// Checks if a chunk exists at the given position.
-    pub fn has_chunk(&self, chunk_pos: ChunkPos) -> bool {
+    pub fn has_chunk<S: Into<ChunkPos>>(&self, chunk_pos: S) -> bool {
+        let chunk_pos = chunk_pos.into();
         self.chunks.contains_key(&chunk_pos)
     }
 
     /// Inserts a chunk at the given position.
-    pub fn insert_chunk(&mut self, chunk_pos: ChunkPos, mut chunk: Chunk) {
+    pub fn insert_chunk<S: Into<ChunkPos>>(&mut self, chunk_pos: S, mut chunk: Chunk) {
+        let chunk_pos = chunk_pos.into();
         // Apply any pending overflow blocks for this chunk position
         if let Some(overflow_blocks) = self.pending_overflow.remove(&chunk_pos) {
             for overflow in overflow_blocks {
@@ -153,7 +165,8 @@ impl World {
     }
 
     /// Removes and returns a chunk at the given position.
-    pub fn remove_chunk(&mut self, chunk_pos: ChunkPos) -> Option<Chunk> {
+    pub fn remove_chunk<S: Into<ChunkPos>>(&mut self, chunk_pos: S) -> Option<Chunk> {
+        let chunk_pos = chunk_pos.into();
         // Invalidate minimap cache for this chunk's column
         let world_x_base = chunk_pos.x * CHUNK_SIZE as i32;
         let world_z_base = chunk_pos.z * CHUNK_SIZE as i32;
@@ -167,13 +180,13 @@ impl World {
     }
 
     /// Returns an iterator over all loaded chunks.
-    pub fn chunks(&self) -> impl Iterator<Item = (&ChunkPos, &Chunk)> {
-        self.chunks.iter()
+    pub fn chunks(&self) -> impl Iterator<Item = (&Vector3<i32>, &Chunk)> {
+        self.chunks.iter().map(|(k, v)| (k.as_ref(), v))
     }
 
     /// Returns a mutable iterator over all loaded chunks.
-    pub fn chunks_mut(&mut self) -> impl Iterator<Item = (&ChunkPos, &mut Chunk)> {
-        self.chunks.iter_mut()
+    pub fn chunks_mut(&mut self) -> impl Iterator<Item = (&Vector3<i32>, &mut Chunk)> {
+        self.chunks.iter_mut().map(|(k, v)| (k.as_ref(), v))
     }
 
     /// Returns the number of loaded chunks.
@@ -195,13 +208,16 @@ impl World {
     ///
     /// Returns all chunk positions that need GPU re-upload.
     #[allow(dead_code)] // reason: world API — kept for future use
-    pub fn drain_dirty_chunks(&mut self) -> Vec<ChunkPos> {
+    pub fn drain_dirty_chunks(&mut self) -> Vec<Vector3<i32>> {
         self.dirty_set.clear();
         std::mem::take(&mut self.dirty_chunks)
+            .into_iter()
+            .map(|c| c.0)
+            .collect()
     }
 
     /// Drains up to `limit` dirty chunk positions, leaving the rest queued.
-    pub fn drain_dirty_chunks_limit(&mut self, limit: usize) -> Vec<ChunkPos> {
+    pub fn drain_dirty_chunks_limit(&mut self, limit: usize) -> Vec<Vector3<i32>> {
         if limit == 0 || self.dirty_chunks.is_empty() {
             return Vec::new();
         }
@@ -212,16 +228,19 @@ impl World {
         for pos in &taken {
             self.dirty_set.remove(pos);
         }
-        taken
+        taken.into_iter().map(|c| c.0).collect()
     }
 
     /// Removes the given positions from the dirty chunk queue, if present.
-    pub fn remove_dirty_positions(&mut self, positions: &[ChunkPos]) {
+    ///
+    /// Generic over the slice element so both raw `Vector3<i32>` callers (the
+    /// streaming/upload path) and typed `ChunkPos` callers (tests) keep working.
+    pub fn remove_dirty_positions<T: Into<ChunkPos> + Copy>(&mut self, positions: &[T]) {
         if self.dirty_chunks.is_empty() || positions.is_empty() {
             return;
         }
 
-        let remove: HashSet<_> = positions.iter().copied().collect();
+        let remove: HashSet<ChunkPos> = positions.iter().map(|p| (*p).into()).collect();
         self.dirty_chunks.retain(|pos| !remove.contains(pos));
         for pos in &remove {
             self.dirty_set.remove(pos);
@@ -249,14 +268,14 @@ impl World {
     /// Marks all loaded chunks as dirty for GPU upload.
     #[allow(dead_code)] // reason: world API — kept for future use
     pub fn mark_all_dirty(&mut self) {
-        let positions: Vec<_> = self.chunks.keys().copied().collect();
+        let positions: Vec<Vector3<i32>> = self.chunks.keys().map(|p| p.0).collect();
         self.requeue_dirty(&positions);
     }
 
     /// Re-queues a list of dirty chunk positions (deduped).
-    pub fn requeue_dirty(&mut self, positions: &[ChunkPos]) {
+    pub fn requeue_dirty(&mut self, positions: &[Vector3<i32>]) {
         for &pos in positions {
-            self.push_dirty(pos);
+            self.push_dirty(pos.into());
         }
     }
 
@@ -270,12 +289,12 @@ impl World {
     /// `view_dir` is the normalized XZ viewing direction (from camera yaw).
     pub fn get_chunks_to_load(
         &self,
-        center: ChunkPos,
+        center: Vector3<i32>,
         view_distance: i32,
-        world_bounds: (ChunkPos, ChunkPos), // (min_chunk, max_chunk) inclusive
-        view_dir: Option<(f32, f32)>,       // Optional (dir_x, dir_z) normalized
-        y_band: Option<i32>,                // Optional vertical band half-extent
-    ) -> Vec<ChunkPos> {
+        world_bounds: (Vector3<i32>, Vector3<i32>), // (min_chunk, max_chunk) inclusive
+        view_dir: Option<(f32, f32)>,               // Optional (dir_x, dir_z) normalized
+        y_band: Option<i32>,                        // Optional vertical band half-extent
+    ) -> Vec<Vector3<i32>> {
         let mut to_load = Vec::new();
         let (min_chunk, max_chunk) = world_bounds;
 
@@ -336,8 +355,8 @@ impl World {
     /// Lower score = higher priority.
     /// Combines distance with view direction alignment.
     pub fn chunk_load_priority(
-        center: ChunkPos,
-        chunk: ChunkPos,
+        center: Vector3<i32>,
+        chunk: Vector3<i32>,
         view_dir: Option<(f32, f32)>,
     ) -> f32 {
         let dx = (chunk.x - center.x) as f32;
@@ -375,7 +394,11 @@ impl World {
     /// Gets chunk positions that should be unloaded based on player position.
     ///
     /// Returns loaded chunks that are beyond the given unload distance (horizontal only).
-    pub fn get_chunks_to_unload(&self, center: ChunkPos, unload_distance: i32) -> Vec<ChunkPos> {
+    pub fn get_chunks_to_unload(
+        &self,
+        center: Vector3<i32>,
+        unload_distance: i32,
+    ) -> Vec<Vector3<i32>> {
         let unload_dist_sq = unload_distance * unload_distance;
         let mut to_unload: Vec<_> = self
             .chunks
@@ -386,7 +409,7 @@ impl World {
                 let dz = pos.z - center.z;
                 dx * dx + dz * dz > unload_dist_sq
             })
-            .cloned()
+            .map(|p| p.0)
             .collect();
 
         // Prefer unloading farthest chunks first to reduce thrash near the boundary.
@@ -400,7 +423,8 @@ impl World {
     }
 
     /// Gets the block at world coordinates.
-    pub fn get_block(&self, world_pos: WorldPos) -> Option<BlockType> {
+    pub fn get_block<S: Into<WorldPos>>(&self, world_pos: S) -> Option<BlockType> {
+        let world_pos = world_pos.into();
         let chunk_pos = Self::world_to_chunk(world_pos);
         let (lx, ly, lz) = Self::world_to_local(world_pos);
 
@@ -412,7 +436,8 @@ impl World {
     /// Sets the block at world coordinates.
     ///
     /// If the chunk doesn't exist, it will be created.
-    pub fn set_block(&mut self, world_pos: WorldPos, block: BlockType) {
+    pub fn set_block<S: Into<WorldPos>>(&mut self, world_pos: S, block: BlockType) {
+        let world_pos = world_pos.into();
         let chunk_pos = Self::world_to_chunk(world_pos);
         let (lx, ly, lz) = Self::world_to_local(world_pos);
 
@@ -430,7 +455,12 @@ impl World {
     ///
     /// This sets the block type to Water and stores the water type metadata.
     /// If the chunk doesn't exist, it will be created.
-    pub fn set_water_block(&mut self, world_pos: WorldPos, water_type: crate::chunk::WaterType) {
+    pub fn set_water_block<S: Into<WorldPos>>(
+        &mut self,
+        world_pos: S,
+        water_type: crate::chunk::WaterType,
+    ) {
+        let world_pos = world_pos.into();
         let chunk_pos = Self::world_to_chunk(world_pos);
         let (lx, ly, lz) = Self::world_to_local(world_pos);
 
@@ -447,7 +477,11 @@ impl World {
     /// Gets the water type for a block at world coordinates.
     ///
     /// Returns None if the chunk doesn't exist or the block has no water data.
-    pub fn get_water_type(&self, world_pos: WorldPos) -> Option<crate::chunk::WaterType> {
+    pub fn get_water_type<S: Into<WorldPos>>(
+        &self,
+        world_pos: S,
+    ) -> Option<crate::chunk::WaterType> {
+        let world_pos = world_pos.into();
         let chunk_pos = Self::world_to_chunk(world_pos);
         let (lx, ly, lz) = Self::world_to_local(world_pos);
 
@@ -460,13 +494,14 @@ impl World {
     ///
     /// This sets the block type to Model and stores the model metadata.
     /// If the chunk doesn't exist, it will be created.
-    pub fn set_model_block(
+    pub fn set_model_block<S: Into<WorldPos>>(
         &mut self,
-        world_pos: WorldPos,
+        world_pos: S,
         model_id: u8,
         rotation: u8,
         waterlogged: bool,
     ) {
+        let world_pos = world_pos.into();
         let chunk_pos = Self::world_to_chunk(world_pos);
         let (lx, ly, lz) = Self::world_to_local(world_pos);
 
@@ -482,7 +517,8 @@ impl World {
 
     /// Sets the custom_data for an existing model block at world coordinates.
     #[allow(dead_code)] // reason: world API — kept for future use
-    pub fn set_model_custom_data(&mut self, world_pos: WorldPos, custom_data: u32) {
+    pub fn set_model_custom_data<S: Into<WorldPos>>(&mut self, world_pos: S, custom_data: u32) {
+        let world_pos = world_pos.into();
         let chunk_pos = Self::world_to_chunk(world_pos);
         let (lx, ly, lz) = Self::world_to_local(world_pos);
 
@@ -498,14 +534,15 @@ impl World {
     /// Sets a model block with full metadata (including custom_data) at world coordinates.
     ///
     /// This is required for blocks that rely on per-block custom data (e.g., picture frames).
-    pub fn set_model_block_with_data(
+    pub fn set_model_block_with_data<S: Into<WorldPos>>(
         &mut self,
-        world_pos: WorldPos,
+        world_pos: S,
         model_id: u8,
         rotation: u8,
         waterlogged: bool,
         custom_data: u32,
     ) {
+        let world_pos = world_pos.into();
         let chunk_pos = Self::world_to_chunk(world_pos);
         let (lx, ly, lz) = Self::world_to_local(world_pos);
 
@@ -522,7 +559,8 @@ impl World {
     /// Gets model data for a block at world coordinates.
     ///
     /// Returns None if the chunk doesn't exist or the block has no model data.
-    pub fn get_model_data(&self, world_pos: WorldPos) -> Option<BlockModelData> {
+    pub fn get_model_data<S: Into<WorldPos>>(&self, world_pos: S) -> Option<BlockModelData> {
+        let world_pos = world_pos.into();
         let chunk_pos = Self::world_to_chunk(world_pos);
         let (lx, ly, lz) = Self::world_to_local(world_pos);
 
@@ -535,7 +573,8 @@ impl World {
     ///
     /// This sets the block type to TintedGlass and stores the tint metadata.
     /// If the chunk doesn't exist, it will be created.
-    pub fn set_tinted_glass_block(&mut self, world_pos: WorldPos, tint_index: u8) {
+    pub fn set_tinted_glass_block<S: Into<WorldPos>>(&mut self, world_pos: S, tint_index: u8) {
+        let world_pos = world_pos.into();
         let chunk_pos = Self::world_to_chunk(world_pos);
         let (lx, ly, lz) = Self::world_to_local(world_pos);
 
@@ -553,7 +592,8 @@ impl World {
     ///
     /// This sets the block type to Crystal and stores the tint metadata.
     /// If the chunk doesn't exist, it will be created.
-    pub fn set_crystal_block(&mut self, world_pos: WorldPos, tint_index: u8) {
+    pub fn set_crystal_block<S: Into<WorldPos>>(&mut self, world_pos: S, tint_index: u8) {
+        let world_pos = world_pos.into();
         let chunk_pos = Self::world_to_chunk(world_pos);
         let (lx, ly, lz) = Self::world_to_local(world_pos);
 
@@ -570,7 +610,8 @@ impl World {
     /// Gets the tint color index for a tinted glass block at world coordinates.
     ///
     /// Returns None if the chunk doesn't exist or the block has no tint data.
-    pub fn get_tint_index(&self, world_pos: WorldPos) -> Option<u8> {
+    pub fn get_tint_index<S: Into<WorldPos>>(&self, world_pos: S) -> Option<u8> {
+        let world_pos = world_pos.into();
         let chunk_pos = Self::world_to_chunk(world_pos);
         let (lx, ly, lz) = Self::world_to_local(world_pos);
 
@@ -584,7 +625,13 @@ impl World {
     /// This sets the block type to Painted and stores the paint metadata.
     /// If the chunk doesn't exist, it will be created.
     /// Uses default multiply blend mode.
-    pub fn set_painted_block(&mut self, world_pos: WorldPos, texture_idx: u8, tint_idx: u8) {
+    pub fn set_painted_block<S: Into<WorldPos>>(
+        &mut self,
+        world_pos: S,
+        texture_idx: u8,
+        tint_idx: u8,
+    ) {
+        let world_pos = world_pos.into();
         self.set_painted_block_full(world_pos, texture_idx, tint_idx, 0);
     }
 
@@ -592,13 +639,14 @@ impl World {
     ///
     /// This sets the block type to Painted and stores the paint metadata.
     /// If the chunk doesn't exist, it will be created.
-    pub fn set_painted_block_full(
+    pub fn set_painted_block_full<S: Into<WorldPos>>(
         &mut self,
-        world_pos: WorldPos,
+        world_pos: S,
         texture_idx: u8,
         tint_idx: u8,
         blend_mode: u8,
     ) {
+        let world_pos = world_pos.into();
         let chunk_pos = Self::world_to_chunk(world_pos);
         let (lx, ly, lz) = Self::world_to_local(world_pos);
 
@@ -615,7 +663,11 @@ impl World {
     /// Gets the paint metadata for a painted block at world coordinates.
     ///
     /// Returns None if the chunk doesn't exist or the block has no paint data.
-    pub fn get_paint_data(&self, world_pos: WorldPos) -> Option<crate::chunk::BlockPaintData> {
+    pub fn get_paint_data<S: Into<WorldPos>>(
+        &self,
+        world_pos: S,
+    ) -> Option<crate::chunk::BlockPaintData> {
+        let world_pos = world_pos.into();
         let chunk_pos = Self::world_to_chunk(world_pos);
         let (lx, ly, lz) = Self::world_to_local(world_pos);
 
@@ -626,7 +678,8 @@ impl World {
 
     /// Checks if a block is solid at world coordinates.
     #[allow(dead_code)] // reason: world API — kept for future use
-    pub fn is_solid(&self, world_pos: WorldPos) -> bool {
+    pub fn is_solid<S: Into<WorldPos>>(&self, world_pos: S) -> bool {
+        let world_pos = world_pos.into();
         self.get_block(world_pos)
             .map(|b| b.is_solid())
             .unwrap_or(false)
