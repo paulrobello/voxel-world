@@ -22,6 +22,8 @@ use nalgebra::Vector3;
 
 mod chat;
 pub use chat::{ChatEntry, ChatState};
+mod roster;
+pub use roster::PlayerRoster;
 
 /// Whether to use threaded server mode (experimental).
 /// When enabled, server network processing runs in a dedicated thread.
@@ -135,8 +137,8 @@ pub struct MultiplayerState {
     pub client: Option<GameClient>,
     /// Prediction state for client-side prediction.
     pub prediction: PredictionState,
-    /// Remote players for rendering.
-    pub remote_players: Vec<RemotePlayer>,
+    /// Remote players + host-side roster (ARC-002: extracted to `PlayerRoster`).
+    pub roster: PlayerRoster,
     /// Chunk sync manager.
     pub chunk_sync: ChunkSyncManager,
     /// Block sync manager for block changes.
@@ -216,10 +218,6 @@ pub struct MultiplayerState {
     server_name: String,
     /// Maximum players for this server.
     max_players: u8,
-    /// Current player count (updated by host).
-    player_count: u8,
-    /// Connected player names (updated by host).
-    player_names: Vec<String>,
     /// Server address (set when hosting or connected).
     pub server_address: Option<SocketAddr>,
     /// Pairing code (64-hex of the server's per-session private key) shown on
@@ -252,7 +250,7 @@ impl MultiplayerState {
             use_threaded_server: USE_THREADED_SERVER,
             client: None,
             prediction: PredictionState::new(),
-            remote_players: Vec::new(),
+            roster: PlayerRoster::new(),
             chunk_sync: ChunkSyncManager::new(),
             block_sync: BlockSyncManager::new(false),
             block_validator: crate::net::block_sync::BlockValidator::new(),
@@ -276,8 +274,6 @@ impl MultiplayerState {
             discovery_responder: None,
             server_name: String::new(),
             max_players: 4,
-            player_count: 1, // Host counts as player
-            player_names: vec!["Host".to_string()],
             server_address: None,
             host_pairing_code: None,
             ping_ms: None,
@@ -415,8 +411,7 @@ impl MultiplayerState {
         self.server_address = None;
         self.host_pairing_code = None;
         self.server_name.clear();
-        self.player_count = 1;
-        self.player_names = vec!["Host".to_string()];
+        self.roster.reset_to_host();
 
         if self.mode == GameMode::Host {
             self.mode = GameMode::SinglePlayer;
@@ -492,7 +487,7 @@ impl MultiplayerState {
 
     /// Returns the current player count.
     pub fn get_player_count(&self) -> u8 {
-        self.player_count
+        self.roster.player_count()
     }
 
     /// Returns the maximum player count.
@@ -502,14 +497,15 @@ impl MultiplayerState {
 
     /// Returns the list of player names.
     pub fn get_player_names(&self) -> &[String] {
-        &self.player_names
+        self.roster.player_names()
     }
 
     /// Returns remote player markers for minimap display.
     /// Each marker includes position (x, z) and player_id for color assignment.
     /// The local player is NOT included in this list.
     pub fn get_minimap_markers(&self) -> Vec<crate::ui::minimap::RemotePlayerMarker> {
-        self.remote_players
+        self.roster
+            .remote_players()
             .iter()
             .map(|player| crate::ui::minimap::RemotePlayerMarker {
                 name: player.name.clone(),
@@ -522,7 +518,8 @@ impl MultiplayerState {
     /// Returns remote player positions for 3D rendering.
     /// Each tuple contains (position [x, y, z], player_id for color).
     pub fn get_remote_player_positions(&self) -> Vec<([f32; 3], u64)> {
-        self.remote_players
+        self.roster
+            .remote_players()
             .iter()
             .map(|player| (player.position, player.player_id))
             .collect()
@@ -532,7 +529,8 @@ impl MultiplayerState {
     /// Each tuple contains (name, position [x, y, z], color_index).
     #[allow(dead_code)] // reason: multiplayer state — kept for future wire-up
     pub fn get_remote_players_for_labels(&self) -> Vec<(String, [f32; 3], usize)> {
-        self.remote_players
+        self.roster
+            .remote_players()
             .iter()
             .enumerate()
             .map(|(idx, player)| (player.name.clone(), player.position, idx))
@@ -541,7 +539,8 @@ impl MultiplayerState {
 
     /// Returns remote player labels for HUD rendering.
     pub fn get_remote_player_labels(&self) -> Vec<crate::ui::minimap::RemotePlayerLabel> {
-        self.remote_players
+        self.roster
+            .remote_players()
             .iter()
             .enumerate()
             .map(|(idx, player)| crate::ui::minimap::RemotePlayerLabel {
@@ -688,7 +687,7 @@ impl MultiplayerState {
 
         // Update discovery responder (server-side)
         if let Some(ref responder) = self.discovery_responder {
-            responder.update(self.player_count);
+            responder.update(self.roster.player_count());
         }
 
         // Update discovery client (client-side)
@@ -698,7 +697,7 @@ impl MultiplayerState {
 
         // Update player count based on remote players + host
         if self.mode == GameMode::Host {
-            self.player_count = (self.remote_players.len() + 1) as u8;
+            self.roster.sync_count();
         }
     }
 
@@ -1115,7 +1114,8 @@ impl MultiplayerState {
                 {
                     // Update remote player name
                     if let Some(remote) = self
-                        .remote_players
+                        .roster
+                        .remote_players_mut()
                         .iter_mut()
                         .find(|p| p.player_id == player_id)
                     {
@@ -1330,7 +1330,8 @@ impl MultiplayerState {
 
                         // Try to find existing remote player
                         if let Some(remote) = self
-                            .remote_players
+                            .roster
+                            .remote_players_mut()
                             .iter_mut()
                             .find(|p| p.player_id == state.player_id)
                         {
@@ -1357,14 +1358,15 @@ impl MultiplayerState {
                             remote.velocity = state.velocity;
                             remote.yaw = state.yaw;
                             remote.update_state(state, timestamp);
-                            self.remote_players.push(remote);
+                            self.roster.add(remote);
                         }
                     }
                 }
             }
             ServerMessage::PlayerJoined(joined)
                 if !self
-                    .remote_players
+                    .roster
+                    .remote_players()
                     .iter()
                     .any(|p| p.player_id == joined.player_id)
                     && !{
@@ -1375,11 +1377,10 @@ impl MultiplayerState {
             {
                 let remote =
                     RemotePlayer::new(joined.player_id, joined.name.clone(), joined.position);
-                self.remote_players.push(remote);
+                self.roster.add(remote);
             }
             ServerMessage::PlayerLeft(left) => {
-                self.remote_players
-                    .retain(|p| p.player_id != left.player_id);
+                self.roster.remove(left.player_id);
             }
             ServerMessage::ChunkData(chunk) => {
                 // Mark chunk as received
@@ -1638,7 +1639,8 @@ impl MultiplayerState {
                 );
                 // Update remote player name
                 if let Some(player) = self
-                    .remote_players
+                    .roster
+                    .remote_players_mut()
                     .iter_mut()
                     .find(|p| p.player_id == change.player_id)
                 {
@@ -1919,13 +1921,7 @@ impl MultiplayerState {
 
     /// Updates remote player interpolation.
     pub fn update_remote_players(&mut self) {
-        let current_time = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs_f64();
-        for remote in &mut self.remote_players {
-            remote.interpolate(current_time);
-        }
+        self.roster.interpolate();
     }
 
     /// Receives a chunk from the server and stores it for later application.
