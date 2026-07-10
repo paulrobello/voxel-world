@@ -14,7 +14,6 @@ use crate::ui::tools::ActiveTool;
 use nalgebra::Vector3;
 use std::time::Instant;
 use vulkano::{
-    Validated, VulkanError,
     command_buffer::{
         AutoCommandBufferBuilder, BlitImageInfo, ClearColorImageInfo, CommandBufferUsage,
     },
@@ -111,7 +110,7 @@ impl App {
 
         // --- Swapchain management ---
         let window_size = self.graphics.rcx.as_ref().unwrap().window.inner_size();
-        self.maybe_recreate_swapchain(window_size);
+        self.maybe_recreate_swapchain(window_size)?;
 
         // Console command processing and multiplayer stencil application are
         // hoisted OUT of the acquire->record GPU-critical section (REN-M02):
@@ -127,13 +126,18 @@ impl App {
 
         let (image_index, suboptimal, acquire_future) = {
             let rcx = self.graphics.rcx.as_mut().unwrap();
-            match acquire_next_image(rcx.swapchain.clone(), None).map_err(Validated::unwrap) {
+            match acquire_next_image(rcx.swapchain.clone(), None) {
                 Ok(r) => r,
-                Err(VulkanError::OutOfDate) => {
-                    rcx.recreate_swapchain = true;
-                    return Ok(());
-                }
-                Err(e) => panic!("failed to acquire next image: {e}"),
+                Err(e) => match crate::gpu_error::GpuError::from(e) {
+                    // OutOfDate is recoverable: mark for recreate next frame.
+                    crate::gpu_error::GpuError::SwapchainOutOfDate => {
+                        rcx.recreate_swapchain = true;
+                        return Ok(());
+                    }
+                    // Device loss and all other errors propagate to the
+                    // save-and-exit handler in event_handler (REN-002).
+                    other => return Err(other),
+                },
             }
         };
 
@@ -277,7 +281,7 @@ impl App {
             push_constants,
             render_extent,
             resample_extent,
-        );
+        )?;
 
         // --- Screenshot ---
         self.handle_screenshot(image_index);
@@ -369,22 +373,23 @@ impl App {
 
     /// Recreates the swapchain and render images if the window was resized or the
     /// swapchain was marked out-of-date.
-    fn maybe_recreate_swapchain(&mut self, window_size: winit::dpi::PhysicalSize<u32>) {
+    fn maybe_recreate_swapchain(
+        &mut self,
+        window_size: winit::dpi::PhysicalSize<u32>,
+    ) -> Result<(), crate::gpu_error::GpuError> {
         {
             let rcx = self.graphics.rcx.as_ref().unwrap();
             if !rcx.recreate_swapchain {
-                return;
+                return Ok(());
             }
         }
 
         let (new_swapchain, images) = {
             let rcx = self.graphics.rcx.as_ref().unwrap();
-            rcx.swapchain
-                .recreate(SwapchainCreateInfo {
-                    image_extent: window_size.into(),
-                    ..rcx.swapchain.create_info()
-                })
-                .unwrap()
+            rcx.swapchain.recreate(SwapchainCreateInfo {
+                image_extent: window_size.into(),
+                ..rcx.swapchain.create_info()
+            })?
         };
 
         let window_extent: [u32; 2] = window_size.into();
@@ -395,8 +400,11 @@ impl App {
 
         let new_image_views: Vec<_> = images
             .iter()
-            .map(|i| ImageView::new(i.clone(), ImageViewCreateInfo::from_image(i)).unwrap())
-            .collect();
+            .map(|i| {
+                ImageView::new(i.clone(), ImageViewCreateInfo::from_image(i))
+                    .map_err(crate::gpu_error::GpuError::from)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
 
         let (ri, rs, fub, resi, ress) = get_images_and_sets(
             self.graphics.memory_allocator.clone(),
@@ -426,6 +434,7 @@ impl App {
         rcx.distance_set = ds;
         rcx.recreate_swapchain = false;
         self.ui.frame.window_size = window_extent;
+        Ok(())
     }
 
     /// Processes all pending console commands that were queued during the previous
@@ -1518,19 +1527,16 @@ impl App {
         push_constants: PushConstants,
         render_extent: [u32; 3],
         resample_extent: [u32; 3],
-    ) {
+    ) -> Result<(), crate::gpu_error::GpuError> {
         let mut builder = AutoCommandBufferBuilder::primary(
             self.graphics.command_buffer_allocator.clone(),
             self.graphics.queue.queue_family_index(),
             CommandBufferUsage::OneTimeSubmit,
-        )
-        .unwrap();
+        )?;
 
-        builder
-            .clear_color_image(ClearColorImageInfo::image(
-                self.graphics.rcx.as_ref().unwrap().render_image.clone(),
-            ))
-            .unwrap();
+        builder.clear_color_image(ClearColorImageInfo::image(
+            self.graphics.rcx.as_ref().unwrap().render_image.clone(),
+        ))?;
 
         // Single-pass rendering with empty chunk skip optimization
         // (Two-pass beam optimization was tested but added overhead without benefit
@@ -1555,8 +1561,7 @@ impl App {
         }
 
         builder
-            .bind_pipeline_compute(self.graphics.render_pipeline.clone())
-            .unwrap()
+            .bind_pipeline_compute(self.graphics.render_pipeline.clone())?
             .bind_descriptor_sets(
                 PipelineBindPoint::Compute,
                 self.graphics.render_pipeline.layout().clone(),
@@ -1571,44 +1576,37 @@ impl App {
                     self.graphics.rcx.as_ref().unwrap().distance_set.clone(),
                     self.graphics.brick_and_model_set.clone(), // Combined set 7: brick + model resources
                 ],
-            )
-            .unwrap();
+            )?;
 
         // SAFETY: The pipeline and descriptor sets were bound immediately before this
         // dispatch call; the workgroup dimensions are derived from the swapchain extent
         // and cannot exceed hardware limits.  All buffer/image resources referenced by
         // the descriptor sets remain valid for the lifetime of the command buffer.
         unsafe {
-            builder
-                .dispatch([
-                    render_extent[0].div_ceil(8),
-                    render_extent[1].div_ceil(8),
-                    1,
-                ])
-                .unwrap();
+            builder.dispatch([
+                render_extent[0].div_ceil(8),
+                render_extent[1].div_ceil(8),
+                1,
+            ])?;
         }
 
         builder
-            .bind_pipeline_compute(self.graphics.resample_pipeline.clone())
-            .unwrap()
+            .bind_pipeline_compute(self.graphics.resample_pipeline.clone())?
             .bind_descriptor_sets(
                 PipelineBindPoint::Compute,
                 self.graphics.resample_pipeline.layout().clone(),
                 0,
                 vec![self.graphics.rcx.as_ref().unwrap().resample_set.clone()],
-            )
-            .unwrap();
+            )?;
 
         // SAFETY: Same invariants as the primary dispatch above; the resample pipeline
         // and its descriptor set are fully bound and all referenced resources are live.
         unsafe {
-            builder
-                .dispatch([
-                    resample_extent[0].div_ceil(8),
-                    resample_extent[1].div_ceil(8),
-                    1,
-                ])
-                .unwrap();
+            builder.dispatch([
+                resample_extent[0].div_ceil(8),
+                resample_extent[1].div_ceil(8),
+                1,
+            ])?;
         }
 
         let mut info = BlitImageInfo::images(
@@ -1618,13 +1616,12 @@ impl App {
                 .clone(),
         );
         info.filter = Filter::Nearest;
-        builder.blit_image(info).unwrap();
+        builder.blit_image(info)?;
 
-        let command_buffer = builder.build().unwrap();
+        let command_buffer = builder.build()?;
 
-        let render_future = acquire_future
-            .then_execute(self.graphics.queue.clone(), command_buffer)
-            .unwrap();
+        let render_future =
+            acquire_future.then_execute(self.graphics.queue.clone(), command_buffer)?;
 
         // Clone the image view before the mutable borrow for gui.draw_on_image
         let swapchain_image_view =
@@ -1644,12 +1641,12 @@ impl App {
                 self.graphics.queue.clone(),
                 SwapchainPresentInfo::swapchain_image_index(swapchain, image_index),
             )
-            .then_signal_fence_and_flush()
-            .unwrap();
+            .then_signal_fence_and_flush()?;
 
         // Store fence for pipelined waiting at the start of the next frame.
         // This allows the CPU to prepare the next frame while the GPU is still rendering.
         self.previous_frame_fence = Some(frame_fence.boxed());
+        Ok(())
     }
 
     /// Takes a screenshot if the configured delay has elapsed and one has not

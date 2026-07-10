@@ -32,7 +32,14 @@ impl std::error::Error for GpuError {}
 
 impl From<Validated<VulkanError>> for GpuError {
     fn from(e: Validated<VulkanError>) -> Self {
-        GpuError::from(e.unwrap())
+        match e {
+            // A real Vulkan error (device loss, OOM, out-of-date, …).
+            Validated::Error(vk) => vk.into(),
+            // A validation-layer violation — not a device fault; treat as Other.
+            // (The previous `e.unwrap()` panicked on this variant instead of
+            // propagating, which defeated error recovery under `?`.)
+            Validated::ValidationError(err) => err.into(),
+        }
     }
 }
 
