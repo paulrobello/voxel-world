@@ -113,6 +113,18 @@ impl App {
         let window_size = self.graphics.rcx.as_ref().unwrap().window.inner_size();
         self.maybe_recreate_swapchain(window_size);
 
+        // Console command processing and multiplayer stencil application are
+        // hoisted OUT of the acquire->record GPU-critical section (REN-M02):
+        // the former can do blocking disk I/O (`prefs.save()`) and the latter
+        // applies network state. Running them between acquire and record held
+        // the swapchain image through host-side disk/network stalls. They MUST
+        // stay before the `populate_*` buffer updates / push-constant reads
+        // below so their world/UI state mutations are captured by THIS frame
+        // (same side-effect ordering as before, just outside the critical
+        // section).
+        self.process_console_commands();
+        self.process_multiplayer_stencils();
+
         let (image_index, suboptimal, acquire_future) = {
             let rcx = self.graphics.rcx.as_mut().unwrap();
             match acquire_next_image(rcx.swapchain.clone(), None).map_err(Validated::unwrap) {
@@ -199,12 +211,6 @@ impl App {
             rcx.distance_image = di;
             rcx.distance_set = ds;
         }
-
-        // --- Console command processing ---
-        self.process_console_commands();
-
-        // --- Multiplayer stencil sync ---
-        self.process_multiplayer_stencils();
 
         let tex_origin = self.sim.texture_origin;
         let render_extent = self.graphics.rcx.as_ref().unwrap().render_image.extent();
@@ -298,7 +304,8 @@ impl App {
             camera_dir.y as f32,
             camera_dir.z as f32,
         );
-        self.sim.world.collect_torch_lights(
+        gpu::collect_torch_lights(
+            &self.sim.world,
             self.sim.player.light_enabled,
             player_world_pos,
             camera_dir_f32,

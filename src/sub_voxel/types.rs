@@ -297,39 +297,14 @@ impl LightMode {
         }
     }
 
-    /// Returns the animation speed multiplier for this mode.
-    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
-    pub const fn speed(&self) -> f32 {
-        match *self {
-            LightMode::Steady => 0.0,
-            LightMode::Pulse => 2.0,
-            LightMode::Flicker => 10.0,
-            LightMode::Candle => 4.0,
-            LightMode::Strobe => 15.0,
-            LightMode::Breathe => 0.5,
-            LightMode::Sparkle => 8.0,
-            LightMode::Wave => 1.0,
-            LightMode::WarmUp => 0.3,
-            LightMode::Arc => 20.0,
-        }
-    }
-
-    /// Returns the intensity range (min, max) for this mode.
-    #[allow(dead_code)] // reason: sub-voxel API — kept for future use / API completeness
-    pub const fn intensity_range(&self) -> (f32, f32) {
-        match *self {
-            LightMode::Steady => (1.0, 1.0),
-            LightMode::Pulse => (0.5, 1.0),
-            LightMode::Flicker => (0.3, 1.0),
-            LightMode::Candle => (0.6, 1.0),
-            LightMode::Strobe => (0.0, 1.0),
-            LightMode::Breathe => (0.4, 1.0),
-            LightMode::Sparkle => (0.7, 1.5), // Can flash brighter
-            LightMode::Wave => (0.3, 1.0),
-            LightMode::WarmUp => (0.0, 1.0),
-            LightMode::Arc => (0.2, 2.0), // Very bright bursts
-        }
-    }
+    // NOTE: per-mode animation `speed()` and `intensity_range()` helpers were
+    // removed (ARC-M15). They were unused and had drifted out of sync with the
+    // authoritative animation curves in `gpu::lighting::compute_animation_factor`
+    // (e.g. Breathe reported speed 0.5 but the curve uses a 0.8 rate; intensity
+    // ranges did not match either). The `LightMode` enum discriminant is now the
+    // single source for mode *identity*, and `compute_animation_factor` is the
+    // single source for mode *behavior*. Keep display_name/description/all below
+    // as deliberately-retained UI API stubs.
 }
 
 /// Shape variants for stair models.
