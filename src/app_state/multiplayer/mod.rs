@@ -13,8 +13,7 @@ use crate::chunk::Chunk;
 use crate::config::GameMode;
 use crate::net::{
     BlockSyncManager, ChunkSyncManager, CustomTextureCache, DiscoveredServer, DiscoveryResponder,
-    GameClient, GameServer, LavaSyncOptimizer, PredictionState, RemotePlayer, SerializedChunk,
-    WaterSyncOptimizer,
+    GameClient, GameServer, LavaSyncOptimizer, RemotePlayer, SerializedChunk, WaterSyncOptimizer,
 };
 #[cfg(feature = "threaded-server")]
 use crate::net::{ServerCommand, ServerThread, ServerThreadEvent};
@@ -26,6 +25,8 @@ mod roster;
 pub use roster::PlayerRoster;
 mod discovery;
 pub use discovery::DiscoveryState;
+mod input;
+pub use input::InputState;
 
 /// Whether to use threaded server mode (experimental).
 /// When enabled, server network processing runs in a dedicated thread.
@@ -99,30 +100,6 @@ pub enum NetworkEvent {
     ChatReceived(crate::net::protocol::ChatReceived),
 }
 
-/// Snapshot of the last PlayerInput actually sent to the server.
-///
-/// Used by `MultiplayerState::send_input` to skip near-idle frames below the movement
-/// thresholds. `skips_remaining` is a countdown that forces a keep-alive send every
-/// `FORCE_SEND_EVERY` calls so the server never stops hearing from an idle client.
-#[derive(Debug, Clone, Copy)]
-struct LastSentInput {
-    position: [f32; 3],
-    velocity: [f32; 3],
-    yaw: f32,
-    pitch: f32,
-    actions: crate::net::protocol::InputActions,
-    skips_remaining: u32,
-}
-
-/// Returns the largest component-wise absolute delta between two 3-vectors.
-#[inline]
-fn max_abs_delta(a: [f32; 3], b: [f32; 3]) -> f32 {
-    let dx = (a[0] - b[0]).abs();
-    let dy = (a[1] - b[1]).abs();
-    let dz = (a[2] - b[2]).abs();
-    dx.max(dy).max(dz)
-}
-
 /// Multiplayer state for the game.
 pub struct MultiplayerState {
     /// Current game mode.
@@ -137,8 +114,8 @@ pub struct MultiplayerState {
     use_threaded_server: bool,
     /// Client instance (when hosting or connecting).
     pub client: Option<GameClient>,
-    /// Prediction state for client-side prediction.
-    pub prediction: PredictionState,
+    /// Client input-send + prediction state (ARC-002: extracted to `InputState`).
+    pub input: InputState,
     /// Remote players + host-side roster (ARC-002: extracted to `PlayerRoster`).
     pub roster: PlayerRoster,
     /// Chunk sync manager.
@@ -148,13 +125,6 @@ pub struct MultiplayerState {
     pub block_sync: BlockSyncManager,
     /// Block validator for server-side validation (anti-cheat).
     block_validator: crate::net::block_sync::BlockValidator,
-    /// Input sequence number.
-    pub input_sequence: u32,
-    /// Last sent input state for delta-skipping idle frames.
-    last_sent_input: Option<LastSentInput>,
-    /// Wall-clock time of the last client→server input send, used to
-    /// throttle `send_input` independent of render FPS (PHY-M05).
-    last_input_send: Option<Instant>,
     /// Wall-clock time of the last player-state broadcast, used to
     /// throttle `broadcast_player_states` independent of render FPS (PHY-M05).
     last_player_state_broadcast: Option<Instant>,
@@ -249,14 +219,11 @@ impl MultiplayerState {
             #[cfg(feature = "threaded-server")]
             use_threaded_server: USE_THREADED_SERVER,
             client: None,
-            prediction: PredictionState::new(),
+            input: InputState::new(),
             roster: PlayerRoster::new(),
             chunk_sync: ChunkSyncManager::new(),
             block_sync: BlockSyncManager::new(false),
             block_validator: crate::net::block_sync::BlockValidator::new(),
-            input_sequence: 0,
-            last_sent_input: None,
-            last_input_send: None,
             last_player_state_broadcast: None,
             events: VecDeque::new(),
             pending_server_seed: None,
@@ -1299,7 +1266,7 @@ impl MultiplayerState {
             }
             ServerMessage::PlayerState(state) => {
                 // Reconcile with server
-                self.prediction.reconcile(state);
+                self.input.prediction_mut().reconcile(state);
 
                 // Update remote player rendering
                 if let Some(ref client) = self.client {
@@ -1655,17 +1622,7 @@ impl MultiplayerState {
     /// `send_input` so the send rate is independent of render FPS (PHY-M05).
     /// The first call always returns true. Does not panic on clock issues.
     pub fn should_send_input_tick(&mut self) -> bool {
-        let now = Instant::now();
-        let elapsed = self
-            .last_input_send
-            .map(|t| now.duration_since(t))
-            .unwrap_or(Duration::MAX);
-        if elapsed >= NETWORK_TICK_INTERVAL {
-            self.last_input_send = Some(now);
-            true
-        } else {
-            false
-        }
+        self.input.should_send_tick()
     }
 
     /// Sends player input to the server, skipping frames where movement is below thresholds.
@@ -1683,51 +1640,9 @@ impl MultiplayerState {
         pitch: f32,
         actions: crate::net::protocol::InputActions,
     ) {
-        const POSITION_THRESHOLD: f32 = 0.01; // 1 cm
-        const VELOCITY_THRESHOLD: f32 = 0.1; // 10 cm/s
-        const ROTATION_THRESHOLD: f32 = 0.0087; // ~0.5°
-        const FORCE_SEND_EVERY: u32 = 20; // ~1 Hz keep-alive at 20 Hz send rate
-
         if let Some(ref mut client) = self.client {
-            // Record input for prediction every call (local state must stay in sync).
-            self.prediction
-                .record_input(position, velocity, yaw, pitch, actions);
-
-            let should_skip = match self.last_sent_input.as_mut() {
-                Some(last) if last.skips_remaining > 0 => {
-                    let pos_delta = max_abs_delta(position, last.position);
-                    let vel_delta = max_abs_delta(velocity, last.velocity);
-                    let yaw_delta = (yaw - last.yaw).abs();
-                    let pitch_delta = (pitch - last.pitch).abs();
-                    let actions_changed = actions != last.actions;
-
-                    if !actions_changed
-                        && pos_delta < POSITION_THRESHOLD
-                        && vel_delta < VELOCITY_THRESHOLD
-                        && yaw_delta < ROTATION_THRESHOLD
-                        && pitch_delta < ROTATION_THRESHOLD
-                    {
-                        last.skips_remaining -= 1;
-                        true
-                    } else {
-                        false
-                    }
-                }
-                _ => false,
-            };
-
-            if !should_skip {
-                client.send_input(self.input_sequence, position, velocity, yaw, pitch, actions);
-                self.input_sequence = self.input_sequence.wrapping_add(1);
-                self.last_sent_input = Some(LastSentInput {
-                    position,
-                    velocity,
-                    yaw,
-                    pitch,
-                    actions,
-                    skips_remaining: FORCE_SEND_EVERY,
-                });
-            }
+            self.input
+                .send_input(client, position, velocity, yaw, pitch, actions);
         }
     }
 
