@@ -449,13 +449,17 @@ impl BlockType {
     /// Returns true if this block stops entity movement (player, falling block,
     /// particle) or a raycast used for placement/breaking.
     ///
-    /// Role: collision. Fluids, air, glass, tinted glass, ice, and Model blocks
-    /// are passable; everything else stops movement. Truth table currently
-    /// matches `is_solid` (the audit's "glass should block movement" item is a
-    /// separate behavior change outside PHY-005's scope).
+    /// Role: collision. Air, fluids, and Model blocks are passable; everything
+    /// else stops movement. Glass, tinted glass, and ice ALSO stop movement
+    /// (PHY-005): players and falling blocks must not fall through windows and
+    /// ice, even though those are `is_transparent` and not `is_solid`.
     #[inline]
     pub fn blocks_movement(self) -> bool {
         self.is_solid()
+            || matches!(
+                self,
+                BlockType::Glass | BlockType::TintedGlass | BlockType::Ice
+            )
     }
 
     /// Returns true if this block stops water/lava from flowing into its cell.
@@ -471,13 +475,18 @@ impl BlockType {
     /// Returns true if this block can hold up an adjacent block above it.
     ///
     /// Role: structural support — used by Model ground-support checks
-    /// (`block_update`) and tree ground-support checks (`tree_logic`).
-    /// Fluids, air, glass, tinted glass, ice, and Model blocks do not provide
-    /// support; solids (including logs and leaves) do. Truth table currently
-    /// matches `is_solid`.
+    /// (`block_update`) and tree ground-support checks (`tree_logic`). Air,
+    /// fluids, and Model blocks do not provide support; solids (including logs
+    /// and leaves) do. Glass, tinted glass, and ice also provide support
+    /// (PHY-005): a glass floor holds up a placed Model and a tree roots on
+    /// ice, instead of both falling through.
     #[inline]
     pub fn provides_support(self) -> bool {
         self.is_solid()
+            || matches!(
+                self,
+                BlockType::Glass | BlockType::TintedGlass | BlockType::Ice
+            )
     }
 
     /// Returns true if this block causes a fence, wall, or glass pane to render
@@ -494,12 +503,17 @@ impl BlockType {
     /// Returns true if this block counts as ground that a tree can root into
     /// during world generation.
     ///
-    /// Role: tree-generation ground detection. Snow-biome trees additionally
-    /// accept Ice, handled at the call site via an explicit `!= Ice` check.
-    /// Truth table currently matches `is_solid`.
+    /// Role: tree-generation ground detection. Solids count as buildable
+    /// ground; per PHY-005 ice does too, so trees root on frozen surfaces
+    /// instead of aborting. (The snow-biome `!= Ice` call-site guard predates
+    /// this and is now redundant for ice but harmless.)
     #[inline]
     pub fn is_buildable_ground(self) -> bool {
         self.is_solid()
+            || matches!(
+                self,
+                BlockType::Glass | BlockType::TintedGlass | BlockType::Ice
+            )
     }
 
     /// Returns true if this block can be targeted by raycast for breaking/interaction.
@@ -2047,9 +2061,24 @@ mod tests {
         ]
     }
 
+    /// Expected value for the entity/structural role predicates
+    /// (`blocks_movement`, `provides_support`, `is_buildable_ground`). These
+    /// diverge from `is_solid` by also treating Glass, TintedGlass, and Ice as
+    /// solid (PHY-005) so players and falling blocks do not fall through
+    /// windows and ice. `stops_fluid` and `connects_to_fences` are NOT affected
+    /// (water still flows through glass; panes handle glass separately).
+    fn entity_solid_expected(block: BlockType) -> bool {
+        block.is_solid()
+            || matches!(
+                block,
+                BlockType::Glass | BlockType::TintedGlass | BlockType::Ice
+            )
+    }
+
     #[test]
     fn test_blocks_movement_truth_table() {
-        for &(block, expected) in role_test_set() {
+        for &(block, _) in role_test_set() {
+            let expected = entity_solid_expected(block);
             assert_eq!(
                 block.blocks_movement(),
                 expected,
@@ -2075,7 +2104,8 @@ mod tests {
 
     #[test]
     fn test_provides_support_truth_table() {
-        for &(block, expected) in role_test_set() {
+        for &(block, _) in role_test_set() {
+            let expected = entity_solid_expected(block);
             assert_eq!(
                 block.provides_support(),
                 expected,
@@ -2101,7 +2131,8 @@ mod tests {
 
     #[test]
     fn test_is_buildable_ground_truth_table() {
-        for &(block, expected) in role_test_set() {
+        for &(block, _) in role_test_set() {
+            let expected = entity_solid_expected(block);
             assert_eq!(
                 block.is_buildable_ground(),
                 expected,
@@ -2129,6 +2160,20 @@ mod tests {
         assert!(
             !BlockType::Air.blocks_movement(),
             "falling block must fall through Air"
+        );
+        // PHY-005: glass/tinted glass/ice must stop falling blocks (and the
+        // player) — sand no longer drops through a glass floor.
+        assert!(
+            BlockType::Glass.blocks_movement(),
+            "falling block must stop on Glass"
+        );
+        assert!(
+            BlockType::TintedGlass.blocks_movement(),
+            "falling block must stop on TintedGlass"
+        );
+        assert!(
+            BlockType::Ice.blocks_movement(),
+            "falling block must stop on Ice"
         );
     }
 
@@ -2200,20 +2245,54 @@ mod tests {
             !BlockType::Water.is_buildable_ground(),
             "tree must not root on Water"
         );
+        // PHY-005: a tree roots on ice (frozen surface) instead of aborting.
+        assert!(
+            BlockType::Ice.is_buildable_ground(),
+            "tree must root on Ice"
+        );
     }
 
     #[test]
-    fn test_predicates_match_is_solid_for_role_test_set() {
-        // PHY-005 invariant: every repointed predicate currently has the same
-        // truth table as `is_solid`. If this test fails, a predicate diverged
-        // — confirm the divergence is intended and update the per-predicate
-        // truth-table test above, not this one.
+    fn test_role_predicate_truth_tables_are_pinned() {
+        // PHY-005: pins the intended per-role divergence against the test set.
+        // `stops_fluid` and `connects_to_fences` match `is_solid` exactly.
+        // `blocks_movement`, `provides_support`, and `is_buildable_ground`
+        // additionally treat Glass, TintedGlass, and Ice as solid, so players
+        // and falling blocks do not fall through windows and ice. If this test
+        // fails, a predicate or block changed its role contract — confirm the
+        // change is intended and update the contract tests above.
         for &(block, _) in role_test_set() {
-            assert_eq!(block.blocks_movement(), block.is_solid(), "{:?}", block);
-            assert_eq!(block.stops_fluid(), block.is_solid(), "{:?}", block);
-            assert_eq!(block.provides_support(), block.is_solid(), "{:?}", block);
-            assert_eq!(block.connects_to_fences(), block.is_solid(), "{:?}", block);
-            assert_eq!(block.is_buildable_ground(), block.is_solid(), "{:?}", block);
+            assert_eq!(
+                block.stops_fluid(),
+                block.is_solid(),
+                "stops_fluid({:?})",
+                block
+            );
+            assert_eq!(
+                block.connects_to_fences(),
+                block.is_solid(),
+                "connects_to_fences({:?})",
+                block
+            );
+            let expected = entity_solid_expected(block);
+            assert_eq!(
+                block.blocks_movement(),
+                expected,
+                "blocks_movement({:?})",
+                block
+            );
+            assert_eq!(
+                block.provides_support(),
+                expected,
+                "provides_support({:?})",
+                block
+            );
+            assert_eq!(
+                block.is_buildable_ground(),
+                expected,
+                "is_buildable_ground({:?})",
+                block
+            );
         }
     }
 
