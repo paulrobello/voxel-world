@@ -13,7 +13,7 @@ use crate::chunk::Chunk;
 use crate::config::GameMode;
 use crate::net::{
     BlockSyncManager, ChunkSyncManager, CustomTextureCache, DiscoveredServer, DiscoveryResponder,
-    GameClient, GameServer, LavaSyncOptimizer, RemotePlayer, SerializedChunk, WaterSyncOptimizer,
+    GameClient, GameServer, RemotePlayer, SerializedChunk,
 };
 #[cfg(feature = "threaded-server")]
 use crate::net::{ServerCommand, ServerThread, ServerThreadEvent};
@@ -29,6 +29,8 @@ mod input;
 pub use input::InputState;
 mod texture;
 pub use texture::TextureState;
+mod sync;
+pub use sync::SyncState;
 
 /// Whether to use threaded server mode (experimental).
 /// When enabled, server network processing runs in a dedicated thread.
@@ -151,23 +153,8 @@ pub struct MultiplayerState {
     /// Pending spawn position update from server (client-side).
     /// Kept as `Option` because only the most recent position matters.
     pending_spawn_position: Option<crate::net::protocol::SpawnPositionChanged>,
-    /// Water sync bandwidth optimizer (server-side, when hosting).
-    water_sync_optimizer: WaterSyncOptimizer,
-    /// Lava sync bandwidth optimizer (server-side, when hosting).
-    lava_sync_optimizer: LavaSyncOptimizer,
-    /// Persistent entity-ID allocator for tree fall events (server-side).
-    ///
-    /// Kept across broadcasts so a retransmitted `TreeFell` never reuses IDs
-    /// — a previous implementation created a fresh `FallingBlockSync` every
-    /// call, which meant two resends of the same tree produced overlapping
-    /// IDs and broke client-side spawn/land correlation.
-    #[allow(dead_code)] // reason: multiplayer state — kept for future wire-up
-    tree_fall_sync: crate::net::tree_fall_sync::TreeFallSync,
-    /// Per-chunk memoization of compressed chunk bytes. Keyed on position;
-    /// each entry stores the `mutation_epoch` it was computed against so a
-    /// block change since the snapshot invalidates on next send. Skips the
-    /// LZ4 work when the same chunk is streamed to several joiners at once.
-    chunk_compression_cache: std::collections::HashMap<[i32; 3], (u64, Vec<u8>)>,
+    /// Server-side sync bandwidth state (ARC-002: extracted to `SyncState`).
+    pub sync: SyncState,
     /// Materialized `(world_position, block, from_filter)` tuples queued by
     /// server-side BulkOperation handling. `from_filter` is `None` for Fill
     /// (apply unconditionally) or `Some(from_type)` for Replace (skip if the
@@ -230,10 +217,7 @@ impl MultiplayerState {
             pending_day_cycle_pause: None,
             pending_time_update: None,
             pending_spawn_position: None,
-            water_sync_optimizer: WaterSyncOptimizer::new(),
-            lava_sync_optimizer: LavaSyncOptimizer::new(),
-            tree_fall_sync: crate::net::tree_fall_sync::TreeFallSync::new(),
-            chunk_compression_cache: std::collections::HashMap::new(),
+            sync: SyncState::new(),
             pending_bulk_blocks: VecDeque::new(),
             discovery: DiscoveryState::new(),
             server_name: String::new(),
@@ -2107,10 +2091,11 @@ impl MultiplayerState {
         // matches the chunk's current epoch, reuse the bytes instead of
         // re-running LZ4.
         let cur_epoch = chunk.mutation_epoch();
-        let compressed_opt: Option<Vec<u8>> = match self.chunk_compression_cache.get(&position) {
-            Some((cached_epoch, bytes)) if *cached_epoch == cur_epoch => Some(bytes.clone()),
-            _ => None,
-        };
+        let compressed_opt: Option<Vec<u8>> =
+            match self.sync.chunk_compression_cache().get(&position) {
+                Some((cached_epoch, bytes)) if *cached_epoch == cur_epoch => Some(bytes.clone()),
+                _ => None,
+            };
 
         let (compressed, version) = if let Some(bytes) = compressed_opt {
             // Cache hit — skip serialize + compress entirely.
@@ -2119,7 +2104,8 @@ impl MultiplayerState {
             let serialized = SerializedChunk::from_chunk(position, chunk);
             let compressed = serialized.compress();
             if let Ok(ref bytes) = compressed {
-                self.chunk_compression_cache
+                self.sync
+                    .chunk_compression_cache_mut()
                     .insert(position, (cur_epoch, bytes.clone()));
             }
             (compressed, serialized.version)
@@ -2218,11 +2204,12 @@ impl MultiplayerState {
 
         // Apply delta encoding - filter to only significant changes
         let _significant = self
-            .water_sync_optimizer
+            .sync
+            .water_optimizer_mut()
             .filter_significant_changes(updates);
 
         // Check rate limiting - only broadcast at appropriate intervals
-        if !self.water_sync_optimizer.should_broadcast_now() {
+        if !self.sync.water_optimizer_mut().should_broadcast_now() {
             // Accumulate changes for next broadcast window
             return;
         }
@@ -2233,9 +2220,10 @@ impl MultiplayerState {
         // Get filtered updates (AoI + rate limiting)
         let filtered_updates = if player_positions.is_empty() {
             // No players - use all pending (shouldn't happen in practice)
-            self.water_sync_optimizer.take_all_pending_updates()
+            self.sync.water_optimizer_mut().take_all_pending_updates()
         } else {
-            self.water_sync_optimizer
+            self.sync
+                .water_optimizer_mut()
                 .take_filtered_updates(&player_positions)
         };
 
@@ -2273,10 +2261,13 @@ impl MultiplayerState {
         }
 
         // Apply delta encoding - filter to only significant changes
-        let _significant = self.lava_sync_optimizer.filter_significant_changes(updates);
+        let _significant = self
+            .sync
+            .lava_optimizer_mut()
+            .filter_significant_changes(updates);
 
         // Check rate limiting - only broadcast at appropriate intervals
-        if !self.lava_sync_optimizer.should_broadcast_now() {
+        if !self.sync.lava_optimizer_mut().should_broadcast_now() {
             return;
         }
 
@@ -2285,9 +2276,10 @@ impl MultiplayerState {
 
         // Get filtered updates (AoI + rate limiting)
         let filtered_updates = if player_positions.is_empty() {
-            self.lava_sync_optimizer.take_all_pending_updates()
+            self.sync.lava_optimizer_mut().take_all_pending_updates()
         } else {
-            self.lava_sync_optimizer
+            self.sync
+                .lava_optimizer_mut()
                 .take_filtered_updates(&player_positions)
         };
 
@@ -2303,7 +2295,7 @@ impl MultiplayerState {
     /// Returns water sync optimizer statistics for debugging.
     #[allow(dead_code)] // reason: multiplayer state — kept for future wire-up
     pub fn water_sync_stats(&self) -> &crate::net::water_sync::WaterSyncStats {
-        self.water_sync_optimizer.stats()
+        self.sync.water_optimizer().stats()
     }
 
     /// Prunes distant cached water states to prevent memory growth.
@@ -2311,14 +2303,15 @@ impl MultiplayerState {
     #[allow(dead_code)] // reason: multiplayer state — kept for future wire-up
     pub fn prune_water_sync_cache(&mut self) {
         let player_positions = self.get_all_player_positions();
-        self.water_sync_optimizer
+        self.sync
+            .water_optimizer_mut()
             .prune_distant_states(&player_positions);
     }
 
     /// Returns lava sync optimizer statistics for debugging.
     #[allow(dead_code)] // reason: multiplayer state — kept for future wire-up
     pub fn lava_sync_stats(&self) -> &crate::net::lava_sync::LavaSyncStats {
-        self.lava_sync_optimizer.stats()
+        self.sync.lava_optimizer().stats()
     }
 
     /// Prunes distant cached lava states to prevent memory growth.
@@ -2326,7 +2319,8 @@ impl MultiplayerState {
     #[allow(dead_code)] // reason: multiplayer state — kept for future wire-up
     pub fn prune_lava_sync_cache(&mut self) {
         let player_positions = self.get_all_player_positions();
-        self.lava_sync_optimizer
+        self.sync
+            .lava_optimizer_mut()
             .prune_distant_states(&player_positions);
     }
 
@@ -2460,7 +2454,10 @@ impl MultiplayerState {
         // across the whole session; retransmitted or back-to-back trees never
         // collide with each other's IDs. Large trees are split into multiple
         // TreeFell messages to stay under MTU.
-        let msgs = self.tree_fall_sync.build_tree_fell_batched(blocks);
+        let msgs = self
+            .sync
+            .tree_fall_sync_mut()
+            .build_tree_fell_batched(blocks);
 
         let entity_ids: Vec<u32> = msgs
             .iter()
