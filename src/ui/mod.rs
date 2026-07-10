@@ -8,7 +8,9 @@
 //! - Minimap and compass
 //! - Console
 
-use crate::app_state::{PaletteItem, PaletteTab};
+// Constraint: ui may depend only on app_state *leaf* submodules (palette,
+// multiplayer) — never on app_state::ui_state — to keep ui_state -> ui one-way.
+use crate::app_state::palette::{PaletteItem, PaletteTab};
 use crate::block_update::BlockUpdateQueue;
 use crate::chunk::BlockType;
 use crate::config::{GameMode, Settings};
