@@ -13,8 +13,8 @@ use crate::chunk::Chunk;
 use crate::config::GameMode;
 use crate::net::{
     BlockSyncManager, ChunkSyncManager, CustomTextureCache, DiscoveredServer, DiscoveryResponder,
-    GameClient, GameServer, LanDiscovery, LavaSyncOptimizer, PredictionState, RemotePlayer,
-    SerializedChunk, WaterSyncOptimizer,
+    GameClient, GameServer, LavaSyncOptimizer, PredictionState, RemotePlayer, SerializedChunk,
+    WaterSyncOptimizer,
 };
 #[cfg(feature = "threaded-server")]
 use crate::net::{ServerCommand, ServerThread, ServerThreadEvent};
@@ -24,6 +24,8 @@ mod chat;
 pub use chat::{ChatEntry, ChatState};
 mod roster;
 pub use roster::PlayerRoster;
+mod discovery;
+pub use discovery::DiscoveryState;
 
 /// Whether to use threaded server mode (experimental).
 /// When enabled, server network processing runs in a dedicated thread.
@@ -210,10 +212,8 @@ pub struct MultiplayerState {
     )>,
 
     // LAN Discovery
-    /// Client-side LAN discovery (for finding servers).
-    discovery: Option<LanDiscovery>,
-    /// Server-side discovery responder (for advertising presence).
-    discovery_responder: Option<DiscoveryResponder>,
+    /// LAN discovery (client scan + server responder) (ARC-002: extracted to `DiscoveryState`).
+    pub discovery: DiscoveryState,
     /// Server name for discovery announcements.
     server_name: String,
     /// Maximum players for this server.
@@ -270,8 +270,7 @@ impl MultiplayerState {
             tree_fall_sync: crate::net::tree_fall_sync::TreeFallSync::new(),
             chunk_compression_cache: std::collections::HashMap::new(),
             pending_bulk_blocks: VecDeque::new(),
-            discovery: None,
-            discovery_responder: None,
+            discovery: DiscoveryState::new(),
             server_name: String::new(),
             max_players: 4,
             server_address: None,
@@ -321,7 +320,7 @@ impl MultiplayerState {
         // Start discovery responder for LAN advertising
         match DiscoveryResponder::new(server_name, port, self.max_players) {
             Ok(responder) => {
-                self.discovery_responder = Some(responder);
+                self.discovery.set_responder(responder);
                 log::debug!("[Multiplayer] Discovery responder started");
             }
             Err(e) => {
@@ -407,7 +406,7 @@ impl MultiplayerState {
         {
             self.server_thread = None;
         }
-        self.discovery_responder = None;
+        self.discovery.clear_responder();
         self.server_address = None;
         self.host_pairing_code = None;
         self.server_name.clear();
@@ -465,24 +464,17 @@ impl MultiplayerState {
 
     /// Starts LAN discovery to find servers.
     pub fn start_discovery(&mut self) -> Result<(), String> {
-        if self.discovery.is_none() {
-            self.discovery =
-                Some(LanDiscovery::new().map_err(|e| format!("Failed to start discovery: {}", e))?);
-        }
-        Ok(())
+        self.discovery.start_client()
     }
 
     /// Stops LAN discovery.
     pub fn stop_discovery(&mut self) {
-        self.discovery = None;
+        self.discovery.stop_client();
     }
 
     /// Returns discovered servers from LAN discovery.
     pub fn get_discovered_servers(&self) -> Vec<DiscoveredServer> {
-        self.discovery
-            .as_ref()
-            .map(|d| d.get_servers())
-            .unwrap_or_default()
+        self.discovery.discovered_servers()
     }
 
     /// Returns the current player count.
@@ -685,15 +677,9 @@ impl MultiplayerState {
             self.handle_server_message(&msg);
         }
 
-        // Update discovery responder (server-side)
-        if let Some(ref responder) = self.discovery_responder {
-            responder.update(self.roster.player_count());
-        }
-
-        // Update discovery client (client-side)
-        if let Some(ref mut discovery) = self.discovery {
-            discovery.update();
-        }
+        // Update discovery (server responder + client scan)
+        self.discovery.update_responder(self.roster.player_count());
+        self.discovery.update_client();
 
         // Update player count based on remote players + host
         if self.mode == GameMode::Host {
