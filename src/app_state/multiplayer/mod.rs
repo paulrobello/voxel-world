@@ -27,6 +27,8 @@ mod discovery;
 pub use discovery::DiscoveryState;
 mod input;
 pub use input::InputState;
+mod texture;
+pub use texture::TextureState;
 
 /// Whether to use threaded server mode (experimental).
 /// When enabled, server network processing runs in a dedicated thread.
@@ -138,11 +140,8 @@ pub struct MultiplayerState {
     /// Pending server world seed (received on ConnectionAccepted, needs to be applied).
     /// Kept as `Option` because "latest value wins" — a queue is not needed.
     pending_server_seed: Option<(u32, u8)>,
-    /// Custom texture cache (client-side).
-    pub texture_cache: CustomTextureCache,
-    /// Flag indicating GPU textures need initialization.
-    /// Kept as `Option` because only one initialization is ever pending at a time.
-    pending_gpu_texture_init: Option<u8>,
+    /// Client custom-texture cache + GPU-init flag (ARC-002: extracted to `TextureState`).
+    pub textures: TextureState,
     /// Pending day cycle pause state change from server (client-side).
     /// Kept as `Option` because the latest update supersedes any previous one.
     pub pending_day_cycle_pause: Option<crate::net::protocol::DayCyclePauseChanged>,
@@ -227,8 +226,7 @@ impl MultiplayerState {
             last_player_state_broadcast: None,
             events: VecDeque::new(),
             pending_server_seed: None,
-            texture_cache: CustomTextureCache::new(0), // Will be set on connect
-            pending_gpu_texture_init: None,
+            textures: TextureState::new(0),
             pending_day_cycle_pause: None,
             pending_time_update: None,
             pending_spawn_position: None,
@@ -1258,11 +1256,7 @@ impl MultiplayerState {
                     accepted.custom_texture_count
                 );
                 self.pending_server_seed = Some((accepted.world_seed, accepted.world_gen));
-                self.texture_cache = CustomTextureCache::new(accepted.custom_texture_count);
-                // Flag GPU texture initialization if we have custom textures
-                if accepted.custom_texture_count > 0 {
-                    self.pending_gpu_texture_init = Some(accepted.custom_texture_count);
-                }
+                self.textures.on_connect(accepted.custom_texture_count);
             }
             ServerMessage::PlayerState(state) => {
                 // Reconcile with server
@@ -1418,7 +1412,9 @@ impl MultiplayerState {
             }
             ServerMessage::TextureData(tex) => {
                 log::debug!("[Client] Received texture for slot {}", tex.slot);
-                self.texture_cache.store_texture(tex.slot, tex.data.clone());
+                self.textures
+                    .cache_mut()
+                    .store_texture(tex.slot, tex.data.clone());
             }
             ServerMessage::TextureAdded(tex) => {
                 log::debug!("[Client] Texture added: slot {} = '{}'", tex.slot, tex.name);
@@ -2163,7 +2159,7 @@ impl MultiplayerState {
     /// Requests a custom texture if not cached.
     #[allow(dead_code)] // reason: multiplayer state — kept for future wire-up
     pub fn request_texture_if_needed(&mut self, slot: u8) {
-        if self.texture_cache.request_if_needed(slot)
+        if self.textures.cache_mut().request_if_needed(slot)
             && let Some(ref mut client) = self.client
         {
             client.send_texture_request(slot);
@@ -2172,17 +2168,17 @@ impl MultiplayerState {
 
     /// Returns the texture cache for rendering.
     pub fn texture_cache(&self) -> &CustomTextureCache {
-        &self.texture_cache
+        self.textures.cache()
     }
 
     /// Returns a mutable reference to the texture cache for GPU uploads.
     pub fn texture_cache_mut(&mut self) -> &mut CustomTextureCache {
-        &mut self.texture_cache
+        self.textures.cache_mut()
     }
 
     /// Checks if GPU textures need initialization and returns the max slot count.
     pub fn take_pending_gpu_texture_init(&mut self) -> Option<u8> {
-        self.pending_gpu_texture_init.take()
+        self.textures.take_pending_gpu_init()
     }
 
     /// Broadcasts water source placement to all clients (server-side, when hosting).
