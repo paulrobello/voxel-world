@@ -74,6 +74,14 @@ pub struct Player {
     pub auto_fly_time: f64,
 }
 
+/// Per-frame medium-contact flags computed once at the top of [`Player::update_physics`]
+/// and reused across the physics helpers. Private to this module.
+struct MediumContact {
+    touching_water: bool,
+    touching_mud: bool,
+    touching_ladder: bool,
+}
+
 impl Player {
     pub fn new(
         spawn_pos: Vector3<f64>,
@@ -248,6 +256,85 @@ impl Player {
             true
         };
 
+        let medium = self.sense_environment(feet, world, model_registry, verbose);
+        let current_speed = self.apply_horizontal_input_velocity(input, &medium);
+
+        if self.fly_mode {
+            self.integrate_fly_mode(
+                &mut feet,
+                delta_time,
+                world,
+                model_registry,
+                collision_enabled,
+                input,
+                current_speed,
+            );
+        } else if medium.touching_mud {
+            self.integrate_mud(
+                &mut feet,
+                delta_time,
+                world,
+                model_registry,
+                collision_enabled,
+                input,
+            );
+        } else if medium.touching_water {
+            self.integrate_water(
+                &mut feet,
+                delta_time,
+                world,
+                model_registry,
+                collision_enabled,
+                input,
+            );
+        } else if medium.touching_ladder
+            && (input.key_held(KeyCode::Space)
+                || input.key_held(KeyCode::ShiftLeft)
+                || input.key_held(KeyCode::ShiftRight))
+        {
+            self.integrate_ladder_active(
+                &mut feet,
+                delta_time,
+                world,
+                model_registry,
+                collision_enabled,
+                input,
+            );
+        } else {
+            self.integrate_ground(
+                &mut feet,
+                delta_time,
+                world,
+                model_registry,
+                collision_enabled,
+                input,
+            );
+        }
+
+        self.respawn_from_void(&mut feet, world);
+        self.push_out_of_solid(
+            &mut feet,
+            world,
+            model_registry,
+            collision_enabled,
+            medium.touching_water,
+        );
+        self.update_head_bob(delta_time);
+        self.clamp_fly_vertical_bounds(&mut feet, world_extent);
+
+        self.set_feet_pos(feet, world_extent, texture_origin);
+    }
+
+    /// Samples water/mud/ladder contact at the player's feet and records head
+    /// immersion into `in_water` / `in_mud`. Returns the medium flags reused by
+    /// the rest of `update_physics`.
+    fn sense_environment(
+        &mut self,
+        feet: Vector3<f64>,
+        world: &World,
+        model_registry: &ModelRegistry,
+        verbose: bool,
+    ) -> MediumContact {
         let head_in_water = self.check_in_water(feet, world);
         let touching_water = self.check_touching_water(feet, world);
         let head_in_mud = self.check_in_mud(feet, world);
@@ -255,7 +342,21 @@ impl Player {
         let touching_ladder = self.check_touching_ladder(feet, world, model_registry, verbose);
         self.in_water = head_in_water;
         self.in_mud = head_in_mud;
+        MediumContact {
+            touching_water,
+            touching_mud,
+            touching_ladder,
+        }
+    }
 
+    /// Reads WASD input, derives the horizontal move direction from the camera
+    /// yaw, picks the medium-aware base speed, and writes the horizontal
+    /// velocity. Returns the resolved `current_speed` (consumed by fly mode).
+    fn apply_horizontal_input_velocity(
+        &mut self,
+        input: &WinitInputHelper,
+        medium: &MediumContact,
+    ) -> f64 {
         // Get movement input
         let t = |k: KeyCode| input.key_held(k) as u8 as f64;
         let forward = t(KeyCode::KeyW) - t(KeyCode::KeyS);
@@ -271,11 +372,11 @@ impl Player {
         // Fly mode should ignore medium (water/mud/ladder) speed modifiers
         let base_speed = if self.fly_mode {
             MOVE_SPEED * 4.0
-        } else if touching_mud {
+        } else if medium.touching_mud {
             MUD_SPEED // Slowest movement
-        } else if touching_water {
+        } else if medium.touching_water {
             SWIM_SPEED
-        } else if touching_ladder {
+        } else if medium.touching_ladder {
             CLIMB_HORIZ_SPEED
         } else {
             MOVE_SPEED
@@ -296,318 +397,386 @@ impl Player {
             self.velocity.z = 0.0;
         }
 
-        if self.fly_mode {
-            // Auto-fly mode: use automated velocity instead of keyboard input
-            if self.auto_fly_enabled {
-                self.auto_fly_time += delta_time;
-                self.velocity = self.get_auto_fly_velocity();
-            } else {
-                let shift_held = (input.key_held(KeyCode::ShiftLeft)
-                    || input.key_held(KeyCode::ShiftRight)) as i32
-                    as f64;
-                let up = t(KeyCode::Space) - shift_held;
-                self.velocity.y = up * current_speed;
-            }
+        current_speed
+    }
 
-            // Apply collision if enabled, otherwise move freely
-            if collision_enabled {
-                // Check each axis independently
-                let new_x = feet.x + self.velocity.x * delta_time;
-                if !self.check_collision(
-                    Vector3::new(new_x, feet.y, feet.z),
-                    world,
-                    model_registry,
-                    collision_enabled,
-                ) {
-                    feet.x = new_x;
-                } else {
-                    self.velocity.x = 0.0;
-                }
-
-                let new_z = feet.z + self.velocity.z * delta_time;
-                if !self.check_collision(
-                    Vector3::new(feet.x, feet.y, new_z),
-                    world,
-                    model_registry,
-                    collision_enabled,
-                ) {
-                    feet.z = new_z;
-                } else {
-                    self.velocity.z = 0.0;
-                }
-
-                let new_y = feet.y + self.velocity.y * delta_time;
-                if !self.check_collision(
-                    Vector3::new(feet.x, new_y, feet.z),
-                    world,
-                    model_registry,
-                    collision_enabled,
-                ) {
-                    feet.y = new_y;
-                } else {
-                    self.velocity.y = 0.0;
-                }
-            } else {
-                // No collision checking - move freely
-                feet.x += self.velocity.x * delta_time;
-                feet.y += self.velocity.y * delta_time;
-                feet.z += self.velocity.z * delta_time;
-            }
-            feet.y = feet.y.clamp(0.5, TEXTURE_SIZE_Y as f64 - 0.5);
-        } else if touching_mud {
-            // Mud physics - slower and more viscous than water
-            self.velocity.y -= MUD_GRAVITY * delta_time;
-            self.velocity.y += MUD_BUOYANCY * delta_time;
-            let drag = MUD_DRAG.powf(delta_time);
-            self.velocity.y *= drag;
-
-            if input.key_held(KeyCode::Space) {
-                self.velocity.y = MUD_UP_SPEED;
-            } else if input.key_held(KeyCode::ShiftLeft) || input.key_held(KeyCode::ShiftRight) {
-                self.velocity.y = -MUD_DOWN_SPEED;
-            }
-
-            let horiz_check_y = feet.y + 0.01;
-            let new_x = feet.x + self.velocity.x * delta_time;
-            if !self.check_collision(
-                Vector3::new(new_x, horiz_check_y, feet.z),
-                world,
-                model_registry,
-                collision_enabled,
-            ) {
-                feet.x = new_x;
-            } else {
-                self.velocity.x = 0.0;
-            }
-
-            let new_z = feet.z + self.velocity.z * delta_time;
-            if !self.check_collision(
-                Vector3::new(feet.x, horiz_check_y, new_z),
-                world,
-                model_registry,
-                collision_enabled,
-            ) {
-                feet.z = new_z;
-            } else {
-                self.velocity.z = 0.0;
-            }
-
-            let new_y = feet.y + self.velocity.y * delta_time;
-            if !self.check_collision(
-                Vector3::new(feet.x, new_y, feet.z),
-                world,
-                model_registry,
-                collision_enabled,
-            ) {
-                feet.y = new_y;
-            } else {
-                self.velocity.y = 0.0;
-            }
-            self.on_ground = false;
-        } else if touching_water {
-            self.velocity.y -= WATER_GRAVITY * delta_time;
-            self.velocity.y += WATER_BUOYANCY * delta_time;
-            let drag = WATER_DRAG.powf(delta_time);
-            self.velocity.y *= drag;
-
-            if input.key_held(KeyCode::Space) {
-                self.velocity.y = SWIM_UP_SPEED;
-            } else if input.key_held(KeyCode::ShiftLeft) || input.key_held(KeyCode::ShiftRight) {
-                self.velocity.y = -SWIM_DOWN_SPEED;
-            }
-
-            let horiz_check_y = feet.y + 0.01;
-            let new_x = feet.x + self.velocity.x * delta_time;
-            if !self.check_collision(
-                Vector3::new(new_x, horiz_check_y, feet.z),
-                world,
-                model_registry,
-                collision_enabled,
-            ) {
-                feet.x = new_x;
-            } else {
-                self.velocity.x = 0.0;
-            }
-
-            let new_z = feet.z + self.velocity.z * delta_time;
-            if !self.check_collision(
-                Vector3::new(feet.x, horiz_check_y, new_z),
-                world,
-                model_registry,
-                collision_enabled,
-            ) {
-                feet.z = new_z;
-            } else {
-                self.velocity.z = 0.0;
-            }
-
-            let new_y = feet.y + self.velocity.y * delta_time;
-            if !self.check_collision(
-                Vector3::new(feet.x, new_y, feet.z),
-                world,
-                model_registry,
-                collision_enabled,
-            ) {
-                feet.y = new_y;
-            } else {
-                self.velocity.y = 0.0;
-            }
-            self.on_ground = false;
-        } else if touching_ladder
-            && (input.key_held(KeyCode::Space)
-                || input.key_held(KeyCode::ShiftLeft)
-                || input.key_held(KeyCode::ShiftRight))
-        {
-            if input.key_held(KeyCode::Space) {
-                self.velocity.y = CLIMB_UP_SPEED;
-            } else {
-                self.velocity.y = -CLIMB_DOWN_SPEED;
-            }
-
-            let horiz_check_y = feet.y + 0.01;
-            let new_x = feet.x + self.velocity.x * delta_time;
-            if !self.check_collision_ex(
-                Vector3::new(new_x, horiz_check_y, feet.z),
-                true,
-                world,
-                model_registry,
-                collision_enabled,
-            ) {
-                feet.x = new_x;
-            } else {
-                self.velocity.x = 0.0;
-            }
-
-            let new_z = feet.z + self.velocity.z * delta_time;
-            if !self.check_collision_ex(
-                Vector3::new(feet.x, horiz_check_y, new_z),
-                true,
-                world,
-                model_registry,
-                collision_enabled,
-            ) {
-                feet.z = new_z;
-            } else {
-                self.velocity.z = 0.0;
-            }
-
-            let new_y = feet.y + self.velocity.y * delta_time;
-            if !self.check_collision_ex(
-                Vector3::new(feet.x, new_y, feet.z),
-                true,
-                world,
-                model_registry,
-                collision_enabled,
-            ) {
-                feet.y = new_y;
-            } else {
-                self.velocity.y = 0.0;
-            }
-            self.on_ground = false;
+    #[allow(clippy::too_many_arguments)]
+    fn integrate_fly_mode(
+        &mut self,
+        feet: &mut Vector3<f64>,
+        delta_time: f64,
+        world: &World,
+        model_registry: &ModelRegistry,
+        collision_enabled: bool,
+        input: &WinitInputHelper,
+        current_speed: f64,
+    ) {
+        // Auto-fly mode: use automated velocity instead of keyboard input
+        if self.auto_fly_enabled {
+            self.auto_fly_time += delta_time;
+            self.velocity = self.get_auto_fly_velocity();
         } else {
-            self.velocity.y -= GRAVITY * delta_time;
-            if self.on_ground && input.key_pressed(KeyCode::Space) {
-                self.velocity.y = JUMP_VELOCITY;
-                self.on_ground = false;
-            }
-
-            let horiz_check_y = feet.y + 0.01;
-            let mut should_auto_jump = false;
-
-            let new_x = feet.x + self.velocity.x * delta_time;
-            if !self.check_collision(
-                Vector3::new(new_x, horiz_check_y, feet.z),
-                world,
-                model_registry,
-                collision_enabled,
-            ) {
-                feet.x = new_x;
-            } else {
-                if self.auto_jump
-                    && self.on_ground
-                    && self.velocity.x.abs() > 0.1
-                    && !self.check_collision(
-                        Vector3::new(new_x, feet.y + 1.01, feet.z),
-                        world,
-                        model_registry,
-                        collision_enabled,
-                    )
-                {
-                    should_auto_jump = true;
-                }
-                self.velocity.x = 0.0;
-            }
-
-            let new_z = feet.z + self.velocity.z * delta_time;
-            if !self.check_collision(
-                Vector3::new(feet.x, horiz_check_y, new_z),
-                world,
-                model_registry,
-                collision_enabled,
-            ) {
-                feet.z = new_z;
-            } else {
-                if self.auto_jump
-                    && self.on_ground
-                    && self.velocity.z.abs() > 0.1
-                    && !self.check_collision(
-                        Vector3::new(feet.x, feet.y + 1.01, new_z),
-                        world,
-                        model_registry,
-                        collision_enabled,
-                    )
-                {
-                    should_auto_jump = true;
-                }
-                self.velocity.z = 0.0;
-            }
-
-            if should_auto_jump {
-                self.velocity.y = JUMP_VELOCITY;
-                self.on_ground = false;
-            }
-
-            let new_y = feet.y + self.velocity.y * delta_time;
-            if !self.check_collision(
-                Vector3::new(feet.x, new_y, feet.z),
-                world,
-                model_registry,
-                collision_enabled,
-            ) {
-                feet.y = new_y;
-                self.on_ground = false;
-            } else {
-                if self.velocity.y < 0.0 {
-                    feet.y = (feet.y + self.velocity.y * delta_time).floor() + 1.0;
-                    self.on_ground = true;
-                }
-                self.velocity.y = 0.0;
-            }
+            let shift_held = (input.key_held(KeyCode::ShiftLeft)
+                || input.key_held(KeyCode::ShiftRight)) as i32 as f64;
+            let t = |k: KeyCode| input.key_held(k) as u8 as f64;
+            let up = t(KeyCode::Space) - shift_held;
+            self.velocity.y = up * current_speed;
         }
 
+        // Apply collision if enabled, otherwise move freely
+        if collision_enabled {
+            // Check each axis independently
+            let new_x = feet.x + self.velocity.x * delta_time;
+            if !self.check_collision(
+                Vector3::new(new_x, feet.y, feet.z),
+                world,
+                model_registry,
+                collision_enabled,
+            ) {
+                feet.x = new_x;
+            } else {
+                self.velocity.x = 0.0;
+            }
+
+            let new_z = feet.z + self.velocity.z * delta_time;
+            if !self.check_collision(
+                Vector3::new(feet.x, feet.y, new_z),
+                world,
+                model_registry,
+                collision_enabled,
+            ) {
+                feet.z = new_z;
+            } else {
+                self.velocity.z = 0.0;
+            }
+
+            let new_y = feet.y + self.velocity.y * delta_time;
+            if !self.check_collision(
+                Vector3::new(feet.x, new_y, feet.z),
+                world,
+                model_registry,
+                collision_enabled,
+            ) {
+                feet.y = new_y;
+            } else {
+                self.velocity.y = 0.0;
+            }
+        } else {
+            // No collision checking - move freely
+            feet.x += self.velocity.x * delta_time;
+            feet.y += self.velocity.y * delta_time;
+            feet.z += self.velocity.z * delta_time;
+        }
+        feet.y = feet.y.clamp(0.5, TEXTURE_SIZE_Y as f64 - 0.5);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn integrate_mud(
+        &mut self,
+        feet: &mut Vector3<f64>,
+        delta_time: f64,
+        world: &World,
+        model_registry: &ModelRegistry,
+        collision_enabled: bool,
+        input: &WinitInputHelper,
+    ) {
+        // Mud physics - slower and more viscous than water
+        self.velocity.y -= MUD_GRAVITY * delta_time;
+        self.velocity.y += MUD_BUOYANCY * delta_time;
+        let drag = MUD_DRAG.powf(delta_time);
+        self.velocity.y *= drag;
+
+        if input.key_held(KeyCode::Space) {
+            self.velocity.y = MUD_UP_SPEED;
+        } else if input.key_held(KeyCode::ShiftLeft) || input.key_held(KeyCode::ShiftRight) {
+            self.velocity.y = -MUD_DOWN_SPEED;
+        }
+
+        let horiz_check_y = feet.y + 0.01;
+        let new_x = feet.x + self.velocity.x * delta_time;
+        if !self.check_collision(
+            Vector3::new(new_x, horiz_check_y, feet.z),
+            world,
+            model_registry,
+            collision_enabled,
+        ) {
+            feet.x = new_x;
+        } else {
+            self.velocity.x = 0.0;
+        }
+
+        let new_z = feet.z + self.velocity.z * delta_time;
+        if !self.check_collision(
+            Vector3::new(feet.x, horiz_check_y, new_z),
+            world,
+            model_registry,
+            collision_enabled,
+        ) {
+            feet.z = new_z;
+        } else {
+            self.velocity.z = 0.0;
+        }
+
+        let new_y = feet.y + self.velocity.y * delta_time;
+        if !self.check_collision(
+            Vector3::new(feet.x, new_y, feet.z),
+            world,
+            model_registry,
+            collision_enabled,
+        ) {
+            feet.y = new_y;
+        } else {
+            self.velocity.y = 0.0;
+        }
+        self.on_ground = false;
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn integrate_water(
+        &mut self,
+        feet: &mut Vector3<f64>,
+        delta_time: f64,
+        world: &World,
+        model_registry: &ModelRegistry,
+        collision_enabled: bool,
+        input: &WinitInputHelper,
+    ) {
+        self.velocity.y -= WATER_GRAVITY * delta_time;
+        self.velocity.y += WATER_BUOYANCY * delta_time;
+        let drag = WATER_DRAG.powf(delta_time);
+        self.velocity.y *= drag;
+
+        if input.key_held(KeyCode::Space) {
+            self.velocity.y = SWIM_UP_SPEED;
+        } else if input.key_held(KeyCode::ShiftLeft) || input.key_held(KeyCode::ShiftRight) {
+            self.velocity.y = -SWIM_DOWN_SPEED;
+        }
+
+        let horiz_check_y = feet.y + 0.01;
+        let new_x = feet.x + self.velocity.x * delta_time;
+        if !self.check_collision(
+            Vector3::new(new_x, horiz_check_y, feet.z),
+            world,
+            model_registry,
+            collision_enabled,
+        ) {
+            feet.x = new_x;
+        } else {
+            self.velocity.x = 0.0;
+        }
+
+        let new_z = feet.z + self.velocity.z * delta_time;
+        if !self.check_collision(
+            Vector3::new(feet.x, horiz_check_y, new_z),
+            world,
+            model_registry,
+            collision_enabled,
+        ) {
+            feet.z = new_z;
+        } else {
+            self.velocity.z = 0.0;
+        }
+
+        let new_y = feet.y + self.velocity.y * delta_time;
+        if !self.check_collision(
+            Vector3::new(feet.x, new_y, feet.z),
+            world,
+            model_registry,
+            collision_enabled,
+        ) {
+            feet.y = new_y;
+        } else {
+            self.velocity.y = 0.0;
+        }
+        self.on_ground = false;
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn integrate_ladder_active(
+        &mut self,
+        feet: &mut Vector3<f64>,
+        delta_time: f64,
+        world: &World,
+        model_registry: &ModelRegistry,
+        collision_enabled: bool,
+        input: &WinitInputHelper,
+    ) {
+        if input.key_held(KeyCode::Space) {
+            self.velocity.y = CLIMB_UP_SPEED;
+        } else {
+            self.velocity.y = -CLIMB_DOWN_SPEED;
+        }
+
+        let horiz_check_y = feet.y + 0.01;
+        let new_x = feet.x + self.velocity.x * delta_time;
+        if !self.check_collision_ex(
+            Vector3::new(new_x, horiz_check_y, feet.z),
+            true,
+            world,
+            model_registry,
+            collision_enabled,
+        ) {
+            feet.x = new_x;
+        } else {
+            self.velocity.x = 0.0;
+        }
+
+        let new_z = feet.z + self.velocity.z * delta_time;
+        if !self.check_collision_ex(
+            Vector3::new(feet.x, horiz_check_y, new_z),
+            true,
+            world,
+            model_registry,
+            collision_enabled,
+        ) {
+            feet.z = new_z;
+        } else {
+            self.velocity.z = 0.0;
+        }
+
+        let new_y = feet.y + self.velocity.y * delta_time;
+        if !self.check_collision_ex(
+            Vector3::new(feet.x, new_y, feet.z),
+            true,
+            world,
+            model_registry,
+            collision_enabled,
+        ) {
+            feet.y = new_y;
+        } else {
+            self.velocity.y = 0.0;
+        }
+        self.on_ground = false;
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn integrate_ground(
+        &mut self,
+        feet: &mut Vector3<f64>,
+        delta_time: f64,
+        world: &World,
+        model_registry: &ModelRegistry,
+        collision_enabled: bool,
+        input: &WinitInputHelper,
+    ) {
+        self.velocity.y -= GRAVITY * delta_time;
+        if self.on_ground && input.key_pressed(KeyCode::Space) {
+            self.velocity.y = JUMP_VELOCITY;
+            self.on_ground = false;
+        }
+
+        let horiz_check_y = feet.y + 0.01;
+        let mut should_auto_jump = false;
+
+        let new_x = feet.x + self.velocity.x * delta_time;
+        if !self.check_collision(
+            Vector3::new(new_x, horiz_check_y, feet.z),
+            world,
+            model_registry,
+            collision_enabled,
+        ) {
+            feet.x = new_x;
+        } else {
+            if self.auto_jump
+                && self.on_ground
+                && self.velocity.x.abs() > 0.1
+                && !self.check_collision(
+                    Vector3::new(new_x, feet.y + 1.01, feet.z),
+                    world,
+                    model_registry,
+                    collision_enabled,
+                )
+            {
+                should_auto_jump = true;
+            }
+            self.velocity.x = 0.0;
+        }
+
+        let new_z = feet.z + self.velocity.z * delta_time;
+        if !self.check_collision(
+            Vector3::new(feet.x, horiz_check_y, new_z),
+            world,
+            model_registry,
+            collision_enabled,
+        ) {
+            feet.z = new_z;
+        } else {
+            if self.auto_jump
+                && self.on_ground
+                && self.velocity.z.abs() > 0.1
+                && !self.check_collision(
+                    Vector3::new(feet.x, feet.y + 1.01, new_z),
+                    world,
+                    model_registry,
+                    collision_enabled,
+                )
+            {
+                should_auto_jump = true;
+            }
+            self.velocity.z = 0.0;
+        }
+
+        if should_auto_jump {
+            self.velocity.y = JUMP_VELOCITY;
+            self.on_ground = false;
+        }
+
+        let new_y = feet.y + self.velocity.y * delta_time;
+        if !self.check_collision(
+            Vector3::new(feet.x, new_y, feet.z),
+            world,
+            model_registry,
+            collision_enabled,
+        ) {
+            feet.y = new_y;
+            self.on_ground = false;
+        } else {
+            if self.velocity.y < 0.0 {
+                feet.y = (feet.y + self.velocity.y * delta_time).floor() + 1.0;
+                self.on_ground = true;
+            }
+            self.velocity.y = 0.0;
+        }
+    }
+
+    /// Resets the player to spawn when they fall below the void threshold.
+    fn respawn_from_void(&mut self, feet: &mut Vector3<f64>, world: &World) {
         if feet.y < -10.0 {
-            feet = self.get_spawn_pos(world);
+            *feet = self.get_spawn_pos(world);
             self.velocity = Vector3::zeros();
             self.on_ground = false;
         }
+    }
 
-        // Push player up if stuck inside a solid block (but not when in water,
-        // as water physics handles collision differently and this would cause
-        // the player to be shoved to the surface when entering water).
-        if self.check_collision(feet, world, model_registry, collision_enabled)
+    /// Push player up if stuck inside a solid block (but not when in water,
+    /// as water physics handles collision differently and this would cause
+    /// the player to be shoved to the surface when entering water).
+    #[allow(clippy::too_many_arguments)]
+    fn push_out_of_solid(
+        &mut self,
+        feet: &mut Vector3<f64>,
+        world: &World,
+        model_registry: &ModelRegistry,
+        collision_enabled: bool,
+        touching_water: bool,
+    ) {
+        if self.check_collision(*feet, world, model_registry, collision_enabled)
             && !self.fly_mode
             && !touching_water
         {
             for offset in 1..10 {
                 let test_pos = Vector3::new(feet.x, feet.y + offset as f64, feet.z);
                 if !self.check_collision(test_pos, world, model_registry, collision_enabled) {
-                    feet = test_pos;
+                    *feet = test_pos;
                     self.velocity.y = 0.0;
                     break;
                 }
             }
         }
+    }
 
+    /// Advances the head-bob timer/intensity based on horizontal walk speed.
+    fn update_head_bob(&mut self, delta_time: f64) {
         let horizontal_speed = (self.velocity.x.powi(2) + self.velocity.z.powi(2)).sqrt();
         let is_walking = self.on_ground && horizontal_speed > 0.5 && !self.fly_mode;
 
@@ -618,8 +787,10 @@ impl Player {
             self.head_bob_intensity *= 0.9_f64.powf(delta_time * 60.0);
         }
         self.head_bob_intensity = self.head_bob_intensity.clamp(0.0, 1.0);
+    }
 
-        // Clamp fly-mode vertical movement to world bounds (Y is bounded; X/Z are effectively infinite)
+    /// Clamp fly-mode vertical movement to world bounds (Y is bounded; X/Z are effectively infinite)
+    fn clamp_fly_vertical_bounds(&mut self, feet: &mut Vector3<f64>, world_extent: [u32; 3]) {
         if self.fly_mode {
             let min_y = 0.0;
             let max_y = world_extent[1] as f64 - PLAYER_HEIGHT;
@@ -629,8 +800,6 @@ impl Player {
                 self.velocity.y = 0.0;
             }
         }
-
-        self.set_feet_pos(feet, world_extent, texture_origin);
     }
 
     pub fn get_spawn_pos(&self, _world: &World) -> Vector3<f64> {
@@ -890,5 +1059,93 @@ impl Player {
             }
         }
         false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_player(fly_mode: bool) -> Player {
+        Player::new(
+            Vector3::new(0.0, 64.0, 0.0),
+            Vector3::zeros(),
+            [512, 512, 512],
+            fly_mode,
+        )
+    }
+
+    #[test]
+    fn head_bob_advances_while_walking() {
+        let mut p = make_player(false);
+        p.velocity = Vector3::new(5.0, 0.0, 0.0);
+        p.on_ground = true;
+        p.head_bob_timer = 0.0;
+        p.head_bob_intensity = 0.0;
+
+        p.update_head_bob(0.1);
+
+        // horizontal_speed = 5, so timer += 5 * 0.1 * HEAD_BOB_FREQUENCY (=0.8) = 0.4
+        assert!(p.head_bob_timer > 0.0, "timer should advance while walking");
+        assert!(
+            p.head_bob_intensity > 0.0,
+            "intensity should rise while walking"
+        );
+        assert!(
+            p.head_bob_intensity <= 1.0,
+            "intensity is clamped to [0, 1]"
+        );
+    }
+
+    #[test]
+    fn head_bob_decays_when_idle() {
+        let mut p = make_player(false);
+        p.velocity = Vector3::zeros();
+        p.on_ground = true;
+        p.head_bob_intensity = 0.5;
+
+        p.update_head_bob(0.1);
+
+        assert!(
+            p.head_bob_intensity < 0.5,
+            "intensity should decay when not walking"
+        );
+    }
+
+    #[test]
+    fn fly_vertical_bounds_clamp_below_zero() {
+        let mut p = make_player(true);
+        let mut feet = Vector3::new(10.0, -5.0, 10.0);
+        p.velocity = Vector3::new(0.0, 3.0, 0.0);
+
+        p.clamp_fly_vertical_bounds(&mut feet, [512, 512, 512]);
+
+        assert_eq!(feet.y, 0.0, "feet.y clamped to min_y");
+        assert_eq!(p.velocity.y, 0.0, "vertical velocity zeroed after clamp");
+    }
+
+    #[test]
+    fn fly_vertical_bounds_clamp_above_world_top() {
+        let mut p = make_player(true);
+        let max_y = 512.0 - PLAYER_HEIGHT;
+        let mut feet = Vector3::new(10.0, max_y + 100.0, 10.0);
+        p.velocity = Vector3::new(0.0, 3.0, 0.0);
+
+        p.clamp_fly_vertical_bounds(&mut feet, [512, 512, 512]);
+
+        assert_eq!(feet.y, max_y, "feet.y clamped to max_y");
+        assert_eq!(p.velocity.y, 0.0, "vertical velocity zeroed after clamp");
+    }
+
+    #[test]
+    fn fly_vertical_bounds_noop_when_not_flying() {
+        let mut p = make_player(false);
+        let mut feet = Vector3::new(10.0, -5.0, 10.0);
+        p.velocity = Vector3::new(0.0, 3.0, 0.0);
+
+        p.clamp_fly_vertical_bounds(&mut feet, [512, 512, 512]);
+
+        assert_eq!(feet.y, -5.0, "non-fly mode leaves feet.y untouched");
+        assert_eq!(p.velocity.y, 3.0, "non-fly mode leaves velocity untouched");
     }
 }
