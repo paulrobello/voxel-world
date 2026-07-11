@@ -761,6 +761,7 @@ impl App {
                         args.port,
                         seed,
                         world_gen_type,
+                        args.pairing_code.as_deref(),
                     ) {
                         Ok(()) => {
                             log::debug!("[Multiplayer] Server started. Local client connecting...")

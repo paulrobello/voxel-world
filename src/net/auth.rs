@@ -78,7 +78,10 @@ impl ServerAuth {
     }
 
     /// Creates server auth with a specific private key.
-    #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
+    ///
+    /// Used by `GameServer::new_with_key` when the host pins a deterministic
+    /// pairing code (e.g. the shared `make run-host`/`make run-client` fixture)
+    /// instead of the default per-session random key.
     pub fn with_key(address: SocketAddr, private_key: [u8; 32]) -> Self {
         Self {
             private_key,

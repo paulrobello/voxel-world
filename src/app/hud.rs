@@ -1303,7 +1303,7 @@ fn handle_multiplayer_action(
             WorldGenType::Flat => 1,
             WorldGenType::Benchmark => 2,
         };
-        match multiplayer.start_host(server_name.clone(), *port, world_seed, world_gen_byte) {
+        match multiplayer.start_host(server_name.clone(), *port, world_seed, world_gen_byte, None) {
             Ok(()) => {
                 log::debug!(
                     "[Multiplayer] Started hosting '{}' on port {}",

@@ -151,13 +151,18 @@ reset-p2:
 	rm -rf data_p2
 
 # Multiplayer targets
+# Shared 64-hex dev pairing code so `make run-host` and `make run-client`
+# authenticate to each other without copying the host's random per-session
+# code. Override on both targets with: make run-host PAIRING_CODE=<64-hex>
+PAIRING_CODE ?= 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+
 # Host mode - starts server and connects as localhost client
 run-host: build-release
-	./target/release/voxel-world --data-dir data_host --host --port 12345 --seed $(SEED) $(ARGS)
+	./target/release/voxel-world --data-dir data_host --host --port 12345 --pairing-code $(PAIRING_CODE) --seed $(SEED) $(ARGS)
 
 # Client mode - connects to localhost server
 run-client: build-release
-	./target/release/voxel-world --data-dir data_client --connect 127.0.0.1:12345 --seed $(SEED) $(ARGS)
+	./target/release/voxel-world --data-dir data_client --connect 127.0.0.1:12345 --pairing-code $(PAIRING_CODE) --seed $(SEED) $(ARGS)
 
 reset-host:
 	rm -rf data_host

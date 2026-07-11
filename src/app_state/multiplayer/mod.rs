@@ -214,6 +214,7 @@ impl MultiplayerState {
         port: u16,
         world_seed: u32,
         world_gen: u8,
+        pairing_code: Option<&str>,
     ) -> Result<(), String> {
         let addr: SocketAddr = ([0, 0, 0, 0], port).into();
         log::debug!(
@@ -222,20 +223,46 @@ impl MultiplayerState {
             world_seed
         );
 
+        // Resolve an optional pinned pairing code (--pairing-code) to a key.
+        // When provided, the server uses this exact key so clients passing the
+        // same code authenticate (e.g. the shared `make run-host`/`run-client`
+        // fixture). Omitted → fresh random per-session key (secure default).
+        // Invalid → log + fall back to random rather than abort host startup.
+        let pinned_key: Option<[u8; 32]> = match pairing_code {
+            Some(code) => match crate::net::auth::pairing_code_to_key(code) {
+                Ok(key) => Some(key),
+                Err(e) => {
+                    log::warn!(
+                        "[Multiplayer] Ignoring invalid --pairing-code ({}); \
+                         falling back to a random per-session key",
+                        e
+                    );
+                    None
+                }
+            },
+            None => None,
+        };
+
         #[cfg(feature = "threaded-server")]
         if self.use_threaded_server {
-            // Spawn server in dedicated thread
+            // NOTE: the experimental threaded-server path (QA-006, off by
+            // default) still uses a random key — the pinned --pairing-code is
+            // ignored here. The default non-threaded path below honors it.
             self.server_thread = Some(ServerThread::spawn(addr, world_seed, world_gen)?);
             log::debug!("[Multiplayer] Server thread spawned");
         } else {
-            // Direct server mode
-            self.server = Some(GameServer::new(addr, world_seed, world_gen)?);
+            self.server = Some(match pinned_key {
+                Some(key) => GameServer::new_with_key(addr, key, world_seed, world_gen),
+                None => GameServer::new(addr, world_seed, world_gen),
+            }?);
             log::debug!("[Multiplayer] Direct server created");
         }
         #[cfg(not(feature = "threaded-server"))]
         {
-            // Direct server mode (threaded-server feature not enabled)
-            self.server = Some(GameServer::new(addr, world_seed, world_gen)?);
+            self.server = Some(match pinned_key {
+                Some(key) => GameServer::new_with_key(addr, key, world_seed, world_gen),
+                None => GameServer::new(addr, world_seed, world_gen),
+            }?);
             log::debug!("[Multiplayer] Direct server created");
         }
 

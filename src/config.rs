@@ -182,7 +182,9 @@ pub struct Args {
     #[arg(long, value_name = "ADDRESS")]
     pub connect: Option<String>,
 
-    /// Pairing code for secure auth (64-hex key from the host; required with --connect)
+    /// Pairing code for secure auth (64-hex). Required with --connect (from the
+    /// host). With --host, optionally pins the server's per-session key so
+    /// clients can use the same code; omitted → random per-session key.
     #[arg(long, value_name = "PAIRING_CODE")]
     pub pairing_code: Option<String>,
 

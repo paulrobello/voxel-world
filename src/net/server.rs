@@ -175,7 +175,37 @@ pub struct PlayerInfo {
 impl GameServer {
     /// Creates a new game server.
     pub fn new(address: SocketAddr, world_seed: u32, world_gen: u8) -> Result<Self, String> {
-        let auth = ServerAuth::new(address);
+        Self::new_internal(address, ServerAuth::new(address), world_seed, world_gen)
+    }
+
+    /// Creates a game server pinned to a caller-supplied private key.
+    ///
+    /// Used when the host wants a deterministic pairing code (e.g. a dev
+    /// fixture shared between `make run-host` and `make run-client`) instead of
+    /// the default per-session random key. Callers obtain the key from a 64-hex
+    /// pairing code via [`crate::net::auth::pairing_code_to_key`].
+    pub fn new_with_key(
+        address: SocketAddr,
+        private_key: [u8; 32],
+        world_seed: u32,
+        world_gen: u8,
+    ) -> Result<Self, String> {
+        Self::new_internal(
+            address,
+            ServerAuth::with_key(address, private_key),
+            world_seed,
+            world_gen,
+        )
+    }
+
+    /// Shared constructor body for [`new`] (random key) and [`new_with_key`]
+    /// (pinned key); only the `ServerAuth` source differs.
+    fn new_internal(
+        address: SocketAddr,
+        auth: ServerAuth,
+        world_seed: u32,
+        world_gen: u8,
+    ) -> Result<Self, String> {
         let private_key = auth.private_key();
         let pairing_code = auth.pairing_code();
         let transport = auth.create_transport()?;
