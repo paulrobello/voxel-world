@@ -22,6 +22,8 @@ The Makefile sets `DYLD_LIBRARY_PATH` and `VK_ICD_FILENAMES` for macOS MoltenVK 
 
 **Don't launch the game from inside tmux.** On macOS, keyboard and mouse events route to the tmux pane instead of the game window, so pointer lock / clicking / keys all fail (the window never becomes key and the focus-click that drives pointer lock never fires). Run `make run` from a normal terminal tab. tmux `set -g mouse on` makes it worse.
 
+**To run from tmux anyway, use `make run-app`.** It wraps the binary in a throwaway macOS `.app` bundle (`.dev/voxel-world.app`) and launches it with `open`, giving the process a real application identity so macOS makes it the key window and input/pointer-lock work even under tmux. The bundle's executable is a shim that restores the MoltenVK env vars and the repo working directory before exec'ing the release binary. See `scripts/run-app.sh`. Pass game args via `ARGS="..."` just like `make run`.
+
 ### Multiplayer
 
 ```bash

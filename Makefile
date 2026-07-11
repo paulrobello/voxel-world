@@ -8,7 +8,7 @@ export VK_ICD_FILENAMES := /opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json
 export CMAKE_POLICY_VERSION_MINIMUM := 3.5
 export SHADERC_LIB_DIR := /opt/homebrew/lib
 
-.PHONY: build build-release build-debug run run-release run-debug profile run-profile auto-profile-flat auto-profile-normal clean test check fmt fmt-check lint checkall sprite-gen run-p1 run-p2 reset reset-world reset-profiles reset-p1 reset-p2 new-flat new-normal run-cap-exit run-host run-client reset-host reset-client run-precommit
+.PHONY: build build-release build-debug run run-app run-release run-debug profile run-profile auto-profile-flat auto-profile-normal clean test check fmt fmt-check lint checkall sprite-gen run-p1 run-p2 reset reset-world reset-profiles reset-p1 reset-p2 new-flat new-normal run-cap-exit run-host run-client reset-host reset-client run-precommit
 
 # Default target
 all: build-release
@@ -27,6 +27,13 @@ SEED ?= 314159
 ARGS ?=
 
 run: run-release
+
+# Launch inside a macOS .app bundle so keyboard/mouse focus and pointer lock
+# work even when started from tmux (or another terminal multiplexer). A raw
+# binary launched under tmux never becomes the key window, so input routes to
+# the terminal instead of the game. See scripts/run-app.sh for the mechanism.
+run-app:
+	./scripts/run-app.sh --seed $(SEED) $(ARGS)
 
 run-no-build:
 	./target/release/voxel-world --seed $(SEED) $(ARGS)

@@ -2,6 +2,9 @@
 /target
 Cargo.lock
 
+# Dev .app bundle produced by `make run-app` / scripts/run-app.sh
+.dev/
+
 # OS files
 .DS_Store
 Thumbs.db
