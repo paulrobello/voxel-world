@@ -646,9 +646,15 @@ impl GameServer {
             }
         }
 
-        // Then, send all other connected players
+        // Then, send all other connected players.
+        // Skip the host's loopback client (host_client_id) — the host is
+        // already sent above as host_player (pid 0). Announcing the loopback
+        // client here gave every other client a second host avatar that
+        // overlapped at spawn and then separated when the host moved (the
+        // loopback entry gets no state updates — broadcast_player_states
+        // already skips it — so it floats while host_player tracks the fall).
         for (&other_client_id, other_player) in &self.players {
-            if other_client_id != client_id {
+            if other_client_id != client_id && self.host_client_id != Some(other_client_id) {
                 let other_join = ServerMessage::PlayerJoined(PlayerJoined {
                     player_id: other_player.player_id,
                     name: other_player.name.clone(),
