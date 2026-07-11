@@ -705,12 +705,10 @@ impl GameServer {
 
     /// Updates a player's state from input.
     ///
-    /// Rejects deltas that could only come from a speed-hacked or malicious
-    /// client: per-tick position movement capped at `MAX_POSITION_DELTA_PER_TICK`
-    /// blocks and speed capped at `MAX_PLAYER_SPEED` blocks/sec. When a delta
-    /// is out of bounds we clamp to the previous known position rather than
-    /// trusting the client — a legit client will re-converge via its own
-    /// reconciliation once the server pushes its authoritative state back.
+    /// Co-op policy: clients authenticate via a per-session pairing code, so
+    /// they're trusted — the speed/delta cheat guards were removed and the
+    /// reported position/velocity is applied directly. Only non-finite
+    /// (malformed) input is rejected.
     pub fn update_player_state(
         &mut self,
         client_id: u64,
@@ -720,14 +718,6 @@ impl GameServer {
         pitch: f32,
         sequence: u32,
     ) {
-        /// Hard upper bound on any single movement delta the server will accept
-        /// from a client in a single input tick. 32 blocks is already generous
-        /// — normal sprint/jump max out near ~0.8 blocks/tick at 20 Hz.
-        const MAX_POSITION_DELTA_PER_TICK: f32 = 32.0;
-
-        /// Absolute speed cap in blocks/second (fly mode + sprint is ~20).
-        const MAX_PLAYER_SPEED: f32 = 64.0;
-
         // The host's loopback client is authoritative — its position is already
         // tracked via update_host_player, and the self.players entry may be
         // stale because only host_player is updated each frame.  Just mirror
@@ -757,42 +747,9 @@ impl GameServer {
             return;
         }
 
-        let speed_sq =
-            velocity[0] * velocity[0] + velocity[1] * velocity[1] + velocity[2] * velocity[2];
-        if speed_sq > MAX_PLAYER_SPEED * MAX_PLAYER_SPEED {
-            log::warn!(
-                "[Server] Clamping oversize velocity from client {} ({:.1} blk/s)",
-                client_id,
-                speed_sq.sqrt()
-            );
-            // Drop this update; the player will stay at their last-known state.
-            return;
-        }
-
+        // Co-op: clients are trusted (pairing-code authenticated) — apply the
+        // reported state directly. The speed/delta caps were removed.
         if let Some(info) = self.players.get_mut(&client_id) {
-            // First position update after connect — accept whatever the client
-            // sends.  The spawn position in self.players is a placeholder and
-            // may be hundreds of blocks from the client's real location.
-            let first_update = info.last_sequence == 0;
-
-            let dx = position[0] - info.position[0];
-            let dy = position[1] - info.position[1];
-            let dz = position[2] - info.position[2];
-            let delta_sq = dx * dx + dy * dy + dz * dz;
-            if !first_update && delta_sq > MAX_POSITION_DELTA_PER_TICK * MAX_POSITION_DELTA_PER_TICK
-            {
-                log::warn!(
-                    "[Server] Rejecting teleport-sized delta from client {} ({:.1} blocks)",
-                    client_id,
-                    delta_sq.sqrt()
-                );
-                // Keep previous position; update yaw/pitch only so the camera
-                // still feels responsive if the client is near-valid.
-                info.yaw = yaw;
-                info.pitch = pitch;
-                info.last_sequence = sequence;
-                return;
-            }
             info.position = position;
             info.velocity = velocity;
             info.yaw = yaw;

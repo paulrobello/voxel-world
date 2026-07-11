@@ -463,9 +463,14 @@ impl MultiplayerState {
     /// Returns remote player positions for 3D rendering.
     /// Each tuple contains (position [x, y, z], player_id for color).
     pub fn get_remote_player_positions(&self) -> Vec<([f32; 3], u64)> {
+        // Exclude our own player so the client never renders its own body
+        // (previously the local client's roster entry — stuck at its spawn
+        // position — was rendered as a "ghost self").
+        let local = self.local_player_id();
         self.roster
             .remote_players()
             .iter()
+            .filter(|player| Some(player.player_id) != local)
             .map(|player| (player.position, player.player_id))
             .collect()
     }
@@ -1794,7 +1799,6 @@ impl MultiplayerState {
     }
 
     /// Returns the local player ID (if connected).
-    #[allow(dead_code)] // reason: multiplayer state — kept for future wire-up
     pub fn local_player_id(&self) -> Option<u64> {
         self.client.as_ref().and_then(|c| c.player_id())
     }

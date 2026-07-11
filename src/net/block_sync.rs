@@ -281,6 +281,11 @@ pub struct BlockValidator {
     rate_limit: u32,
     /// Player action timestamps for rate limiting.
     player_actions: HashMap<PlayerId, VecDeque<u64>>,
+    /// Whether to enforce reach/rate validation. Disabled by default — this is
+    /// a co-op server (clients authenticate via a per-session pairing code), so
+    /// clients are trusted and the anti-cheat guards below are policy-only,
+    /// retained for a future competitive mode (flip to re-enable).
+    enforce_validation: bool,
 }
 
 impl Default for BlockValidator {
@@ -296,6 +301,7 @@ impl BlockValidator {
             max_placement_distance: 6.0,
             rate_limit: 20, // 20 blocks per second
             player_actions: HashMap::new(),
+            enforce_validation: false, // co-op: clients trusted via pairing code
         }
     }
 
@@ -317,6 +323,12 @@ impl BlockValidator {
         placement: &PlaceBlock,
         current_time: u64,
     ) -> Result<(), String> {
+        // Co-op: clients are trusted (pairing-code authenticated). Skip the
+        // reach/rate checks — retained below as policy for a future competitive
+        // mode (flip `enforce_validation` to re-enable).
+        if !self.enforce_validation {
+            return Ok(());
+        }
         // Check distance
         let dx = placement.position[0] as f32 - player_pos[0];
         let dy = placement.position[1] as f32 - player_pos[1];
@@ -344,6 +356,12 @@ impl BlockValidator {
         break_block: &BreakBlock,
         current_time: u64,
     ) -> Result<(), String> {
+        // Co-op: clients are trusted (pairing-code authenticated). Skip the
+        // reach/rate checks — retained below as policy for a future competitive
+        // mode (flip `enforce_validation` to re-enable).
+        if !self.enforce_validation {
+            return Ok(());
+        }
         // Check distance
         let dx = break_block.position[0] as f32 - player_pos[0];
         let dy = break_block.position[1] as f32 - player_pos[1];
@@ -402,6 +420,11 @@ impl BlockValidator {
         positions: &[[i32; 3]],
         reach_scale: f32,
     ) -> Result<(), String> {
+        // Co-op: clients are trusted — skip the reach check (retained below as
+        // policy; flip `enforce_validation` to re-enable).
+        if !self.enforce_validation {
+            return Ok(());
+        }
         let limit = self.max_placement_distance * reach_scale;
         let limit_sq = limit * limit;
         let any_in_reach = positions.iter().any(|pos| {
@@ -563,6 +586,7 @@ mod tests {
     #[test]
     fn test_block_validator_distance() {
         let mut validator = BlockValidator::new();
+        validator.enforce_validation = true; // exercise the retained enforcement path
 
         // Valid placement (close enough)
         let result = validator.validate_placement(
@@ -592,6 +616,7 @@ mod tests {
     #[test]
     fn test_block_validator_rate_limit() {
         let mut validator = BlockValidator::new();
+        validator.enforce_validation = true; // exercise the retained enforcement path
         validator.rate_limit = 5;
 
         // Start at 1 second to avoid edge case with saturating_sub
