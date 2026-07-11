@@ -156,6 +156,24 @@ impl<'a> NetworkSyncContext<'a> {
                 }
                 _ => {
                     self.sim.world.set_block(pos, block_type);
+                    // Coordinate the fluid grids — mirrors block_interaction's
+                    // local placement path. A solid block displaces water/lava;
+                    // clearing a block (Air) lets fluid flow back in. Without
+                    // this the host's authoritative water sim still sees water
+                    // at this cell, overwrites the just-placed block on the
+                    // next tick, and broadcasts it back as water (the
+                    // "placed-in-water block vanishes" MP bug).
+                    let displaces_fluid = !matches!(
+                        block_type,
+                        BlockType::Air | BlockType::Water | BlockType::Lava
+                    );
+                    if displaces_fluid {
+                        self.sim.water_grid.on_block_placed(pos);
+                        self.sim.lava_grid.on_block_placed(pos);
+                    } else if block_type == BlockType::Air {
+                        self.sim.water_grid.on_block_removed(pos);
+                        self.sim.lava_grid.on_block_removed(pos);
+                    }
                 }
             }
 
