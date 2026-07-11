@@ -31,6 +31,8 @@ mod texture;
 pub use texture::TextureState;
 mod sync;
 pub use sync::SyncState;
+mod pending;
+pub use pending::PendingState;
 
 /// Whether to use threaded server mode (experimental).
 /// When enabled, server network processing runs in a dedicated thread.
@@ -139,33 +141,12 @@ pub struct MultiplayerState {
     /// (`take_pending_*`, `has_pending_*`) extract only the variants they care
     /// about, preserving the ordering within each logical category.
     events: VecDeque<NetworkEvent>,
-    /// Pending server world seed (received on ConnectionAccepted, needs to be applied).
-    /// Kept as `Option` because "latest value wins" — a queue is not needed.
-    pending_server_seed: Option<(u32, u8)>,
+    /// Non-queued pending network state (ARC-002: extracted to `PendingState`).
+    pub pending: PendingState,
     /// Client custom-texture cache + GPU-init flag (ARC-002: extracted to `TextureState`).
     pub textures: TextureState,
-    /// Pending day cycle pause state change from server (client-side).
-    /// Kept as `Option` because the latest update supersedes any previous one.
-    pub pending_day_cycle_pause: Option<crate::net::protocol::DayCyclePauseChanged>,
-    /// Pending time of day update from server (client-side).
-    /// Kept as `Option` because only the most recent time value matters.
-    pub pending_time_update: Option<f32>,
-    /// Pending spawn position update from server (client-side).
-    /// Kept as `Option` because only the most recent position matters.
-    pending_spawn_position: Option<crate::net::protocol::SpawnPositionChanged>,
     /// Server-side sync bandwidth state (ARC-002: extracted to `SyncState`).
     pub sync: SyncState,
-    /// Materialized `(world_position, block, from_filter)` tuples queued by
-    /// server-side BulkOperation handling. `from_filter` is `None` for Fill
-    /// (apply unconditionally) or `Some(from_type)` for Replace (skip if the
-    /// live world block doesn't match). Drained at a capped rate each tick by
-    /// `take_bulk_block_batch` so a 32³ Fill / Replace doesn't stall the
-    /// host for a full frame. Capacity scales with MAX_BULK_FILL_VOLUME.
-    pending_bulk_blocks: VecDeque<(
-        [i32; 3],
-        crate::net::protocol::BlockData,
-        Option<crate::chunk::BlockType>,
-    )>,
 
     // LAN Discovery
     /// LAN discovery (client scan + server responder) (ARC-002: extracted to `DiscoveryState`).
@@ -212,14 +193,10 @@ impl MultiplayerState {
             block_validator: crate::net::block_sync::BlockValidator::new(),
             last_player_state_broadcast: None,
             events: VecDeque::new(),
-            pending_server_seed: None,
             textures: TextureState::new(0),
-            pending_day_cycle_pause: None,
-            pending_time_update: None,
-            pending_spawn_position: None,
             sync: SyncState::new(),
-            pending_bulk_blocks: VecDeque::new(),
             discovery: DiscoveryState::new(),
+            pending: PendingState::new(),
             server_name: String::new(),
             max_players: 4,
             server_address: None,
@@ -1160,7 +1137,7 @@ impl MultiplayerState {
                 // Fill / Replace produce ≤ MAX_BULK_FILL_VOLUME entries;
                 // Template is not yet implemented server-side because the
                 // host doesn't have a template registry wired up here.
-                let queued = Self::materialize_bulk_op(&op, &mut self.pending_bulk_blocks);
+                let queued = Self::materialize_bulk_op(&op, self.pending.bulk_blocks_mut());
                 log::debug!(
                     "[Server] Queued BulkOperation from client {}: {} blocks pending",
                     client_id,
@@ -1239,7 +1216,8 @@ impl MultiplayerState {
                     accepted.world_seed,
                     accepted.custom_texture_count
                 );
-                self.pending_server_seed = Some((accepted.world_seed, accepted.world_gen));
+                self.pending
+                    .set_server_seed((accepted.world_seed, accepted.world_gen));
                 self.textures.on_connect(accepted.custom_texture_count);
             }
             ServerMessage::PlayerState(state) => {
@@ -1465,11 +1443,11 @@ impl MultiplayerState {
                     if pause.paused { "PAUSED" } else { "RUNNING" },
                     pause.time_of_day
                 );
-                self.pending_day_cycle_pause = Some(pause.clone());
+                self.pending.set_day_cycle_pause(pause.clone());
             }
             ServerMessage::TimeUpdate(time) => {
                 log::debug!("[Client] Received TimeUpdate: {:.3}", time.time_of_day);
-                self.pending_time_update = Some(time.time_of_day);
+                self.pending.set_time_update(time.time_of_day);
             }
             ServerMessage::SpawnPositionChanged(spawn) => {
                 log::debug!(
@@ -1478,7 +1456,7 @@ impl MultiplayerState {
                     spawn.position[1],
                     spawn.position[2]
                 );
-                self.pending_spawn_position = Some(spawn.clone());
+                self.pending.set_spawn_position(spawn.clone());
             }
             ServerMessage::FramePictureSet(frame) => {
                 log::debug!(
@@ -1959,20 +1937,13 @@ impl MultiplayerState {
         crate::net::protocol::BlockData,
         Option<crate::chunk::BlockType>,
     )> {
-        let n = budget.min(self.pending_bulk_blocks.len());
-        let mut out = Vec::with_capacity(n);
-        for _ in 0..n {
-            if let Some(triple) = self.pending_bulk_blocks.pop_front() {
-                out.push(triple);
-            }
-        }
-        out
+        self.pending.take_bulk_batch(budget)
     }
 
     /// Returns the current pending-bulk queue depth. Useful for the debug HUD.
     #[allow(dead_code)] // reason: multiplayer state — kept for future wire-up
     pub fn pending_bulk_depth(&self) -> usize {
-        self.pending_bulk_blocks.len()
+        self.pending.bulk_depth()
     }
 
     /// Takes all pending models received from server and clears the queue.
@@ -2047,12 +2018,12 @@ impl MultiplayerState {
     /// Returns the pending server world seed if one was received.
     /// Call this from the game loop to apply the server's seed to the world generator.
     pub fn take_pending_server_seed(&mut self) -> Option<(u32, u8)> {
-        self.pending_server_seed.take()
+        self.pending.take_server_seed()
     }
 
     /// Returns true if there's a pending server seed to apply.
     pub fn has_pending_server_seed(&self) -> bool {
-        self.pending_server_seed.is_some()
+        self.pending.has_server_seed()
     }
 
     /// Sends chunk data to a specific client (server-side, when hosting).
@@ -2523,25 +2494,25 @@ impl MultiplayerState {
     pub fn take_pending_day_cycle_pause(
         &mut self,
     ) -> Option<crate::net::protocol::DayCyclePauseChanged> {
-        self.pending_day_cycle_pause.take()
+        self.pending.take_day_cycle_pause()
     }
 
     /// Returns true if there's a pending day cycle pause change.
     #[allow(dead_code)] // reason: multiplayer state — kept for future wire-up
     pub fn has_pending_day_cycle_pause(&self) -> bool {
-        self.pending_day_cycle_pause.is_some()
+        self.pending.has_day_cycle_pause()
     }
 
     /// Takes pending time of day update (client-side).
     /// Returns None if no pending update.
     pub fn take_pending_time_update(&mut self) -> Option<f32> {
-        self.pending_time_update.take()
+        self.pending.take_time_update()
     }
 
     /// Returns true if there's a pending time update.
     #[allow(dead_code)] // reason: multiplayer state — kept for future wire-up
     pub fn has_pending_time_update(&self) -> bool {
-        self.pending_time_update.is_some()
+        self.pending.has_time_update()
     }
 
     /// Broadcasts spawn position change to all clients (server-side, when hosting).
@@ -2559,13 +2530,13 @@ impl MultiplayerState {
     pub fn take_pending_spawn_position(
         &mut self,
     ) -> Option<crate::net::protocol::SpawnPositionChanged> {
-        self.pending_spawn_position.take()
+        self.pending.take_spawn_position()
     }
 
     /// Returns true if there's a pending spawn position update.
     #[allow(dead_code)] // reason: multiplayer state — kept for future wire-up
     pub fn has_pending_spawn_position(&self) -> bool {
-        self.pending_spawn_position.is_some()
+        self.pending.has_spawn_position()
     }
 
     // ========================================================================
@@ -2894,7 +2865,7 @@ mod tests {
             end: [4, 4, 4],
             block: BlockData::from(BlockType::Stone),
         };
-        let queued = MultiplayerState::materialize_bulk_op(&op, &mut mp.pending_bulk_blocks);
+        let queued = MultiplayerState::materialize_bulk_op(&op, mp.pending.bulk_blocks_mut());
         assert_eq!(queued, 125);
         assert_eq!(mp.pending_bulk_depth(), 125);
 
