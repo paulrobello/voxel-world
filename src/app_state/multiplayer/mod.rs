@@ -2052,8 +2052,12 @@ impl MultiplayerState {
 
     /// Sends chunk data to a specific client (server-side, when hosting).
     /// The game loop calls this after retrieving chunk data from the world.
-    /// If the chunk hasn't been modified by players, sends a "generate locally"
-    /// message instead of full chunk data (bandwidth optimization).
+    ///
+    /// Always sends authoritative full chunk data. The "generate locally from
+    /// seed" optimization for unmodified chunks is disabled — the client's
+    /// on-demand streaming gen cropped cross-boundary tree canopies relative
+    /// to the host's startup bulk gen (trees appeared sliced at 32-block chunk
+    /// edges on the client only). See the note in the body.
     pub fn send_chunk_to_client(&mut self, client_id: u64, position: [i32; 3], chunk: &Chunk) {
         // Epoch-aware dedup: skip sending if this exact epoch was already sent
         // to this client within the dedup window.
@@ -2064,24 +2068,13 @@ impl MultiplayerState {
             return;
         }
 
-        // Check if chunk has been modified by players
-        if !chunk.persistence_dirty {
-            // Chunk is unmodified - tell client to generate it locally from seed
-            if let Some(ref mut server) = self.server {
-                server.send_chunk_generate_local(client_id, position);
-            }
-            #[cfg(feature = "threaded-server")]
-            #[cfg(feature = "threaded-server")]
-            if let Some(ref server_thread) = self.server_thread {
-                let _ = server_thread.send_command(ServerCommand::SendChunkGenerateLocal {
-                    client_id,
-                    position,
-                });
-            }
-            return;
-        }
+        // NOTE: the "generate locally from seed" optimization for unmodified
+        // chunks is intentionally disabled (see the doc comment). Always
+        // serialize + send authoritative full chunk data so the client's world
+        // is byte-identical to the host's (full cross-boundary trees). The
+        // per-position compression cache below bounds the CPU/bandwidth cost.
 
-        // Chunk has modifications - serialize and send full data. Consult
+        // Serialize and send full data. Consult
         // the per-position compression cache first: if its mutation_epoch
         // matches the chunk's current epoch, reuse the bytes instead of
         // re-running LZ4.

@@ -904,6 +904,11 @@ impl GameServer {
 
     /// Instructs a client to generate a chunk locally (for unmodified chunks).
     /// This saves bandwidth by not sending the full chunk data.
+    ///
+    /// Unused in the default build — `send_chunk_to_client` always sends full
+    /// chunk data now (client streaming-gen cropped cross-boundary trees vs
+    /// the host's bulk gen). Retained for the `threaded-server` feature path.
+    #[allow(dead_code)] // reason: used under the threaded-server feature; default build sends full chunks
     pub fn send_chunk_generate_local(&mut self, client_id: u64, position: [i32; 3]) {
         let msg = ServerMessage::ChunkGenerateLocal(ChunkGenerateLocal { position });
         if let Ok(encoded) = postcard::to_stdvec(&msg) {
