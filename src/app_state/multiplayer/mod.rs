@@ -33,6 +33,8 @@ mod sync;
 pub use sync::SyncState;
 mod pending;
 pub use pending::PendingState;
+mod session;
+pub use session::SessionMetadata;
 
 /// Whether to use threaded server mode (experimental).
 /// When enabled, server network processing runs in a dedicated thread.
@@ -151,20 +153,14 @@ pub struct MultiplayerState {
     // LAN Discovery
     /// LAN discovery (client scan + server responder) (ARC-002: extracted to `DiscoveryState`).
     pub discovery: DiscoveryState,
-    /// Server name for discovery announcements.
-    server_name: String,
-    /// Maximum players for this server.
-    max_players: u8,
+    /// Session/server metadata (ARC-002: extracted to `SessionMetadata`).
+    pub metadata: SessionMetadata,
     /// Server address (set when hosting or connected).
     pub server_address: Option<SocketAddr>,
     /// Pairing code (64-hex of the server's per-session private key) shown on
     /// the host so a remote client can authenticate via Secure mode. `Some`
     /// only while hosting; cleared on `stop_host`.
     pub host_pairing_code: Option<String>,
-    /// Last known ping in milliseconds.
-    pub ping_ms: Option<u32>,
-    /// Local player's display name.
-    pub local_player_name: String,
     /// Chat history + display-overlay state (ARC-002: extracted to `ChatState`).
     pub chat: ChatState,
 }
@@ -197,12 +193,9 @@ impl MultiplayerState {
             sync: SyncState::new(),
             discovery: DiscoveryState::new(),
             pending: PendingState::new(),
-            server_name: String::new(),
-            max_players: 4,
             server_address: None,
             host_pairing_code: None,
-            ping_ms: None,
-            local_player_name: "Player".to_string(),
+            metadata: SessionMetadata::new(),
             chat: ChatState::new(),
         }
     }
@@ -267,11 +260,11 @@ impl MultiplayerState {
         }
 
         self.mode = GameMode::Host;
-        self.server_name = server_name.clone();
+        *self.metadata.server_name_mut() = server_name.clone();
         self.server_address = Some(addr);
 
         // Start discovery responder for LAN advertising
-        match DiscoveryResponder::new(server_name, port, self.max_players) {
+        match DiscoveryResponder::new(server_name, port, self.metadata.max_players()) {
             Ok(responder) => {
                 self.discovery.set_responder(responder);
                 log::debug!("[Multiplayer] Discovery responder started");
@@ -362,7 +355,7 @@ impl MultiplayerState {
         self.discovery.clear_responder();
         self.server_address = None;
         self.host_pairing_code = None;
-        self.server_name.clear();
+        self.metadata.server_name_mut().clear();
         self.roster.reset_to_host();
 
         if self.mode == GameMode::Host {
@@ -408,7 +401,7 @@ impl MultiplayerState {
     pub fn disconnect(&mut self) {
         self.client = None;
         self.server_address = None;
-        self.ping_ms = None;
+        self.metadata.set_ping_ms(None);
 
         if self.mode == GameMode::Client {
             self.mode = GameMode::SinglePlayer;
@@ -437,7 +430,7 @@ impl MultiplayerState {
 
     /// Returns the maximum player count.
     pub fn get_max_players(&self) -> u8 {
-        self.max_players
+        self.metadata.max_players()
     }
 
     /// Returns the list of player names.
@@ -504,7 +497,7 @@ impl MultiplayerState {
     /// Returns the server name (if hosting).
     #[allow(dead_code)] // reason: multiplayer state — kept for future wire-up
     pub fn get_server_name(&self) -> &str {
-        &self.server_name
+        self.metadata.server_name()
     }
 
     /// Returns the server address (if hosting or connected).
@@ -514,18 +507,18 @@ impl MultiplayerState {
 
     /// Returns the last known ping.
     pub fn get_ping_ms(&self) -> Option<u32> {
-        self.ping_ms
+        self.metadata.ping_ms()
     }
 
     /// Sets the local player's display name.
     pub fn set_local_player_name(&mut self, name: String) {
-        self.local_player_name = name;
+        self.metadata.set_local_player_name(name);
     }
 
     /// Returns the local player's display name.
     #[allow(dead_code)] // reason: multiplayer state — kept for future wire-up
     pub fn get_local_player_name(&self) -> &str {
-        &self.local_player_name
+        self.metadata.local_player_name()
     }
 
     /// Adds a chat message to history.
