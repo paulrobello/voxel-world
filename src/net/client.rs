@@ -590,6 +590,45 @@ mod tests {
         assert_eq!(server.encode_failures(), 0);
     }
 
+    /// Regression: when the host binds the server to the wildcard `0.0.0.0`
+    /// (as `start_host` does), the advertised netcode host list must still
+    /// contain the real address clients connect to. Otherwise renetcode
+    /// rejects every token with "token does not contain the server address"
+    /// and the handshake never completes — exactly the failure `start_host`
+    /// produced before `public_address_list` expanded the wildcard. Bind the
+    /// server to 0.0.0.0, connect the client via 127.0.0.1, assert it
+    /// connects within the deadline.
+    #[test]
+    fn test_loopback_connect_via_wildcard_bind() {
+        let port = free_local_udp().port();
+        let mut server =
+            GameServer::new(([0, 0, 0, 0], port).into(), 42, 0).expect("start server on wildcard");
+        let key = server.private_key();
+        let mut client =
+            GameClient::with_key(([127, 0, 0, 1], port).into(), key).expect("start client");
+        client.connect();
+
+        let tick = Duration::from_millis(16);
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while std::time::Instant::now() < deadline && !client.is_connected() {
+            for event in server.update(tick) {
+                if let renet::ServerEvent::ClientConnected { client_id } = event {
+                    server.handle_client_connected(client_id, [0.0, 64.0, 0.0]);
+                }
+            }
+            server.flush_packets();
+            client.update(tick);
+            client.flush_packets();
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        assert!(
+            client.is_connected(),
+            "wildcard-bound server must accept a 127.0.0.1 client token (regression: \
+             public_addresses used to be [0.0.0.0], which never matched)"
+        );
+        assert_eq!(server.encode_failures(), 0);
+    }
+
     /// NET-001: a batched `BlocksChanged` (shape-tool sync) round-trips through
     /// the real renet/netcode transport and is parsed by the server as
     /// `ClientMessage::BlocksChanged` with the entries intact. Mirrors the

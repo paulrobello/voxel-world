@@ -5,7 +5,7 @@
 
 // Allow unused code until networking is integrated into the game
 
-use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::Duration;
 
 use renet_netcode::{
@@ -114,7 +114,7 @@ impl ServerAuth {
             current_time: Duration::ZERO,
             max_clients: MAX_CONNECTIONS,
             protocol_id: PROTOCOL_ID,
-            public_addresses: vec![self.address],
+            public_addresses: public_address_list(self.address),
             authentication: ServerAuthentication::Secure {
                 private_key: self.private_key,
             },
@@ -140,7 +140,7 @@ impl ServerAuth {
             current_time: Duration::ZERO,
             max_clients: MAX_CONNECTIONS,
             protocol_id: PROTOCOL_ID,
-            public_addresses: vec![self.address],
+            public_addresses: public_address_list(self.address),
             authentication: ServerAuthentication::Secure {
                 private_key: self.private_key,
             },
@@ -173,6 +173,46 @@ impl ServerAuth {
     #[allow(dead_code)] // reason: multiplayer sync infrastructure — kept for future wire-up
     pub fn address(&self) -> SocketAddr {
         self.address
+    }
+}
+
+/// Computes the netcode host-list addresses the server should advertise.
+///
+/// When the server is bound to a wildcard (`0.0.0.0` / `[::]`) it accepts on
+/// every interface, but the address clients connect to is a real one —
+/// loopback for the host's own client and same-machine clients, the LAN IP
+/// for remote clients. renetcode rejects any `ConnectToken` whose address is
+/// not in `public_addresses` ("token does not contain the server address"),
+/// so a wildcard must be expanded to the reachable addresses. A specific bind
+/// is returned as-is (preserves the existing loopback-test behavior).
+fn public_address_list(bind: SocketAddr) -> Vec<SocketAddr> {
+    if !bind.ip().is_unspecified() {
+        return vec![bind];
+    }
+    let port = bind.port();
+    let mut addrs = vec![SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port)];
+    if let Some(lan) = primary_outbound_ipv4() {
+        let lan_addr = SocketAddr::new(IpAddr::V4(lan), port);
+        if !addrs.contains(&lan_addr) {
+            addrs.push(lan_addr);
+        }
+    }
+    addrs
+}
+
+/// Best-effort primary outbound IPv4 via a connected UDP socket.
+///
+/// `UdpSocket::connect` only fixes the default destination — no packets are
+/// sent, so this works regardless of whether the target is reachable — and
+/// `local_addr()` then reports the source interface the kernel would use for
+/// the default route. Returns `None` if it can't be determined, in which case
+/// callers fall back to loopback-only advertisement.
+fn primary_outbound_ipv4() -> Option<Ipv4Addr> {
+    let socket = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
+    socket.connect("8.8.8.8:80").ok()?;
+    match socket.local_addr().ok()? {
+        SocketAddr::V4(s) => Some(*s.ip()),
+        _ => None,
     }
 }
 
@@ -411,6 +451,33 @@ impl ConnectionTracker {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_public_address_list_expands_wildcard() {
+        // The host binds 0.0.0.0 (start_host); the advertised host list must
+        // contain the real addresses clients connect to, not the
+        // non-routable wildcard, or every ConnectToken is rejected with
+        // "token does not contain the server address".
+        let bind: SocketAddr = "0.0.0.0:12345".parse().unwrap();
+        let addrs = public_address_list(bind);
+        let localhost: SocketAddr = "127.0.0.1:12345".parse().unwrap();
+        assert!(
+            addrs.contains(&localhost),
+            "wildcard bind must advertise loopback so the host's own client connects: {addrs:?}"
+        );
+        assert!(
+            !addrs.iter().any(|a| a.ip().is_unspecified()),
+            "must not advertise the non-routable wildcard: {addrs:?}"
+        );
+    }
+
+    #[test]
+    fn test_public_address_list_passthrough_specific_bind() {
+        // A specific bind (the existing loopback-test path) is returned
+        // unchanged so it keeps matching the client's token address.
+        let bind: SocketAddr = "127.0.0.1:5000".parse().unwrap();
+        assert_eq!(public_address_list(bind), vec![bind]);
+    }
 
     #[test]
     fn test_server_auth_creation() {
